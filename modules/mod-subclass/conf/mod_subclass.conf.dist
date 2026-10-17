@@ -29,3 +29,23 @@ Subclass.MinLevel = 20
 #        Default: 100
 
 Subclass.BorrowedPointsPercent = 100
+
+#    Subclass.QuestId
+#        The second head's quest ("Two Heads, One Book"). 0 turns the quest off.
+#        Default: 9530010
+
+Subclass.QuestId = 9530010
+
+#    Subclass.BookItemId
+#        The Book of Origins item. Reading it gives one insight, which a class trainer turns
+#        into a subclass choice.
+#        Default: 9530010
+
+Subclass.BookItemId = 9530010
+
+#    Subclass.BookDropChance
+#        Chance in percent that an eligible character who finished the quest finds another
+#        Book of Origins when a dungeon boss dies (5-player dungeons only).
+#        Default: 5
+
+Subclass.BookDropChance = 5

@@ -54,6 +54,9 @@ struct Settings
     bool Enabled = true;
     std::uint8_t MinLevel = 20;
     std::uint32_t BorrowedPointsPercent = 100;
+    std::uint32_t QuestId = 9530010;
+    std::uint32_t BookItemId = 9530010;
+    float BookDropChance = 5.0f;
 };
 
 inline bool GenderMatches(std::uint8_t genderMask, std::uint8_t gender)
@@ -105,6 +108,29 @@ inline std::uint32_t BonusPoints(Settings const& settings, std::uint32_t points)
 {
     return std::uint32_t(std::min<std::uint64_t>(std::uint64_t(points) * settings.BorrowedPointsPercent / 100,
         UINT32_MAX));
+}
+
+inline bool OffersQuest(Settings const& settings, std::vector<Pair> const& pairs, Character const& character,
+    Choice const& choice, std::uint32_t insights, bool questUntouched)
+{
+    return settings.Enabled && settings.QuestId && character.Level >= settings.MinLevel &&
+        IsEligible(pairs, character) && choice.Empty() && !insights && questUntouched;
+}
+
+inline bool FindsBooks(Settings const& settings, std::vector<Pair> const& pairs, Character const& character,
+    bool questRewarded)
+{
+    return settings.Enabled && settings.BookDropChance > 0.0f && character.Level >= settings.MinLevel &&
+        IsEligible(pairs, character) && questRewarded;
+}
+
+inline bool AllowsAnySpecializationOf(std::vector<Pair> const& pairs, Character const& character,
+    std::uint8_t subClass)
+{
+    return subClass && subClass != character.Class && std::any_of(pairs.begin(), pairs.end(), [&](Pair const& pair)
+    {
+        return CharacterMatches(pair, character) && (!pair.SubClass || pair.SubClass == subClass);
+    });
 }
 
 inline Choice Trimmed(std::vector<Pair> const& pairs, Character const& character, Choice const& choice)

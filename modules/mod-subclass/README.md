@@ -15,10 +15,23 @@ compile.
 ## Install
 
 1. Copy this folder to `modules/mod-subclass` and re-run CMake.
-2. Build and start the worldserver. With a source tree, the updater applies `data/sql/db-world`
-   (`mod_subclass_pair`) and `data/sql/db-characters` (`mod_subclass_character`). Without one (a prebuilt install),
-   import those two files by hand into the world and characters databases.
+2. Build and start the worldserver. With a source tree, the updater applies `data/sql/db-world` and
+   `data/sql/db-characters`. Without one (a prebuilt install), import the files by hand, in file-name order: the
+   `db-world` files into the world database and the `db-characters` files into the characters database.
 3. Copy `conf/mod_subclass.conf.dist` to `mod_subclass.conf` next to the worldserver config and adjust it.
+
+## The story
+
+1. When an eligible character reaches `Subclass.MinLevel` (also by a GM level change, and at login for characters
+   already past it), her second head speaks up in a menu of her own: the quest **Two Heads, One Book**.
+2. Archmage Arugal in Shadowfang Keep (normal, heroic and mythic) drops the **Book of Origins** for characters on
+   the quest.
+3. Reading the Book completes the quest (no quest giver: it is from herself, for herself), consumes the Book and
+   gives one **insight**.
+4. Any class trainer then offers "[Second head] We want to learn the way of another class": pick a class, then
+   one of its specializations. That spends the insight and opens the borrowed trees.
+5. After the first quest, every 5-player dungeon boss has a `Subclass.BookDropChance` chance to give an eligible
+   character another Book, for changing the choice later.
 
 ## GM commands
 
@@ -30,6 +43,8 @@ compile.
 | `.subclass clear` | Removes the subclass and the talents learned in its trees. |
 | `.subclass spec <specId>` | Switches the own active specialization (testing). |
 | `.subclass learn <entryId> <rank>` | Sets a talent rank server-side (testing; no budget check). |
+| `.subclass quest` | Shows the second head's quest prompt (if the character qualifies). |
+| `.subclass insight <count>` | Sets how many unspent insights the character holds (testing the trainer menu). |
 | `.subclass reload` | Reloads `mod_subclass_pair`. |
 
 Example, a female Ogre Barbarian: `.subclass set 23 34` adds the Necromancer Class tree and Death. Relog afterwards
@@ -49,8 +64,8 @@ so the talent window reloads.
 
 - The CoA talent window draws the own class tree and active specialization only. Showing the borrowed trees needs
   client work (an addon or a DBC patch); until then use the GM commands to test.
-- Planned: the second head's level-20 quest, the *Book of Origins* (Shadowfang Keep, later random dungeons) and a
-  class-trainer menu to make the choice.
+- The Book of Origins (item 9530010) is not in the client's item cache, so its icon may show as a question mark
+  until the client has asked the server about it once.
 
 ## Class and specialization ids
 

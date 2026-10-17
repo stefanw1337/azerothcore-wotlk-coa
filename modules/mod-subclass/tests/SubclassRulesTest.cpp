@@ -78,3 +78,35 @@ TEST(Subclass, TrimmingDropsChoicesTheCharacterNoLongerQualifiesFor)
     EXPECT_TRUE(Trimmed(pyromancyOnly, FemaleOgreBarbarian, NecromancerDeath).Empty());
     EXPECT_TRUE(Trimmed(FemaleOgres, FemaleOgreBarbarian, { 23, 0 }).Empty());
 }
+
+TEST(Subclass, TheSecondHeadOffersTheQuestOnceToAnEligibleUndecidedCharacter)
+{
+    Settings settings;
+    EXPECT_TRUE(OffersQuest(settings, FemaleOgres, { 53, 1, 12, 20 }, {}, 0, true));
+    EXPECT_FALSE(OffersQuest(settings, FemaleOgres, { 53, 1, 12, 19 }, {}, 0, true));
+    EXPECT_FALSE(OffersQuest(settings, FemaleOgres, MaleOgreBarbarian, {}, 0, true));
+    EXPECT_FALSE(OffersQuest(settings, FemaleOgres, FemaleOgreBarbarian, NecromancerDeath, 0, true));
+    EXPECT_FALSE(OffersQuest(settings, FemaleOgres, FemaleOgreBarbarian, {}, 1, true));
+    EXPECT_FALSE(OffersQuest(settings, FemaleOgres, FemaleOgreBarbarian, {}, 0, false));
+    settings.Enabled = false;
+    EXPECT_FALSE(OffersQuest(settings, FemaleOgres, FemaleOgreBarbarian, {}, 0, true));
+}
+
+TEST(Subclass, BooksDropOnlyAfterTheFirstQuestForEligibleCharacters)
+{
+    Settings settings;
+    EXPECT_TRUE(FindsBooks(settings, FemaleOgres, FemaleOgreBarbarian, true));
+    EXPECT_FALSE(FindsBooks(settings, FemaleOgres, FemaleOgreBarbarian, false));
+    EXPECT_FALSE(FindsBooks(settings, FemaleOgres, MaleOgreBarbarian, true));
+    settings.BookDropChance = 0.0f;
+    EXPECT_FALSE(FindsBooks(settings, FemaleOgres, FemaleOgreBarbarian, true));
+}
+
+TEST(Subclass, TheClassMenuListsOtherAllowedClasses)
+{
+    EXPECT_TRUE(AllowsAnySpecializationOf(FemaleOgres, FemaleOgreBarbarian, 23));
+    EXPECT_FALSE(AllowsAnySpecializationOf(FemaleOgres, FemaleOgreBarbarian, 12));
+    std::vector<Pair> const deathOnly = { { 53, GenderMaskFemale, 12, 23, 34 } };
+    EXPECT_TRUE(AllowsAnySpecializationOf(deathOnly, FemaleOgreBarbarian, 23));
+    EXPECT_FALSE(AllowsAnySpecializationOf(deathOnly, FemaleOgreBarbarian, 24));
+}
