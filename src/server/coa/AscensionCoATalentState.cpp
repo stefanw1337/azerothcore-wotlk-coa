@@ -123,15 +123,46 @@ bool IsExtraTree(TalentAccess const& access, AscensionCompatData::CoATalentEntry
     });
 }
 
+bool IsBorrowed(TalentAccess const& access, AscensionCompatData::CoATalentEntry const& entry)
+{
+    return entry.SpecId && std::any_of(access.Swaps.begin(), access.Swaps.end(),
+        [&entry](SpecializationSwap const& swap)
+    {
+        return swap.Borrowed.ClassId == entry.ClassId && swap.Borrowed.SpecId == entry.SpecId;
+    });
+}
+
+bool IsReplaced(TalentAccess const& access, std::uint32_t specId)
+{
+    return specId && std::any_of(access.Swaps.begin(), access.Swaps.end(), [specId](SpecializationSwap const& swap)
+    {
+        return swap.ReplacedSpecId == specId;
+    });
+}
+
+bool IsSelectableSpecialization(TalentAccess const& access, std::uint32_t specId)
+{
+    return specId && std::any_of(AscensionCompatData::CoATalentEntries.begin(),
+        AscensionCompatData::CoATalentEntries.end(), [&access, specId](AscensionCompatData::CoATalentEntry const& entry)
+        {
+            return entry.SpecId == specId &&
+                ((entry.ClassId == access.ClassId && !IsReplaced(access, specId)) || IsBorrowed(access, entry));
+        });
+}
+
 bool OwnsEntry(TalentAccess const& access, AscensionCompatData::CoATalentEntry const& entry)
 {
-    return entry.ClassId == access.ClassId || IsExtraTree(access, entry);
+    return entry.ClassId == access.ClassId || IsExtraTree(access, entry) || IsBorrowed(access, entry);
 }
 
 bool IsTreeOpen(TalentAccess const& access, AscensionCompatData::CoATalentEntry const& entry)
 {
-    return (entry.ClassId == access.ClassId && (!entry.SpecId || entry.SpecId == access.ActiveSpecId)) ||
-        IsExtraTree(access, entry);
+    if (IsExtraTree(access, entry))
+        return true;
+    if (!entry.SpecId)
+        return entry.ClassId == access.ClassId;
+    return entry.SpecId == access.ActiveSpecId &&
+        ((entry.ClassId == access.ClassId && !IsReplaced(access, entry.SpecId)) || IsBorrowed(access, entry));
 }
 
 std::vector<KnownEntry> KnownEntries(TalentAccess const& access, HasSpell const& hasSpell)
@@ -159,9 +190,12 @@ std::vector<KnownEntry> WithoutExtraTrees(TalentAccess const& access, std::vecto
 bool CanGrantAutomatic(AscensionCompatData::CoATalentEntry const& entry, TalentAccess const& access,
     std::uint32_t level, HasSpell const& hasSpell)
 {
-    if (CanGrantAutomatic(entry, access.ClassId, level, access.ActiveSpecId, hasSpell))
+    if ((!entry.SpecId || !IsReplaced(access, entry.SpecId)) &&
+        CanGrantAutomatic(entry, access.ClassId, level, access.ActiveSpecId, hasSpell))
         return true;
-    return IsExtraTree(access, entry) && CanGrantAutomatic(entry, entry.ClassId, level, entry.SpecId, hasSpell);
+    bool const borrowedActive = IsBorrowed(access, entry) && entry.SpecId == access.ActiveSpecId;
+    return (IsExtraTree(access, entry) || borrowedActive) &&
+        CanGrantAutomatic(entry, entry.ClassId, level, entry.SpecId, hasSpell);
 }
 
 bool CanGrantAutomatic(AscensionCompatData::CoATalentEntry const& entry, std::uint8_t classId, std::uint32_t level,
@@ -188,6 +222,36 @@ bool CanGrantAutomatic(AscensionCompatData::CoATalentEntry const& entry, std::ui
             return false;
     }
     return true;
+}
+
+std::vector<KnownEntry> SlotKnownEntries(SpecializationSlot const& slot, TalentAccess const& access,
+    std::uint32_t level, HasSpell const& carried)
+{
+    std::unordered_set<std::uint32_t> spells;
+    for (KnownEntry const& pick : slot.Entries)
+        if (AscensionCompatData::CoATalentEntry const* entry = FindEntry(pick.EntryId);
+            entry && OwnsEntry(access, *entry) && pick.Rank && pick.Rank <= entry->SpellCount &&
+            entry->SpellIds[pick.Rank - 1])
+            spells.insert(entry->SpellIds[pick.Rank - 1]);
+
+    HasSpell const known = [&spells, &carried](std::uint32_t spellId)
+    {
+        return spells.contains(spellId) || (carried && carried(spellId));
+    };
+    TalentAccess target = access;
+    target.ActiveSpecId = slot.SpecId;
+    bool changed = level > 1;
+    for (std::size_t pass = 0; changed && pass < AscensionCompatData::CoATalentEntries.size(); ++pass)
+    {
+        changed = false;
+        for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
+        {
+            std::uint32_t const spellId = entry.SpellCount ? entry.SpellIds[entry.SpellCount - 1] : 0;
+            if (spellId && !known(spellId) && CanGrantAutomatic(entry, target, level, known))
+                changed = spells.insert(spellId).second || changed;
+        }
+    }
+    return KnownEntries(target, known);
 }
 
 std::vector<KnownEntry> SlotKnownEntries(SpecializationSlot const& slot, std::uint32_t level,

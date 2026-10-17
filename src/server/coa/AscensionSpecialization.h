@@ -23,7 +23,7 @@ std::string AscensionSpecializationSwitchRefusal(Player* player, uint32 activeSp
     uint32 requestedSpecializationId);
 
 using AscensionTalentTreeProvider =
-    std::function<std::vector<AscensionCoATalentState::TalentTree>(Player const* player)>;
+    std::function<AscensionCoATalentState::TalentGrant(Player const* player)>;
 
 void AddAscensionTalentTreeProvider(AscensionTalentTreeProvider provider);
 
