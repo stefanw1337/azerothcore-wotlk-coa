@@ -781,6 +781,30 @@ std::string SpecializationSwitchRefusal(Player* player, uint32 activeSpecializat
     return {};
 }
 
+std::vector<AscensionTalentTreeProvider>& TalentTreeProviders()
+{
+    static std::vector<AscensionTalentTreeProvider> providers;
+    return providers;
+}
+
+std::vector<AscensionTalentBudgetProvider>& TalentBudgetProviders()
+{
+    static std::vector<AscensionTalentBudgetProvider> providers;
+    return providers;
+}
+
+AscensionCoATalentState::TalentAccess TalentAccessOf(Player const* player, uint32 activeSpecializationId)
+{
+    AscensionCoATalentState::TalentAccess access;
+    access.ClassId = player->getClass();
+    access.ActiveSpecId = activeSpecializationId;
+    for (AscensionTalentTreeProvider const& provider : TalentTreeProviders())
+        for (AscensionCoATalentState::TalentTree const& tree : provider(player))
+            if (tree.ClassId != access.ClassId || (tree.SpecId && tree.SpecId != activeSpecializationId))
+                access.ExtraTrees.push_back(tree);
+    return access;
+}
+
 struct UpdateEntriesRefusal
 {
     char const* Result = "CA_UPDATE_ENTRIES_UNKNOWN";
@@ -813,20 +837,23 @@ public:
     uint32 const activeSpec = GetActiveSpecialization(player);
     AscensionClassTuning::Synchronize(player, activeSpec, true);
     auto const racialSpells = GetAscensionRacialSpells(player);
-    auto selectedTalentOwns = [player, activeSpec](uint32 spellId)
+    AscensionCoATalentState::TalentAccess const access = TalentAccessOf(player, activeSpec);
+    auto selectedTalentOwns = [player, activeSpec, &access](uint32 spellId)
     {
       uint32 const root = sSpellMgr->GetFirstSpellInChain(spellId);
       return std::any_of(AscensionCompatData::CoATalentEntries.begin(),
-          AscensionCompatData::CoATalentEntries.end(), [player, activeSpec, spellId, root](auto const& entry)
+          AscensionCompatData::CoATalentEntries.end(), [player, activeSpec, &access, spellId, root](auto const& entry)
           {
-            if (entry.ClassId != player->getClass() || (activeSpec && entry.SpecId && entry.SpecId != activeSpec) ||
+            bool const nativeTree = entry.ClassId == player->getClass() &&
+                (!activeSpec || !entry.SpecId || entry.SpecId == activeSpec);
+            if ((!nativeTree && !AscensionCoATalentState::IsExtraTree(access, entry)) ||
                 entry.RequiredLevel > player->GetLevel() || (!entry.AECost && !entry.TECost))
               return false;
             return std::any_of(entry.SpellIds.begin(), entry.SpellIds.end(),
                 [spellId, root](uint32 id) { return id && (id == spellId || id == root); });
           });
     };
-    auto currentGrantAllows = [player, activeSpec, &selectedTalentOwns, &racialSpells](uint32 spellId)
+    auto currentGrantAllows = [player, &access, &selectedTalentOwns, &racialSpells](uint32 spellId)
     {
       if (!CanGrantAscensionRacialSpell(player, spellId))
         return false;
@@ -838,9 +865,9 @@ public:
       bool const unresolved = std::any_of(AscensionCompatData::UnresolvedTrainerSpells.begin(), AscensionCompatData::UnresolvedTrainerSpells.end(),
           [player, spellId](auto const& entry) { return entry.ClassId == player->getClass() && entry.SpellId == spellId; });
       bool const automatic = player->GetLevel() > 1 && std::any_of(AscensionCompatData::CoATalentEntries.begin(),
-          AscensionCompatData::CoATalentEntries.end(), [player, activeSpec, spellId](auto const& entry)
+          AscensionCompatData::CoATalentEntries.end(), [player, &access, spellId](auto const& entry)
           {
-            return CanGrantAutomaticEntry(player, entry, activeSpec) &&
+            return CanGrantAutomaticEntry(player, entry, access) &&
                    std::find(entry.SpellIds.begin(), entry.SpellIds.end(), spellId) != entry.SpellIds.end();
           });
       return std::binary_search(racialSpells.begin(), racialSpells.end(), spellId) ||
@@ -1614,10 +1641,11 @@ public:
     {
         if (!SharedPaidEntries().count(entry.EntryId))
             return false;
+        AscensionCoATalentState::TalentAccess const access = AccessOf(player);
         for (uint32 otherId : SharedPaidEntries())
         {
             auto const* other = FindTalentEntry(otherId);
-            if (!other || otherId == entry.EntryId || other->ClassId != player->getClass())
+            if (!other || otherId == entry.EntryId || !AscensionCoATalentState::OwnsEntry(access, *other))
                 continue;
             uint32 const rank = KnownRank(player, *other);
             for (uint32 index = 0; index < rank; ++index)
@@ -1634,8 +1662,9 @@ public:
     if (AscensionFreepick::HasFreepickBuild(player))
       return AscensionFreepick::KnownEntries(player);
     std::vector<AscensionCoATalentState::KnownEntry> known;
+    AscensionCoATalentState::TalentAccess const access = AccessOf(player);
     for (auto const& entry : AscensionCompatData::CoATalentEntries)
-        if (entry.ClassId == player->getClass())
+        if (AscensionCoATalentState::OwnsEntry(access, entry))
             if (uint32 const rank = KnownRank(player, entry))
                 known.push_back({entry.EntryId, rank});
     return known;
@@ -1764,20 +1793,22 @@ public:
                      std::string& error, bool checkBudget = true)
   {
     uint32 const entryId = entry.EntryId;
-    if (entry.ClassId != player->getClass())
+    AscensionCoATalentState::TalentAccess const access = AccessOf(player);
+    if (!AscensionCoATalentState::OwnsEntry(access, entry))
     {
       error = Acore::StringFormat("Talent entry {} does not belong to your custom class.", entryId);
       return false;
     }
 
+    bool const extraTree = AscensionCoATalentState::IsExtraTree(access, entry);
     uint32 activeSpecialization = GetActiveSpecialization(player);
-    if (rank > 0 && entry.SpecId != 0 && !activeSpecialization)
+    if (rank > 0 && entry.SpecId != 0 && !activeSpecialization && !extraTree)
     {
       SwitchSpecialization(player, entry.SpecId);
       activeSpecialization = GetActiveSpecialization(player);
     }
 
-    if (rank > 0 && entry.SpecId != 0 && entry.SpecId != activeSpecialization)
+    if (rank > 0 && entry.SpecId != 0 && entry.SpecId != activeSpecialization && !extraTree)
     {
       error = Acore::StringFormat(
           "Talent entry {} belongs to specialization {}, but your active specialization is {}.",
@@ -1807,7 +1838,8 @@ public:
 
     if (automaticallyGranted)
     {
-      bool const grantable = rank == 0 || CanGrantAutomaticEntry(player, entry, activeSpecialization);
+      bool const grantable = rank == 0 ||
+          CanGrantAutomaticEntry(player, entry, TalentAccessOf(player, activeSpecialization));
       SynchronizeProgression(player);
       if (!grantable)
       {
@@ -1851,7 +1883,7 @@ public:
     if (rank > 0 && freeChoiceGroup)
     {
       for (auto const& other : AscensionCompatData::CoATalentEntries)
-        if (other.ClassId == player->getClass() && other.SpecId == entry.SpecId && other.EntryId != entryId &&
+        if (other.ClassId == entry.ClassId && other.SpecId == entry.SpecId && other.EntryId != entryId &&
             GetSelectableFreeGroup(other.EntryId) == freeChoiceGroup)
           for (uint32 spellId : other.SpellIds)
             if (spellId && player->HasSpell(spellId))
@@ -1878,10 +1910,11 @@ public:
 
   char const* PurgeTalents(Player* player)
   {
+    AscensionCoATalentState::TalentAccess const access = AccessOf(player);
     bool const anyPaid = std::any_of(AscensionCompatData::CoATalentEntries.begin(),
-        AscensionCompatData::CoATalentEntries.end(), [player](AscensionCompatData::CoATalentEntry const& entry)
+        AscensionCompatData::CoATalentEntries.end(), [player, &access](AscensionCompatData::CoATalentEntry const& entry)
         {
-          return entry.ClassId == player->getClass() && (entry.AECost || entry.TECost) &&
+          return AscensionCoATalentState::OwnsEntry(access, entry) && (entry.AECost || entry.TECost) &&
                  KnownRank(player, entry);
         });
     if (!anyPaid)
@@ -1906,9 +1939,10 @@ public:
   uint32 ResetPaidTalents(Player* player)
   {
     uint32 removed = 0;
+    AscensionCoATalentState::TalentAccess const access = AccessOf(player);
     for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
     {
-      if (entry.ClassId != player->getClass() || (!entry.AECost && !entry.TECost))
+      if (!AscensionCoATalentState::OwnsEntry(access, entry) || (!entry.AECost && !entry.TECost))
         continue;
       for (uint32 spellId : entry.SpellIds)
         if (spellId && player->HasSpell(spellId))
@@ -1928,7 +1962,11 @@ public:
   {
     if (AscensionCompatData::GetCoATalentBudget(player->getClass(), player->GetLevel(), classBudget,
                                                 specializationBudget))
+    {
+      for (AscensionTalentBudgetProvider const& provider : TalentBudgetProviders())
+        provider(player, classBudget, specializationBudget);
       return true;
+    }
 
     LOG_ERROR("coa", "No CoA talent budget row for class {} at level {} ({})",
               uint32(player->getClass()), uint32(player->GetLevel()), player->GetName());
@@ -1958,7 +1996,9 @@ public:
   bool ApplyKnownEntriesUpload(Player* player, std::vector<AscensionCoATalentState::KnownEntry> const& upload,
                                UpdateEntriesRefusal& refusal, std::optional<uint32> requestedSpec = std::nullopt)
   {
-    AscensionCoATalentState::UploadedSpecialization const uploaded = AscensionCoATalentState::SpecializationOf(upload);
+    AscensionCoATalentState::TalentAccess const access = AccessOf(player);
+    AscensionCoATalentState::UploadedSpecialization const uploaded =
+        AscensionCoATalentState::SpecializationOf(AscensionCoATalentState::WithoutExtraTrees(access, upload));
     if (uploaded.Mixed)
     {
       refusal = { "CA_UPDATE_ENTRIES_BAD_ENTRY", "", 0, 0, "The uploaded build mixes specializations." };
@@ -1974,7 +2014,7 @@ public:
     for (AscensionCoATalentState::KnownEntry const& item : upload)
     {
       AscensionCompatData::CoATalentEntry const* entry = FindTalentEntry(item.EntryId);
-      if (!entry || entry->ClassId != player->getClass())
+      if (!entry || !AscensionCoATalentState::OwnsEntry(access, *entry))
       {
         refusal = { "CA_UPDATE_ENTRIES_BAD_ENTRY", "CA_LEARN_WRONG_CLASS", item.EntryId, item.Rank,
                     Acore::StringFormat("Talent entry {} does not belong to your custom class.", item.EntryId) };
@@ -2010,7 +2050,8 @@ public:
           return false;
         }
       }
-      if (item.Rank && entry->SpecId && entry->SpecId != targetSpec)
+      if (item.Rank && entry->SpecId && entry->SpecId != targetSpec &&
+          !AscensionCoATalentState::IsExtraTree(access, *entry))
       {
         refusal = { "CA_UPDATE_ENTRIES_BAD_ENTRY", "CA_LEARN_WRONG_CLASS", item.EntryId, item.Rank,
                     "The uploaded build includes an entry of another specialization." };
@@ -2030,7 +2071,7 @@ public:
     std::vector<AscensionCoATalentState::KnownEntry> priced;
     for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
     {
-      if (entry.ClassId != player->getClass() || (!entry.AECost && !entry.TECost))
+      if (!AscensionCoATalentState::OwnsEntry(access, entry) || (!entry.AECost && !entry.TECost))
         continue;
       auto itr = wanted.find(entry.EntryId);
       uint32 const rank = std::max(itr == wanted.end() ? 0 : itr->second, PersistentRank(player, entry));
@@ -2050,14 +2091,19 @@ public:
     for (AscensionCoATalentState::KnownEntry const& item : priced)
     {
         AscensionCompatData::CoATalentEntry const* entry = FindTalentEntry(item.EntryId);
-        if (entry->SpecId && entry->SpecId != targetSpec)
+        bool const extraTree = AscensionCoATalentState::IsExtraTree(access, *entry);
+        if (entry->SpecId && entry->SpecId != targetSpec && !extraTree)
             continue;
         for (uint32 requiredId : entry->RequiredEntryIds)
             if (requiredId && std::none_of(proposedKnown.begin(), proposedKnown.end(),
                 [requiredId](AscensionCoATalentState::KnownEntry const& known)
                 {
                     return known.EntryId == requiredId && known.Rank;
-                }))
+                }) && (!extraTree || std::none_of(priced.begin(), priced.end(),
+                [requiredId](AscensionCoATalentState::KnownEntry const& known)
+                {
+                    return known.EntryId == requiredId && known.Rank;
+                })))
             {
                 refusal = { "CA_UPDATE_ENTRIES_NOT_TRAVERSIBLE", "", item.EntryId, item.Rank,
                     Acore::StringFormat("Talent entry {} requires entry {} in the uploaded build.",
@@ -2132,7 +2178,7 @@ public:
     std::vector<std::pair<AscensionCompatData::CoATalentEntry const*, uint32>> changes;
     for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
     {
-      if (entry.ClassId != player->getClass() ||
+      if (!AscensionCoATalentState::OwnsEntry(access, entry) ||
           (!entry.AECost && !entry.TECost && !GetSelectableFreeGroup(entry.EntryId)))
         continue;
       auto itr = wanted.find(entry.EntryId);
@@ -2268,6 +2314,11 @@ public:
     std::lock_guard<std::mutex> lock(_stateLock);
     auto itr = _activeSpecializations.find(player->GetGUID().GetCounter());
     return itr == _activeSpecializations.end() ? 0 : itr->second;
+  }
+
+  static AscensionCoATalentState::TalentAccess AccessOf(Player const* player)
+  {
+    return TalentAccessOf(player, Instance().GetActiveSpecialization(player));
   }
 
     static uint32 ActiveSlot(Player const* player)
@@ -2479,6 +2530,7 @@ public:
 
     std::unordered_set<uint32> visitedSpellIds;
     uint32 removed = 0;
+    AscensionCoATalentState::TalentAccess const access = TalentAccessOf(player, previousSpecialization);
     {
       std::unordered_set<uint32> talentSpells;
       for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
@@ -2492,7 +2544,7 @@ public:
     }
     for (AscensionCompatData::CoATalentEntry const &entry :
          AscensionCompatData::CoATalentEntries) {
-      if (entry.ClassId != player->getClass())
+      if (entry.ClassId != player->getClass() || AscensionCoATalentState::IsExtraTree(access, entry))
         continue;
 
       for (uint32 spellId : entry.SpellIds) {
@@ -2702,10 +2754,15 @@ public:
     }
 
     static bool CanGrantAutomaticEntry(Player const* player,
+        AscensionCompatData::CoATalentEntry const& entry, AscensionCoATalentState::TalentAccess const& access)
+    {
+        return AscensionCoATalentState::CanGrantAutomatic(entry, access, player->GetLevel(), SpellbookOf(player));
+    }
+
+    static bool CanGrantAutomaticEntry(Player const* player,
         AscensionCompatData::CoATalentEntry const& entry, uint32 specializationId)
     {
-        return AscensionCoATalentState::CanGrantAutomatic(entry, player->getClass(), player->GetLevel(),
-            specializationId, SpellbookOf(player));
+        return CanGrantAutomaticEntry(player, entry, TalentAccessOf(player, specializationId));
     }
 
     static AscensionCoATalentState::HasSpell CarriedSpells(Player const* player)
@@ -2790,12 +2847,13 @@ private:
             return 0;
         uint32 learned = 0;
         bool changed = true;
+        AscensionCoATalentState::TalentAccess const access = TalentAccessOf(player, specializationId);
         for (std::size_t pass = 0; changed && pass < AscensionCompatData::CoATalentEntries.size(); ++pass)
         {
             changed = false;
             for (auto const& entry : AscensionCompatData::CoATalentEntries)
             {
-                if (!CanGrantAutomaticEntry(player, entry, specializationId))
+                if (!CanGrantAutomaticEntry(player, entry, access))
                     continue;
 
                 uint32 spellId = entry.SpellIds[entry.SpellCount - 1];
@@ -9862,6 +9920,23 @@ std::string AscensionSpecializationSwitchRefusal(Player* player, uint32 activeSp
     return SpecializationSwitchRefusal(player, activeSpecializationId, requestedSpecializationId);
 }
 
+void AddAscensionTalentTreeProvider(AscensionTalentTreeProvider provider)
+{
+    if (provider)
+        TalentTreeProviders().push_back(std::move(provider));
+}
+
+void AddAscensionTalentBudgetProvider(AscensionTalentBudgetProvider provider)
+{
+    if (provider)
+        TalentBudgetProviders().push_back(std::move(provider));
+}
+
+AscensionCoATalentState::TalentAccess GetAscensionTalentAccess(Player const* player)
+{
+    return player ? AscensionClassService::AccessOf(player) : AscensionCoATalentState::TalentAccess{};
+}
+
 void ClearAscensionSpecializationSlots(Player* player)
 {
     if (player)
@@ -9874,9 +9949,10 @@ uint32 ForgetAscensionClassTalents(Player* player)
         return 0;
 
     uint32 removed = 0;
+    AscensionCoATalentState::TalentAccess const access = AscensionClassService::AccessOf(player);
     for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
     {
-        if (entry.ClassId != player->getClass())
+        if (!AscensionCoATalentState::OwnsEntry(access, entry))
             continue;
 
         for (uint32 spellId : entry.SpellIds)
@@ -9961,15 +10037,18 @@ uint32 SynchronizeAscensionTalentReplacements(Player* player)
 bool SetAscensionTalentRank(Player* player, uint32 entryId, uint32 rank)
 {
     AscensionCompatData::CoATalentEntry const* entry = FindAscensionTalentEntry(entryId);
-    if (!player || !entry || !IsAscensionCustomClass(player) || entry->ClassId != player->getClass() ||
-        rank > entry->SpellCount)
+    if (!player || !entry || !IsAscensionCustomClass(player) || rank > entry->SpellCount)
+        return false;
+    AscensionCoATalentState::TalentAccess const access = AscensionClassService::AccessOf(player);
+    if (!AscensionCoATalentState::OwnsEntry(access, *entry))
         return false;
 
     uint32 const freeChoiceGroup = AscensionClassService::GetSelectableFreeGroup(entryId);
     if (entry->AECost == 0 && entry->TECost == 0 && !freeChoiceGroup)
         return false;
 
-    if (rank > 0 && entry->SpecId != 0 && entry->SpecId != GetAscensionActiveSpecialization(player))
+    if (rank > 0 && entry->SpecId != 0 && entry->SpecId != GetAscensionActiveSpecialization(player) &&
+        !AscensionCoATalentState::IsExtraTree(access, *entry))
         return false;
 
     uint32 const selectedSpellId = rank > 0 ? entry->SpellIds[rank - 1] : 0;
@@ -9978,7 +10057,7 @@ bool SetAscensionTalentRank(Player* player, uint32 entryId, uint32 rank)
 
     if (rank > 0 && freeChoiceGroup)
         for (auto const& other : AscensionCompatData::CoATalentEntries)
-            if (other.ClassId == player->getClass() && other.SpecId == entry->SpecId && other.EntryId != entryId &&
+            if (other.ClassId == entry->ClassId && other.SpecId == entry->SpecId && other.EntryId != entryId &&
                 AscensionClassService::GetSelectableFreeGroup(other.EntryId) == freeChoiceGroup)
                 for (uint32 spellId : other.SpellIds)
                     if (spellId && player->HasSpell(spellId))
