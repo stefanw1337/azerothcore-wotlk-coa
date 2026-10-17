@@ -38,8 +38,34 @@ std::uint32_t KnownRank(AscensionCompatData::CoATalentEntry const& entry, HasSpe
 
 std::vector<KnownEntry> KnownEntries(std::uint8_t classId, HasSpell const& hasSpell);
 
+struct TalentTree
+{
+    std::uint8_t ClassId = 0;
+    std::uint16_t SpecId = 0;
+};
+
+struct TalentAccess
+{
+    std::uint8_t ClassId = 0;
+    std::uint32_t ActiveSpecId = 0;
+    std::vector<TalentTree> ExtraTrees;
+};
+
+bool IsExtraTree(TalentAccess const& access, AscensionCompatData::CoATalentEntry const& entry);
+
+bool OwnsEntry(TalentAccess const& access, AscensionCompatData::CoATalentEntry const& entry);
+
+bool IsTreeOpen(TalentAccess const& access, AscensionCompatData::CoATalentEntry const& entry);
+
+std::vector<KnownEntry> KnownEntries(TalentAccess const& access, HasSpell const& hasSpell);
+
+std::vector<KnownEntry> WithoutExtraTrees(TalentAccess const& access, std::vector<KnownEntry> const& known);
+
 bool CanGrantAutomatic(AscensionCompatData::CoATalentEntry const& entry, std::uint8_t classId, std::uint32_t level,
     std::uint32_t specId, HasSpell const& hasSpell);
+
+bool CanGrantAutomatic(AscensionCompatData::CoATalentEntry const& entry, TalentAccess const& access,
+    std::uint32_t level, HasSpell const& hasSpell);
 
 std::vector<KnownEntry> SlotKnownEntries(SpecializationSlot const& slot, std::uint32_t level,
     HasSpell const& carried);

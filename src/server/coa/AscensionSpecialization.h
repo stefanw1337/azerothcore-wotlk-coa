@@ -1,6 +1,7 @@
 #ifndef ASCENSION_SPECIALIZATION_H
 #define ASCENSION_SPECIALIZATION_H
 
+#include "AscensionCoATalentState.h"
 #include "Define.h"
 
 #include <functional>
@@ -8,11 +9,6 @@
 #include <vector>
 
 class Player;
-
-namespace AscensionCoATalentState
-{
-struct KnownEntry;
-}
 
 uint32 GetAscensionActiveSpecialization(Player const* player);
 
@@ -25,6 +21,18 @@ void AddAscensionSpecializationSwitchGuard(AscensionSpecializationSwitchGuard gu
 
 std::string AscensionSpecializationSwitchRefusal(Player* player, uint32 activeSpecializationId,
     uint32 requestedSpecializationId);
+
+using AscensionTalentTreeProvider =
+    std::function<std::vector<AscensionCoATalentState::TalentTree>(Player const* player)>;
+
+void AddAscensionTalentTreeProvider(AscensionTalentTreeProvider provider);
+
+using AscensionTalentBudgetProvider =
+    std::function<void(Player const* player, uint32& classPoints, uint32& specializationPoints)>;
+
+void AddAscensionTalentBudgetProvider(AscensionTalentBudgetProvider provider);
+
+AscensionCoATalentState::TalentAccess GetAscensionTalentAccess(Player const* player);
 
 void ClearAscensionSpecializationSlots(Player* player);
 

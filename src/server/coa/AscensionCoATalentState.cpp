@@ -115,6 +115,55 @@ std::vector<KnownEntry> KnownEntries(std::uint8_t classId, HasSpell const& hasSp
     return known;
 }
 
+bool IsExtraTree(TalentAccess const& access, AscensionCompatData::CoATalentEntry const& entry)
+{
+    return std::any_of(access.ExtraTrees.begin(), access.ExtraTrees.end(), [&entry](TalentTree const& tree)
+    {
+        return tree.ClassId == entry.ClassId && tree.SpecId == entry.SpecId;
+    });
+}
+
+bool OwnsEntry(TalentAccess const& access, AscensionCompatData::CoATalentEntry const& entry)
+{
+    return entry.ClassId == access.ClassId || IsExtraTree(access, entry);
+}
+
+bool IsTreeOpen(TalentAccess const& access, AscensionCompatData::CoATalentEntry const& entry)
+{
+    return (entry.ClassId == access.ClassId && (!entry.SpecId || entry.SpecId == access.ActiveSpecId)) ||
+        IsExtraTree(access, entry);
+}
+
+std::vector<KnownEntry> KnownEntries(TalentAccess const& access, HasSpell const& hasSpell)
+{
+    std::vector<KnownEntry> known;
+    for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
+        if (OwnsEntry(access, entry))
+            if (std::uint32_t rank = KnownRank(entry, hasSpell))
+                known.push_back({ entry.EntryId, rank });
+    return known;
+}
+
+std::vector<KnownEntry> WithoutExtraTrees(TalentAccess const& access, std::vector<KnownEntry> const& known)
+{
+    std::vector<KnownEntry> own;
+    for (KnownEntry const& item : known)
+    {
+        AscensionCompatData::CoATalentEntry const* entry = FindEntry(item.EntryId);
+        if (!entry || !IsExtraTree(access, *entry))
+            own.push_back(item);
+    }
+    return own;
+}
+
+bool CanGrantAutomatic(AscensionCompatData::CoATalentEntry const& entry, TalentAccess const& access,
+    std::uint32_t level, HasSpell const& hasSpell)
+{
+    if (CanGrantAutomatic(entry, access.ClassId, level, access.ActiveSpecId, hasSpell))
+        return true;
+    return IsExtraTree(access, entry) && CanGrantAutomatic(entry, entry.ClassId, level, entry.SpecId, hasSpell);
+}
+
 bool CanGrantAutomatic(AscensionCompatData::CoATalentEntry const& entry, std::uint8_t classId, std::uint32_t level,
     std::uint32_t specId, HasSpell const& hasSpell)
 {
