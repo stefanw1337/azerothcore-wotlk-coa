@@ -44,14 +44,33 @@ struct TalentTree
     std::uint16_t SpecId = 0;
 };
 
+struct SpecializationSwap
+{
+    std::uint16_t ReplacedSpecId = 0;
+    TalentTree Borrowed;
+};
+
+struct TalentGrant
+{
+    std::vector<TalentTree> ExtraTrees;
+    std::vector<SpecializationSwap> Swaps;
+};
+
 struct TalentAccess
 {
     std::uint8_t ClassId = 0;
     std::uint32_t ActiveSpecId = 0;
     std::vector<TalentTree> ExtraTrees;
+    std::vector<SpecializationSwap> Swaps;
 };
 
 bool IsExtraTree(TalentAccess const& access, AscensionCompatData::CoATalentEntry const& entry);
+
+bool IsBorrowed(TalentAccess const& access, AscensionCompatData::CoATalentEntry const& entry);
+
+bool IsReplaced(TalentAccess const& access, std::uint32_t specId);
+
+bool IsSelectableSpecialization(TalentAccess const& access, std::uint32_t specId);
 
 bool OwnsEntry(TalentAccess const& access, AscensionCompatData::CoATalentEntry const& entry);
 
@@ -66,6 +85,9 @@ bool CanGrantAutomatic(AscensionCompatData::CoATalentEntry const& entry, std::ui
 
 bool CanGrantAutomatic(AscensionCompatData::CoATalentEntry const& entry, TalentAccess const& access,
     std::uint32_t level, HasSpell const& hasSpell);
+
+std::vector<KnownEntry> SlotKnownEntries(SpecializationSlot const& slot, TalentAccess const& access,
+    std::uint32_t level, HasSpell const& carried);
 
 std::vector<KnownEntry> SlotKnownEntries(SpecializationSlot const& slot, std::uint32_t level,
     HasSpell const& carried);

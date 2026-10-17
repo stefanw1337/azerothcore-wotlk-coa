@@ -384,6 +384,47 @@ int main(int, char** argv)
         Check(granted && CanGrantAutomatic(*granted, hybrid, 80, none) &&
                   !CanGrantAutomatic(*granted, native, 80, none),
               "an extra tree's automatic entries are granted only while the tree is open");
+
+        TalentAccess swapped{ mainId, borrowed, {}, { { second, { subId, borrowed } } } };
+        Check(IsSelectableSpecialization(swapped, borrowed) && !IsSelectableSpecialization(swapped, second) &&
+                  IsSelectableSpecialization(swapped, active) && !IsSelectableSpecialization(native, borrowed) &&
+                  IsSelectableSpecialization(native, second),
+              "a swap makes the borrowed specialization selectable and the replaced one not");
+        bool borrowedActiveOpen = false;
+        bool swappedOthersClosed = true;
+        bool classTreeStays = false;
+        for (CoATalentEntry const& entry : CoATalentEntries)
+        {
+            if (entry.ClassId == subId && entry.SpecId == borrowed)
+                borrowedActiveOpen = borrowedActiveOpen || (IsTreeOpen(swapped, entry) && OwnsEntry(swapped, entry));
+            if (entry.ClassId == mainId && !entry.SpecId)
+                classTreeStays = classTreeStays || IsTreeOpen(swapped, entry);
+            if ((entry.ClassId == mainId && entry.SpecId) || (entry.ClassId == subId && entry.SpecId != borrowed))
+                swappedOthersClosed = swappedOthersClosed && !IsTreeOpen(swapped, entry);
+        }
+        Check(borrowedActiveOpen && classTreeStays && swappedOthersClosed,
+              "an active borrowed specialization opens with the own class tree and closes every other tree");
+        TalentAccess swappedIdle = swapped;
+        swappedIdle.ActiveSpecId = active;
+        Check(granted && CanGrantAutomatic(*granted, swapped, 80, none) &&
+                  !CanGrantAutomatic(*granted, swappedIdle, 80, none),
+              "a borrowed specialization's automatic entries are granted only while it is active");
+
+        SpecializationSlot const nativeSlot{ mainId, active, {}, {} };
+        std::vector<KnownEntry> const legacySlot = SlotKnownEntries(nativeSlot, 80, none);
+        std::vector<KnownEntry> const accessSlot = SlotKnownEntries(nativeSlot, native, 80, none);
+        Check(legacySlot.size() == accessSlot.size() &&
+                  std::equal(legacySlot.begin(), legacySlot.end(), accessSlot.begin(),
+                      [](KnownEntry const& left, KnownEntry const& right)
+                      {
+                          return left.EntryId == right.EntryId && left.Rank == right.Rank;
+                      }),
+              "without providers a slot resolves to the same known entries as before");
+        SpecializationSlot const borrowedSlot{ mainId, borrowed, {}, {} };
+        std::vector<KnownEntry> const borrowedKnown = SlotKnownEntries(borrowedSlot, swapped, 80, none);
+        Check(granted && std::any_of(borrowedKnown.begin(), borrowedKnown.end(),
+                  [granted](KnownEntry const& item) { return item.EntryId == granted->EntryId; }),
+              "a slot of the borrowed specialization holds its automatic entries");
     }
 
     return failures ? 1 : 0;
