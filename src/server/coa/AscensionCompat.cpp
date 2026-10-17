@@ -2686,6 +2686,16 @@ public:
 
         uint32 const previousIndex = ActiveSlot(player);
         auto const previous = LiveSlot(player, GetActiveSpecialization(player));
+        AscensionCoATalentState::TalentAccess const access = TalentAccessOf(player, target.SpecId);
+        for (AscensionCoATalentState::KnownEntry const& known : KnownTalentEntries(player))
+            if (AscensionCompatData::CoATalentEntry const* entry = FindTalentEntry(known.EntryId);
+                entry && AscensionCoATalentState::IsExtraTree(access, *entry) &&
+                std::none_of(target.Entries.begin(), target.Entries.end(),
+                    [&known](AscensionCoATalentState::KnownEntry const& item)
+                    {
+                        return item.EntryId == known.EntryId;
+                    }))
+                target.Entries.push_back(known);
         UpdateEntriesRefusal refusal;
         if (!ApplyKnownEntriesUpload(player, target.Entries, refusal, target.SpecId))
         {
