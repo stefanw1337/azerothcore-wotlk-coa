@@ -1,0 +1,128 @@
+name: subclass-test-build
+
+on:
+  push:
+    branches: [stefanw1337-subclassing-test]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 330
+    env:
+      BOOST_ROOT: C:\local\boost_1_87_0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache Boost and MySQL
+        uses: actions/cache@v4
+        continue-on-error: true
+        with:
+          path: |
+            C:\local\boost_1_87_0
+            C:\tools\mysql\current
+          key: winbuild-deps:boost-1.87.0:mysql-8.4.9
+      - name: Install Boost and the MySQL client
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path 'C:\local\boost_1_87_0\boost')) {
+            $boostExe = Join-Path $env:RUNNER_TEMP 'boost.exe'
+            $boostUrl = 'https://downloads.sourceforge.net/project/boost/boost-binaries/1.87.0/boost_1_87_0-msvc-14.3-64.exe'
+            for ($attempt = 1; $attempt -le 3; $attempt++) {
+              try {
+                Invoke-WebRequest -Uri $boostUrl -OutFile $boostExe -UserAgent 'azerothcore-ci' `
+                  -ConnectionTimeoutSeconds 60 -OperationTimeoutSeconds 60
+                if ((Get-Item $boostExe).Length / 1MB -lt 50) { throw 'Boost download is too small.' }
+                break
+              } catch {
+                if ($attempt -eq 3) { throw }
+                Start-Sleep -Seconds 15
+              }
+            }
+            $proc = Start-Process -FilePath $boostExe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',
+              '/DIR=C:\local\boost_1_87_0' -WindowStyle Hidden -Wait -PassThru
+            if ($proc.ExitCode -ne 0) { throw "Boost installer failed with $($proc.ExitCode)." }
+          }
+          if (-not (Test-Path 'C:\tools\mysql\current\lib\mysqlclient.lib')) {
+            $mysqlZip = Join-Path $env:RUNNER_TEMP 'mysql.zip'
+            Invoke-WebRequest -Uri 'https://cdn.mysql.com/archives/mysql-8.4/mysql-8.4.9-winx64.zip' `
+              -OutFile $mysqlZip -UserAgent 'Mozilla/5.0'
+            New-Item -ItemType Directory -Force -Path 'C:\tools\mysql' | Out-Null
+            Expand-Archive -Path $mysqlZip -DestinationPath 'C:\tools\mysql' -Force
+            Rename-Item 'C:\tools\mysql\mysql-8.4.9-winx64' 'C:\tools\mysql\current'
+          }
+          $opensslRoot = @($env:OPENSSL_ROOT_DIR, 'C:\Program Files\OpenSSL', 'C:\Program Files\OpenSSL-Win64') |
+            Where-Object { $_ -and (Test-Path (Join-Path $_ 'include\openssl\opensslv.h')) } | Select-Object -First 1
+          if (-not $opensslRoot) { throw 'No OpenSSL install found.' }
+          "OPENSSL_ROOT_DIR=$opensslRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Fetch mod-coa-playerbots
+        uses: actions/checkout@v4
+        with:
+          repository: Corfirean/mod-coa-playerbots
+          ref: c76847a19aaf0b709a6a3dcc785c09ada0aa8fee
+          path: _bots
+      - name: Fetch mod-coa-content-scaling
+        uses: actions/checkout@v4
+        with:
+          repository: Corfirean/mod-coa-content-scaling
+          ref: d75f141fb4998f7c486bba737fe045d46847cd37
+          path: _scaling
+      - name: Fetch SQUID Playerbots
+        uses: actions/checkout@v4
+        with:
+          repository: Zyth45/mod-playerbots
+          ref: 662213082340c862452042473f13b34921373fe3
+          path: modules/mod-playerbots
+      - name: Place the modules
+        shell: pwsh
+        run: |
+          $dst = 'modules/mod-coa-playerbots'
+          New-Item -ItemType Directory -Force -Path "$dst/conf" | Out-Null
+          Copy-Item -Recurse -Force '_bots/module/src' "$dst/src"
+          Copy-Item -Force '_bots/module/conf/*' "$dst/conf/"
+          robocopy '_scaling' 'modules\mod-coa-content-scaling' /E /XD .git artifacts tools /NFL /NDL /NJH /NJS /NP | Out-Null
+          if ($LASTEXITCODE -ge 8) { throw "copying mod-coa-content-scaling failed ($LASTEXITCODE)" }
+          foreach ($pack in 'mod-coa-tbc-content', 'mod-coa-wotlk-content') {
+            robocopy "_scaling\content-packs\$pack" "modules\$pack" /E /NFL /NDL /NJH /NJS /NP | Out-Null
+            if ($LASTEXITCODE -ge 8) { throw "copying $pack failed ($LASTEXITCODE)" }
+          }
+          $global:LASTEXITCODE = 0
+      - name: MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo `
+            -DCMAKE_JOB_POOLS=link_pool=1 -DCMAKE_JOB_POOL_LINK=link_pool `
+            -DAPPS_BUILD=all -DTOOLS_BUILD=none `
+            -DSCRIPTS=static -DMODULES=static `
+            -DUSE_COREPCH=0 -DUSE_SCRIPTPCH=0 `
+            -DBOOST_ROOT=$env:BOOST_ROOT `
+            -DMYSQL_INCLUDE_DIR=C:/tools/mysql/current/include `
+            -DMYSQL_LIBRARY=C:/tools/mysql/current/lib/mysqlclient.lib `
+            -DOPENSSL_ROOT_DIR="$env:OPENSSL_ROOT_DIR"
+      - name: Build worldserver
+        timeout-minutes: 300
+        shell: pwsh
+        run: cmake --build build --target worldserver
+      - name: Collect the server files
+        shell: pwsh
+        run: |
+          $bin = (Get-ChildItem build -Recurse -Filter worldserver.exe | Select-Object -First 1).DirectoryName
+          & "$bin\worldserver.exe" --version
+          $out = 'subclass-test'
+          New-Item -ItemType Directory -Force -Path "$out/sql/world", "$out/sql/characters" | Out-Null
+          Copy-Item "$bin\worldserver.exe", "$bin\*.dll" $out
+          Copy-Item 'modules/mod-subclass/conf/mod_subclass.conf.dist' "$out/mod_subclass.conf"
+          Copy-Item 'modules/mod-subclass/data/sql/db-world/*.sql' "$out/sql/world/"
+          Copy-Item 'modules/mod-subclass/data/sql/db-characters/*.sql' "$out/sql/characters/"
+          Copy-Item 'modules/mod-subclass/README.md' $out
+          git rev-parse HEAD | Out-File "$out/core-commit.txt" -Encoding utf8
+      - uses: actions/upload-artifact@v4
+        with:
+          name: subclass-test-worldserver
+          path: subclass-test/
+          retention-days: 30

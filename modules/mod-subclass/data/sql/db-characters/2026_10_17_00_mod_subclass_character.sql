@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS `mod_subclass_character` (
+    `guid` INT UNSIGNED NOT NULL,
+    `sub_class` TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    `sub_spec` SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    `chosen_at` INT UNSIGNED NOT NULL DEFAULT 0,
+    PRIMARY KEY (`guid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

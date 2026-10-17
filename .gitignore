@@ -9,6 +9,7 @@
 !/modules/mod-coa-change-potions/
 !/modules/mod-coa-mythic-plus/
 !/modules/mod-coa-custom-races/
+!/modules/mod-subclass/
 !/modules/*.md
 !/modules/*.sh
 !/modules/CMakeLists.txt
