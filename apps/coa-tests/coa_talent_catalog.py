@@ -39,6 +39,16 @@ using int64 = std::int64_t;
 inline std::string DbcDirectory;
 inline std::string GetClientDBCPath(std::string_view name) { return DbcDirectory + std::string(name); }
 """,
+    "ItemTemplate.h": """#pragma once
+enum ItemModType
+{
+    ITEM_MOD_AGILITY = 3,
+    ITEM_MOD_STRENGTH = 4,
+    ITEM_MOD_INTELLECT = 5,
+    ITEM_MOD_SPIRIT = 6,
+    ITEM_MOD_STAMINA = 7,
+};
+""",
 }
 MAIN = r"""
 #include "AscensionCoATalentData.h"
