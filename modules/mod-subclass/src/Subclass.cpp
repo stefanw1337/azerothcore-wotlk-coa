@@ -567,6 +567,17 @@ void SendAddonList(Player* player, std::string const& head, std::vector<std::str
         SendAddon(player, head + " " + line);
 }
 
+Powers StandardClassPower(uint8 classId)
+{
+    switch (classId)
+    {
+        case CLASS_WARRIOR: return POWER_RAGE;
+        case CLASS_ROGUE: return POWER_ENERGY;
+        case CLASS_DEATH_KNIGHT: return POWER_RUNIC_POWER;
+        default: return MAX_POWERS;
+    }
+}
+
 void SendSubclassState(Player* player)
 {
     if (!player || !player->IsInWorld())
@@ -611,6 +622,9 @@ void SendSubclassState(Player* player)
                 powers.push_back(rule.PowerType);
         if (subClass == CLASS_RANGER && player->getPowerType() != POWER_FOCUS)
             powers.push_back(POWER_FOCUS);
+        if (Powers const standard = StandardClassPower(subClass); standard != MAX_POWERS &&
+            player->getPowerType() != standard)
+            powers.push_back(standard);
         for (uint32 power : powers)
             SendAddon(player, Acore::StringFormat("POWER {}", power));
     }
@@ -1168,8 +1182,36 @@ class mod_subclass_player : public PlayerScript
 public:
     mod_subclass_player() : PlayerScript("mod_subclass_player", { PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_LOGOUT,
         PLAYERHOOK_ON_DELETE, PLAYERHOOK_ON_LEVEL_CHANGED, PLAYERHOOK_ON_GOSSIP_SELECT,
-        PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT })
+        PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT, PLAYERHOOK_ON_PLAYER_IS_CLASS,
+        PLAYERHOOK_ON_PLAYER_HAS_ACTIVE_POWER_TYPE })
     {
+    }
+
+    bool OnPlayerHasActivePowerType(Player const* player, Powers power) override
+    {
+        Subclass::Choice const choice = ChoiceOf(player);
+        return choice.Complete() && StandardClassPower(choice.SubClass) == power && player->getPowerType() != power &&
+            !SubclassResting(player);
+    }
+
+    Optional<bool> OnPlayerIsClass(Player const* player, ::Classes playerClass, ClassContext context) override
+    {
+        switch (context)
+        {
+            case CLASS_CONTEXT_ABILITY:
+            case CLASS_CONTEXT_ABILITY_REACTIVE:
+            case CLASS_CONTEXT_PET:
+            case CLASS_CONTEXT_PET_CHARM:
+                break;
+            default:
+                return std::nullopt;
+        }
+        if (playerClass < CLASS_WARRIOR || playerClass > CLASS_DRUID || playerClass == player->getClass())
+            return std::nullopt;
+        Subclass::Choice const choice = ChoiceOf(player);
+        if (!choice.Complete() || choice.SubClass != playerClass || SubclassResting(player))
+            return std::nullopt;
+        return true;
     }
 
     void OnPlayerLogin(Player* player) override
