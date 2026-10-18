@@ -26,7 +26,8 @@ using namespace Acore::ChatCommands;
 namespace
 {
 constexpr uint32 TwinEntry = 9530030;
-constexpr float TwinDistance = 1.0f;
+constexpr float TwinDistance = 0.6f;
+constexpr float TwinReach = 0.3f;
 constexpr float TwinAngle = float(M_PI) * 1.5f;
 constexpr std::size_t LookSlots = 11;
 constexpr uint32 PiggybackVehicle = 9530;
@@ -296,6 +297,8 @@ void SummonTwin(Player* player)
     twin->SetLevel(player->GetLevel());
     twin->SetDisplayId(player->GetNativeDisplayId());
     twin->SetNativeDisplayId(player->GetNativeDisplayId());
+    twin->SetFloatValue(UNIT_FIELD_COMBATREACH, TwinReach);
+    twin->SetFloatValue(UNIT_FIELD_BOUNDINGRADIUS, TwinReach);
     twin->SetUnitFlag2(UNIT_FLAG2_MIRROR_IMAGE);
     twin->SetUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
     twin->SetReactState(REACT_PASSIVE);
