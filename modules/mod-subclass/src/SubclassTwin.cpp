@@ -222,7 +222,7 @@ void SetCarry(Player* player, Creature* twin, Carry mode)
 
 Carry WantedCarry(Player const* player, Motion const& motion)
 {
-    if (!player->IsAlive() || player->IsInCombat() || player->IsInWater())
+    if (!player->IsAlive() || player->IsInCombat() || player->IsInWater() || !player->IsStandState())
         return Carry::Beside;
     if (player->IsMounted())
         return player->GetVehicleKit() && !OwnsKit(player) ? Carry::Beside : Carry::Saddle;
@@ -233,6 +233,22 @@ Carry WantedCarry(Player const* player, Motion const& motion)
     if (motion.Mode == Carry::Piggyback)
         return Carry::Piggyback;
     return motion.Moving >= HopDelay ? Carry::Piggyback : Carry::Beside;
+}
+
+void MirrorStance(Player* player, Creature* twin)
+{
+    UnitStandStateType const stance = player->IsAlive() ? UnitStandStateType(player->getStandState()) :
+        UNIT_STAND_STATE_STAND;
+    if (!twin->GetVehicle() && twin->getStandState() != stance)
+        twin->SetStandState(stance);
+}
+
+void HopOffFor(Player* player, uint32 duration)
+{
+    std::lock_guard<std::mutex> lock(twinMutex);
+    auto itr = motions.find(player->GetGUID().GetCounter());
+    if (itr != motions.end())
+        itr->second.Afoot = std::max(itr->second.Afoot, duration);
 }
 
 bool EchoSwing(Player* player, Creature* twin, uint32 swing)
@@ -287,6 +303,7 @@ void UpdateCarry(Player* player, uint32 diff)
         std::lock_guard<std::mutex> lock(twinMutex);
         motions[guid].Swing = 0;
     }
+    MirrorStance(player, twin);
     Carry const wanted = WantedCarry(player, motion);
     bool const seated = twin->GetVehicle() != nullptr;
     if (wanted == motion.Mode && (wanted == Carry::Beside) != seated)
@@ -442,13 +459,18 @@ class mod_subclass_twin_player : public PlayerScript
 {
 public:
     mod_subclass_twin_player() : PlayerScript("mod_subclass_twin_player", { PLAYERHOOK_ON_LOGIN,
-        PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_ON_MAP_CHANGED, PLAYERHOOK_ON_DELETE, PLAYERHOOK_ON_UPDATE })
+        PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_ON_MAP_CHANGED, PLAYERHOOK_ON_DELETE, PLAYERHOOK_ON_UPDATE, PLAYERHOOK_ON_TEXT_EMOTE })
     {
     }
 
     void OnPlayerUpdate(Player* player, uint32 diff) override
     {
         UpdateCarry(player, diff);
+    }
+
+    void OnPlayerTextEmote(Player* player, uint32 /*textEmote*/, uint32 /*emoteNum*/, ObjectGuid /*guid*/) override
+    {
+        HopOffFor(player, AfootStride);
     }
 
     void OnPlayerLogin(Player* player) override
