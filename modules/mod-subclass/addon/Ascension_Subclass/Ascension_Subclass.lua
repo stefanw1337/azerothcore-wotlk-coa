@@ -496,8 +496,21 @@ UpdateResourceFrame = function()
     end
 end
 
+local twinOutfit = {}
+local ShowTwinPreview
+
 local function Receive(message)
     local command, rest = string.match(message, "^(%S+)%s?(.*)$")
+    if command == "TWINWEAR" then
+        twinOutfit = {}
+        for itemId in string.gmatch(rest, "%d+") do
+            twinOutfit[#twinOutfit + 1] = tonumber(itemId)
+        end
+        if ShowTwinPreview then
+            ShowTwinPreview()
+        end
+        return
+    end
     if command == "RESULT" then
         pending = false
         local ok, reason = string.match(rest, "^(%d)%s?(.*)$")
@@ -1175,6 +1188,44 @@ local function HookApplyButton(wardrobe)
     end
 end
 
+local wardrobeFrame
+
+local function FindPreviewModels(root)
+    local models = {}
+    local frame = EnumerateFrames()
+    while frame do
+        if frame.GetObjectType and frame:GetObjectType() == "DressUpModel" and IsInside(frame, root)
+            and frame:IsVisible() then
+            models[#models + 1] = frame
+        end
+        frame = EnumerateFrames(frame)
+    end
+    return models
+end
+
+ShowTwinPreview = function()
+    if not (dressingTwin and wardrobeFrame) then
+        return
+    end
+    for _, model in ipairs(FindPreviewModels(wardrobeFrame)) do
+        model:Undress()
+        for _, itemId in ipairs(twinOutfit) do
+            if itemId > 0 then
+                model:TryOn(itemId)
+            end
+        end
+    end
+end
+
+local function ShowOwnPreview()
+    if not wardrobeFrame then
+        return
+    end
+    for _, model in ipairs(FindPreviewModels(wardrobeFrame)) do
+        model:Dress()
+    end
+end
+
 local function ShowDressing()
     twinButton:SetText(dressingTwin and "Dressing: Your twin" or "Dressing: You")
 end
@@ -1196,6 +1247,7 @@ local function AttachTwinButton()
     while wardrobe:GetParent() and wardrobe:GetParent() ~= UIParent do
         wardrobe = wardrobe:GetParent()
     end
+    wardrobeFrame = wardrobe
     HookApplyButton(wardrobe)
     wardrobe:HookScript("OnShow", function() HookApplyButton(wardrobe) end)
     twinButton = CreateFrame("Button", "Ascension_SubclassTwinButton", anchor:GetParent(), "UIPanelButtonTemplate")
@@ -1210,6 +1262,11 @@ local function AttachTwinButton()
             C_Appearance.ClearPendingAppearances()
         end
         ShowDressing()
+        if dressingTwin then
+            Send("TWINWEARING")
+        else
+            ShowOwnPreview()
+        end
         DEFAULT_CHAT_FRAME:AddMessage(dressingTwin
             and "|cffffd100Wardrobe:|r Apply now dresses your twin."
             or "|cffffd100Wardrobe:|r Apply now dresses you.")

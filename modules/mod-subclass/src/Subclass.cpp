@@ -33,6 +33,7 @@
 using namespace Acore::ChatCommands;
 
 void HandleTwinLook(Player* player, std::vector<std::string_view> const& words);
+std::string TwinWearing(Player const* player);
 
 namespace
 {
@@ -626,7 +627,12 @@ void HandleAddonMessage(Player* player, std::string_view message)
     }
     std::vector<std::string_view> const words = Acore::Tokenize(message, ' ', false);
     if (!words.empty() && words[0] == "TWINLOOK")
+    {
         HandleTwinLook(player, words);
+        SendAddon(player, TwinWearing(player));
+    }
+    else if (words.size() == 1 && words[0] == "TWINWEARING")
+        SendAddon(player, TwinWearing(player));
     else if (words.size() == 3 && words[0] == "LEARN")
         if (Optional<uint32> entryId = Acore::StringTo<uint32>(words[1]))
             if (Optional<uint32> rank = Acore::StringTo<uint32>(words[2]))

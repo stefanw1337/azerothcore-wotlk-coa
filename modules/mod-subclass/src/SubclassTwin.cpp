@@ -423,6 +423,17 @@ std::string SlotList()
 }
 }
 
+std::string TwinWearing(Player const* player)
+{
+    std::string reply = "TWINWEAR";
+    if (!HasTwin(player))
+        return reply;
+    Wardrobe const wardrobe = WardrobeOf(player);
+    for (uint32 itemId : wardrobe.Items)
+        reply += Acore::StringFormat(" {}", itemId);
+    return reply;
+}
+
 void HandleTwinLook(Player* player, std::vector<std::string_view> const& words)
 {
     constexpr std::array<int, 12> SlotOfCategory = { -1, 0, 1, 9, 3, 10, 2, 7, 8, 4, 5, 6 };
