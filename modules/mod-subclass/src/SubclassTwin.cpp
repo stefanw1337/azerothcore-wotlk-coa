@@ -687,6 +687,13 @@ bool HasSecondHead(Player const* player)
     return player->getRace() == OgreRace && player->getGender() == GENDER_FEMALE;
 }
 
+bool LonelyTwin(Player const* player)
+{
+    return HasTwin(player) && !WardrobeOf(player).Enabled;
+}
+
+void OfferStoryLater(Player* player);
+
 bool SubclassResting(Player const* player)
 {
     if (HasTwin(player))
@@ -845,6 +852,8 @@ std::string ToggleTwin(Player* player)
     RefreshTwin(player);
     if (IsSplit(player))
         SetBorrowedPassives(player, wardrobe.Enabled);
+    else if (wardrobe.Enabled)
+        OfferStoryLater(player);
     UpdateSelfAura(player);
     return wardrobe.Enabled ? "Your brother comes running." : "Your brother goes home.";
 }

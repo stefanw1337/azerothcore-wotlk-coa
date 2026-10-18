@@ -40,6 +40,7 @@ std::string TwinWearing(Player const* player);
 std::string TwinState(Player const* player);
 std::string ToggleTwin(Player* player);
 bool SubclassResting(Player const* player);
+bool LonelyTwin(Player const* player);
 
 namespace
 {
@@ -791,7 +792,7 @@ std::string Describe(Subclass::Choice const& choice)
 
 bool OffersQuest(Player const* player)
 {
-    if (!IsAscensionCustomClassId(player->getClass()))
+    if (!IsAscensionCustomClassId(player->getClass()) || LonelyTwin(player))
         return false;
     Record const record = RecordOf(player);
     Subclass::Settings const current = SettingsOf(player);
@@ -943,6 +944,11 @@ public:
 bool SubclassChosen(Player const* player)
 {
     return RecordOf(player).Choice.Complete();
+}
+
+void OfferStoryLater(Player* player)
+{
+    SchedulePrompt(player, 2s);
 }
 
 bool IsBorrowedSpell(Player const* player, uint32 spellId)
