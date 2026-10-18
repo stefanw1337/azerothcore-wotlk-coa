@@ -346,7 +346,8 @@ void MirrorStance(Player* player, Creature* twin)
     {
         Position beside = player->GetPosition();
         player->MovePositionToFirstCollision(beside, TwinDistance, TwinAngle);
-        twin->NearTeleportTo(beside.GetPositionX(), beside.GetPositionY(), beside.GetPositionZ(), player->GetOrientation());
+        twin->NearTeleportTo(beside.GetPositionX(), beside.GetPositionY(), beside.GetPositionZ(),
+            player->GetOrientation());
         twin->GetMotionMaster()->MoveFollow(player, TwinDistance, TwinAngle);
     }
     if (twin->getStandState() != player->getStandState())
