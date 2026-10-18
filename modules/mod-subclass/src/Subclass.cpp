@@ -4,6 +4,7 @@
 
 #include "AllCreatureScript.h"
 #include "AscensionCoATalentData.h"
+#include "AscensionCustomClassData.h"
 #include "AscensionSpecialization.h"
 #include "Chat.h"
 #include "CommandScript.h"
@@ -16,7 +17,10 @@
 #include "PlayerScript.h"
 #include "Random.h"
 #include "ScriptedGossip.h"
+#include "SpellMgr.h"
 #include "SubclassRules.h"
+#include "StringConvert.h"
+#include "Tokenize.h"
 #include "UnitScript.h"
 #include "WorldScript.h"
 #include <algorithm>
@@ -40,6 +44,8 @@ constexpr uint32 ActionAccept = 1;
 constexpr uint32 ActionLater = 2;
 constexpr char const* BookScriptName = "item_subclass_book_of_origins";
 constexpr char const* Head = "|cffc9a0dcYour second head:|r ";
+constexpr char const* AddonPrefix = "SUBCLASS";
+constexpr std::size_t AddonChunk = 200;
 
 struct NamedClass
 {
@@ -199,6 +205,14 @@ std::string ClassName(uint8 classId)
         if (named.Id == classId)
             return Acore::StringFormat("{}{}|r", named.Color, named.Name);
     return Acore::StringFormat("class {}", uint32(classId));
+}
+
+std::string PlainClassName(uint8 classId)
+{
+    for (NamedClass const& named : Classes)
+        if (named.Id == classId)
+            return named.Name;
+    return Acore::StringFormat("Class {}", uint32(classId));
 }
 
 std::string SpecializationName(uint16 specId)
@@ -383,14 +397,163 @@ uint32 ForgetBorrowedTrees(Player* player, Subclass::Choice const& choice)
     return removed;
 }
 
+AscensionCompatData::CoATalentEntry const* FindCatalogEntry(uint32 entryId)
+{
+    auto const& entries = AscensionCompatData::CoATalentEntries;
+    auto itr = std::lower_bound(entries.begin(), entries.end(), entryId,
+        [](AscensionCompatData::CoATalentEntry const& entry, uint32 id) { return entry.EntryId < id; });
+    return itr != entries.end() && itr->EntryId == entryId ? &*itr : nullptr;
+}
+
+bool InTrees(std::vector<Subclass::Tree> const& trees, AscensionCompatData::CoATalentEntry const& entry)
+{
+    return std::find(trees.begin(), trees.end(), Subclass::Tree{ entry.ClassId, entry.SpecId }) != trees.end();
+}
+
+void SendAddon(Player* player, std::string const& message)
+{
+    WorldPacket packet;
+    ChatHandler::BuildChatPacket(packet, CHAT_MSG_WHISPER, LANG_ADDON, player, player,
+        std::string(AddonPrefix) + "\t" + message);
+    player->SendDirectMessage(&packet);
+}
+
+void SendAddonList(Player* player, std::string const& head, std::vector<std::string> const& items)
+{
+    std::string line;
+    for (std::string const& item : items)
+    {
+        if (!line.empty() && line.size() + item.size() + 1 > AddonChunk)
+        {
+            SendAddon(player, head + " " + line);
+            line.clear();
+        }
+        line += (line.empty() ? "" : ",") + item;
+    }
+    if (!line.empty())
+        SendAddon(player, head + " " + line);
+}
+
+void SendSubclassState(Player* player)
+{
+    if (!player || !player->IsInWorld())
+        return;
+    Record const record = RecordOf(player);
+    std::vector<Subclass::Tree> const open = OpenTreesOf(player);
+    SendAddon(player, Acore::StringFormat("RESET {} {} {}", IsEligible(player) ? 1 : 0, open.size(),
+        record.Insights));
+    for (std::size_t index = 0; index < open.size(); ++index)
+    {
+        Subclass::Tree const& tree = open[index];
+        SendAddon(player, Acore::StringFormat("TREE {} {} {}", index + 1, tree.SpecId,
+            tree.SpecId ? SpecializationName(tree.SpecId) : PlainClassName(tree.ClassId)));
+        std::vector<std::string> ids;
+        for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
+            if (entry.ClassId == tree.ClassId && entry.SpecId == tree.SpecId && (entry.AECost || entry.TECost))
+                ids.push_back(std::to_string(entry.EntryId));
+        SendAddonList(player, Acore::StringFormat("IDS {}", index + 1), ids);
+    }
+    std::vector<std::string> ranks;
+    for (AscensionCoATalentState::KnownEntry const& known : GetAscensionKnownTalentEntries(player))
+        if (AscensionCompatData::CoATalentEntry const* entry = FindCatalogEntry(known.EntryId);
+            known.Rank && entry && InTrees(open, *entry))
+            ranks.push_back(Acore::StringFormat("{}:{}", known.EntryId, known.Rank));
+    SendAddonList(player, "RANKS", ranks);
+    uint32 classPoints = 0;
+    uint32 specializationPoints = 0;
+    GetAscensionTalentPointsLeft(player, classPoints, specializationPoints);
+    SendAddon(player, Acore::StringFormat("POINTS {} {}", classPoints, specializationPoints));
+    SendAddon(player, "DONE");
+}
+
+void LearnFromAddon(Player* player, uint32 entryId, uint32 rank)
+{
+    AscensionCompatData::CoATalentEntry const* entry = FindCatalogEntry(entryId);
+    if (!entry || !InTrees(OpenTreesOf(player), *entry) || !(entry->AECost || entry->TECost) ||
+        rank > entry->SpellCount)
+    {
+        SendAddon(player, "RESULT 0 That talent is not in your borrowed trees.");
+        SendSubclassState(player);
+        return;
+    }
+    std::vector<AscensionCoATalentState::KnownEntry> build = GetAscensionKnownTalentEntries(player);
+    auto known = std::find_if(build.begin(), build.end(), [entryId](AscensionCoATalentState::KnownEntry const& item)
+    {
+        return item.EntryId == entryId;
+    });
+    if (known != build.end())
+        known->Rank = rank;
+    else
+        build.push_back({ entryId, rank });
+    std::string refusal;
+    bool const applied = ApplyAscensionTalentBuild(player, build, refusal);
+    SendAddon(player, applied ? std::string("RESULT 1") : "RESULT 0 " + refusal);
+    SendSubclassState(player);
+}
+
+void HandleAddonMessage(Player* player, std::string_view message)
+{
+    if (message == "SYNC")
+    {
+        SendSubclassState(player);
+        return;
+    }
+    std::vector<std::string_view> const words = Acore::Tokenize(message, ' ', false);
+    if (words.size() == 3 && words[0] == "LEARN")
+        if (Optional<uint32> entryId = Acore::StringTo<uint32>(words[1]))
+            if (Optional<uint32> rank = Acore::StringTo<uint32>(words[2]))
+                LearnFromAddon(player, *entryId, *rank);
+}
+
+bool OwnClassGrants(Player const* player, uint32 spellId)
+{
+    return std::any_of(AscensionCompatData::ClassSpells.begin(), AscensionCompatData::ClassSpells.end(),
+        [player, spellId](AscensionCompatData::ClassSpell const& spell)
+        {
+            return spell.ClassId == player->getClass() && spell.SpellId == spellId;
+        });
+}
+
+uint32 ForgetBorrowedBaseSpells(Player* player, uint8 subClass)
+{
+    uint32 removed = 0;
+    for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)
+        if (spell.ClassId == subClass && player->HasSpell(spell.SpellId) && !OwnClassGrants(player, spell.SpellId))
+        {
+            player->removeSpell(spell.SpellId, SPEC_MASK_ALL, false);
+            ++removed;
+        }
+    return removed;
+}
+
+uint32 SyncBorrowedBaseSpells(Player* player)
+{
+    if (OpenTreesOf(player).empty())
+        return 0;
+    uint8 const subClass = ChoiceOf(player).SubClass;
+    uint32 learned = 0;
+    for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)
+        if (spell.ClassId == subClass && spell.RequiredLevel <= player->GetLevel() &&
+            !player->HasSpell(spell.SpellId) && sSpellMgr->GetSpellInfo(spell.SpellId))
+        {
+            player->learnSpell(spell.SpellId, false);
+            ++learned;
+        }
+    return learned;
+}
+
 uint32 ApplyChoice(Player* player, Subclass::Choice const& wanted)
 {
     Record record = RecordOf(player);
-    uint32 const removed = record.Choice == wanted ? 0 : ForgetBorrowedTrees(player, record.Choice);
+    uint32 removed = record.Choice == wanted ? 0 : ForgetBorrowedTrees(player, record.Choice);
+    if (record.Choice.SubClass && record.Choice.SubClass != wanted.SubClass)
+        removed += ForgetBorrowedBaseSpells(player, record.Choice.SubClass);
     record.Choice = wanted;
     StoreRecord(player, record);
+    SyncBorrowedBaseSpells(player);
     if (uint32 const active = GetAscensionActiveSpecialization(player))
         SwitchAscensionSpecialization(player, active);
+    SendSubclassState(player);
     return removed;
 }
 
@@ -399,6 +562,7 @@ void AddInsight(Player* player)
     Record record = RecordOf(player);
     ++record.Insights;
     StoreRecord(player, record);
+    SendSubclassState(player);
 }
 
 std::string Describe(Subclass::Choice const& choice)
@@ -535,7 +699,8 @@ void ChooseAtTrainer(Player* player, uint16 specId, uint16 secondSpecId)
     spent.Insights = record.Insights - 1;
     StoreRecord(player, spent);
     handler.PSendSysMessage("{}Ha! Now we know the ways of the {}. {} talent spell(s) of the old way were forgotten. "
-        "(The talent window cannot show borrowed trees yet.)", Head, Describe(wanted), removed);
+        "Spend points in the Second Head tab of Character Advancement, or type /subclass.", Head, Describe(wanted),
+        removed);
     LOG_INFO("module", "mod-subclass: {} chose {} at a trainer", player->GetName(), Describe(wanted));
 }
 
@@ -579,13 +744,15 @@ class mod_subclass_player : public PlayerScript
 {
 public:
     mod_subclass_player() : PlayerScript("mod_subclass_player", { PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_LOGOUT,
-        PLAYERHOOK_ON_DELETE, PLAYERHOOK_ON_LEVEL_CHANGED, PLAYERHOOK_ON_GOSSIP_SELECT })
+        PLAYERHOOK_ON_DELETE, PLAYERHOOK_ON_LEVEL_CHANGED, PLAYERHOOK_ON_GOSSIP_SELECT,
+        PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT })
     {
     }
 
     void OnPlayerLogin(Player* player) override
     {
         TrimChoice(player);
+        SyncBorrowedBaseSpells(player);
         SchedulePrompt(player, 5s);
     }
 
@@ -593,6 +760,20 @@ public:
     {
         if (oldLevel < CurrentSettings().MinLevel)
             SchedulePrompt(player, 1s);
+        SyncBorrowedBaseSpells(player);
+        SendSubclassState(player);
+    }
+
+    bool OnPlayerCanUseChat(Player* player, uint32 type, uint32 language, std::string& message, Player* receiver)
+        override
+    {
+        std::string_view const prefix = AddonPrefix;
+        if (type != CHAT_MSG_WHISPER || language != LANG_ADDON || receiver != player ||
+            message.size() <= prefix.size() || message.compare(0, prefix.size(), prefix) ||
+            message[prefix.size()] != '\t')
+            return true;
+        HandleAddonMessage(player, std::string_view(message).substr(prefix.size() + 1));
+        return false;
     }
 
     void OnPlayerGossipSelect(Player* player, uint32 menuId, uint32 sender, uint32 action) override
@@ -926,6 +1107,7 @@ public:
         Record record = RecordOf(target);
         record.Insights = count;
         StoreRecord(target, record);
+        SendSubclassState(target);
         handler->PSendSysMessage("{} now holds {} insight(s).", target->GetName(), uint32(count));
         return true;
     }

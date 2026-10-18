@@ -10215,6 +10215,39 @@ bool RestoreAscensionSpecializationSignature(Player* player)
     return true;
 }
 
+bool ApplyAscensionTalentBuild(Player* player, std::vector<AscensionCoATalentState::KnownEntry> const& build,
+    std::string& refusal)
+{
+    if (!player || !IsAscensionCustomClass(player))
+    {
+        refusal = "Only CoA classes have a character advancement build.";
+        return false;
+    }
+    auto& service = AscensionClassService::Instance();
+    UpdateEntriesRefusal result;
+    bool const applied = service.ApplyKnownEntriesUpload(player, build, result);
+    if (applied)
+        service.SaveSlot(player);
+    else
+        refusal = result.Detail.empty() ? std::string(result.Result) : result.Detail;
+    service.SendCharacterAdvancementKnownEntries(player);
+    return applied;
+}
+
+bool GetAscensionTalentPointsLeft(Player const* player, uint32& classPoints, uint32& specializationPoints)
+{
+    uint32 classBudget = 0;
+    uint32 specializationBudget = 0;
+    std::string error;
+    if (!player || !AscensionClassService::Instance().TalentBudget(player, classBudget, specializationBudget, error))
+        return false;
+    AscensionCoATalentState::SpentPoints const spent =
+        AscensionCoATalentState::Spent(AscensionClassService::KnownTalentEntries(player));
+    classPoints = classBudget > spent.AE ? classBudget - spent.AE : 0;
+    specializationPoints = specializationBudget > spent.TE ? specializationBudget - spent.TE : 0;
+    return true;
+}
+
 std::vector<AscensionCoATalentState::KnownEntry> GetAscensionKnownTalentEntries(Player const* player)
 {
     return player ? AscensionClassService::KnownTalentEntries(player) :

@@ -34,6 +34,11 @@ void AddAscensionTalentBudgetProvider(AscensionTalentBudgetProvider provider);
 
 AscensionCoATalentState::TalentAccess GetAscensionTalentAccess(Player const* player);
 
+bool ApplyAscensionTalentBuild(Player* player, std::vector<AscensionCoATalentState::KnownEntry> const& build,
+    std::string& refusal);
+
+bool GetAscensionTalentPointsLeft(Player const* player, uint32& classPoints, uint32& specializationPoints);
+
 void ClearAscensionSpecializationSlots(Player* player);
 
 uint32 ForgetAscensionClassTalents(Player* player);
