@@ -35,6 +35,7 @@ constexpr uint32 SenderPrompt = 9530010;
 constexpr uint32 SenderTrainer = 9530011;
 constexpr uint32 SenderClass = 9530012;
 constexpr uint32 SenderSpec = 9530013;
+constexpr uint32 SenderSecondSpec = 9530014;
 constexpr uint32 ActionAccept = 1;
 constexpr uint32 ActionLater = 2;
 constexpr char const* BookScriptName = "item_subclass_book_of_origins";
@@ -69,7 +70,17 @@ constexpr NamedClass Classes[] =
     { 15, "Witch Hunter", "|cff5433cf" },
     { 17, "Knight of Xoroth", "|cfffc0005" },
     { 19, "Templar", "|cfffffab2" },
-    { 21, "Ranger", "|cffbff06b" }
+    { 21, "Ranger", "|cffbff06b" },
+    { 101, "Warrior", "|cffc79c6e" },
+    { 102, "Paladin", "|cfff58cba" },
+    { 103, "Hunter", "|cffabd473" },
+    { 104, "Rogue", "|cfffff569" },
+    { 105, "Priest", "|cffffffff" },
+    { 106, "Death Knight", "|cffc41f3b" },
+    { 107, "Shaman", "|cff0070de" },
+    { 108, "Mage", "|cff69ccf0" },
+    { 109, "Warlock", "|cff9482c9" },
+    { 111, "Druid", "|cffff7d0a" }
 };
 
 struct NamedSpecialization
@@ -143,6 +154,36 @@ constexpr NamedSpecialization SpecializationNames[] =
     { 61, "Engravement" },
     { 62, "Glyphic" },
     { 63, "Riftblade" },
+    { 64, "Arms" },
+    { 65, "Fury" },
+    { 66, "Protection" },
+    { 67, "Holy" },
+    { 68, "Protection" },
+    { 69, "Retribution" },
+    { 70, "Beast Mastery" },
+    { 71, "Marksmanship" },
+    { 72, "Survival" },
+    { 73, "Assassination" },
+    { 74, "Combat" },
+    { 75, "Subtlety" },
+    { 76, "Discipline" },
+    { 77, "Holy" },
+    { 78, "Shadow" },
+    { 79, "Blood" },
+    { 80, "Frost" },
+    { 81, "Unholy" },
+    { 82, "Elemental" },
+    { 83, "Enhancement" },
+    { 84, "Restoration" },
+    { 85, "Arcane" },
+    { 86, "Fire" },
+    { 87, "Frost" },
+    { 88, "Affliction" },
+    { 89, "Destruction" },
+    { 90, "Demonology" },
+    { 91, "Balance" },
+    { 92, "Feral" },
+    { 93, "Restoration" },
     { 95, "Geomancy" },
     { 96, "Dreadnought" },
     { 97, "Black Knight" },
@@ -190,21 +231,55 @@ Subclass::Character CharacterOf(Player const* player)
     return { player->getRace(), player->getGender(), player->getClass(), player->GetLevel() };
 }
 
+uint8 CatalogClassOf(uint8 classId)
+{
+    if (classId >= CLASS_WARRIOR && classId <= CLASS_DRUID && classId != CLASS_HERO)
+        return AscensionCompatData::CoABorrowOnlyClassOf(classId);
+    return classId;
+}
+
+std::vector<Subclass::Tree> const& CatalogSpecializations()
+{
+    static std::vector<Subclass::Tree> const specializations = []
+    {
+        std::vector<Subclass::Tree> found;
+        for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
+        {
+            Subclass::Tree const tree = { entry.ClassId, entry.SpecId };
+            if (entry.SpecId && std::find(found.begin(), found.end(), tree) == found.end())
+                found.push_back(tree);
+        }
+        std::sort(found.begin(), found.end(), [](Subclass::Tree const& left, Subclass::Tree const& right)
+        {
+            return left.SpecId < right.SpecId;
+        });
+        return found;
+    }();
+    return specializations;
+}
+
 bool IsSpecializationOf(uint8 classId, uint16 specId)
 {
-    return specId && std::any_of(AscensionCompatData::CoASpecializations.begin(),
-        AscensionCompatData::CoASpecializations.end(), [classId, specId](auto const& specialization)
-        {
-            return specialization.ClassId == classId && specialization.SpecId == specId;
-        });
+    std::vector<Subclass::Tree> const& specializations = CatalogSpecializations();
+    return specId && std::find(specializations.begin(), specializations.end(), Subclass::Tree{ classId, specId }) !=
+        specializations.end();
 }
 
 uint8 ClassOfSpecialization(uint16 specId)
 {
-    for (auto const& specialization : AscensionCompatData::CoASpecializations)
+    for (Subclass::Tree const& specialization : CatalogSpecializations())
         if (specialization.SpecId == specId)
             return specialization.ClassId;
     return 0;
+}
+
+bool HasClassTree(uint8 classId)
+{
+    return std::any_of(AscensionCompatData::CoATalentEntries.begin(), AscensionCompatData::CoATalentEntries.end(),
+        [classId](AscensionCompatData::CoATalentEntry const& entry)
+        {
+            return entry.ClassId == classId && !entry.SpecId;
+        });
 }
 
 void LoadPairs()
@@ -218,7 +293,7 @@ void LoadPairs()
         {
             Field* fields = result->Fetch();
             loaded.push_back({ fields[0].Get<uint8>(), fields[1].Get<uint8>(), fields[2].Get<uint8>(),
-                fields[3].Get<uint8>(), fields[4].Get<uint16>() });
+                CatalogClassOf(fields[3].Get<uint8>()), fields[4].Get<uint16>() });
         } while (result->NextRow());
     }
 
@@ -238,11 +313,12 @@ Record RecordOf(Player const* player)
 
     Record record;
     if (QueryResult result = CharacterDatabase.Query(
-            "SELECT `sub_class`, `sub_spec`, `tokens` FROM `mod_subclass_character` WHERE `guid` = {}", guid))
+            "SELECT `sub_class`, `sub_spec`, `sub_spec2`, `tokens` FROM `mod_subclass_character` WHERE `guid` = {}",
+            guid))
     {
         Field* fields = result->Fetch();
-        record.Choice = { fields[0].Get<uint8>(), fields[1].Get<uint16>() };
-        record.Insights = fields[2].Get<uint32>();
+        record.Choice = { fields[0].Get<uint8>(), fields[1].Get<uint16>(), fields[2].Get<uint16>() };
+        record.Insights = fields[3].Get<uint32>();
     }
 
     std::lock_guard<std::mutex> lock(subclassMutex);
@@ -261,8 +337,9 @@ void StoreRecord(Player const* player, Record const& record)
         CharacterDatabase.Execute("DELETE FROM `mod_subclass_character` WHERE `guid` = {}", guid);
     else
         CharacterDatabase.Execute(
-            "REPLACE INTO `mod_subclass_character` (`guid`, `sub_class`, `sub_spec`, `tokens`, `chosen_at`) "
-            "VALUES ({}, {}, {}, {}, UNIX_TIMESTAMP())", guid, uint32(record.Choice.SubClass), record.Choice.SubSpec,
+            "REPLACE INTO `mod_subclass_character` (`guid`, `sub_class`, `sub_spec`, `sub_spec2`, `tokens`, "
+            "`chosen_at`) VALUES ({}, {}, {}, {}, {}, UNIX_TIMESTAMP())", guid, uint32(record.Choice.SubClass),
+            record.Choice.SubSpec, record.Choice.SecondSpec,
             std::min<uint32>(record.Insights, 255));
 
     std::lock_guard<std::mutex> lock(subclassMutex);
@@ -282,14 +359,15 @@ std::vector<Subclass::Tree> OpenTreesOf(Player const* player)
     if (!IsAscensionCustomClassId(player->getClass()))
         return {};
     Subclass::Choice const choice = ChoiceOf(player);
+    bool const hasClassTree = HasClassTree(choice.SubClass);
     std::lock_guard<std::mutex> lock(subclassMutex);
-    return Subclass::OpenTrees(settings, pairs, CharacterOf(player), choice);
+    return Subclass::OpenTrees(settings, pairs, CharacterOf(player), choice, hasClassTree);
 }
 
 uint32 ForgetBorrowedTrees(Player* player, Subclass::Choice const& choice)
 {
     uint32 removed = 0;
-    std::vector<Subclass::Tree> const trees = Subclass::BorrowedTrees(choice);
+    std::vector<Subclass::Tree> const trees = Subclass::BorrowedTrees(choice, HasClassTree(choice.SubClass));
     for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
     {
         Subclass::Tree const tree = { uint8(entry.ClassId), uint16(entry.SpecId) };
@@ -327,6 +405,9 @@ std::string Describe(Subclass::Choice const& choice)
 {
     if (choice.Empty())
         return "none";
+    if (!HasClassTree(choice.SubClass))
+        return Acore::StringFormat("{} ({} and {})", ClassName(choice.SubClass), SpecializationName(choice.SubSpec),
+            SpecializationName(choice.SecondSpec));
     return Acore::StringFormat("{} (class tree and {})", ClassName(choice.SubClass),
         SpecializationName(choice.SubSpec));
 }
@@ -385,42 +466,63 @@ void ShowClasses(Player* player, Creature* trainer)
     SendGossipMenuFor(player, ClassTextId, trainer->GetGUID());
 }
 
+constexpr uint32 SecondSpecAction(uint16 firstSpec, uint16 secondSpec)
+{
+    return uint32(firstSpec) << 16 | secondSpec;
+}
+
+void AddSpecializationItems(Player* player, uint8 classId, uint16 firstSpec, bool final)
+{
+    Subclass::Character const character = CharacterOf(player);
+    std::lock_guard<std::mutex> lock(subclassMutex);
+    for (Subclass::Tree const& specialization : CatalogSpecializations())
+    {
+        if (specialization.ClassId != classId || specialization.SpecId == firstSpec ||
+            !Subclass::AllowsSubclass(pairs, character, classId, specialization.SpecId))
+            continue;
+        std::string const text = firstSpec ?
+            Acore::StringFormat("{}: {} and {}", ClassName(classId), SpecializationName(firstSpec),
+                SpecializationName(specialization.SpecId)) :
+            Acore::StringFormat("{}: {}", ClassName(classId), SpecializationName(specialization.SpecId));
+        uint32 const sender = firstSpec ? SenderSecondSpec : SenderSpec;
+        uint32 const action = firstSpec ? SecondSpecAction(firstSpec, specialization.SpecId) : specialization.SpecId;
+        std::string const confirm = final ? Acore::StringFormat(
+            "Spend one insight of the Book of Origins on {}? Talents from an earlier choice are removed.", text) : "";
+        player->PlayerTalkClass->GetGossipMenu().AddMenuItem(-1, GOSSIP_ICON_TRAINER, text, sender, action, confirm,
+            0);
+    }
+}
+
 void ShowSpecializations(Player* player, Creature* trainer, uint8 classId)
 {
     ClearGossipMenuFor(player);
-    Subclass::Character const character = CharacterOf(player);
-    {
-        std::lock_guard<std::mutex> lock(subclassMutex);
-        for (auto const& specialization : AscensionCompatData::CoASpecializations)
-            if (specialization.ClassId == classId &&
-                Subclass::AllowsSubclass(pairs, character, classId, specialization.SpecId))
-            {
-                std::string const text = Acore::StringFormat("{}: {}", ClassName(classId),
-                    SpecializationName(specialization.SpecId));
-                std::string const confirm = Acore::StringFormat(
-                    "Spend one insight of the Book of Origins on {}? Talents from an earlier choice are removed.",
-                    SpecializationName(specialization.SpecId));
-                player->PlayerTalkClass->GetGossipMenu().AddMenuItem(-1, GOSSIP_ICON_TRAINER, text, SenderSpec,
-                    specialization.SpecId, confirm, 0);
-            }
-    }
+    AddSpecializationItems(player, classId, 0, HasClassTree(classId));
     SendGossipMenuFor(player, SpecTextId, trainer->GetGUID());
 }
 
-void ChooseAtTrainer(Player* player, uint16 specId)
+void ShowSecondSpecializations(Player* player, Creature* trainer, uint16 firstSpec)
+{
+    ClearGossipMenuFor(player);
+    AddSpecializationItems(player, ClassOfSpecialization(firstSpec), firstSpec, true);
+    SendGossipMenuFor(player, SpecTextId, trainer->GetGUID());
+}
+
+void ChooseAtTrainer(Player* player, uint16 specId, uint16 secondSpecId)
 {
     CloseGossipMenuFor(player);
     ChatHandler handler(player->GetSession());
     uint8 const classId = ClassOfSpecialization(specId);
     Record const record = RecordOf(player);
-    Subclass::Choice const wanted = { classId, specId };
+    Subclass::Choice const wanted = { classId, specId, secondSpecId };
+    bool const hasClassTree = HasClassTree(classId);
     bool allowed = false;
     {
         std::lock_guard<std::mutex> lock(subclassMutex);
-        allowed = Subclass::AllowsSubclass(pairs, CharacterOf(player), classId, specId) &&
-            player->GetLevel() >= settings.MinLevel;
+        allowed = Subclass::AllowsChoice(pairs, CharacterOf(player), wanted) &&
+            !Subclass::BorrowedTrees(wanted, hasClassTree).empty() && player->GetLevel() >= settings.MinLevel;
     }
-    if (!record.Insights || !allowed || !IsSpecializationOf(classId, specId))
+    if (!record.Insights || !allowed || !IsSpecializationOf(classId, specId) ||
+        (secondSpecId && !IsSpecializationOf(classId, secondSpecId)))
     {
         handler.SendSysMessage("Your heads cannot agree on that.");
         return;
@@ -431,7 +533,7 @@ void ChooseAtTrainer(Player* player, uint16 specId)
     spent.Insights = record.Insights - 1;
     StoreRecord(player, spent);
     handler.PSendSysMessage("{}Ha! Now we know the ways of the {}. {} talent spell(s) of the old way were forgotten. "
-        "Log out and back in to see it in your talents.", Head, Describe(wanted), removed);
+        "(The talent window cannot show borrowed trees yet.)", Head, Describe(wanted), removed);
     LOG_INFO("module", "mod-subclass: {} chose {} at a trainer", player->GetName(), Describe(wanted));
 }
 
@@ -602,7 +704,13 @@ public:
                 ShowSpecializations(player, creature, uint8(action));
                 return true;
             case SenderSpec:
-                ChooseAtTrainer(player, uint16(action));
+                if (HasClassTree(ClassOfSpecialization(uint16(action))))
+                    ChooseAtTrainer(player, uint16(action), 0);
+                else
+                    ShowSecondSpecializations(player, creature, uint16(action));
+                return true;
+            case SenderSecondSpec:
+                ChooseAtTrainer(player, uint16(action >> 16), uint16(action & 0xFFFF));
                 return true;
             default:
                 return false;
@@ -694,10 +802,11 @@ public:
         return true;
     }
 
-    static bool HandleSpecs(ChatHandler* handler, uint8 classId)
+    static bool HandleSpecs(ChatHandler* handler, uint8 requestedClassId)
     {
+        uint8 const classId = CatalogClassOf(requestedClassId);
         std::string list;
-        for (auto const& specialization : AscensionCompatData::CoASpecializations)
+        for (Subclass::Tree const& specialization : CatalogSpecializations())
             if (specialization.ClassId == classId)
                 list += Acore::StringFormat(" {}={}", specialization.SpecId, SpecializationName(specialization.SpecId));
         if (list.empty())
@@ -709,14 +818,15 @@ public:
         return true;
     }
 
-    static bool HandleSet(ChatHandler* handler, uint8 subClass, uint16 subSpec)
+    static bool HandleSet(ChatHandler* handler, uint8 requestedSubClass, uint16 subSpec, Optional<uint16> secondSpec)
     {
         Player* target = Target(handler);
         if (!target)
             return false;
+        uint8 const subClass = CatalogClassOf(requestedSubClass);
 
         Subclass::Character const character = CharacterOf(target);
-        Subclass::Choice const wanted = { subClass, subSpec };
+        Subclass::Choice const wanted = { subClass, subSpec, secondSpec.value_or(0) };
         if (!wanted.Empty())
         {
             if (!IsAscensionCustomClassId(character.Class))
@@ -724,14 +834,21 @@ public:
                 handler->SendErrorMessage("Only CoA classes can have a subclass.");
                 return false;
             }
-            if (!IsSpecializationOf(subClass, subSpec))
+            if (!IsSpecializationOf(subClass, subSpec) ||
+                (wanted.SecondSpec && !IsSpecializationOf(subClass, wanted.SecondSpec)))
             {
-                handler->SendErrorMessage("Specialization {} does not belong to class {}.", subSpec,
-                    uint32(subClass));
+                handler->SendErrorMessage("Those specializations do not belong to class {}.",
+                    uint32(requestedSubClass));
+                return false;
+            }
+            if (Subclass::BorrowedTrees(wanted, HasClassTree(subClass)).empty())
+            {
+                handler->SendErrorMessage("A standard class lends two different specializations: "
+                    ".subclass set <class> <spec> <second spec>.");
                 return false;
             }
             std::lock_guard<std::mutex> lock(subclassMutex);
-            if (!Subclass::AllowsSubclass(pairs, character, subClass, subSpec))
+            if (!Subclass::AllowsChoice(pairs, character, wanted))
             {
                 handler->SendErrorMessage("This character may not borrow that class and specialization.");
                 return false;
@@ -744,14 +861,14 @@ public:
         }
 
         uint32 const removed = ApplyChoice(target, wanted);
-        handler->PSendSysMessage("{}: subclass set to {} ({} old borrowed talent spell(s) removed). Relog to "
-            "refresh the talent window.", target->GetName(), Describe(wanted), removed);
+        handler->PSendSysMessage("{}: subclass set to {} ({} old borrowed talent spell(s) removed).",
+            target->GetName(), Describe(wanted), removed);
         return true;
     }
 
     static bool HandleClear(ChatHandler* handler)
     {
-        return HandleSet(handler, 0, 0);
+        return HandleSet(handler, 0, 0, std::nullopt);
     }
 
     static bool HandleSpec(ChatHandler* handler, uint16 specId)
@@ -836,10 +953,14 @@ void AddSC_mod_subclass()
     });
     AddAscensionTalentBudgetProvider([](Player const* player, uint32& classPoints, uint32& specializationPoints)
     {
-        if (OpenTreesOf(player).empty())
+        std::vector<Subclass::Tree> const open = OpenTreesOf(player);
+        if (open.empty())
             return;
+        bool const borrowsClassTree = std::any_of(open.begin(), open.end(), [](Subclass::Tree const& tree)
+        {
+            return !tree.SpecId;
+        });
         std::lock_guard<std::mutex> lock(subclassMutex);
-        classPoints += Subclass::BonusPoints(settings, classPoints);
-        specializationPoints += Subclass::BonusPoints(settings, specializationPoints);
+        Subclass::AddBonusPoints(settings, borrowsClassTree, classPoints, specializationPoints);
     });
 }

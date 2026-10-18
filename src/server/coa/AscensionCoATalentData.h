@@ -7,6 +7,18 @@
 
 namespace AscensionCompatData
 {
+constexpr std::uint8_t CoABorrowOnlyClassBase = 100;
+
+constexpr std::uint8_t CoABorrowOnlyClassOf(std::uint8_t classId)
+{
+    return std::uint8_t(CoABorrowOnlyClassBase + classId);
+}
+
+constexpr bool IsCoABorrowOnlyClass(std::uint8_t catalogClassId)
+{
+    return catalogClassId > CoABorrowOnlyClassBase;
+}
+
 struct CoATalentEntry
 {
     std::uint32_t EntryId;

@@ -40,22 +40,49 @@ TEST(Subclass, TheSubclassMustBeAnotherAllowedClass)
 TEST(Subclass, BorrowedTreesAreTheClassTreeAndTheChosenSpecialization)
 {
     std::vector<Tree> const trees = { { 23, 0 }, { 23, 34 } };
-    EXPECT_EQ(BorrowedTrees(NecromancerDeath), trees);
-    EXPECT_TRUE(BorrowedTrees({ 23, 0 }).empty());
-    EXPECT_TRUE(BorrowedTrees({}).empty());
+    EXPECT_EQ(BorrowedTrees(NecromancerDeath, true), trees);
+    EXPECT_TRUE(BorrowedTrees({ 23, 0 }, true).empty());
+    EXPECT_TRUE(BorrowedTrees({}, true).empty());
+}
+
+TEST(Subclass, ClassesWithoutAClassTreeLendOnlyTheChosenSpecialization)
+{
+    std::vector<Tree> const fireAndFrost = { { 108, 86 }, { 108, 87 } };
+    EXPECT_EQ(BorrowedTrees({ 108, 86, 87 }, false), fireAndFrost);
+    EXPECT_EQ(OpenTrees(Settings{}, FemaleOgres, FemaleOgreBarbarian, { 108, 86, 87 }, false), fireAndFrost);
+    EXPECT_TRUE(BorrowedTrees({ 108, 87 }, false).empty());
+    EXPECT_TRUE(BorrowedTrees({ 108, 87, 87 }, false).empty());
+    std::vector<Pair> const fireOnly = { { 53, GenderMaskFemale, 0, 108, 86 } };
+    EXPECT_TRUE(OpenTrees(Settings{}, fireOnly, FemaleOgreBarbarian, { 108, 86, 87 }, false).empty());
+}
+
+TEST(Subclass, ABorrowedClassWithoutAClassTreeTurnsItsClassPointsIntoSpecializationPoints)
+{
+    Settings settings;
+    std::uint32_t classPoints = 36;
+    std::uint32_t specializationPoints = 35;
+    AddBonusPoints(settings, false, classPoints, specializationPoints);
+    EXPECT_EQ(classPoints, 36u);
+    EXPECT_EQ(specializationPoints, 106u);
+    classPoints = 36;
+    specializationPoints = 35;
+    AddBonusPoints(settings, true, classPoints, specializationPoints);
+    EXPECT_EQ(classPoints, 72u);
+    EXPECT_EQ(specializationPoints, 70u);
 }
 
 TEST(Subclass, TreesOpenOnlyWhenCompleteEligibleAndLevelled)
 {
     Settings settings;
-    EXPECT_EQ(OpenTrees(settings, FemaleOgres, FemaleOgreBarbarian, NecromancerDeath), BorrowedTrees(NecromancerDeath));
-    EXPECT_TRUE(OpenTrees(settings, FemaleOgres, MaleOgreBarbarian, NecromancerDeath).empty());
-    EXPECT_TRUE(OpenTrees(settings, FemaleOgres, { 53, 1, 12, 19 }, NecromancerDeath).empty());
-    EXPECT_FALSE(OpenTrees(settings, FemaleOgres, { 53, 1, 12, 20 }, NecromancerDeath).empty());
-    EXPECT_TRUE(OpenTrees(settings, FemaleOgres, { 53, 1, 23, 80 }, NecromancerDeath).empty());
-    EXPECT_TRUE(OpenTrees(settings, FemaleOgres, FemaleOgreBarbarian, {}).empty());
+    EXPECT_EQ(OpenTrees(settings, FemaleOgres, FemaleOgreBarbarian, NecromancerDeath, true),
+        BorrowedTrees(NecromancerDeath, true));
+    EXPECT_TRUE(OpenTrees(settings, FemaleOgres, MaleOgreBarbarian, NecromancerDeath, true).empty());
+    EXPECT_TRUE(OpenTrees(settings, FemaleOgres, { 53, 1, 12, 19 }, NecromancerDeath, true).empty());
+    EXPECT_FALSE(OpenTrees(settings, FemaleOgres, { 53, 1, 12, 20 }, NecromancerDeath, true).empty());
+    EXPECT_TRUE(OpenTrees(settings, FemaleOgres, { 53, 1, 23, 80 }, NecromancerDeath, true).empty());
+    EXPECT_TRUE(OpenTrees(settings, FemaleOgres, FemaleOgreBarbarian, {}, true).empty());
     settings.Enabled = false;
-    EXPECT_TRUE(OpenTrees(settings, FemaleOgres, FemaleOgreBarbarian, NecromancerDeath).empty());
+    EXPECT_TRUE(OpenTrees(settings, FemaleOgres, FemaleOgreBarbarian, NecromancerDeath, true).empty());
 }
 
 TEST(Subclass, BonusPointsFollowTheConfiguredPercentage)

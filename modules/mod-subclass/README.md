@@ -39,7 +39,7 @@ compile.
 |---|---|
 | `.subclass info` | Selected player (or you): race, gender, class, active specialization, eligibility, choice. |
 | `.subclass specs <classId>` | Lists the specialization ids of a class. |
-| `.subclass set <subClass> <subSpec>` | Opens the Class tree of `subClass` and its specialization `subSpec`. |
+| `.subclass set <class> <spec> [spec2]` | A CoA class lends its Class tree and `spec`; a standard class (1-11) lends `spec` and `spec2`. |
 | `.subclass clear` | Removes the subclass and the talents learned in its trees. |
 | `.subclass spec <specId>` | Switches the own active specialization (testing). |
 | `.subclass learn <entryId> <rank>` | Sets a talent rank server-side (testing; no budget check). |
@@ -60,7 +60,19 @@ so the talent window reloads.
 - Resources, proficiencies, class spells and the starter kit stay those of the main class. Borrowed abilities that
   depend on the other class's resource or class scripts may not work yet; that is the balancing phase.
 
+## Standard classes
+
+The ten standard classes (Warrior 1 ... Druid 11) have no Class tree. Their Warcraft Reborn trees from
+`CharacterAdvancement.dbc` load into the CoA catalog under borrow-only class ids (100 + class, e.g. Mage = 108), which no
+character has, so only a granted extra tree opens them. Borrowing one opens two of its three specializations, and the
+bonus class points become specialization points. In `mod_subclass_pair.sub_class` use the normal class id (8 for Mage).
+
 ## Known limits
+
+- The game's own talent window shows only the character's own trees; borrowed trees need a second Character
+  Advancement tab (planned addon). Saving from the window keeps borrowed talents it does not show.
+- The borrowed class's resource (rage, energy, runes, CoA resources), its resource UI and its spellbook tabs are not
+  added yet.
 
 - The CoA talent window draws the own class tree and active specialization only. Showing the borrowed trees needs
   client work (an addon or a DBC patch); until then use the GM commands to test.

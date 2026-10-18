@@ -139,7 +139,7 @@ int main(int, char** argv)
 
     std::set<std::uint8_t> specializedClasses;
     for (CoATalentEntry const& entry : CoATalentEntries)
-        if (entry.SpecId)
+        if (entry.SpecId && !IsCoABorrowOnlyClass(entry.ClassId))
             specializedClasses.insert(entry.ClassId);
     std::set<std::uint8_t> identifiedClasses;
     bool identitiesBelong = !CoASpecializations.empty();
@@ -160,6 +160,31 @@ int main(int, char** argv)
     Check(identifiedClasses == specializedClasses, "every class with specialization talents has identity entries");
     Check(switchesDetected,
           "a switch upload names exactly the specialization it enters and chooses none of its talents");
+
+    {
+        std::uint8_t const borrowedMage = CoABorrowOnlyClassOf(8);
+        CoATalentEntry const* frostTalent = nullptr;
+        bool borrowedClassTree = false;
+        for (CoATalentEntry const& entry : CoATalentEntries)
+        {
+            if (entry.ClassId != borrowedMage)
+                continue;
+            borrowedClassTree = borrowedClassTree || !entry.SpecId;
+            if (!frostTalent && entry.SpecId == 87 && entry.TECost)
+                frostTalent = &entry;
+        }
+        Check(frostTalent && !borrowedClassTree,
+              "standard class trees load as borrow-only specializations without a class tree");
+        Check(KnownEntries(8, [](std::uint32_t) { return true; }).empty(),
+              "a standard class character owns no borrow-only entries");
+        TalentAccess borrowing{ 31, 58, { { borrowedMage, 87 } }, {} };
+        TalentAccess native{ 31, 58, {}, {} };
+        Check(frostTalent && IsTreeOpen(borrowing, *frostTalent) && OwnsEntry(borrowing, *frostTalent) &&
+              !IsTreeOpen(native, *frostTalent) && !OwnsEntry(native, *frostTalent),
+              "a borrowed standard specialization opens only through an extra tree");
+        Check(frostTalent && WithoutExtraTrees(borrowing, { { frostTalent->EntryId, 1 } }).empty(),
+              "the native talent window is not sent borrowed entries");
+    }
 
     CoATalentEntry const* classTalent = spec ? FirstPaid(spec->ClassId, true) : nullptr;
     std::vector<CoASpecialization> specializations;

@@ -114,6 +114,16 @@ struct AdvancementClassType
     uint32 ClassId;
     bool IsCustomClass;
 };
+
+bool IsCoAClassType(AdvancementClassType const& classType)
+{
+    return classType.IsCustomClass && classType.ClassId >= 12 && classType.ClassId <= 32;
+}
+
+bool IsBorrowOnlyClassType(AdvancementClassType const& classType)
+{
+    return !classType.IsCustomClass && classType.ClassId >= 1 && classType.ClassId <= 11 && classType.ClassId != 10;
+}
 }
 
 bool GetCoATalentBudget(std::uint8_t classId, std::uint8_t level, std::uint32_t& ae, std::uint32_t& te)
@@ -210,11 +220,13 @@ bool LoadCoATalentData()
         ClientDBC::Record record = advancement.GetRecord(row);
         uint32 const entryId = record.GetUInt32(ADVANCEMENT_ID);
         auto classType = classTypeById.find(record.GetUInt32(ADVANCEMENT_CLASS_TYPE));
-        if (classType == classTypeById.end() || !classType->second.IsCustomClass ||
-            classType->second.ClassId < 12 || classType->second.ClassId > 32)
+        if (classType == classTypeById.end() ||
+            (!IsCoAClassType(classType->second) && !IsBorrowOnlyClassType(classType->second)))
             continue;
 
         uint32 const classId = classType->second.ClassId;
+        uint8 const catalogClassId = IsCoAClassType(classType->second) ? uint8(classId) :
+            CoABorrowOnlyClassOf(uint8(classId));
         uint32 const tab = record.GetUInt32(ADVANCEMENT_TAB);
         uint32 specId = 0;
         if (tab != SHARED_CLASS_TAB_ID)
@@ -227,7 +239,7 @@ bool LoadCoATalentData()
 
         Node node{};
         node.Entry.EntryId = entryId;
-        node.Entry.ClassId = uint8(classId);
+        node.Entry.ClassId = catalogClassId;
         node.Entry.SpecId = uint16(specId);
         node.Entry.AECost = uint8(record.GetUInt32(ADVANCEMENT_AE_COST));
         node.Entry.TECost = uint8(record.GetUInt32(ADVANCEMENT_TE_COST));

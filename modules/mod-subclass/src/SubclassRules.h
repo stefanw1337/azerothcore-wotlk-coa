@@ -35,8 +35,9 @@ struct Choice
 {
     std::uint8_t SubClass = 0;
     std::uint16_t SubSpec = 0;
+    std::uint16_t SecondSpec = 0;
 
-    bool Empty() const { return !SubClass && !SubSpec; }
+    bool Empty() const { return !SubClass && !SubSpec && !SecondSpec; }
     bool Complete() const { return SubClass && SubSpec; }
     bool operator==(Choice const&) const = default;
 };
@@ -88,20 +89,30 @@ inline bool AllowsSubclass(std::vector<Pair> const& pairs, Character const& char
     });
 }
 
-inline std::vector<Tree> BorrowedTrees(Choice const& choice)
+inline bool AllowsChoice(std::vector<Pair> const& pairs, Character const& character, Choice const& choice)
+{
+    return AllowsSubclass(pairs, character, choice.SubClass, choice.SubSpec) && (!choice.SecondSpec ||
+        (choice.SecondSpec != choice.SubSpec && AllowsSubclass(pairs, character, choice.SubClass, choice.SecondSpec)));
+}
+
+inline std::vector<Tree> BorrowedTrees(Choice const& choice, bool hasClassTree)
 {
     if (!choice.Complete())
         return {};
-    return { { choice.SubClass, 0 }, { choice.SubClass, choice.SubSpec } };
+    if (hasClassTree)
+        return { { choice.SubClass, 0 }, { choice.SubClass, choice.SubSpec } };
+    if (!choice.SecondSpec || choice.SecondSpec == choice.SubSpec)
+        return {};
+    return { { choice.SubClass, choice.SubSpec }, { choice.SubClass, choice.SecondSpec } };
 }
 
 inline std::vector<Tree> OpenTrees(Settings const& settings, std::vector<Pair> const& pairs,
-    Character const& character, Choice const& choice)
+    Character const& character, Choice const& choice, bool hasClassTree)
 {
     if (!settings.Enabled || character.Level < settings.MinLevel || !choice.Complete() ||
-        !AllowsSubclass(pairs, character, choice.SubClass, choice.SubSpec))
+        !AllowsChoice(pairs, character, choice))
         return {};
-    return BorrowedTrees(choice);
+    return BorrowedTrees(choice, hasClassTree);
 }
 
 inline std::uint32_t BonusPoints(Settings const& settings, std::uint32_t points)
@@ -133,9 +144,21 @@ inline bool AllowsAnySpecializationOf(std::vector<Pair> const& pairs, Character 
     });
 }
 
+inline void AddBonusPoints(Settings const& settings, bool borrowsClassTree, std::uint32_t& classPoints,
+    std::uint32_t& specializationPoints)
+{
+    std::uint32_t const classBonus = BonusPoints(settings, classPoints);
+    std::uint32_t const specializationBonus = BonusPoints(settings, specializationPoints);
+    if (borrowsClassTree)
+        classPoints += classBonus;
+    else
+        specializationPoints += classBonus;
+    specializationPoints += specializationBonus;
+}
+
 inline Choice Trimmed(std::vector<Pair> const& pairs, Character const& character, Choice const& choice)
 {
-    if (!choice.Complete() || !AllowsSubclass(pairs, character, choice.SubClass, choice.SubSpec))
+    if (!choice.Complete() || !AllowsChoice(pairs, character, choice))
         return {};
     return choice;
 }

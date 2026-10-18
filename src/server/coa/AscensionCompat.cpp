@@ -1770,7 +1770,8 @@ public:
   uint32 SendKnownTalentEntries(Player* player)
   {
     SendResetCredits(player);
-    std::vector<AscensionCoATalentState::KnownEntry> const known = KnownTalentEntries(player);
+    std::vector<AscensionCoATalentState::KnownEntry> const known =
+        AscensionCoATalentState::WithoutExtraTrees(AccessOf(player), KnownTalentEntries(player));
     std::vector<uint8> const body = AscensionCoATalentState::KnownEntriesPayload(known);
     WorldPacket packet(SMSG_CHARACTER_ADVANCEMENT_KNOWN_ENTRIES, body.size());
     packet.append(body.data(), body.size());
@@ -2063,7 +2064,9 @@ public:
       if (!AscensionCoATalentState::OwnsEntry(access, entry) || (!entry.AECost && !entry.TECost))
         continue;
       auto itr = wanted.find(entry.EntryId);
-      uint32 const rank = std::max(itr == wanted.end() ? 0 : itr->second, PersistentRank(player, entry));
+      uint32 rank = std::max(itr == wanted.end() ? 0 : itr->second, PersistentRank(player, entry));
+      if (!received.contains(entry.EntryId) && AscensionCoATalentState::IsExtraTree(access, entry))
+        rank = std::max(rank, KnownRank(player, entry));
       if (rank)
         priced.push_back({ entry.EntryId, rank });
     }
