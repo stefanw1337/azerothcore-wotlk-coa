@@ -1311,15 +1311,17 @@ local function WatchPreviewModel(model)
     if model.subclassTwinWatched then
         return
     end
-    for _, method in ipairs({ "Dress", "SetUnit", "RefreshUnit" }) do
-        if type(model[method]) == "function" then
-            hooksecurefunc(model, method, function()
-                if dressingTwin then
-                    twinRedressPending = true
-                end
-            end)
+    local function Redress()
+        if dressingTwin then
+            twinRedressPending = true
         end
     end
+    for _, method in ipairs({ "Dress", "SetUnit", "RefreshUnit" }) do
+        if type(model[method]) == "function" then
+            hooksecurefunc(model, method, Redress)
+        end
+    end
+    model:HookScript("OnShow", Redress)
     model.subclassTwinWatched = true
 end
 
@@ -1384,6 +1386,12 @@ twinApplyKeeper:SetScript("OnUpdate", function(self, elapsed)
     self.scan = (self.scan or 0) + 1
     if self.scan % 10 == 1 and wardrobeFrame then
         self.warnings = OwnSlotWarnings(wardrobeFrame)
+        for _, model in ipairs(FindPreviewModels(wardrobeFrame)) do
+            if not model.subclassTwinWatched then
+                WatchPreviewModel(model)
+                twinRedressPending = true
+            end
+        end
     end
     for _, warning in ipairs(self.warnings or {}) do
         if warning:IsShown() then
