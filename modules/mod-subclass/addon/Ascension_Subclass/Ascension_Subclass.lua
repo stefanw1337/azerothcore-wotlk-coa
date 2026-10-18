@@ -837,13 +837,15 @@ local function AttachToWindow()
         end
         panel:Show()
     end)
+    local function LeavePanel()
+        panel:Hide()
+        if tab.SetChecked then
+            tab:SetChecked(false)
+        end
+    end
     for _, other in ipairs(tabs) do
-        other:HookScript("OnClick", function()
-            panel:Hide()
-            if tab.SetChecked then
-                tab:SetChecked(false)
-            end
-        end)
+        other:HookScript("OnClick", LeavePanel)
+        other:HookScript("OnMouseDown", LeavePanel)
     end
     window:HookScript("OnHide", function() panel:Hide() end)
     return true
@@ -1436,6 +1438,11 @@ local function DumpTabs()
         end
         Ascension_SubclassDump.trees[index] = { title = tree.title, entries = entries }
     end
+    Ascension_SubclassDump.api = {}
+    for name, value in pairs(C_CharacterAdvancement or {}) do
+        Ascension_SubclassDump.api[#Ascension_SubclassDump.api + 1] = name .. " " .. type(value)
+    end
+    table.sort(Ascension_SubclassDump.api)
     DEFAULT_CHAT_FRAME:AddMessage("Ascension Subclass: tab layout saved. /reload to write it to disk.")
 end
 

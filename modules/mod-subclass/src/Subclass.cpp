@@ -51,7 +51,6 @@ constexpr uint32 SenderPrompt = 9530010;
 constexpr uint32 SenderTrainer = 9530011;
 constexpr uint32 SenderClass = 9530012;
 constexpr uint32 SenderSpec = 9530013;
-constexpr uint32 SenderSecondSpec = 9530014;
 constexpr uint32 ActionAccept = 1;
 constexpr uint32 ActionLater = 2;
 constexpr char const* BookScriptName = "item_subclass_book_of_origins";
@@ -336,6 +335,20 @@ bool HasClassTree(uint8 classId)
         });
 }
 
+std::vector<uint16> SpecsOf(uint8 classId)
+{
+    std::vector<uint16> specs;
+    for (Subclass::Tree const& specialization : CatalogSpecializations())
+        if (specialization.ClassId == classId)
+            specs.push_back(specialization.SpecId);
+    return specs;
+}
+
+std::vector<Subclass::Tree> BorrowedTreesOf(Subclass::Choice const& choice)
+{
+    return Subclass::BorrowedTrees(choice, HasClassTree(choice.SubClass), SpecsOf(choice.SubClass));
+}
+
 bool StoryTableExists()
 {
     return bool(WorldDatabase.Query("SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND "
@@ -491,13 +504,13 @@ std::vector<Subclass::Tree> OpenTreesOf(Player const* player)
     Subclass::Choice const choice = ChoiceOf(player);
     bool const hasClassTree = HasClassTree(choice.SubClass);
     std::lock_guard<std::mutex> lock(subclassMutex);
-    return Subclass::OpenTrees(settings, pairs, CharacterOf(player), choice, hasClassTree);
+    return Subclass::OpenTrees(settings, pairs, CharacterOf(player), choice, hasClassTree, SpecsOf(choice.SubClass));
 }
 
 uint32 ForgetBorrowedTrees(Player* player, Subclass::Choice const& choice)
 {
     uint32 removed = 0;
-    std::vector<Subclass::Tree> const trees = Subclass::BorrowedTrees(choice, HasClassTree(choice.SubClass));
+    std::vector<Subclass::Tree> const trees = BorrowedTreesOf(choice);
     for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
     {
         Subclass::Tree const tree = { uint8(entry.ClassId), uint16(entry.SpecId) };
@@ -771,8 +784,7 @@ std::string Describe(Subclass::Choice const& choice)
     if (choice.Empty())
         return "none";
     if (!HasClassTree(choice.SubClass))
-        return Acore::StringFormat("{} ({} and {})", ClassName(choice.SubClass), SpecializationName(choice.SubSpec),
-            SpecializationName(choice.SecondSpec));
+        return Acore::StringFormat("{} (all specializations)", ClassName(choice.SubClass));
     return Acore::StringFormat("{} (class tree and {})", ClassName(choice.SubClass),
         SpecializationName(choice.SubSpec));
 }
@@ -832,45 +844,31 @@ void ShowClasses(Player* player, Creature* trainer)
     SendGossipMenuFor(player, VoiceOf(player).ClassText, trainer->GetGUID());
 }
 
-constexpr uint32 SecondSpecAction(uint16 firstSpec, uint16 secondSpec)
-{
-    return uint32(firstSpec) << 16 | secondSpec;
-}
-
-void AddSpecializationItems(Player* player, uint8 classId, uint16 firstSpec, bool final)
+void AddSpecializationItems(Player* player, uint8 classId)
 {
     Subclass::Character const character = CharacterOf(player);
     std::string const relic = RelicName(SettingsOf(player).BookItemId);
     std::lock_guard<std::mutex> lock(subclassMutex);
+    bool const lendsAll = !HasClassTree(classId);
     for (Subclass::Tree const& specialization : CatalogSpecializations())
     {
-        if (specialization.ClassId != classId || specialization.SpecId == firstSpec ||
+        if (specialization.ClassId != classId ||
             !Subclass::AllowsSubclass(pairs, character, classId, specialization.SpecId))
             continue;
-        std::string const text = firstSpec ?
-            Acore::StringFormat("{}: {} and {}", ClassName(classId), SpecializationName(firstSpec),
-                SpecializationName(specialization.SpecId)) :
+        std::string const text = lendsAll ? Acore::StringFormat("{}: all specializations", ClassName(classId)) :
             Acore::StringFormat("{}: {}", ClassName(classId), SpecializationName(specialization.SpecId));
-        uint32 const sender = firstSpec ? SenderSecondSpec : SenderSpec;
-        uint32 const action = firstSpec ? SecondSpecAction(firstSpec, specialization.SpecId) : specialization.SpecId;
-        std::string const confirm = final ? Acore::StringFormat(
-            "Spend one insight of the {} on {}? Talents from an earlier choice are removed.", relic, text) : "";
-        player->PlayerTalkClass->GetGossipMenu().AddMenuItem(-1, GOSSIP_ICON_TRAINER, text, sender, action, confirm,
-            0);
+        player->PlayerTalkClass->GetGossipMenu().AddMenuItem(-1, GOSSIP_ICON_TRAINER, text, SenderSpec,
+            specialization.SpecId, Acore::StringFormat("Spend one insight of the {} on {}? Talents from an "
+            "earlier choice are removed.", relic, text), 0);
+        if (lendsAll)
+            return;
     }
 }
 
 void ShowSpecializations(Player* player, Creature* trainer, uint8 classId)
 {
     ClearGossipMenuFor(player);
-    AddSpecializationItems(player, classId, 0, HasClassTree(classId));
-    SendGossipMenuFor(player, VoiceOf(player).SpecText, trainer->GetGUID());
-}
-
-void ShowSecondSpecializations(Player* player, Creature* trainer, uint16 firstSpec)
-{
-    ClearGossipMenuFor(player);
-    AddSpecializationItems(player, ClassOfSpecialization(firstSpec), firstSpec, true);
+    AddSpecializationItems(player, classId);
     SendGossipMenuFor(player, VoiceOf(player).SpecText, trainer->GetGUID());
 }
 
@@ -887,7 +885,7 @@ void ChooseAtTrainer(Player* player, uint16 specId, uint16 secondSpecId)
         std::lock_guard<std::mutex> lock(subclassMutex);
         allowed = (settings.StandardClasses || !AscensionCompatData::IsCoABorrowOnlyClass(classId)) &&
             Subclass::AllowsChoice(pairs, CharacterOf(player), wanted) &&
-            !Subclass::BorrowedTrees(wanted, hasClassTree).empty() && player->GetLevel() >= settings.MinLevel;
+            !BorrowedTreesOf(wanted).empty() && player->GetLevel() >= settings.MinLevel;
     }
     if (!record.Insights || !allowed || !IsSpecializationOf(classId, specId) ||
         (secondSpecId && !IsSpecializationOf(classId, secondSpecId)))
@@ -955,8 +953,7 @@ bool IsBorrowedSpell(Player const* player, uint32 spellId)
     for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)
         if (spell.ClassId == record.Choice.SubClass && spell.SpellId == spellId)
             return true;
-    std::vector<Subclass::Tree> const trees = Subclass::BorrowedTrees(record.Choice,
-        HasClassTree(record.Choice.SubClass));
+    std::vector<Subclass::Tree> const trees = BorrowedTreesOf(record.Choice);
     for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
         if (InTrees(trees, entry) &&
             std::find(entry.SpellIds.begin(), entry.SpellIds.end(), spellId) != entry.SpellIds.end())
@@ -979,8 +976,7 @@ std::vector<uint32> KnownBorrowedPassives(Player const* player)
     for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)
         if (spell.ClassId == record.Choice.SubClass)
             consider(spell.SpellId);
-    std::vector<Subclass::Tree> const trees = Subclass::BorrowedTrees(record.Choice,
-        HasClassTree(record.Choice.SubClass));
+    std::vector<Subclass::Tree> const trees = BorrowedTreesOf(record.Choice);
     for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
         if (InTrees(trees, entry))
             for (uint32 spellId : entry.SpellIds)
@@ -1166,13 +1162,7 @@ public:
                 ShowSpecializations(player, creature, uint8(action));
                 return true;
             case SenderSpec:
-                if (HasClassTree(ClassOfSpecialization(uint16(action))))
-                    ChooseAtTrainer(player, uint16(action), 0);
-                else
-                    ShowSecondSpecializations(player, creature, uint16(action));
-                return true;
-            case SenderSecondSpec:
-                ChooseAtTrainer(player, uint16(action >> 16), uint16(action & 0xFFFF));
+                ChooseAtTrainer(player, uint16(action), 0);
                 return true;
             default:
                 return false;
@@ -1303,10 +1293,9 @@ public:
                     uint32(requestedSubClass));
                 return false;
             }
-            if (Subclass::BorrowedTrees(wanted, HasClassTree(subClass)).empty())
+            if (BorrowedTreesOf(wanted).empty())
             {
-                handler->SendErrorMessage("A standard class lends two different specializations: "
-                    ".subclass set <class> <spec> <second spec>.");
+                handler->SendErrorMessage("That class lends no trees: .subclass set <class> <spec>.");
                 return false;
             }
             std::lock_guard<std::mutex> lock(subclassMutex);

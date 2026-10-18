@@ -96,24 +96,27 @@ inline bool AllowsChoice(std::vector<Pair> const& pairs, Character const& charac
         (choice.SecondSpec != choice.SubSpec && AllowsSubclass(pairs, character, choice.SubClass, choice.SecondSpec)));
 }
 
-inline std::vector<Tree> BorrowedTrees(Choice const& choice, bool hasClassTree)
+inline std::vector<Tree> BorrowedTrees(Choice const& choice, bool hasClassTree,
+    std::vector<std::uint16_t> const& classSpecs = {})
 {
     if (!choice.Complete())
         return {};
     if (hasClassTree)
         return { { choice.SubClass, 0 }, { choice.SubClass, choice.SubSpec } };
-    if (!choice.SecondSpec || choice.SecondSpec == choice.SubSpec)
-        return {};
-    return { { choice.SubClass, choice.SubSpec }, { choice.SubClass, choice.SecondSpec } };
+    std::vector<Tree> trees;
+    for (std::uint16_t spec : classSpecs)
+        trees.push_back({ choice.SubClass, spec });
+    return trees;
 }
 
 inline std::vector<Tree> OpenTrees(Settings const& settings, std::vector<Pair> const& pairs,
-    Character const& character, Choice const& choice, bool hasClassTree)
+    Character const& character, Choice const& choice, bool hasClassTree,
+    std::vector<std::uint16_t> const& classSpecs = {})
 {
     if (!settings.Enabled || character.Level < settings.MinLevel || !choice.Complete() ||
         !AllowsChoice(pairs, character, choice))
         return {};
-    return BorrowedTrees(choice, hasClassTree);
+    return BorrowedTrees(choice, hasClassTree, classSpecs);
 }
 
 inline std::uint32_t BonusPoints(Settings const& settings, std::uint32_t points)

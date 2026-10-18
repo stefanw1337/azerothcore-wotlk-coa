@@ -45,15 +45,18 @@ TEST(Subclass, BorrowedTreesAreTheClassTreeAndTheChosenSpecialization)
     EXPECT_TRUE(BorrowedTrees({}, true).empty());
 }
 
-TEST(Subclass, ClassesWithoutAClassTreeLendOnlyTheChosenSpecialization)
+TEST(Subclass, ClassesWithoutAClassTreeLendAllTheirSpecializations)
 {
-    std::vector<Tree> const fireAndFrost = { { 108, 86 }, { 108, 87 } };
-    EXPECT_EQ(BorrowedTrees({ 108, 86, 87 }, false), fireAndFrost);
-    EXPECT_EQ(OpenTrees(Settings{}, FemaleOgres, FemaleOgreBarbarian, { 108, 86, 87 }, false), fireAndFrost);
-    EXPECT_TRUE(BorrowedTrees({ 108, 87 }, false).empty());
-    EXPECT_TRUE(BorrowedTrees({ 108, 87, 87 }, false).empty());
+    std::vector<std::uint16_t> const mageSpecs = { 86, 87, 88 };
+    std::vector<Tree> const arcaneFireFrost = { { 108, 86 }, { 108, 87 }, { 108, 88 } };
+    EXPECT_EQ(BorrowedTrees({ 108, 86 }, false, mageSpecs), arcaneFireFrost);
+    EXPECT_EQ(BorrowedTrees({ 108, 88 }, false, mageSpecs), arcaneFireFrost);
+    EXPECT_EQ(OpenTrees(Settings{}, FemaleOgres, FemaleOgreBarbarian, { 108, 86 }, false, mageSpecs),
+        arcaneFireFrost);
+    EXPECT_TRUE(BorrowedTrees({ 108, 86 }, false).empty());
+    EXPECT_TRUE(BorrowedTrees({ 108, 0 }, false, mageSpecs).empty());
     std::vector<Pair> const fireOnly = { { 53, GenderMaskFemale, 0, 108, 86 } };
-    EXPECT_TRUE(OpenTrees(Settings{}, fireOnly, FemaleOgreBarbarian, { 108, 86, 87 }, false).empty());
+    EXPECT_TRUE(OpenTrees(Settings{}, fireOnly, FemaleOgreBarbarian, { 108, 87 }, false, mageSpecs).empty());
 }
 
 TEST(Subclass, ABorrowedClassWithoutAClassTreeTurnsItsClassPointsIntoSpecializationPoints)
