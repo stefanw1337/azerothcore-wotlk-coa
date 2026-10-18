@@ -17,6 +17,7 @@
 #include "ItemScript.h"
 #include "Log.h"
 #include "ObjectMgr.h"
+#include "Pet.h"
 #include "Player.h"
 #include "PlayerScript.h"
 #include "Random.h"
@@ -565,6 +566,32 @@ void SendAddonList(Player* player, std::string const& head, std::vector<std::str
     }
     if (!line.empty())
         SendAddon(player, head + " " + line);
+}
+
+bool CallsHunterPet(SpellInfo const* info)
+{
+    for (SpellEffectInfo const& effect : info->GetEffects())
+        if (effect.Effect == SPELL_EFFECT_SUMMON_PET && !effect.MiscValue)
+            return true;
+    return false;
+}
+
+void BringBackParkedHunterPet(Player* player)
+{
+    PetStable* stable = player->GetPetStable();
+    if (!stable || stable->CurrentPet || !player->IsClass(CLASS_HUNTER, CLASS_CONTEXT_PET))
+        return;
+    auto parked = [stable]()
+    {
+        return std::find_if(stable->UnslottedPets.begin(), stable->UnslottedPets.end(),
+            [](PetStable::PetInfo const& pet) { return pet.Type == HUNTER_PET; });
+    };
+    if (parked() == stable->UnslottedPets.end())
+        return;
+    if (Pet* other = player->GetPet(); other && other->getPetType() != HUNTER_PET)
+        player->RemovePet(other, PET_SAVE_NOT_IN_SLOT, false);
+    if (auto hunter = parked(); hunter != stable->UnslottedPets.end())
+        std::rotate(stable->UnslottedPets.begin(), hunter, std::next(hunter));
 }
 
 bool HandlesOwnPet(SpellInfo const* info)
@@ -1178,8 +1205,11 @@ public:
     void OnSpellCheckCast(Spell* spell, bool /*strict*/, SpellCastResult& res) override
     {
         Player* player = spell->GetCaster() ? spell->GetCaster()->ToPlayer() : nullptr;
-        if (res != SPELL_CAST_OK || !player || spell->IsTriggered() ||
-            !IsBorrowedSpell(player, spell->GetSpellInfo()->Id))
+        if (res != SPELL_CAST_OK || !player || spell->IsTriggered())
+            return;
+        if (CallsHunterPet(spell->GetSpellInfo()))
+            BringBackParkedHunterPet(player);
+        if (!IsBorrowedSpell(player, spell->GetSpellInfo()->Id))
             return;
         if (HandlesOwnPet(spell->GetSpellInfo()))
         {
