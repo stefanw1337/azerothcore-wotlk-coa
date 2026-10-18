@@ -315,6 +315,14 @@ uint32 RangedEmote(ItemTemplate const* ranged)
     }
 }
 
+SheathState DrawnLike(Player const* player)
+{
+    SheathState const sheath = player->GetSheath();
+    if (sheath == SHEATH_STATE_UNARMED || !IsSplit(player))
+        return sheath;
+    return RangedOf(player) ? SHEATH_STATE_RANGED : SHEATH_STATE_MELEE;
+}
+
 void BecomeGhost(Player* player, Creature* twin, bool ghost)
 {
     uint32 const seen = ghost ? GHOST_VISIBILITY_GHOST : GHOST_VISIBILITY_ALIVE | GHOST_VISIBILITY_GHOST;
@@ -332,8 +340,12 @@ void BecomeGhost(Player* player, Creature* twin, bool ghost)
 
 void MirrorStance(Player* player, Creature* twin)
 {
-    if (!player->IsInCombat() && twin->GetSheath() != SHEATH_STATE_UNARMED)
-        twin->SetSheath(SHEATH_STATE_UNARMED);
+    if (!player->IsInCombat())
+    {
+        SheathState const drawn = DrawnLike(player);
+        if (twin->GetSheath() != drawn)
+            twin->SetSheath(drawn);
+    }
     if (twin->GetVehicle())
         return;
     bool const ghost = player->HasPlayerFlag(PLAYER_FLAGS_GHOST);
