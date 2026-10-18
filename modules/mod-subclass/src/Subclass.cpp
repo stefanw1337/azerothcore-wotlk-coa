@@ -39,7 +39,7 @@ void HandleTwinLook(Player* player, std::vector<std::string_view> const& words);
 std::string TwinWearing(Player const* player);
 std::string TwinState(Player const* player);
 std::string ToggleTwin(Player* player);
-bool BrotherAway(Player const* player);
+bool SubclassResting(Player const* player);
 
 namespace
 {
@@ -942,6 +942,11 @@ public:
     }
 };
 
+bool SubclassChosen(Player const* player)
+{
+    return RecordOf(player).Choice.Complete();
+}
+
 bool IsBorrowedSpell(Player const* player, uint32 spellId)
 {
     Record const record = RecordOf(player);
@@ -1002,11 +1007,12 @@ public:
     void OnSpellCheckCast(Spell* spell, bool /*strict*/, SpellCastResult& res) override
     {
         Player* player = spell->GetCaster() ? spell->GetCaster()->ToPlayer() : nullptr;
-        if (res != SPELL_CAST_OK || !player || !BrotherAway(player) ||
+        if (res != SPELL_CAST_OK || !player || !SubclassResting(player) ||
             !IsBorrowedSpell(player, spell->GetSpellInfo()->Id))
             return;
         res = SPELL_FAILED_DONT_REPORT;
-        ChatHandler(player->GetSession()).SendNotification("That is your brother's ability, and he is not here.");
+        ChatHandler(player->GetSession()).SendNotification(
+            "That ability belongs to your other half, and they are not with you right now.");
     }
 };
 

@@ -15,6 +15,8 @@
 #include "Random.h"
 #include "StringConvert.h"
 #include "ServerScript.h"
+#include "SpellScript.h"
+#include "SpellScriptLoader.h"
 #include "TemporarySummon.h"
 #include "Vehicle.h"
 #include "WorldPacket.h"
@@ -30,6 +32,15 @@ namespace
 {
 constexpr uint32 TwinEntry = 9530030;
 constexpr uint8 TwinRace = 32;
+constexpr uint8 OgreRace = 53;
+constexpr uint32 BrotherSpell = 9530100;
+constexpr uint32 HeadsSpell = 9530101;
+constexpr uint32 TeamingUpAura = 9530102;
+constexpr uint32 LonelyAura = 9530103;
+constexpr uint32 AgreedAura = 9530104;
+constexpr uint32 DisagreedAura = 9530105;
+constexpr std::array<uint32, 4> SelfAuras = { TeamingUpAura, LonelyAura, AgreedAura, DisagreedAura };
+constexpr uint32 SelfAuraTick = 1000;
 constexpr uint32 TwinQuest = 9530020;
 constexpr char const* EchoRefusal = "Your brother still wears whatever you wear. He will want his own clothes "
     "once you have earned the Bravery Badge together.";
@@ -108,6 +119,7 @@ std::unordered_map<uint32, ObjectGuid>& twinOfOwner = *new std::unordered_map<ui
 std::unordered_map<ObjectGuid, Look>& looks = *new std::unordered_map<ObjectGuid, Look>;
 std::unordered_map<uint32, Motion>& motions = *new std::unordered_map<uint32, Motion>;
 std::unordered_map<uint32, uint32>& sentHome = *new std::unordered_map<uint32, uint32>;
+std::unordered_map<uint32, uint32>& auraTicks = *new std::unordered_map<uint32, uint32>;
 
 Wardrobe WardrobeOf(Player const* player)
 {
@@ -600,9 +612,94 @@ std::string TwinState(Player const* player)
         IsSplit(player) ? 1 : 0);
 }
 
-bool BrotherAway(Player const* player)
+bool SubclassChosen(Player const* player);
+
+bool HasSecondHead(Player const* player)
 {
-    return HasTwin(player) && IsSplit(player) && !WardrobeOf(player).Enabled;
+    return player->getRace() == OgreRace && player->getGender() == GENDER_FEMALE;
+}
+
+bool SubclassResting(Player const* player)
+{
+    if (HasTwin(player))
+        return IsSplit(player) && !WardrobeOf(player).Enabled;
+    return HasSecondHead(player) && WardrobeOf(player).Enabled;
+}
+
+uint32 WantedSelfAura(Player const* player)
+{
+    if (HasTwin(player) && IsSplit(player))
+        return WardrobeOf(player).Enabled ? TeamingUpAura : LonelyAura;
+    if (HasSecondHead(player) && SubclassChosen(player))
+        return WardrobeOf(player).Enabled ? AgreedAura : DisagreedAura;
+    return 0;
+}
+
+void UpdateSelfAura(Player* player)
+{
+    if (!player->IsAlive())
+        return;
+    uint32 const wanted = WantedSelfAura(player);
+    for (uint32 aura : SelfAuras)
+    {
+        if (aura == wanted && !player->HasAura(aura))
+            player->AddAura(aura, player);
+        else if (aura != wanted && player->HasAura(aura))
+            player->RemoveAurasDueToSpell(aura);
+    }
+}
+
+void TickSelfAura(Player* player, uint32 diff)
+{
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        uint32& elapsed = auraTicks[player->GetGUID().GetCounter()];
+        elapsed += diff;
+        if (elapsed < SelfAuraTick)
+            return;
+        elapsed = 0;
+    }
+    UpdateSelfAura(player);
+}
+
+void LearnRacials(Player* player)
+{
+    if (HasTwin(player) && !player->HasSpell(BrotherSpell))
+        player->learnSpell(BrotherSpell, false);
+    if (HasSecondHead(player) && !player->HasSpell(HeadsSpell))
+        player->learnSpell(HeadsSpell, false);
+}
+
+bool WaitingToReturn(Player const* player, bool returning)
+{
+    uint32 const guid = player->GetGUID().GetCounter();
+    uint32 const now = GameTime::GetGameTimeMS().count();
+    std::lock_guard<std::mutex> lock(twinMutex);
+    auto itr = sentHome.find(guid);
+    if (returning && itr != sentHome.end() && now - itr->second < CallBackDelay)
+        return true;
+    if (!returning)
+        sentHome[guid] = now;
+    return false;
+}
+
+std::string ToggleHeads(Player* player)
+{
+    if (!HasSecondHead(player))
+        return "Only a two-headed ogre can argue with herself.";
+    if (!SubclassChosen(player))
+        return "Your heads have nothing to argue about yet.";
+    if (player->IsInCombat())
+        return "Your heads are far too busy fighting to argue about that now.";
+    Wardrobe wardrobe = WardrobeOf(player);
+    bool const agreeing = !wardrobe.Enabled;
+    if (WaitingToReturn(player, !agreeing))
+        return "Your heads only just agreed. Give them a few seconds.";
+    wardrobe.Enabled = agreeing;
+    StoreWardrobe(player, wardrobe);
+    SetBorrowedPassives(player, !agreeing);
+    UpdateSelfAura(player);
+    return agreeing ? "Your heads agree. For once." : "Your heads disagree again.";
 }
 
 std::string ToggleTwin(Player* player)
@@ -612,21 +709,14 @@ std::string ToggleTwin(Player* player)
     if (player->IsInCombat())
         return "Your brother can't come or go in the middle of a fight.";
     Wardrobe wardrobe = WardrobeOf(player);
-    uint32 const guid = player->GetGUID().GetCounter();
-    uint32 const now = GameTime::GetGameTimeMS().count();
-    {
-        std::lock_guard<std::mutex> lock(twinMutex);
-        auto itr = sentHome.find(guid);
-        if (!wardrobe.Enabled && itr != sentHome.end() && now - itr->second < CallBackDelay)
-            return "Your brother is still on his way home. Give him a few seconds.";
-        if (wardrobe.Enabled)
-            sentHome[guid] = now;
-    }
+    if (WaitingToReturn(player, !wardrobe.Enabled))
+        return "Your brother is still on his way home. Give him a few seconds.";
     wardrobe.Enabled = !wardrobe.Enabled;
     StoreWardrobe(player, wardrobe);
     RefreshTwin(player);
     if (IsSplit(player))
         SetBorrowedPassives(player, wardrobe.Enabled);
+    UpdateSelfAura(player);
     return wardrobe.Enabled ? "Your brother comes running." : "Your brother goes home.";
 }
 
@@ -688,6 +778,7 @@ public:
     void OnPlayerUpdate(Player* player, uint32 diff) override
     {
         UpdateCarry(player, diff);
+        TickSelfAura(player, diff);
     }
 
     void OnPlayerTextEmote(Player* player, uint32 /*textEmote*/, uint32 /*emoteNum*/, ObjectGuid /*guid*/) override
@@ -703,8 +794,10 @@ public:
     void OnPlayerLogin(Player* player) override
     {
         RefreshTwin(player);
-        if (BrotherAway(player))
+        LearnRacials(player);
+        if (SubclassResting(player))
             SetBorrowedPassives(player, false);
+        UpdateSelfAura(player);
     }
 
     void OnPlayerMapChanged(Player* player) override
@@ -848,8 +941,28 @@ public:
     }
 };
 
+class spell_subclass_second_self : public SpellScript
+{
+    PrepareSpellScript(spell_subclass_second_self);
+
+    void HandleDummy(SpellEffIndex /*effIndex*/)
+    {
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!player)
+            return;
+        std::string const reply = HasTwin(player) ? ToggleTwin(player) : ToggleHeads(player);
+        ChatHandler(player->GetSession()).SendSysMessage(reply);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_subclass_second_self::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
 void AddSC_mod_subclass_twin()
 {
+    RegisterSpellScript(spell_subclass_second_self);
     new mod_subclass_twin_packets();
     new mod_subclass_twin_player();
     new mod_subclass_twin_commands();
