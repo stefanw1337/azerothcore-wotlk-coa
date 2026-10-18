@@ -237,7 +237,7 @@ bool EchoSwing(Player* player, Creature* twin, uint32 swing)
         return false;
     twin->SetFacingToObject(victim);
     twin->HandleEmoteCommand(twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID) ?
-        EMOTE_ONESHOT_ATTACK1H : EMOTE_ONESHOT_ATTACKUNARMED);
+        EMOTE_ONESHOT_ATTACK1H : EMOTE_ONESHOT_ATTACK_UNARMED);
     return true;
 }
 
