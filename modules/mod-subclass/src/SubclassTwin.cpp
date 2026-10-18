@@ -481,8 +481,10 @@ Unit* TwinTarget(Player* player)
 
 bool EchoSwing(Player* player, Creature* twin, uint32 swing)
 {
+    if (IsSplit(player))
+        return false;
     Unit* victim = TwinTarget(player);
-    ItemTemplate const* ranged = IsSplit(player) || !player->GetVictim() ? RangedOf(player) : nullptr;
+    ItemTemplate const* ranged = player->GetVictim() ? nullptr : RangedOf(player);
     uint32 const pace = ranged && ranged->Delay ? ranged->Delay : player->GetAttackTime(BASE_ATTACK);
     if (!victim || twin->GetVehicle() || swing < std::max<uint32>(pace, MotionTick))
         return false;
@@ -491,11 +493,6 @@ bool EchoSwing(Player* player, Creature* twin, uint32 swing)
     {
         twin->SetSheath(SHEATH_STATE_RANGED);
         twin->HandleEmoteCommand(RangedEmote(ranged));
-        return true;
-    }
-    if (IsSplit(player) && !twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID))
-    {
-        twin->HandleEmoteCommand(EMOTE_ONESHOT_SPELL_CAST_OMNI);
         return true;
     }
     twin->SetSheath(SHEATH_STATE_MELEE);
