@@ -379,7 +379,7 @@ local function BuildTrees()
         tree.abilities = {}
         for _, id in ipairs(tree.ids) do
             local entry = Entry(id)
-            if entry and (entry.Type == "Talent" or entry.Type == "TalentAbility") then
+            if entry and entry.PositionX and entry.PositionY then
                 tree.nodes[#tree.nodes + 1] = { id = id, entry = entry }
             elseif entry then
                 tree.abilities[#tree.abilities + 1] = { id = id, entry = entry, ability = true }
@@ -705,6 +705,22 @@ local function CopyContents(source, copy, mapped, label, text)
     end
 end
 
+local function TabFromTemplate(source, parent)
+    local ok, made = pcall(CreateFrame, "CheckButton", "Ascension_SubclassTab", parent, "CollectionTabTemplate")
+    if not ok or not made then
+        return nil
+    end
+    made:SetWidth(source:GetWidth())
+    made:SetHeight(source:GetHeight())
+    made:SetPoint("LEFT", source, "RIGHT", 2, 0)
+    made:SetText(Naming().tab)
+    local icon = _G[made:GetName() .. "IconIcon"]
+    if icon then
+        icon:SetTexture(TAB_ICON)
+    end
+    return made
+end
+
 local function CopyTab(source, parent)
     local copy = CreateFrame("Button", "Ascension_SubclassTab", parent)
     copy:SetWidth(source:GetWidth())
@@ -796,7 +812,7 @@ local function AttachToWindow()
             first, after = other, tabs[index + 1]
         end
     end
-    tab = CopyTab(first, parent)
+    tab = TabFromTemplate(first, parent) or CopyTab(first, parent)
     local gap = 4
     if after and after:GetLeft() and first:GetRight() then
         gap = math.max(after:GetLeft() - first:GetRight(), 2)
@@ -811,10 +827,23 @@ local function AttachToWindow()
     end
     KeepTabsInRow(first, following, gap)
     tab:SetScript("OnClick", function()
+        for _, other in ipairs(tabs) do
+            if other.SetChecked then
+                other:SetChecked(false)
+            end
+        end
+        if tab.SetChecked then
+            tab:SetChecked(true)
+        end
         panel:Show()
     end)
     for _, other in ipairs(tabs) do
-        other:HookScript("OnClick", function() panel:Hide() end)
+        other:HookScript("OnClick", function()
+            panel:Hide()
+            if tab.SetChecked then
+                tab:SetChecked(false)
+            end
+        end)
     end
     window:HookScript("OnHide", function() panel:Hide() end)
     return true
