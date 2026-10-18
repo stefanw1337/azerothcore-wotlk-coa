@@ -287,10 +287,11 @@ void SummonTwin(Player* player)
     if (!twin)
         return;
 
+    Look const look = LookOf(player, WardrobeOf(player));
     {
         std::lock_guard<std::mutex> lock(twinMutex);
         twinOfOwner[player->GetGUID().GetCounter()] = twin->GetGUID();
-        looks[twin->GetGUID()] = LookOf(player, WardrobeOf(player));
+        looks[twin->GetGUID()] = look;
     }
     twin->SetLevel(player->GetLevel());
     twin->SetDisplayId(player->GetNativeDisplayId());
