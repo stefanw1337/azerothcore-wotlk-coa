@@ -417,6 +417,11 @@ bool EchoSwing(Player* player, Creature* twin, uint32 swing)
         twin->HandleEmoteCommand(RangedEmote(ranged));
         return true;
     }
+    if (IsSplit(player) && !twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID))
+    {
+        twin->HandleEmoteCommand(EMOTE_ONESHOT_SPELL_CAST_OMNI);
+        return true;
+    }
     twin->SetSheath(SHEATH_STATE_MELEE);
     twin->HandleEmoteCommand(twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID) ?
         EMOTE_ONESHOT_ATTACK1H : EMOTE_ONESHOT_ATTACK_UNARMED);
