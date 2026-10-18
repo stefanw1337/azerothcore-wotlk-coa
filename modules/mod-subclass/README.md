@@ -33,6 +33,18 @@ compile.
 5. After the first quest, every 5-player dungeon boss has a `Subclass.BookDropChance` chance to give an eligible
    character another Book, for changing the choice later.
 
+### Race stories
+
+Each eligible race can tell the story its own way. The world table `mod_subclass_story` (race, gender mask) names
+the quest, the relic item that completes it, the three menu texts and the lines of the voice. A race without a row
+uses the Ogre story above (`Subclass.QuestId` and `Subclass.BookItemId`).
+
+The **Thin Twins** (male Thin Humans, race 32) have a story of their own. At the same level the quieter twin steps
+out from behind his brother: **One From the Same**. Their father, a mason of the Stonemasons' Guild, earned a
+**Bravery Badge** while Stormwind was rebuilt, then followed Edwin VanCleef when the nobles refused to pay the
+guild. VanCleef in the Deadmines (normal, heroic and mythic) drops the badge; the twin pins it on, gains the insight
+and, at a trainer, chooses his own way. Later dungeon bosses can give another Bravery Badge instead of a Book.
+
 ## GM commands
 
 | Command | What it does |
@@ -45,7 +57,7 @@ compile.
 | `.subclass learn <entryId> <rank>` | Sets a talent rank server-side (testing; no budget check). |
 | `.subclass quest` | Shows the second head's quest prompt (if the character qualifies). |
 | `.subclass insight <count>` | Sets how many unspent insights the character holds (testing the trainer menu). |
-| `.subclass reload` | Reloads `mod_subclass_pair`. |
+| `.subclass reload` | Reloads `mod_subclass_pair` and `mod_subclass_story`. |
 
 Example, a female Ogre Barbarian: `.subclass set 23 34` adds the Necromancer Class tree and Death. Relog afterwards
 so the talent window reloads.
@@ -88,8 +100,8 @@ the native window's uploads (points, prerequisites, level and removal prices), a
 
 - The CoA talent window draws the own class tree and active specialization only. Showing the borrowed trees needs
   client work (an addon or a DBC patch); until then use the GM commands to test.
-- The Book of Origins (item 9530010) is not in the client's item cache, so its icon may show as a question mark
-  until the client has asked the server about it once.
+- The Book of Origins (item 9530010) and the Bravery Badge (item 9530020) are not in the client's item cache, so
+  their icons may show as a question mark until the client has asked the server about it once.
 
 ## Class and specialization ids
 

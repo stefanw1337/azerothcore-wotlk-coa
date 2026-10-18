@@ -46,7 +46,7 @@ constexpr uint32 SenderSecondSpec = 9530014;
 constexpr uint32 ActionAccept = 1;
 constexpr uint32 ActionLater = 2;
 constexpr char const* BookScriptName = "item_subclass_book_of_origins";
-constexpr char const* Head = "|cffc9a0dcYour second head:|r ";
+constexpr char const* BadgeScriptName = "item_subclass_bravery_badge";
 constexpr char const* AddonPrefix = "SUBCLASS";
 constexpr std::size_t AddonChunk = 200;
 
@@ -237,6 +237,34 @@ Subclass::Settings settings;
 std::vector<Subclass::Pair> pairs;
 std::unordered_map<uint32, Record> records;
 
+struct Voice
+{
+    std::string Speaker = "Your second head";
+    uint32 PromptText = PromptTextId;
+    uint32 ClassText = ClassTextId;
+    uint32 SpecText = SpecTextId;
+    std::string AcceptOption = "Fine. We go to Shadowfang Keep and get this book.";
+    std::string LaterOption = "Not now. Stop talking in my ear.";
+    std::string Accepted = "Book. Shadowfang Keep. The mad mage has it. Go!";
+    std::string Later = "Hmph. Me ask again later.";
+    std::string NotYet = "Not yet. First we do this properly.";
+    std::string Used = "We read it together. Now we understand! Go to a class trainer, any of them, and we choose a "
+        "second way.";
+    std::string Unreadable = "The pages are full of ogre scribbles you cannot make sense of.";
+    std::string TrainerOption = "[Second head] We want to learn the way of another class.";
+    std::string Chosen = "Ha! Now we know another way.";
+    std::string Found = "Look! Another Book of Origins! We can choose again.";
+    std::string Refused = "Your heads cannot agree on that.";
+
+    std::string Says(std::string_view line) const
+    {
+        return Acore::StringFormat("|cffc9a0dc{}:|r {}", Speaker, line);
+    }
+};
+
+std::vector<Subclass::Story> stories;
+std::vector<Voice> voices;
+
 Subclass::Settings CurrentSettings()
 {
     std::lock_guard<std::mutex> lock(subclassMutex);
@@ -297,6 +325,82 @@ bool HasClassTree(uint8 classId)
         {
             return entry.ClassId == classId && !entry.SpecId;
         });
+}
+
+bool StoryTableExists()
+{
+    return bool(WorldDatabase.Query("SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND "
+        "TABLE_NAME = 'mod_subclass_story'"));
+}
+
+void LoadStories()
+{
+    std::vector<Subclass::Story> loadedStories;
+    std::vector<Voice> loadedVoices;
+    if (StoryTableExists())
+        if (QueryResult result = WorldDatabase.Query(
+                "SELECT `race`, `gender_mask`, `quest_id`, `relic_item_id`, `prompt_text`, `class_text`, `spec_text`, "
+                "`speaker`, `accept_option`, `later_option`, `accepted`, `later`, `not_yet`, `used`, `unreadable`, "
+                "`trainer_option`, `chosen`, `found`, `refused` FROM `mod_subclass_story` WHERE `enabled` = 1"))
+        {
+            do
+            {
+                Field* fields = result->Fetch();
+                loadedStories.push_back({ fields[0].Get<uint8>(), fields[1].Get<uint8>(), fields[2].Get<uint32>(),
+                    fields[3].Get<uint32>() });
+                Voice voice;
+                voice.PromptText = fields[4].Get<uint32>();
+                voice.ClassText = fields[5].Get<uint32>();
+                voice.SpecText = fields[6].Get<uint32>();
+                voice.Speaker = fields[7].Get<std::string>();
+                voice.AcceptOption = fields[8].Get<std::string>();
+                voice.LaterOption = fields[9].Get<std::string>();
+                voice.Accepted = fields[10].Get<std::string>();
+                voice.Later = fields[11].Get<std::string>();
+                voice.NotYet = fields[12].Get<std::string>();
+                voice.Used = fields[13].Get<std::string>();
+                voice.Unreadable = fields[14].Get<std::string>();
+                voice.TrainerOption = fields[15].Get<std::string>();
+                voice.Chosen = fields[16].Get<std::string>();
+                voice.Found = fields[17].Get<std::string>();
+                voice.Refused = fields[18].Get<std::string>();
+                loadedVoices.push_back(std::move(voice));
+            } while (result->NextRow());
+        }
+
+    std::lock_guard<std::mutex> lock(subclassMutex);
+    stories = std::move(loadedStories);
+    voices = std::move(loadedVoices);
+    LOG_INFO("module", "mod-subclass: loaded {} race stor(y/ies)", stories.size());
+}
+
+Subclass::Settings SettingsOf(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(subclassMutex);
+    return Subclass::WithStory(settings, stories, CharacterOf(player));
+}
+
+Voice VoiceOf(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(subclassMutex);
+    if (Subclass::Story const* story = Subclass::StoryFor(stories, CharacterOf(player)))
+        return voices[story - stories.data()];
+    return {};
+}
+
+Voice VoiceOfRelic(uint32 itemId)
+{
+    std::lock_guard<std::mutex> lock(subclassMutex);
+    for (std::size_t index = 0; index < stories.size(); ++index)
+        if (stories[index].RelicItemId == itemId)
+            return voices[index];
+    return {};
+}
+
+std::string RelicName(uint32 itemId)
+{
+    ItemTemplate const* relic = sObjectMgr->GetItemTemplate(itemId);
+    return relic ? relic->Name1 : "relic";
 }
 
 void LoadPairs()
@@ -655,7 +759,7 @@ bool OffersQuest(Player const* player)
     if (!IsAscensionCustomClassId(player->getClass()))
         return false;
     Record const record = RecordOf(player);
-    Subclass::Settings const current = CurrentSettings();
+    Subclass::Settings const current = SettingsOf(player);
     bool const untouched = player->GetQuestStatus(current.QuestId) == QUEST_STATUS_NONE;
     std::lock_guard<std::mutex> lock(subclassMutex);
     return Subclass::OffersQuest(current, pairs, CharacterOf(player), record.Choice, record.Insights, untouched);
@@ -663,12 +767,12 @@ bool OffersQuest(Player const* player)
 
 void ShowPrompt(Player* player)
 {
+    Voice const voice = VoiceOf(player);
     ClearGossipMenuFor(player);
-    AddGossipItemFor(player, GOSSIP_ICON_CHAT, "Fine. We go to Shadowfang Keep and get this book.", SenderPrompt,
-        ActionAccept);
-    AddGossipItemFor(player, GOSSIP_ICON_CHAT, "Not now. Stop talking in my ear.", SenderPrompt, ActionLater);
+    AddGossipItemFor(player, GOSSIP_ICON_CHAT, voice.AcceptOption, SenderPrompt, ActionAccept);
+    AddGossipItemFor(player, GOSSIP_ICON_CHAT, voice.LaterOption, SenderPrompt, ActionLater);
     player->PlayerTalkClass->GetGossipMenu().SetMenuId(PromptMenuId);
-    SendGossipMenuFor(player, PromptTextId, player->GetGUID());
+    SendGossipMenuFor(player, voice.PromptText, player->GetGUID());
 }
 
 void SchedulePrompt(Player* player, Milliseconds delay)
@@ -684,11 +788,11 @@ void SchedulePrompt(Player* player, Milliseconds delay)
 void AcceptQuest(Player* player)
 {
     CloseGossipMenuFor(player);
-    Quest const* quest = sObjectMgr->GetQuestTemplate(CurrentSettings().QuestId);
+    Quest const* quest = sObjectMgr->GetQuestTemplate(SettingsOf(player).QuestId);
     if (!quest || !OffersQuest(player) || !player->CanTakeQuest(quest, true) || !player->CanAddQuest(quest, true))
         return;
     player->AddQuestAndCheckCompletion(quest, nullptr);
-    ChatHandler(player->GetSession()).PSendSysMessage("{}Book. Shadowfang Keep. The mad mage has it. Go!", Head);
+    ChatHandler(player->GetSession()).SendSysMessage(VoiceOf(player).Says(VoiceOf(player).Accepted));
 }
 
 void ShowClasses(Player* player, Creature* trainer)
@@ -702,7 +806,7 @@ void ShowClasses(Player* player, Creature* trainer)
                 Subclass::AllowsAnySpecializationOf(pairs, character, named.Id))
                 AddGossipItemFor(player, GOSSIP_ICON_TRAINER, ClassName(named.Id), SenderClass, named.Id);
     }
-    SendGossipMenuFor(player, ClassTextId, trainer->GetGUID());
+    SendGossipMenuFor(player, VoiceOf(player).ClassText, trainer->GetGUID());
 }
 
 constexpr uint32 SecondSpecAction(uint16 firstSpec, uint16 secondSpec)
@@ -713,6 +817,7 @@ constexpr uint32 SecondSpecAction(uint16 firstSpec, uint16 secondSpec)
 void AddSpecializationItems(Player* player, uint8 classId, uint16 firstSpec, bool final)
 {
     Subclass::Character const character = CharacterOf(player);
+    std::string const relic = RelicName(SettingsOf(player).BookItemId);
     std::lock_guard<std::mutex> lock(subclassMutex);
     for (Subclass::Tree const& specialization : CatalogSpecializations())
     {
@@ -726,7 +831,7 @@ void AddSpecializationItems(Player* player, uint8 classId, uint16 firstSpec, boo
         uint32 const sender = firstSpec ? SenderSecondSpec : SenderSpec;
         uint32 const action = firstSpec ? SecondSpecAction(firstSpec, specialization.SpecId) : specialization.SpecId;
         std::string const confirm = final ? Acore::StringFormat(
-            "Spend one insight of the Book of Origins on {}? Talents from an earlier choice are removed.", text) : "";
+            "Spend one insight of the {} on {}? Talents from an earlier choice are removed.", relic, text) : "";
         player->PlayerTalkClass->GetGossipMenu().AddMenuItem(-1, GOSSIP_ICON_TRAINER, text, sender, action, confirm,
             0);
     }
@@ -736,14 +841,14 @@ void ShowSpecializations(Player* player, Creature* trainer, uint8 classId)
 {
     ClearGossipMenuFor(player);
     AddSpecializationItems(player, classId, 0, HasClassTree(classId));
-    SendGossipMenuFor(player, SpecTextId, trainer->GetGUID());
+    SendGossipMenuFor(player, VoiceOf(player).SpecText, trainer->GetGUID());
 }
 
 void ShowSecondSpecializations(Player* player, Creature* trainer, uint16 firstSpec)
 {
     ClearGossipMenuFor(player);
     AddSpecializationItems(player, ClassOfSpecialization(firstSpec), firstSpec, true);
-    SendGossipMenuFor(player, SpecTextId, trainer->GetGUID());
+    SendGossipMenuFor(player, VoiceOf(player).SpecText, trainer->GetGUID());
 }
 
 void ChooseAtTrainer(Player* player, uint16 specId, uint16 secondSpecId)
@@ -764,7 +869,7 @@ void ChooseAtTrainer(Player* player, uint16 specId, uint16 secondSpecId)
     if (!record.Insights || !allowed || !IsSpecializationOf(classId, specId) ||
         (secondSpecId && !IsSpecializationOf(classId, secondSpecId)))
     {
-        handler.SendSysMessage("Your heads cannot agree on that.");
+        handler.SendSysMessage(VoiceOf(player).Refused);
         return;
     }
 
@@ -772,18 +877,17 @@ void ChooseAtTrainer(Player* player, uint16 specId, uint16 secondSpecId)
     Record spent = RecordOf(player);
     spent.Insights = record.Insights - 1;
     StoreRecord(player, spent);
-    handler.PSendSysMessage("{}Ha! Now we know the ways of the {}. {} talent spell(s) of the old way were forgotten. "
-        "Spend points in the Second Head tab of Character Advancement, or type /subclass.", Head, Describe(wanted),
-        removed);
+    handler.SendSysMessage(VoiceOf(player).Says(VoiceOf(player).Chosen));
+    handler.PSendSysMessage("Learned the ways of the {}. {} talent spell(s) of the old way were forgotten. "
+        "Spend points in the Second Head tab of Character Advancement, or type /subclass.", Describe(wanted), removed);
     LOG_INFO("module", "mod-subclass: {} chose {} at a trainer", player->GetName(), Describe(wanted));
 }
 
-void GrantBook(Player* player, uint32 bookItemId, Creature const* boss)
+void GrantBook(Player* player, uint32 bookItemId)
 {
     if (!player->AddItem(bookItemId, 1))
         return;
-    ChatHandler(player->GetSession()).PSendSysMessage(
-        "{}Look! In the remains of {}, another Book of Origins! We can choose again.", Head, boss->GetName());
+    ChatHandler(player->GetSession()).SendSysMessage(VoiceOf(player).Says(VoiceOf(player).Found));
 }
 }
 
@@ -811,6 +915,7 @@ public:
     void OnStartup() override
     {
         LoadPairs();
+        LoadStories();
     }
 };
 
@@ -860,7 +965,7 @@ public:
         else
         {
             CloseGossipMenuFor(player);
-            ChatHandler(player->GetSession()).PSendSysMessage("{}Hmph. Me ask again later.", Head);
+            ChatHandler(player->GetSession()).SendSysMessage(VoiceOf(player).Says(VoiceOf(player).Later));
         }
     }
 
@@ -903,22 +1008,24 @@ private:
     }
 };
 
-class item_subclass_book_of_origins : public ItemScript
+class item_subclass_relic : public ItemScript
 {
 public:
-    item_subclass_book_of_origins() : ItemScript(BookScriptName) { }
+    explicit item_subclass_relic(char const* scriptName) : ItemScript(scriptName) { }
 
     bool OnUse(Player* player, Item* item, SpellCastTargets const& /*targets*/) override
     {
         ChatHandler handler(player->GetSession());
-        if (!IsEligible(player))
+        uint32 const bookItemId = item->GetEntry();
+        Subclass::Settings const current = SettingsOf(player);
+        if (!IsEligible(player) || current.BookItemId != bookItemId)
         {
-            handler.SendSysMessage("The pages are full of ogre scribbles you cannot make sense of.");
+            handler.SendSysMessage(VoiceOfRelic(bookItemId).Unreadable);
             return true;
         }
 
-        uint32 const bookItemId = item->GetEntry();
-        Quest const* quest = sObjectMgr->GetQuestTemplate(CurrentSettings().QuestId);
+        Voice const voice = VoiceOf(player);
+        Quest const* quest = sObjectMgr->GetQuestTemplate(current.QuestId);
         QuestStatus const status = quest ? player->GetQuestStatus(quest->GetQuestId()) : QUEST_STATUS_NONE;
         if (status == QUEST_STATUS_COMPLETE && player->CanRewardQuest(quest, true))
             player->RewardQuest(quest, 0, player);
@@ -926,13 +1033,12 @@ public:
             player->DestroyItemCount(bookItemId, 1, true);
         else
         {
-            handler.PSendSysMessage("{}Not yet. First we do this properly.", Head);
+            handler.SendSysMessage(voice.Says(voice.NotYet));
             return true;
         }
 
         AddInsight(player);
-        handler.PSendSysMessage("{}We read it together. Now we understand! Go to a class trainer, any of them, and "
-            "we choose a second way.", Head);
+        handler.SendSysMessage(voice.Says(voice.Used));
         return true;
     }
 };
@@ -947,8 +1053,7 @@ public:
         if (!creature->HasNpcFlag(UNIT_NPC_FLAG_TRAINER_CLASS) || !IsEligible(player) || !RecordOf(player).Insights)
             return false;
         player->PrepareGossipMenu(creature, creature->GetGossipMenuId(), true);
-        AddGossipItemFor(player, GOSSIP_ICON_TRAINER, "[Second head] We want to learn the way of another class.",
-            SenderTrainer, 0);
+        AddGossipItemFor(player, GOSSIP_ICON_TRAINER, VoiceOf(player).TrainerOption, SenderTrainer, 0);
         player->SendPreparedGossip(creature);
         return true;
     }
@@ -992,13 +1097,13 @@ public:
         if (!map || !map->IsNonRaidDungeon())
             return;
 
-        Subclass::Settings const current = CurrentSettings();
         for (auto const& reference : map->GetPlayers())
         {
             Player* player = reference.GetSource();
             if (!player || !player->IsInWorld() || !player->IsAtGroupRewardDistance(boss) ||
                 !IsAscensionCustomClassId(player->getClass()))
                 continue;
+            Subclass::Settings const current = SettingsOf(player);
             bool finds = false;
             {
                 std::lock_guard<std::mutex> lock(subclassMutex);
@@ -1006,7 +1111,7 @@ public:
                     player->GetQuestRewardStatus(current.QuestId));
             }
             if (finds && roll_chance_f(current.BookDropChance))
-                GrantBook(player, current.BookItemId, boss);
+                GrantBook(player, current.BookItemId);
         }
     }
 };
@@ -1051,7 +1156,7 @@ public:
         Subclass::Character const character = CharacterOf(target);
         Record const record = RecordOf(target);
         bool const open = !OpenTreesOf(target).empty();
-        Subclass::Settings const current = CurrentSettings();
+        Subclass::Settings const current = SettingsOf(target);
         handler->PSendSysMessage("{}: race {}, gender {}, class {}, level {}, active specialization {}.",
             target->GetName(), uint32(character.Race), uint32(character.Gender), uint32(character.Class),
             uint32(character.Level), GetAscensionActiveSpecialization(target));
@@ -1191,7 +1296,8 @@ public:
     static bool HandleReload(ChatHandler* handler)
     {
         LoadPairs();
-        handler->SendSysMessage("Reloaded mod_subclass_pair.");
+        LoadStories();
+        handler->SendSysMessage("Reloaded mod_subclass_pair and mod_subclass_story.");
         return true;
     }
 };
@@ -1200,7 +1306,8 @@ void AddSC_mod_subclass()
 {
     new mod_subclass_world();
     new mod_subclass_player();
-    new item_subclass_book_of_origins();
+    new item_subclass_relic(BookScriptName);
+    new item_subclass_relic(BadgeScriptName);
     new mod_subclass_trainers();
     new mod_subclass_bosses();
     new mod_subclass_commands();

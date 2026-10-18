@@ -31,14 +31,15 @@ Subclass.MinLevel = 20
 Subclass.BorrowedPointsPercent = 100
 
 #    Subclass.QuestId
-#        The second head's quest ("Two Heads, One Book"). 0 turns the quest off.
+#        The second head's quest ("Two Heads, One Book"). 0 turns the quest off. Races with a row in
+#        mod_subclass_story use the quest of that row instead.
 #        Default: 9530010
 
 Subclass.QuestId = 9530010
 
 #    Subclass.BookItemId
 #        The Book of Origins item. Reading it gives one insight, which a class trainer turns
-#        into a subclass choice.
+#        into a subclass choice. Races with a row in mod_subclass_story use the relic of that row.
 #        Default: 9530010
 
 Subclass.BookItemId = 9530010

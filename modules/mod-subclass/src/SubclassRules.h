@@ -122,6 +122,34 @@ inline std::uint32_t BonusPoints(Settings const& settings, std::uint32_t points)
         UINT32_MAX));
 }
 
+struct Story
+{
+    std::uint8_t Race = 0;
+    std::uint8_t GenderMask = GenderMaskMale | GenderMaskFemale;
+    std::uint32_t QuestId = 0;
+    std::uint32_t RelicItemId = 0;
+};
+
+inline Story const* StoryFor(std::vector<Story> const& stories, Character const& character)
+{
+    Story const* found = nullptr;
+    for (Story const& story : stories)
+        if ((!story.Race || story.Race == character.Race) && GenderMatches(story.GenderMask, character.Gender) &&
+            (!found || (story.Race && !found->Race)))
+            found = &story;
+    return found;
+}
+
+inline Settings WithStory(Settings settings, std::vector<Story> const& stories, Character const& character)
+{
+    if (Story const* story = StoryFor(stories, character))
+    {
+        settings.QuestId = story->QuestId;
+        settings.BookItemId = story->RelicItemId;
+    }
+    return settings;
+}
+
 inline bool OffersQuest(Settings const& settings, std::vector<Pair> const& pairs, Character const& character,
     Choice const& choice, std::uint32_t insights, bool questUntouched)
 {

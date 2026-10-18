@@ -137,3 +137,16 @@ TEST(Subclass, TheClassMenuListsOtherAllowedClasses)
     EXPECT_TRUE(AllowsAnySpecializationOf(deathOnly, FemaleOgreBarbarian, 23));
     EXPECT_FALSE(AllowsAnySpecializationOf(deathOnly, FemaleOgreBarbarian, 24));
 }
+
+TEST(Subclass, EachRaceFollowsItsOwnStory)
+{
+    std::vector<Story> const stories = { { 0, GenderMaskMale | GenderMaskFemale, 1, 2 },
+        { 32, GenderMaskMale, 9530020, 9530020 } };
+    Settings const settings;
+    Settings const twins = WithStory(settings, stories, { 32, 0, 12, 20 });
+    EXPECT_EQ(twins.QuestId, 9530020u);
+    EXPECT_EQ(twins.BookItemId, 9530020u);
+    EXPECT_EQ(WithStory(settings, stories, FemaleOgreBarbarian).QuestId, 1u);
+    EXPECT_EQ(WithStory(settings, { stories[1] }, FemaleOgreBarbarian).QuestId, settings.QuestId);
+    EXPECT_EQ(WithStory(settings, { stories[1] }, { 32, 1, 12, 20 }).BookItemId, settings.BookItemId);
+}
