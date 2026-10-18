@@ -8,7 +8,8 @@ ATTR0_CANT_CANCEL = 0x80000000
 ATTR0_HIDDEN_CLIENTSIDE = 0x00000080
 ATTR3_DEATH_PERSISTENT = 0x00100000
 
-RACIAL, AURA, MODE, REACH = "racial", "aura", "mode", "reach"
+RACIAL, AURA, MODE, REACH, PASSIVE = "racial", "aura", "mode", "reach", "passive"
+ATTR0_PASSIVE = 0x00000040
 SPELL_AURA_ASCENSION_IGNORE_MIN_RANGE = 312
 IGNORE_MIN_RANGE_RANGED_ABILITIES = 10
 SPELLS = [
@@ -32,6 +33,9 @@ SPELLS = [
     (9530108, MODE, 113360, "Play Easy, Cowboy", "", "", "Your brother picks his own spells."),
     (9530109, MODE, 25225, "Two Heads, Half a Brain", "", "", "Your other head does what she likes."),
     (9530110, REACH, 3609, "Brother's Reach", "", "", "Your brother shoots from where he stands."),
+    (9530111, PASSIVE, 18227, "Twin-Linked", "Racial Passive",
+     "You and your brother share one health and mana pool, and whatever befalls you befalls him too: "
+     "stuns, fears and even sheep.", ""),
 ]
 CASTER_AURA = {9530106: 9530102, 9530107: 9530105}
 
@@ -77,6 +81,10 @@ def build(spell_id, kind, icon, name, rank, description, tooltip):
         row[206] = 1500
         row[40] = 0
     elif kind == MODE:
+        row[71] = 6
+        row[95] = 4
+    elif kind == PASSIVE:
+        row[4] = ATTR0_PASSIVE
         row[71] = 6
         row[95] = 4
     elif kind == REACH:

@@ -17,6 +17,7 @@
 #include "ServerScript.h"
 #include "SpellScript.h"
 #include "SpellScriptLoader.h"
+#include "SpellAuraEffects.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
 #include "TemporarySummon.h"
@@ -57,6 +58,7 @@ constexpr uint32 HalfBrainSpell = 9530107;
 constexpr uint32 CowboyAura = 9530108;
 constexpr uint32 HalfBrainAura = 9530109;
 constexpr uint32 ReachAura = 9530110;
+constexpr uint32 TwinLinkedSpell = 9530111;
 constexpr uint32 EasyTick = 600;
 constexpr uint32 ManualPause = 3000;
 constexpr float HealBelowPct = 60.0f;
@@ -164,6 +166,27 @@ struct BrotherCast
 
 thread_local BrotherCast castingAsBrother;
 thread_local bool resendingAsBrother = false;
+
+enum class Swing : uint8
+{
+    None,
+    Melee,
+    Shot
+};
+
+struct SwingPartner
+{
+    ObjectGuid Twin;
+    Swing Style = Swing::None;
+    uint32 ShotItem = 0;
+};
+
+std::unordered_map<ObjectGuid, SwingPartner>& swingPartners = *new std::unordered_map<ObjectGuid, SwingPartner>;
+constexpr uint32 AutoShotSpell = 75;
+constexpr uint32 ArrowProjectileDisplay = 3482;
+constexpr uint32 BulletProjectileDisplay = 3483;
+constexpr uint32 SplitHitFlags = HITINFO_FULL_ABSORB | HITINFO_PARTIAL_ABSORB | HITINFO_FULL_RESIST |
+    HITINFO_PARTIAL_RESIST | HITINFO_BLOCK | HITINFO_RAGE_GAIN | HITINFO_UNK1;
 
 Wardrobe WardrobeOf(Player const* player)
 {
@@ -494,11 +517,10 @@ Unit* TwinTarget(Player* player)
 
 bool EchoSwing(Player* player, Creature* twin, uint32 swing)
 {
-    bool const split = IsSplit(player);
-    if (split && !twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID))
+    if (IsSplit(player))
         return false;
     Unit* victim = TwinTarget(player);
-    ItemTemplate const* ranged = split || player->GetVictim() ? nullptr : RangedOf(player);
+    ItemTemplate const* ranged = player->GetVictim() ? nullptr : RangedOf(player);
     uint32 const pace = ranged && ranged->Delay ? ranged->Delay : player->GetAttackTime(BASE_ATTACK);
     if (!victim || twin->GetVehicle() || swing < std::max<uint32>(pace, MotionTick))
         return false;
@@ -516,6 +538,71 @@ bool EchoSwing(Player* player, Creature* twin, uint32 swing)
 }
 
 void SummonTwin(Player* player);
+bool Helpless(Player const* player)
+{
+    return player->HasUnitState(UNIT_STATE_STUNNED | UNIT_STATE_CONFUSED | UNIT_STATE_FLEEING);
+}
+
+void MirrorStun(Player* player, Creature* twin)
+{
+    bool const helpless = Helpless(player);
+    if (helpless == twin->HasUnitFlag(UNIT_FLAG_STUNNED))
+        return;
+    if (helpless)
+    {
+        twin->SetUnitFlag(UNIT_FLAG_STUNNED);
+        twin->GetMotionMaster()->Clear();
+        twin->StopMoving();
+        return;
+    }
+    twin->RemoveUnitFlag(UNIT_FLAG_STUNNED);
+    twin->GetMotionMaster()->MoveFollow(player, FollowDistanceFor(player, twin), TwinAngle);
+}
+
+uint32 CursedShape(Player const* player)
+{
+    for (AuraEffect const* effect : player->GetAuraEffectsByType(SPELL_AURA_TRANSFORM))
+        if (!effect->GetSpellInfo()->IsPositive())
+            return player->GetDisplayId();
+    return 0;
+}
+
+void MirrorCurse(Player* player, Creature* twin)
+{
+    uint32 const cursed = CursedShape(player);
+    uint32 const wanted = cursed ? cursed : player->GetNativeDisplayId();
+    if (twin->GetDisplayId() == wanted)
+        return;
+    if (cursed)
+        twin->RemoveUnitFlag2(UNIT_FLAG2_MIRROR_IMAGE);
+    else
+        twin->SetUnitFlag2(UNIT_FLAG2_MIRROR_IMAGE);
+    twin->SetDisplayId(wanted);
+}
+
+void UpdateSwingPartner(Player* player, Creature* twin)
+{
+    SwingPartner partner;
+    if (twin && IsSplit(player))
+    {
+        uint32 const shot = twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID + 2);
+        if (shot && OtherHalfShoots(player))
+            partner = { twin->GetGUID(), Swing::Shot, shot };
+        else if (twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID))
+            partner = { twin->GetGUID(), Swing::Melee, 0 };
+        if (player->IsInCombat() && partner.Style != Swing::None)
+        {
+            SheathState const drawn = partner.Style == Swing::Shot ? SHEATH_STATE_RANGED : SHEATH_STATE_MELEE;
+            if (twin->GetSheath() != drawn)
+                twin->SetSheath(drawn);
+        }
+    }
+    std::lock_guard<std::mutex> lock(twinMutex);
+    if (partner.Style == Swing::None)
+        swingPartners.erase(player->GetGUID());
+    else
+        swingPartners[player->GetGUID()] = partner;
+}
 
 void Restyle(Player* player, bool split)
 {
@@ -581,7 +668,12 @@ void UpdateCarry(Player* player, uint32 diff)
         std::lock_guard<std::mutex> lock(twinMutex);
         motions[guid].Swing = 0;
     }
+    MirrorStun(player, twin);
+    MirrorCurse(player, twin);
+    if (twin->HasUnitFlag(UNIT_FLAG_STUNNED))
+        return;
     MirrorStance(player, twin);
+    UpdateSwingPartner(player, twin);
     KeepStandoff(player, twin, motion.Follow);
     Carry const wanted = WantedCarry(player, motion);
     bool const seated = twin->GetVehicle() != nullptr;
@@ -604,6 +696,7 @@ void DismissTwin(Player* player)
         twinOfOwner.erase(itr);
         looks.erase(guid);
         motions.erase(player->GetGUID().GetCounter());
+        swingPartners.erase(player->GetGUID());
     }
     if (Creature* twin = ObjectAccessor::GetCreature(*player, guid))
     {
@@ -902,6 +995,8 @@ void LearnRacials(Player* player)
         player->learnSpell(CowboySpell, false);
     if (HasSecondHead(player) && !player->HasSpell(HalfBrainSpell))
         player->learnSpell(HalfBrainSpell, false);
+    if (HasTwin(player) && !player->HasSpell(TwinLinkedSpell))
+        player->learnSpell(TwinLinkedSpell, false);
 }
 
 bool WaitingToReturn(Player const* player, bool returning)
@@ -991,6 +1086,118 @@ void HandleTwinLook(Player* player, std::vector<std::string_view> const& words)
     ChatHandler(player->GetSession()).PSendSysMessage("Your twin changes into his new outfit ({} piece(s)).", changed);
 }
 
+WorldPacket TwinSwingPacket(SwingPartner const& partner, ObjectGuid target, uint32 hitInfo, uint32 school,
+    uint32 damage, uint8 targetState)
+{
+    WorldPacket swing(SMSG_ATTACKERSTATEUPDATE, 48);
+    swing << uint32(hitInfo & ~SplitHitFlags);
+    swing << partner.Twin.WriteAsPacked();
+    swing << target.WriteAsPacked();
+    swing << uint32(damage) << uint32(0) << uint8(1);
+    swing << uint32(school) << float(damage) << uint32(damage);
+    swing << uint8(targetState) << uint32(0) << uint32(0);
+    return swing;
+}
+
+WorldPacket TwinShotPacket(SwingPartner const& partner, ObjectGuid target)
+{
+    ItemTemplate const* item = sObjectMgr->GetItemTemplate(partner.ShotItem);
+    bool const gun = item && item->SubClass == ITEM_SUBCLASS_WEAPON_GUN;
+    WorldPacket shot(SMSG_SPELL_GO, 64);
+    shot << partner.Twin.WriteAsPacked() << partner.Twin.WriteAsPacked();
+    shot << uint8(0) << uint32(AutoShotSpell) << uint32(CAST_FLAG_UNKNOWN_9 | CAST_FLAG_PROJECTILE);
+    shot << uint32(GameTime::GetGameTimeMS().count());
+    shot << uint8(1) << target << uint8(0);
+    shot << uint32(TARGET_FLAG_UNIT) << target.WriteAsPacked();
+    shot << uint32(gun ? BulletProjectileDisplay : ArrowProjectileDisplay) << uint32(INVTYPE_AMMO);
+    return shot;
+}
+
+WorldPacket TwinShotDamagePacket(SwingPartner const& partner, ObjectGuid target, uint32 hitInfo, uint32 school,
+    uint32 damage)
+{
+    WorldPacket log(SMSG_SPELLNONMELEEDAMAGELOG, 48);
+    log << target.WriteAsPacked() << partner.Twin.WriteAsPacked();
+    log << uint32(AutoShotSpell) << uint32(damage) << uint32(0) << uint8(school);
+    log << uint32(0) << uint32(0) << uint8(1) << uint8(0) << uint32(0);
+    log << uint32((hitInfo & HITINFO_CRITICALHIT) ? SPELL_HIT_TYPE_CRIT : 0) << uint8(0);
+    return log;
+}
+
+bool ShareSwingWithBrother(WorldSession* session, WorldPacket const& packet)
+{
+    if (resendingAsBrother || packet.GetOpcode() != SMSG_ATTACKERSTATEUPDATE)
+        return true;
+    WorldPacket reader(packet);
+    reader.rpos(0);
+    uint32 hitInfo = 0;
+    ObjectGuid attacker;
+    ObjectGuid target;
+    uint32 total = 0;
+    uint32 overkill = 0;
+    uint8 count = 0;
+    reader >> hitInfo >> attacker.ReadAsPacked() >> target.ReadAsPacked() >> total >> overkill >> count;
+    if (total < 2 || !count || count > 2)
+        return true;
+    SwingPartner partner;
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        auto itr = swingPartners.find(attacker);
+        if (itr == swingPartners.end())
+            return true;
+        partner = itr->second;
+    }
+    std::array<uint32, 2> schools{};
+    std::array<uint32, 2> damages{};
+    for (uint8 index = 0; index < count; ++index)
+    {
+        float shown = 0.0f;
+        reader >> schools[index] >> shown >> damages[index];
+    }
+    std::size_t const afterSubs = reader.rpos();
+    std::size_t statePos = afterSubs;
+    if (hitInfo & (HITINFO_FULL_ABSORB | HITINFO_PARTIAL_ABSORB))
+        statePos += 4 * count;
+    if (hitInfo & (HITINFO_FULL_RESIST | HITINFO_PARTIAL_RESIST))
+        statePos += 4 * count;
+    if (statePos >= packet.size())
+        return true;
+    uint8 const targetState = packet.contents()[statePos];
+
+    uint32 ownTotal = 0;
+    WorldPacket own(SMSG_ATTACKERSTATEUPDATE, packet.size());
+    std::array<uint32, 2> ownDamages{};
+    for (uint8 index = 0; index < count; ++index)
+    {
+        ownDamages[index] = damages[index] - damages[index] / 2;
+        ownTotal += ownDamages[index];
+    }
+    uint32 const brotherShare = total > ownTotal ? total - ownTotal : 0;
+    if (!brotherShare)
+        return true;
+    own << hitInfo << attacker.WriteAsPacked() << target.WriteAsPacked() << ownTotal << overkill << count;
+    for (uint8 index = 0; index < count; ++index)
+        own << schools[index] << float(ownDamages[index]) << ownDamages[index];
+    own.append(packet.contents() + afterSubs, packet.size() - afterSubs);
+
+    resendingAsBrother = true;
+    session->SendPacket(&own);
+    if (partner.Style == Swing::Shot)
+    {
+        WorldPacket shot = TwinShotPacket(partner, target);
+        WorldPacket damage = TwinShotDamagePacket(partner, target, hitInfo, schools[0], brotherShare);
+        session->SendPacket(&shot);
+        session->SendPacket(&damage);
+    }
+    else
+    {
+        WorldPacket swing = TwinSwingPacket(partner, target, hitInfo, schools[0], brotherShare, targetState);
+        session->SendPacket(&swing);
+    }
+    resendingAsBrother = false;
+    return false;
+}
+
 bool ShowCastOnBrother(WorldSession* session, WorldPacket const& packet)
 {
     if (resendingAsBrother || !castingAsBrother.Spell ||
@@ -1027,7 +1234,7 @@ public:
 
     bool CanPacketSend(WorldSession* session, WorldPacket const& packet) override
     {
-        return !session || ShowCastOnBrother(session, packet);
+        return !session || (ShowCastOnBrother(session, packet) && ShareSwingWithBrother(session, packet));
     }
 
     bool CanPacketReceive(WorldSession* session, WorldPacket const& packet) override
@@ -1268,7 +1475,7 @@ void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid)
     SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
     Unit* target = targetGuid == player->GetGUID() ? player : ObjectAccessor::GetUnit(*player, targetGuid);
     if (!info || !target || !player->IsInWorld() || !player->IsAlive() || !OtherHalfAwake(player) ||
-        !Affordable(player, info))
+        !Affordable(player, info) || Helpless(player))
         return;
     Creature* twin = HasTwin(player) ? TwinOf(player) : nullptr;
     ActOutCast(player, info, target);
@@ -1285,7 +1492,7 @@ void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid)
 bool OrderOtherHalf(Player* player, uint32 spellId, Unit* target, uint32 pause)
 {
     SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
-    if (!info || !target || !OtherHalfAwake(player) || !Affordable(player, info))
+    if (!info || !target || !OtherHalfAwake(player) || !Affordable(player, info) || Helpless(player))
         return false;
     {
         std::lock_guard<std::mutex> lock(twinMutex);
