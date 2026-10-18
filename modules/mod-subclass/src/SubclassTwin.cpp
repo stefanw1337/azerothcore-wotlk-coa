@@ -31,6 +31,8 @@
 using namespace Acore::ChatCommands;
 
 bool SubclassChosen(Player const* player);
+bool OtherHalfShoots(Player const* player);
+bool MainHalfShoots(Player const* player);
 
 namespace
 {
@@ -213,9 +215,6 @@ Wardrobe Worn(Player const* player)
         worn.Items[slot] = player->GetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + Slots[slot].Slot * 2);
     return worn;
 }
-
-bool OtherHalfShoots(Player const* player);
-bool MainHalfShoots(Player const* player);
 
 Item* OwnBow(Player const* player)
 {
