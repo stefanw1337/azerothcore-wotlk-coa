@@ -28,8 +28,8 @@ using namespace Acore::ChatCommands;
 namespace
 {
 constexpr uint32 TwinEntry = 9530030;
-constexpr float TwinDistance = 0.6f;
-constexpr float TwinReach = 0.3f;
+constexpr float TwinDistance = 0.35f;
+constexpr float TwinReach = 0.15f;
 constexpr float TwinAngle = float(M_PI) * 1.5f;
 constexpr std::size_t LookSlots = 11;
 constexpr uint32 PiggybackVehicle = 9530;
@@ -52,6 +52,7 @@ struct Motion
     uint32 Tick = 0;
     uint32 Moving = 0;
     uint32 NextPoint = PointMin;
+    uint32 Swing = 0;
     Carry Mode = Carry::Beside;
 };
 
@@ -229,6 +230,17 @@ Carry WantedCarry(Player const* player, Motion const& motion)
     return motion.Moving >= HopDelay ? Carry::Piggyback : Carry::Beside;
 }
 
+bool EchoSwing(Player* player, Creature* twin, uint32 swing)
+{
+    Unit* victim = player->GetVictim();
+    if (!victim || twin->GetVehicle() || swing < std::max<uint32>(player->GetAttackTime(BASE_ATTACK), MotionTick))
+        return false;
+    twin->SetFacingToObject(victim);
+    twin->HandleEmoteCommand(twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID) ?
+        EMOTE_ONESHOT_ATTACK1H : EMOTE_ONESHOT_ATTACKUNARMED);
+    return true;
+}
+
 void UpdateCarry(Player* player, uint32 diff)
 {
     Motion motion;
@@ -243,6 +255,7 @@ void UpdateCarry(Player* player, uint32 diff)
         if (stored.Tick < MotionTick)
             return;
         bool const moving = player->isMoving();
+        stored.Swing = player->IsInCombat() ? stored.Swing + stored.Tick : 0;
         stored.Moving = moving ? stored.Moving + stored.Tick : 0;
         pointNow = false;
         if (stored.Mode == Carry::Piggyback && moving)
@@ -262,6 +275,11 @@ void UpdateCarry(Player* player, uint32 diff)
         return;
     if (pointNow && twin->GetVehicle())
         twin->HandleEmoteCommand(EMOTE_ONESHOT_POINT);
+    if (EchoSwing(player, twin, motion.Swing))
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        motions[guid].Swing = 0;
+    }
     Carry const wanted = WantedCarry(player, motion);
     bool const seated = twin->GetVehicle() != nullptr;
     if (wanted == motion.Mode && (wanted == Carry::Beside) != seated)
