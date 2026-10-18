@@ -955,7 +955,10 @@ void OfferStoryLater(Player* player)
 
 bool UsesBow(SpellInfo const* info)
 {
-    return info && (info->IsRangedWeaponSpell() || info->HasAttribute(SPELL_ATTR0_USES_RANGED_SLOT));
+    constexpr uint32 Shooters = (1 << ITEM_SUBCLASS_WEAPON_BOW) | (1 << ITEM_SUBCLASS_WEAPON_GUN) |
+        (1 << ITEM_SUBCLASS_WEAPON_CROSSBOW);
+    return info && (info->HasAttribute(SPELL_ATTR0_USES_RANGED_SLOT) ||
+        (info->EquippedItemClass == ITEM_CLASS_WEAPON && (info->EquippedItemSubClassMask & Shooters)));
 }
 
 bool SharedByManyClasses(uint32 spellId)
@@ -975,14 +978,22 @@ bool ClassShoots(uint8 classId)
     std::lock_guard<std::mutex> lock(shootersMutex);
     if (auto known = shooters.find(classId); known != shooters.end())
         return known->second;
-    bool shoots = classId == CLASS_HUNTER;
+    uint32 because = 0;
+    auto consider = [&because](uint32 spellId)
+    {
+        if (!because && spellId && !SharedByManyClasses(spellId) && UsesBow(sSpellMgr->GetSpellInfo(spellId)))
+            because = spellId;
+    };
     for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)
-        if (!shoots && spell.ClassId == classId && !SharedByManyClasses(spell.SpellId))
-            shoots = UsesBow(sSpellMgr->GetSpellInfo(spell.SpellId));
+        if (spell.ClassId == classId)
+            consider(spell.SpellId);
     for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
-        if (!shoots && entry.ClassId == classId)
+        if (entry.ClassId == classId)
             for (uint32 spellId : entry.SpellIds)
-                shoots = shoots || (spellId && UsesBow(sSpellMgr->GetSpellInfo(spellId)));
+                consider(spellId);
+    bool const shoots = classId == CLASS_HUNTER || because;
+    LOG_INFO("module", "Class {} {} a bow{}", uint32(classId), shoots ? "uses" : "does not use",
+        because ? Acore::StringFormat(" (spell {})", because) : std::string());
     shooters.emplace(classId, shoots);
     return shoots;
 }
