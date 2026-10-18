@@ -385,7 +385,9 @@ void BecomeGhost(Player* player, Creature* twin, bool ghost)
 
 bool FightsFromRange(Player const* player, Creature const* twin)
 {
-    return RangedOf(player) || (IsSplit(player) && !twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID));
+    if (IsSplit(player))
+        return !twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID);
+    return RangedOf(player) != nullptr;
 }
 
 float FollowDistanceFor(Player const* player, Creature const* twin)
@@ -482,10 +484,11 @@ Unit* TwinTarget(Player* player)
 
 bool EchoSwing(Player* player, Creature* twin, uint32 swing)
 {
-    if (IsSplit(player))
+    bool const split = IsSplit(player);
+    if (split && !twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID))
         return false;
     Unit* victim = TwinTarget(player);
-    ItemTemplate const* ranged = player->GetVictim() ? nullptr : RangedOf(player);
+    ItemTemplate const* ranged = split || player->GetVictim() ? nullptr : RangedOf(player);
     uint32 const pace = ranged && ranged->Delay ? ranged->Delay : player->GetAttackTime(BASE_ATTACK);
     if (!victim || twin->GetVehicle() || swing < std::max<uint32>(pace, MotionTick))
         return false;
