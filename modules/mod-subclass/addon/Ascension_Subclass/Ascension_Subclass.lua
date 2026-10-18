@@ -675,6 +675,12 @@ local function IsStandardClass()
 end
 
 local CLASSIC_TIERS, CLASSIC_COLUMNS = 11, 4
+local BACKGROUND_PIECES = {
+    { suffix = "-TopLeft", x = 0, y = 0, w = 256 / 300, h = 256 / 331, u = 1, v = 1 },
+    { suffix = "-TopRight", x = 256 / 300, y = 0, w = 44 / 300, h = 256 / 331, u = 0.6875, v = 1 },
+    { suffix = "-BottomLeft", x = 0, y = 256 / 331, w = 256 / 300, h = 75 / 331, u = 1, v = 0.5859375 },
+    { suffix = "-BottomRight", x = 256 / 300, y = 256 / 331, w = 44 / 300, h = 75 / 331, u = 0.6875, v = 0.5859375 },
+}
 local book, ownPage
 local classicFrames = {}
 
@@ -684,9 +690,13 @@ local function ClassicCanvas(index)
         return frame
     end
     frame = CreateFrame("Frame", nil, ownPage)
-    frame.background = frame:CreateTexture(nil, "BACKGROUND")
-    frame.background:SetAllPoints(frame)
-    frame.background:SetAlpha(0.55)
+    frame.background = {}
+    for _, piece in ipairs(BACKGROUND_PIECES) do
+        local texture = frame:CreateTexture(nil, "BACKGROUND")
+        texture:SetTexCoord(0, piece.u, 0, piece.v)
+        texture:SetAlpha(0.7)
+        frame.background[#frame.background + 1] = texture
+    end
     frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
     frame.title:SetPoint("TOP", frame, "TOP", 0, -6)
     frame.points = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -737,13 +747,20 @@ local function RenderClassicTree(tabIndex, canvas)
     local name, _, spent, background = GetTalentTabInfo(tabIndex)
     canvas.title:SetText(name or "")
     canvas.points:SetText(string.format("%d point(s) spent", spent or 0))
-    if background and background ~= "" then
-        canvas.background:SetTexture("Interface\\TalentFrame\\" .. background .. "-TopLeft")
-        canvas.background:Show()
-    else
-        canvas.background:Hide()
-    end
     local width, height = canvas:GetWidth(), canvas:GetHeight() - 50
+    for index, piece in ipairs(BACKGROUND_PIECES) do
+        local texture = canvas.background[index]
+        if background and background ~= "" then
+            texture:SetTexture("Interface\\TalentFrame\\" .. background .. piece.suffix)
+            texture:ClearAllPoints()
+            texture:SetPoint("TOPLEFT", canvas, "TOPLEFT", piece.x * width, -piece.y * canvas:GetHeight())
+            texture:SetWidth(piece.w * width)
+            texture:SetHeight(piece.h * canvas:GetHeight())
+            texture:Show()
+        else
+            texture:Hide()
+        end
+    end
     local stepX, stepY = width / CLASSIC_COLUMNS, height / CLASSIC_TIERS
     local centers, indexAt = {}, {}
     local count = GetNumTalents(tabIndex) or 0
