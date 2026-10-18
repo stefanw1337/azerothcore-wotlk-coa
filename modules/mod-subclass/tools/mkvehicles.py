@@ -92,7 +92,7 @@ def sql(table, columns, fmt, rows, strings):
 
 _, seat_fields, seat_size, seats, seat_strings = load(f"{SRC}/VehicleSeat.dbc")
 _, vehicle_fields, vehicle_size, vehicles, vehicle_strings = load(f"{SRC}/Vehicle.dbc")
-new_seats = [seat(seats, PIGGYBACK_SEAT, 10, (-0.25, 0.0, -0.6), -0.35), seat(seats, SADDLE_SEAT, 0, (-0.55, 0.0, 0.05))]
+new_seats = [seat(seats, PIGGYBACK_SEAT, 10, (0.05, 0.0, -0.65), -0.35), seat(seats, SADDLE_SEAT, 0, (-0.55, 0.0, 0.05))]
 new_vehicles = [vehicle(vehicles, PIGGYBACK, PIGGYBACK_SEAT), vehicle(vehicles, SADDLE, SADDLE_SEAT)]
 seats = [row for row in seats if struct.unpack_from("<I", row)[0] not in (PIGGYBACK_SEAT, SADDLE_SEAT)] + new_seats
 vehicles = [row for row in vehicles if struct.unpack_from("<I", row)[0] not in (PIGGYBACK, SADDLE)] + new_vehicles
