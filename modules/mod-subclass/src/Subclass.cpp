@@ -567,6 +567,23 @@ void SendAddonList(Player* player, std::string const& head, std::vector<std::str
         SendAddon(player, head + " " + line);
 }
 
+bool HandlesOwnPet(SpellInfo const* info)
+{
+    auto handles = [](SpellInfo const* candidate)
+    {
+        return candidate && (candidate->HasEffect(SPELL_EFFECT_TAMECREATURE) ||
+            candidate->HasEffect(SPELL_EFFECT_CREATE_TAMED_PET) || candidate->HasEffect(SPELL_EFFECT_SUMMON_PET) ||
+            candidate->HasEffect(SPELL_EFFECT_DISMISS_PET) || candidate->HasEffect(SPELL_EFFECT_RESURRECT_PET) ||
+            candidate->HasEffect(SPELL_EFFECT_FEED_PET));
+    };
+    if (handles(info))
+        return true;
+    for (SpellEffectInfo const& effect : info->GetEffects())
+        if (effect.TriggerSpell && handles(sSpellMgr->GetSpellInfo(effect.TriggerSpell)))
+            return true;
+    return false;
+}
+
 Powers StandardClassPower(uint8 classId)
 {
     switch (classId)
@@ -1164,6 +1181,16 @@ public:
         if (res != SPELL_CAST_OK || !player || spell->IsTriggered() ||
             !IsBorrowedSpell(player, spell->GetSpellInfo()->Id))
             return;
+        if (HandlesOwnPet(spell->GetSpellInfo()))
+        {
+            if (SubclassResting(player))
+            {
+                res = SPELL_FAILED_DONT_REPORT;
+                ChatHandler(player->GetSession()).SendNotification(
+                    "That ability belongs to your other half, and they are not with you right now.");
+            }
+            return;
+        }
         if (!SubclassResting(player))
         {
             Unit* target = spell->m_targets.GetUnitTarget();
