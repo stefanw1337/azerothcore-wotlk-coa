@@ -44,6 +44,7 @@ constexpr uint32 DisagreedAura = 9530105;
 constexpr std::array<uint32, 4> SelfAuras = { TeamingUpAura, LonelyAura, AgreedAura, DisagreedAura };
 constexpr uint32 SelfAuraTick = 1000;
 constexpr uint32 SheathEmote = 573;
+constexpr uint32 ArrivalDelay = 2000;
 constexpr uint32 TwinQuest = 9530020;
 constexpr char const* EchoRefusal = "Your brother still wears whatever you wear. He will want his own clothes "
     "once you have earned the Bravery Badge together.";
@@ -123,6 +124,7 @@ std::unordered_map<ObjectGuid, Look>& looks = *new std::unordered_map<ObjectGuid
 std::unordered_map<uint32, Motion>& motions = *new std::unordered_map<uint32, Motion>;
 std::unordered_map<uint32, uint32>& sentHome = *new std::unordered_map<uint32, uint32>;
 std::unordered_map<uint32, uint32>& auraTicks = *new std::unordered_map<uint32, uint32>;
+std::unordered_map<uint32, uint32>& arrivals = *new std::unordered_map<uint32, uint32>;
 
 Wardrobe WardrobeOf(Player const* player)
 {
@@ -672,6 +674,27 @@ void UpdateSelfAura(Player* player)
     }
 }
 
+void ArriveLater(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(twinMutex);
+    arrivals[player->GetGUID().GetCounter()] = ArrivalDelay;
+}
+
+bool Arrives(Player const* player, uint32 diff)
+{
+    std::lock_guard<std::mutex> lock(twinMutex);
+    auto itr = arrivals.find(player->GetGUID().GetCounter());
+    if (itr == arrivals.end())
+        return false;
+    if (itr->second > diff)
+    {
+        itr->second -= diff;
+        return false;
+    }
+    arrivals.erase(itr);
+    return true;
+}
+
 void TickSelfAura(Player* player, uint32 diff)
 {
     {
@@ -800,6 +823,8 @@ public:
 
     void OnPlayerUpdate(Player* player, uint32 diff) override
     {
+        if (Arrives(player, diff))
+            RefreshTwin(player);
         UpdateCarry(player, diff);
         TickSelfAura(player, diff);
     }
@@ -816,7 +841,7 @@ public:
 
     void OnPlayerLogin(Player* player) override
     {
-        RefreshTwin(player);
+        ArriveLater(player);
         LearnRacials(player);
         if (SubclassResting(player))
             SetBorrowedPassives(player, false);
@@ -825,7 +850,8 @@ public:
 
     void OnPlayerMapChanged(Player* player) override
     {
-        RefreshTwin(player);
+        DismissTwin(player);
+        ArriveLater(player);
     }
 
     void OnPlayerLogout(Player* player) override
