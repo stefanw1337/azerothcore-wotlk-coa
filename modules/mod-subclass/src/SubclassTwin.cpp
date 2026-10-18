@@ -54,6 +54,7 @@ constexpr uint32 CowboySpell = 9530106;
 constexpr uint32 HalfBrainSpell = 9530107;
 constexpr uint32 CowboyAura = 9530108;
 constexpr uint32 HalfBrainAura = 9530109;
+constexpr uint32 ReachAura = 9530110;
 constexpr uint32 EasyTick = 600;
 constexpr uint32 ManualPause = 3000;
 constexpr float HealBelowPct = 60.0f;
@@ -747,10 +748,22 @@ bool OtherHalfAwake(Player const* player)
     return aura == TeamingUpAura || aura == DisagreedAura;
 }
 
+bool BrotherOut(Player const* player);
+
+void UpdateReach(Player* player)
+{
+    bool const wanted = BrotherOut(player);
+    if (wanted && !player->HasAura(ReachAura))
+        player->AddAura(ReachAura, player);
+    else if (!wanted && player->HasAura(ReachAura))
+        player->RemoveAurasDueToSpell(ReachAura);
+}
+
 void UpdateSelfAura(Player* player)
 {
     if (!player->IsAlive())
         return;
+    UpdateReach(player);
     if (!OtherHalfAwake(player))
     {
         player->RemoveAurasDueToSpell(CowboyAura);
