@@ -28,6 +28,7 @@ using namespace Acore::ChatCommands;
 namespace
 {
 constexpr uint32 TwinEntry = 9530030;
+constexpr uint8 TwinRace = 32;
 constexpr float TwinDistance = 0.35f;
 constexpr float TwinReach = 0.15f;
 constexpr float TwinAngle = float(M_PI) * 1.5f;
@@ -367,9 +368,14 @@ void SummonTwin(Player* player)
     twin->GetMotionMaster()->MoveFollow(player, TwinDistance, TwinAngle);
 }
 
+bool HasTwin(Player const* player)
+{
+    return player->getRace() == TwinRace && player->getGender() == GENDER_MALE;
+}
+
 void RefreshTwin(Player* player)
 {
-    if (WardrobeOf(player).Enabled)
+    if (HasTwin(player) && WardrobeOf(player).Enabled)
         SummonTwin(player);
     else
         DismissTwin(player);
@@ -420,6 +426,8 @@ std::string SlotList()
 void HandleTwinLook(Player* player, std::vector<std::string_view> const& words)
 {
     constexpr std::array<int, 12> SlotOfCategory = { -1, 0, 1, 9, 3, 10, 2, 7, 8, 4, 5, 6 };
+    if (!HasTwin(player))
+        return;
     Wardrobe wardrobe = WardrobeOf(player);
     uint32 changed = 0;
     for (std::size_t index = 1; index < words.size(); ++index)
@@ -517,8 +525,18 @@ public:
         return commands;
     }
 
+    static bool RefuseWithoutTwin(ChatHandler* handler)
+    {
+        if (HasTwin(handler->GetSession()->GetPlayer()))
+            return false;
+        handler->SendSysMessage("Only the Thin Twins have a brother to call.");
+        return true;
+    }
+
     static bool HandleToggle(ChatHandler* handler)
     {
+        if (RefuseWithoutTwin(handler))
+            return true;
         Player* player = handler->GetSession()->GetPlayer();
         Wardrobe wardrobe = WardrobeOf(player);
         wardrobe.Enabled = !wardrobe.Enabled;
@@ -538,6 +556,8 @@ public:
 
     static bool HandleWear(ChatHandler* handler, std::string slotName, Variant<Hyperlink<item>, uint32> itemArg)
     {
+        if (RefuseWithoutTwin(handler))
+            return true;
         int const slot = SlotIndex(slotName);
         if (slot < 0)
         {
@@ -560,6 +580,8 @@ public:
 
     static bool HandleStrip(ChatHandler* handler, Optional<std::string> slotName)
     {
+        if (RefuseWithoutTwin(handler))
+            return true;
         Wardrobe wardrobe = WardrobeOf(handler->GetSession()->GetPlayer());
         if (!slotName || *slotName == "all")
             wardrobe.Items = {};
@@ -576,6 +598,8 @@ public:
 
     static bool HandleCopy(ChatHandler* handler)
     {
+        if (RefuseWithoutTwin(handler))
+            return true;
         Player* player = handler->GetSession()->GetPlayer();
         Wardrobe wardrobe = WardrobeOf(player);
         for (std::size_t slot = 0; slot < LookSlots; ++slot)
@@ -586,6 +610,8 @@ public:
 
     static bool HandleInfo(ChatHandler* handler)
     {
+        if (RefuseWithoutTwin(handler))
+            return true;
         Player* player = handler->GetSession()->GetPlayer();
         Wardrobe const wardrobe = WardrobeOf(player);
         std::string worn;
