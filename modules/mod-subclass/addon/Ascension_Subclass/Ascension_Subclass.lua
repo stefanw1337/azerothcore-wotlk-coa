@@ -639,17 +639,7 @@ local function CopyTexturePath(path)
     return path
 end
 
-local function CopyBackdrop(source, copy)
-    if not (source.GetBackdrop and source:GetBackdrop()) then
-        return
-    end
-    copy:SetBackdrop(source:GetBackdrop())
-    copy:SetBackdropColor(source:GetBackdropColor())
-    copy:SetBackdropBorderColor(source:GetBackdropBorderColor())
-end
-
 local function CopyContents(source, copy, mapped, label, text)
-    CopyBackdrop(source, copy)
     for _, region in ipairs({ source:GetRegions() }) do
         if region:GetObjectType() == "Texture" and region:GetTexture() then
             local texture = copy:CreateTexture(nil, region:GetDrawLayer())
@@ -667,23 +657,10 @@ local function CopyContents(source, copy, mapped, label, text)
         elseif region:GetObjectType() == "FontString" and region ~= text then
             local own = copy:CreateFontString(nil, region:GetDrawLayer())
             own:SetFontObject(region:GetFontObject())
-            own:SetTextColor(region:GetTextColor())
             local shown = region:GetText()
             own:SetText(shown == label and Naming().tab or shown)
             mapped[region] = own
         end
-    end
-    for _, child in ipairs({ source:GetChildren() }) do
-        local own = CreateFrame("Frame", nil, copy)
-        own:SetWidth(child:GetWidth())
-        own:SetHeight(child:GetHeight())
-        own:SetFrameLevel(copy:GetFrameLevel() + math.max(child:GetFrameLevel() - source:GetFrameLevel(), 0))
-        own:EnableMouse(false)
-        mapped[child] = own
-        if not child:IsShown() then
-            own:Hide()
-        end
-        CopyContents(child, own, mapped, label, text)
     end
 end
 
