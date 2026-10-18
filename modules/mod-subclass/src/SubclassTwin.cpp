@@ -1273,7 +1273,14 @@ bool OrderOtherHalf(Player* player, uint32 spellId, Unit* target, uint32 pause)
 
 bool OrderBrother(Player* player, uint32 spellId, Unit* target)
 {
-    return BrotherOut(player) && OrderOtherHalf(player, spellId, target, ManualPause);
+    if (!HasTwin(player) || !IsSplit(player))
+        return false;
+    bool const ordered = BrotherOut(player) && OrderOtherHalf(player, spellId, target, ManualPause);
+    LOG_INFO("module", "{} presses {} for the brother at {}: {}", player->GetName(), spellId, target->GetName(),
+        ordered ? "ordered" : "refused");
+    if (!ordered)
+        ChatHandler(player->GetSession()).SendNotification("Your brother can't cast that right now.");
+    return true;
 }
 
 std::pair<uint32, Unit*> PickSpell(Player* player)
