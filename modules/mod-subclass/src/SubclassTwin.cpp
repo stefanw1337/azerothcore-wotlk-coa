@@ -83,11 +83,11 @@ struct Look
     std::array<uint32, LookSlots> Displays = {};
 };
 
-std::mutex twinMutex;
-std::unordered_map<uint32, Wardrobe> wardrobes;
-std::unordered_map<uint32, ObjectGuid> twinOfOwner;
-std::unordered_map<ObjectGuid, Look> looks;
-std::unordered_map<uint32, Motion> motions;
+std::mutex& twinMutex = *new std::mutex;
+std::unordered_map<uint32, Wardrobe>& wardrobes = *new std::unordered_map<uint32, Wardrobe>;
+std::unordered_map<uint32, ObjectGuid>& twinOfOwner = *new std::unordered_map<uint32, ObjectGuid>;
+std::unordered_map<ObjectGuid, Look>& looks = *new std::unordered_map<ObjectGuid, Look>;
+std::unordered_map<uint32, Motion>& motions = *new std::unordered_map<uint32, Motion>;
 
 Wardrobe WardrobeOf(Player const* player)
 {

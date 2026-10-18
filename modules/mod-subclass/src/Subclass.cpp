@@ -234,10 +234,10 @@ struct Record
     uint32 Insights = 0;
 };
 
-std::mutex subclassMutex;
+std::mutex& subclassMutex = *new std::mutex;
 Subclass::Settings settings;
 std::vector<Subclass::Pair> pairs;
-std::unordered_map<uint32, Record> records;
+std::unordered_map<uint32, Record>& records = *new std::unordered_map<uint32, Record>;
 
 struct Voice
 {

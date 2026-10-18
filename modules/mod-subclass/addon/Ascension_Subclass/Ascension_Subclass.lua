@@ -1210,7 +1210,7 @@ local function AttachTwinButton()
     if race ~= "ThinHuman" then
         return true
     end
-    local anchor = FindButton("Disable Spell Visuals") or FindButton("Disable Transmog")
+    local anchor = FindButton("Disable Transmog") or FindButton("Disable Spell Visuals")
     if not anchor then
         return false
     end
@@ -1224,13 +1224,18 @@ local function AttachTwinButton()
     twinButton = CreateFrame("Button", "Ascension_SubclassTwinButton", anchor:GetParent(), "UIPanelButtonTemplate")
     twinButton:SetWidth(150)
     twinButton:SetHeight(anchor:GetHeight())
-    twinButton:SetPoint("LEFT", anchor, "RIGHT", 8, 0)
+    twinButton:SetPoint("BOTTOMLEFT", anchor, "TOPLEFT", 0, 4)
+    twinButton:SetFrameStrata(anchor:GetFrameStrata())
+    twinButton:SetFrameLevel(anchor:GetFrameLevel() + 20)
     twinButton:SetScript("OnClick", function()
         dressingTwin = not dressingTwin
         if C_Appearance and C_Appearance.ClearPendingAppearances then
             C_Appearance.ClearPendingAppearances()
         end
         ShowDressing()
+        DEFAULT_CHAT_FRAME:AddMessage(dressingTwin
+            and "|cffffd100Wardrobe:|r Apply now dresses your twin."
+            or "|cffffd100Wardrobe:|r Apply now dresses you.")
     end)
     twinButton:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
@@ -1260,8 +1265,76 @@ twinWatcher:SetScript("OnUpdate", function(self, elapsed)
     end
 end)
 
+local function DescribeRegion(region)
+    local entry = { kind = region:GetObjectType(), name = region:GetName(), shown = region:IsShown(),
+        width = region:GetWidth(), height = region:GetHeight(), points = {} }
+    for index = 1, region:GetNumPoints() do
+        local point, relative, relativePoint, x, y = region:GetPoint(index)
+        entry.points[index] = table.concat({ point, relative and (relative:GetName() or tostring(relative)) or "nil",
+            relativePoint, x, y }, " ")
+    end
+    if entry.kind == "Texture" then
+        entry.texture = region:GetTexture()
+        entry.atlas = region.GetAtlas and region:GetAtlas()
+        entry.layer = region:GetDrawLayer()
+        entry.coords = { region:GetTexCoord() }
+        entry.color = { region:GetVertexColor() }
+        entry.blend = region:GetBlendMode()
+    elseif entry.kind == "FontString" then
+        entry.text = region:GetText()
+        entry.font = { region:GetFont() }
+    end
+    return entry
+end
+
+local function DescribeFrame(frame, depth)
+    local entry = DescribeRegion(frame)
+    entry.level = frame:GetFrameLevel()
+    entry.strata = frame:GetFrameStrata()
+    if frame.GetBackdrop then
+        entry.backdrop = frame:GetBackdrop()
+    end
+    for _, kind in ipairs({ "Normal", "Pushed", "Highlight", "Disabled", "Checked" }) do
+        local getter = frame["Get" .. kind .. "Texture"]
+        local texture = getter and getter(frame)
+        if texture then
+            entry[kind] = DescribeRegion(texture)
+        end
+    end
+    entry.regions = {}
+    for _, region in ipairs({ frame:GetRegions() }) do
+        entry.regions[#entry.regions + 1] = DescribeRegion(region)
+    end
+    entry.children = {}
+    if depth < 4 then
+        for _, child in ipairs({ frame:GetChildren() }) do
+            entry.children[#entry.children + 1] = DescribeFrame(child, depth + 1)
+        end
+    end
+    return entry
+end
+
+local function DumpTabs()
+    local tabs = FindAdvancementTabs()
+    if not tabs then
+        DEFAULT_CHAT_FRAME:AddMessage("Ascension Subclass: open the Character Advancement window first.")
+        return
+    end
+    Ascension_SubclassDump = {}
+    for index, other in ipairs(tabs) do
+        Ascension_SubclassDump[index] = DescribeFrame(other, 0)
+    end
+    DEFAULT_CHAT_FRAME:AddMessage("Ascension Subclass: tab layout saved. /reload to write it to disk.")
+end
+
 SLASH_ASCENSIONSUBCLASS1 = "/subclass"
-SlashCmdList.ASCENSIONSUBCLASS = Toggle
+SlashCmdList.ASCENSIONSUBCLASS = function(message)
+    if message == "dump" then
+        DumpTabs()
+    else
+        Toggle()
+    end
+end
 
 local tries = 0
 local events = CreateFrame("Frame")
