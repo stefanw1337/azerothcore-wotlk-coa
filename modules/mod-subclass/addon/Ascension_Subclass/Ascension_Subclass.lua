@@ -1420,6 +1420,10 @@ twinWatcher:SetScript("OnUpdate", function(self, elapsed)
         return
     end
     self.wait = 0
+    local collections = _G.Collections
+    if not (collections and collections.IsShown and collections:IsShown()) then
+        return
+    end
     if AttachTwinButton() then
         self:SetScript("OnUpdate", nil)
     end
