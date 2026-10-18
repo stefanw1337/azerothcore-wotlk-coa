@@ -632,18 +632,28 @@ local function CopyPoints(region, mapped, copy)
     end
 end
 
-local function CopyTab(source, parent)
-    local copy = CreateFrame("Button", "Ascension_SubclassTab", parent)
-    copy:SetWidth(source:GetWidth())
-    copy:SetHeight(source:GetHeight())
-    copy:SetPoint("LEFT", source, "RIGHT", 2, 0)
-    local text = source.GetFontString and source:GetFontString()
-    local mapped = { [source] = copy }
+local function CopyTexturePath(path)
+    if type(path) == "string" and string.find(string.lower(path), "interface\\icons\\", 1, true) then
+        return TAB_ICON
+    end
+    return path
+end
+
+local function CopyBackdrop(source, copy)
+    if not (source.GetBackdrop and source:GetBackdrop()) then
+        return
+    end
+    copy:SetBackdrop(source:GetBackdrop())
+    copy:SetBackdropColor(source:GetBackdropColor())
+    copy:SetBackdropBorderColor(source:GetBackdropBorderColor())
+end
+
+local function CopyContents(source, copy, mapped, label, text)
+    CopyBackdrop(source, copy)
     for _, region in ipairs({ source:GetRegions() }) do
         if region:GetObjectType() == "Texture" and region:GetTexture() then
             local texture = copy:CreateTexture(nil, region:GetDrawLayer())
-            local path = region:GetTexture()
-            texture:SetTexture(string.find(string.lower(path), "interface\\icons\\", 1, true) and TAB_ICON or path)
+            texture:SetTexture(CopyTexturePath(region:GetTexture()))
             texture:SetTexCoord(region:GetTexCoord())
             texture:SetVertexColor(region:GetVertexColor())
             texture:SetBlendMode(region:GetBlendMode())
@@ -655,18 +665,43 @@ local function CopyTab(source, parent)
                 texture:Hide()
             end
         elseif region:GetObjectType() == "FontString" and region ~= text then
-            local label = copy:CreateFontString(nil, region:GetDrawLayer())
-            label:SetFontObject(region:GetFontObject())
-            label:SetText(Naming().tab)
-            mapped[region] = label
+            local own = copy:CreateFontString(nil, region:GetDrawLayer())
+            own:SetFontObject(region:GetFontObject())
+            own:SetTextColor(region:GetTextColor())
+            local shown = region:GetText()
+            own:SetText(shown == label and Naming().tab or shown)
+            mapped[region] = own
         end
     end
+    for _, child in ipairs({ source:GetChildren() }) do
+        local own = CreateFrame("Frame", nil, copy)
+        own:SetWidth(child:GetWidth())
+        own:SetHeight(child:GetHeight())
+        own:SetFrameLevel(copy:GetFrameLevel() + math.max(child:GetFrameLevel() - source:GetFrameLevel(), 0))
+        own:EnableMouse(false)
+        mapped[child] = own
+        if not child:IsShown() then
+            own:Hide()
+        end
+        CopyContents(child, own, mapped, label, text)
+    end
+end
+
+local function CopyTab(source, parent)
+    local copy = CreateFrame("Button", "Ascension_SubclassTab", parent)
+    copy:SetWidth(source:GetWidth())
+    copy:SetHeight(source:GetHeight())
+    copy:SetFrameLevel(source:GetFrameLevel())
+    copy:SetPoint("LEFT", source, "RIGHT", 2, 0)
+    local text = source.GetFontString and source:GetFontString()
+    local mapped = { [source] = copy }
+    CopyContents(source, copy, mapped, TextOf(source), text)
     for region, own in pairs(mapped) do
         if region ~= source then
             if region:GetNumPoints() > 0 then
                 CopyPoints(region, mapped, own)
             else
-                own:SetAllPoints(copy)
+                own:SetAllPoints(own:GetParent())
             end
         end
     end
@@ -1134,6 +1169,35 @@ local function FindButton(text)
     end
 end
 
+local function IsInside(frame, ancestor)
+    while frame do
+        if frame == ancestor then
+            return true
+        end
+        frame = frame:GetParent()
+    end
+    return false
+end
+
+local function HookApplyButton(wardrobe)
+    local frame = EnumerateFrames()
+    while frame do
+        if frame.GetObjectType and frame:GetObjectType() == "Button" and TextOf(frame) == "Apply"
+            and IsInside(frame, wardrobe) and not frame.subclassTwinHooked then
+            local original = frame:GetScript("OnClick")
+            frame:SetScript("OnClick", function(...)
+                if dressingTwin then
+                    SendTwinLook()
+                elseif original then
+                    original(...)
+                end
+            end)
+            frame.subclassTwinHooked = true
+        end
+        frame = EnumerateFrames(frame)
+    end
+end
+
 local function ShowDressing()
     twinButton:SetText(dressingTwin and "Dressing: Your twin" or "Dressing: You")
 end
@@ -1151,6 +1215,12 @@ local function AttachTwinButton()
         return false
     end
     HookWardrobeApply()
+    local wardrobe = anchor
+    while wardrobe:GetParent() and wardrobe:GetParent() ~= UIParent do
+        wardrobe = wardrobe:GetParent()
+    end
+    HookApplyButton(wardrobe)
+    wardrobe:HookScript("OnShow", function() HookApplyButton(wardrobe) end)
     twinButton = CreateFrame("Button", "Ascension_SubclassTwinButton", anchor:GetParent(), "UIPanelButtonTemplate")
     twinButton:SetWidth(150)
     twinButton:SetHeight(anchor:GetHeight())
