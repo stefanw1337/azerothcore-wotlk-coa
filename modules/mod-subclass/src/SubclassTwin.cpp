@@ -13,6 +13,7 @@
 #include "PlayerScript.h"
 #include "ServerScript.h"
 #include "TemporarySummon.h"
+#include "Vehicle.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
 #include <array>
@@ -28,6 +29,26 @@ constexpr uint32 TwinEntry = 9530030;
 constexpr float TwinDistance = 1.0f;
 constexpr float TwinAngle = float(M_PI) * 1.5f;
 constexpr std::size_t LookSlots = 11;
+constexpr uint32 PiggybackVehicle = 9530;
+constexpr uint32 SaddleVehicle = 9531;
+constexpr int8 TwinSeat = 1;
+constexpr uint32 MotionTick = 200;
+constexpr uint32 HopDelay = 1000;
+
+enum class Carry
+{
+    Beside,
+    Piggyback,
+    Saddle
+};
+
+struct Motion
+{
+    uint32 Tick = 0;
+    uint32 Moving = 0;
+    uint32 Still = 0;
+    Carry Mode = Carry::Beside;
+};
 
 struct TwinSlot
 {
@@ -61,6 +82,7 @@ std::mutex twinMutex;
 std::unordered_map<uint32, Wardrobe> wardrobes;
 std::unordered_map<uint32, ObjectGuid> twinOfOwner;
 std::unordered_map<ObjectGuid, Look> looks;
+std::unordered_map<uint32, Motion> motions;
 
 Wardrobe WardrobeOf(Player const* player)
 {
@@ -92,8 +114,8 @@ void StoreWardrobe(Player const* player, Wardrobe const& wardrobe)
     auto const& items = wardrobe.Items;
     CharacterDatabase.Execute("REPLACE INTO `mod_subclass_twin` (`guid`, `enabled`, `head`, `shoulders`, `shirt`, "
         "`chest`, `waist`, `legs`, `feet`, `wrists`, `hands`, `back`, `tabard`) "
-        "VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})", guid, wardrobe.Enabled ? 1 : 0, items[0], items[1], items[2], items[3], items[4],
-        items[5], items[6], items[7], items[8], items[9], items[10]);
+        "VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})", guid, wardrobe.Enabled ? 1 : 0, items[0],
+        items[1], items[2], items[3], items[4], items[5], items[6], items[7], items[8], items[9], items[10]);
     std::lock_guard<std::mutex> lock(twinMutex);
     wardrobes[guid] = wardrobe;
 }
@@ -132,6 +154,105 @@ Creature* TwinOf(Player const* player)
     return ObjectAccessor::GetCreature(*player, guid);
 }
 
+bool OwnsKit(Player const* player)
+{
+    Vehicle const* kit = player->GetVehicleKit();
+    return kit && (kit->GetVehicleInfo()->m_ID == PiggybackVehicle || kit->GetVehicleInfo()->m_ID == SaddleVehicle);
+}
+
+void SendVehicleData(Player* player, uint32 vehicleId)
+{
+    WorldPacket data(SMSG_PLAYER_VEHICLE_DATA, player->GetPackGUID().size() + 4);
+    data << player->GetPackGUID();
+    data << uint32(vehicleId);
+    player->SendMessageToSet(&data, true);
+}
+
+void DropKit(Player* player)
+{
+    if (!OwnsKit(player))
+        return;
+    SendVehicleData(player, 0);
+    player->RemoveVehicleKit();
+}
+
+bool GiveKit(Player* player, uint32 vehicleId)
+{
+    if (Vehicle const* kit = player->GetVehicleKit())
+    {
+        if (kit->GetVehicleInfo()->m_ID == vehicleId)
+            return true;
+        if (!OwnsKit(player))
+            return false;
+        DropKit(player);
+    }
+    if (!player->CreateVehicleKit(vehicleId, 0))
+        return false;
+    player->GetVehicleKit()->Reset();
+    SendVehicleData(player, vehicleId);
+    return true;
+}
+
+void SetCarry(Player* player, Creature* twin, Carry mode)
+{
+    if (mode == Carry::Beside)
+    {
+        if (twin->GetVehicle())
+            twin->ExitVehicle();
+        DropKit(player);
+        twin->GetMotionMaster()->Clear();
+        twin->GetMotionMaster()->MoveFollow(player, TwinDistance, TwinAngle);
+        return;
+    }
+    if (!GiveKit(player, mode == Carry::Piggyback ? PiggybackVehicle : SaddleVehicle))
+        return SetCarry(player, twin, Carry::Beside);
+    twin->GetMotionMaster()->Clear();
+    twin->EnterVehicle(player, TwinSeat);
+}
+
+Carry WantedCarry(Player const* player, Motion const& motion)
+{
+    if (!player->IsAlive() || player->IsInCombat() || player->IsInWater())
+        return Carry::Beside;
+    if (player->IsMounted())
+        return player->GetVehicleKit() && !OwnsKit(player) ? Carry::Beside : Carry::Saddle;
+    if (player->IsFlying())
+        return Carry::Beside;
+    if (motion.Mode == Carry::Piggyback)
+        return motion.Still >= HopDelay ? Carry::Beside : Carry::Piggyback;
+    return motion.Moving >= HopDelay ? Carry::Piggyback : Carry::Beside;
+}
+
+void UpdateCarry(Player* player, uint32 diff)
+{
+    Motion motion;
+    uint32 const guid = player->GetGUID().GetCounter();
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        if (!twinOfOwner.count(guid))
+            return;
+        Motion& stored = motions[guid];
+        stored.Tick += diff;
+        if (stored.Tick < MotionTick)
+            return;
+        bool const moving = player->isMoving();
+        stored.Moving = moving ? stored.Moving + stored.Tick : 0;
+        stored.Still = moving ? 0 : stored.Still + stored.Tick;
+        stored.Tick = 0;
+        motion = stored;
+    }
+    Creature* twin = TwinOf(player);
+    if (!twin)
+        return;
+    Carry const wanted = WantedCarry(player, motion);
+    bool const seated = twin->GetVehicle() != nullptr;
+    if (wanted == motion.Mode && (wanted == Carry::Beside) != seated)
+        return;
+    SetCarry(player, twin, wanted);
+    std::lock_guard<std::mutex> lock(twinMutex);
+    motions[guid].Mode = twin->GetVehicle() ? wanted : Carry::Beside;
+}
+
 void DismissTwin(Player* player)
 {
     ObjectGuid guid;
@@ -143,9 +264,15 @@ void DismissTwin(Player* player)
         guid = itr->second;
         twinOfOwner.erase(itr);
         looks.erase(guid);
+        motions.erase(player->GetGUID().GetCounter());
     }
     if (Creature* twin = ObjectAccessor::GetCreature(*player, guid))
+    {
+        if (twin->GetVehicle())
+            twin->ExitVehicle();
         twin->DespawnOrUnsummon();
+    }
+    DropKit(player);
 }
 
 void SummonTwin(Player* player)
@@ -242,8 +369,13 @@ class mod_subclass_twin_player : public PlayerScript
 {
 public:
     mod_subclass_twin_player() : PlayerScript("mod_subclass_twin_player", { PLAYERHOOK_ON_LOGIN,
-        PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_ON_MAP_CHANGED, PLAYERHOOK_ON_DELETE })
+        PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_ON_MAP_CHANGED, PLAYERHOOK_ON_DELETE, PLAYERHOOK_ON_UPDATE })
     {
+    }
+
+    void OnPlayerUpdate(Player* player, uint32 diff) override
+    {
+        UpdateCarry(player, diff);
     }
 
     void OnPlayerLogin(Player* player) override

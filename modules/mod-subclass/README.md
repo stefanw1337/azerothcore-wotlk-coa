@@ -60,6 +60,12 @@ him:
 | `.twin copy` | Copies your own visible outfit. |
 | `.twin info` | Shows what he wears. |
 
+He travels with his brother: after a second of running he hops onto his back (piggyback), when mounted he sits right
+behind him on any mount, and he steps off beside him when he stands still, swims, flies or fights. Both seats are
+extra vehicle seats (`vehicle_dbc` 9530 and 9531 with seats 9530 and 9531); the client needs the same rows in its
+`Vehicle.dbc` and `VehicleSeat.dbc` (`patch-ZZX.MPQ`). On a real two-seat mount, which already has seats of its own,
+he walks beside it instead.
+
 For this test, remove the client's two-twin model patch (`patch-ZZZ.MPQ`), or every Thin Human shows two twins.
 
 ## GM commands
