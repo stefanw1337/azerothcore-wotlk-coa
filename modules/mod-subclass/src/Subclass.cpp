@@ -1009,11 +1009,57 @@ bool MainHalfShoots(Player const* player)
     return ClassShoots(player->getClass());
 }
 
+uint32 ClassFamily(uint8 classId)
+{
+    switch (classId)
+    {
+        case CLASS_WARRIOR: return SPELLFAMILY_WARRIOR;
+        case CLASS_PALADIN: return SPELLFAMILY_PALADIN;
+        case CLASS_HUNTER: return SPELLFAMILY_HUNTER;
+        case CLASS_ROGUE: return SPELLFAMILY_ROGUE;
+        case CLASS_PRIEST: return SPELLFAMILY_PRIEST;
+        case CLASS_DEATH_KNIGHT: return SPELLFAMILY_DEATHKNIGHT;
+        case CLASS_SHAMAN: return SPELLFAMILY_SHAMAN;
+        case CLASS_MAGE: return SPELLFAMILY_MAGE;
+        case CLASS_WARLOCK: return SPELLFAMILY_WARLOCK;
+        case CLASS_DRUID: return SPELLFAMILY_DRUID;
+        default: break;
+    }
+    static std::mutex familiesMutex;
+    static std::unordered_map<uint8, uint32> families;
+    std::lock_guard<std::mutex> lock(familiesMutex);
+    if (auto known = families.find(classId); known != families.end())
+        return known->second;
+    std::unordered_map<uint32, uint32> counts;
+    for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)
+        if (spell.ClassId == classId)
+            if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spell.SpellId); info && info->SpellFamilyName)
+                ++counts[info->SpellFamilyName];
+    uint32 family = 0;
+    uint32 most = 0;
+    for (auto const& [candidate, count] : counts)
+        if (count > most)
+        {
+            family = candidate;
+            most = count;
+        }
+    families.emplace(classId, family);
+    return family;
+}
+
+bool InBorrowedFamily(Player const* player, uint8 subClass, SpellInfo const* info)
+{
+    uint32 const family = ClassFamily(subClass);
+    return info && family && info->SpellFamilyName == family && family != ClassFamily(player->getClass());
+}
+
 bool IsBorrowedSpell(Player const* player, uint32 spellId)
 {
     Record const record = RecordOf(player);
     if (!record.Choice.Complete() || OwnClassGrants(player, spellId))
         return false;
+    if (InBorrowedFamily(player, record.Choice.SubClass, sSpellMgr->GetSpellInfo(spellId)))
+        return true;
     for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)
         if (spell.ClassId == record.Choice.SubClass && spell.SpellId == spellId)
             return true;
@@ -1050,6 +1096,10 @@ std::vector<uint32> KnownBorrowedActives(Player const* player)
         if (InTrees(trees, entry))
             for (uint32 spellId : entry.SpellIds)
                 consider(spellId);
+    for (auto const& [spellId, known] : player->GetSpellMap())
+        if (known->State != PLAYERSPELL_REMOVED && known->Active &&
+            InBorrowedFamily(player, record.Choice.SubClass, sSpellMgr->GetSpellInfo(spellId)))
+            consider(spellId);
     return actives;
 }
 

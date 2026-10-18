@@ -165,6 +165,8 @@ SHOOTERS = (1 << 2) | (1 << 3) | (1 << 18)
 SPELLFAMILY_HUNTER = 9
 SHARED_SHOTS = {75, 2764, 3018, 5019}
 SPELL_RANGE_RANGED = 2
+ATTR0_USES_RANGED_SLOT = 0x00000002
+CUSTOM_CLASS_FAMILIES = range(18, 39)
 
 
 def range_table():
@@ -194,10 +196,17 @@ def lift_dead_zones(records, count):
         item_mask, = struct.unpack_from("<I", records, offset + 69 * 4)
         family, = struct.unpack_from("<I", records, offset + 208 * 4)
         range_index, = struct.unpack_from("<I", records, offset + 46 * 4)
-        if (item_class == 2 and item_mask & SHOOTERS and family != SPELLFAMILY_HUNTER and
-                spell_id not in SHARED_SHOTS and range_index in plain):
+        if item_class != 2 or not item_mask & SHOOTERS or family == SPELLFAMILY_HUNTER or spell_id in SHARED_SHOTS:
+            continue
+        changed = False
+        if range_index in plain:
             struct.pack_into("<I", records, offset + 46 * 4, plain[range_index])
-            lifted += 1
+            changed = True
+        attributes, = struct.unpack_from("<I", records, offset + 4 * 4)
+        if family in CUSTOM_CLASS_FAMILIES and attributes & ATTR0_USES_RANGED_SLOT:
+            struct.pack_into("<I", records, offset + 4 * 4, attributes & ~ATTR0_USES_RANGED_SLOT)
+            changed = True
+        lifted += changed
     return lifted
 
 
