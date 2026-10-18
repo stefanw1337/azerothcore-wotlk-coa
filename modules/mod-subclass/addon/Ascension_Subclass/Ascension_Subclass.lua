@@ -1185,6 +1185,7 @@ ToggleTalentFrame = function(...)
 end
 
 local dressingTwin = false
+local twinRedressPending = false
 local twinButton
 
 local function SendTwinLook()
@@ -1277,17 +1278,58 @@ local function FindPreviewModels(root)
     return models
 end
 
+local function PendingTwinItems()
+    local items = {}
+    if not (C_Appearance and C_Appearance.GetPendingAppearance and C_Appearance.GetAppearanceDisplayInfo) then
+        return items
+    end
+    for category = 1, 14 do
+        local appearance = C_Appearance.GetPendingAppearance(category)
+        if appearance then
+            local _, itemId = C_Appearance.GetAppearanceDisplayInfo(appearance)
+            if itemId and itemId > 0 then
+                items[#items + 1] = itemId
+            end
+        end
+    end
+    return items
+end
+
+local function DressTwin(model)
+    model:Undress()
+    for _, itemId in ipairs(twinOutfit) do
+        if itemId > 0 then
+            model:TryOn(itemId)
+        end
+    end
+    for _, itemId in ipairs(PendingTwinItems()) do
+        model:TryOn(itemId)
+    end
+end
+
+local function WatchPreviewModel(model)
+    if model.subclassTwinWatched then
+        return
+    end
+    for _, method in ipairs({ "Dress", "SetUnit", "RefreshUnit" }) do
+        if type(model[method]) == "function" then
+            hooksecurefunc(model, method, function()
+                if dressingTwin then
+                    twinRedressPending = true
+                end
+            end)
+        end
+    end
+    model.subclassTwinWatched = true
+end
+
 ShowTwinPreview = function()
     if not (dressingTwin and wardrobeFrame) then
         return
     end
     for _, model in ipairs(FindPreviewModels(wardrobeFrame)) do
-        model:Undress()
-        for _, itemId in ipairs(twinOutfit) do
-            if itemId > 0 then
-                model:TryOn(itemId)
-            end
-        end
+        WatchPreviewModel(model)
+        DressTwin(model)
     end
 end
 
@@ -1325,6 +1367,10 @@ end
 local twinApplyKeeper = CreateFrame("Frame")
 twinApplyKeeper:Hide()
 twinApplyKeeper:SetScript("OnUpdate", function(self, elapsed)
+    if twinRedressPending then
+        twinRedressPending = false
+        ShowTwinPreview()
+    end
     self.wait = (self.wait or 0) + elapsed
     if self.wait < 0.1 then
         return
