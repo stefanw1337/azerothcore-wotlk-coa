@@ -811,11 +811,7 @@ local function AttachToWindow()
     end
     KeepTabsInRow(first, following, gap)
     tab:SetScript("OnClick", function()
-        if panel:IsShown() then
-            panel:Hide()
-        else
-            panel:Show()
-        end
+        panel:Show()
     end)
     for _, other in ipairs(tabs) do
         other:HookScript("OnClick", function() panel:Hide() end)
