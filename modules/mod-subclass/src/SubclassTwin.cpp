@@ -194,6 +194,7 @@ bool GiveKit(Player* player, uint32 vehicleId)
     if (!player->CreateVehicleKit(vehicleId, 0))
         return false;
     player->GetVehicleKit()->Reset();
+    player->RemoveNpcFlag(UNIT_NPC_FLAG_SPELLCLICK | UNIT_NPC_FLAG_PLAYER_VEHICLE);
     SendVehicleData(player, vehicleId);
     return true;
 }
