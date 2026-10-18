@@ -11,6 +11,8 @@
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
+#include "CharmInfo.h"
+#include "Pet.h"
 #include "Player.h"
 #include "PlayerScript.h"
 #include "Random.h"
@@ -35,6 +37,7 @@ using namespace Acore::ChatCommands;
 bool SubclassChosen(Player const* player);
 bool OtherHalfShoots(Player const* player);
 bool MainHalfShoots(Player const* player);
+bool BrotherOut(Player const* player);
 
 namespace
 {
@@ -188,6 +191,28 @@ constexpr uint32 ArrowProjectileDisplay = 3482;
 constexpr uint32 BulletProjectileDisplay = 3483;
 constexpr uint32 SplitHitFlags = HITINFO_FULL_ABSORB | HITINFO_PARTIAL_ABSORB | HITINFO_FULL_RESIST |
     HITINFO_PARTIAL_RESIST | HITINFO_BLOCK | HITINFO_RAGE_GAIN | HITINFO_UNK1;
+
+struct PetOrder
+{
+    uint8 Type = 0;
+    uint32 Action = 0;
+    ObjectGuid Target;
+};
+
+struct Companion
+{
+    ObjectGuid Guid;
+    uint32 PetNumber = 0;
+    bool Staying = false;
+    ReactStates React = REACT_DEFENSIVE;
+    ObjectGuid Ordered;
+    std::vector<PetOrder> Orders;
+};
+
+std::unordered_map<uint32, Companion>& companions = *new std::unordered_map<uint32, Companion>;
+constexpr uint32 HunterPetLevelStats = 1;
+constexpr uint32 HunterPetAttackTime = 2000;
+constexpr float CompanionDistance = 1.5f;
 
 Wardrobe WardrobeOf(Player const* player)
 {
@@ -539,6 +564,181 @@ bool EchoSwing(Player* player, Creature* twin, uint32 swing)
 }
 
 void SummonTwin(Player* player);
+PetStable::PetInfo const* ParkedHunterPet(Player const* player)
+{
+    PetStable const* stable = const_cast<Player*>(player)->GetPetStable();
+    if (!stable)
+        return nullptr;
+    for (PetStable::PetInfo const& pet : stable->UnslottedPets)
+        if (pet.Type == HUNTER_PET && pet.Health)
+            return &pet;
+    return nullptr;
+}
+
+bool WantsCompanion(Player* player)
+{
+    Pet* own = player->GetPet();
+    return player->getClass() != CLASS_HUNTER && player->IsClass(CLASS_HUNTER, CLASS_CONTEXT_PET) &&
+        BrotherOut(player) && own && own->getPetType() != HUNTER_PET && ParkedHunterPet(player);
+}
+
+void DismissCompanion(Player* player)
+{
+    ObjectGuid guid;
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        auto itr = companions.find(player->GetGUID().GetCounter());
+        if (itr == companions.end())
+            return;
+        guid = itr->second.Guid;
+        companions.erase(itr);
+    }
+    if (Creature* beast = ObjectAccessor::GetCreature(*player, guid))
+        beast->DespawnOrUnsummon();
+}
+
+void SummonCompanion(Player* player, Creature* twin, PetStable::PetInfo const& pet)
+{
+    Creature* beast = player->SummonCreature(pet.CreatureId, twin->GetPositionX(), twin->GetPositionY(),
+        twin->GetPositionZ(), twin->GetOrientation(), TEMPSUMMON_MANUAL_DESPAWN);
+    if (!beast)
+        return;
+    beast->SetOwnerGUID(player->GetGUID());
+    beast->SetCreatorGUID(player->GetGUID());
+    beast->SetFaction(player->GetFaction());
+    beast->ReplaceAllNpcFlags(UNIT_NPC_FLAG_NONE);
+    beast->SetReactState(REACT_PASSIVE);
+    beast->SetLevel(pet.Level);
+    if (pet.DisplayId)
+    {
+        beast->SetDisplayId(pet.DisplayId);
+        beast->SetNativeDisplayId(pet.DisplayId);
+    }
+    if (PetLevelInfo const* stats = sObjectMgr->GetPetLevelInfo(HunterPetLevelStats, pet.Level))
+    {
+        beast->SetCreateHealth(stats->health);
+        beast->SetMaxHealth(stats->health);
+        beast->SetHealth(stats->health);
+    }
+    beast->SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, float(pet.Level - pet.Level / 4));
+    beast->SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, float(pet.Level + pet.Level / 4));
+    beast->SetAttackTime(BASE_ATTACK, HunterPetAttackTime);
+    beast->UpdateDamagePhysical(BASE_ATTACK);
+    beast->GetMotionMaster()->MoveFollow(twin, CompanionDistance, TwinAngle);
+    std::lock_guard<std::mutex> lock(twinMutex);
+    Companion& companion = companions[player->GetGUID().GetCounter()];
+    companion = Companion{};
+    companion.Guid = beast->GetGUID();
+    companion.PetNumber = pet.PetNumber;
+}
+
+void FollowBrother(Creature* beast, Creature* twin)
+{
+    if (beast->GetVictim())
+        beast->AttackStop();
+    if (beast->GetMotionMaster()->GetCurrentMovementGeneratorType() != FOLLOW_MOTION_TYPE)
+        beast->GetMotionMaster()->MoveFollow(twin, CompanionDistance, TwinAngle);
+}
+
+void UpdateCompanion(Player* player, Creature* twin)
+{
+    bool const wanted = WantsCompanion(player);
+    Companion companion;
+    bool exists = false;
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        auto itr = companions.find(player->GetGUID().GetCounter());
+        if (itr != companions.end())
+        {
+            exists = true;
+            for (PetOrder const& order : itr->second.Orders)
+            {
+                if (order.Type == ACT_REACTION)
+                    itr->second.React = ReactStates(order.Action);
+                else if (order.Action == COMMAND_STAY)
+                    itr->second.Staying = true;
+                else if (order.Action == COMMAND_FOLLOW)
+                {
+                    itr->second.Staying = false;
+                    itr->second.Ordered.Clear();
+                }
+                else if (order.Action == COMMAND_ATTACK)
+                {
+                    itr->second.Staying = false;
+                    itr->second.Ordered = order.Target;
+                }
+            }
+            itr->second.Orders.clear();
+            companion = itr->second;
+        }
+    }
+    if (!wanted)
+    {
+        if (exists)
+            DismissCompanion(player);
+        return;
+    }
+    if (!exists)
+    {
+        if (PetStable::PetInfo const* pet = ParkedHunterPet(player))
+            SummonCompanion(player, twin, *pet);
+        return;
+    }
+    Creature* beast = ObjectAccessor::GetCreature(*player, companion.Guid);
+    if (!beast)
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        companions.erase(player->GetGUID().GetCounter());
+        return;
+    }
+    if (!beast->IsAlive())
+        return;
+    if (companion.Staying)
+    {
+        if (!beast->GetVictim() && beast->isMoving())
+        {
+            beast->GetMotionMaster()->Clear();
+            beast->StopMoving();
+        }
+        return;
+    }
+    Unit* target = companion.Ordered ? ObjectAccessor::GetUnit(*player, companion.Ordered) : nullptr;
+    if (!target && companion.React != REACT_PASSIVE)
+    {
+        target = player->GetVictim();
+        if (!target)
+            if (Pet* own = player->GetPet())
+                target = own->GetVictim();
+    }
+    if (!target || !target->IsAlive() || !beast->IsValidAttackTarget(target))
+        return FollowBrother(beast, twin);
+    if (beast->GetVictim() != target)
+    {
+        beast->Attack(target, true);
+        beast->GetMotionMaster()->MoveChase(target);
+    }
+}
+
+void OrderCompanion(WorldSession* session, WorldPacket const& packet)
+{
+    Player* player = session->GetPlayer();
+    if (!player || packet.GetOpcode() != CMSG_PET_ACTION || packet.size() < 20)
+        return;
+    WorldPacket reader(packet);
+    reader.rpos(0);
+    ObjectGuid pet;
+    uint32 data = 0;
+    ObjectGuid target;
+    reader >> pet >> data >> target;
+    uint8 const type = UNIT_ACTION_BUTTON_TYPE(data);
+    if (pet != player->GetPetGUID() || (type != ACT_COMMAND && type != ACT_REACTION))
+        return;
+    std::lock_guard<std::mutex> lock(twinMutex);
+    auto itr = companions.find(player->GetGUID().GetCounter());
+    if (itr != companions.end())
+        itr->second.Orders.push_back({ type, UNIT_ACTION_BUTTON_ACTION(data), target });
+}
+
 bool Helpless(Player const* player)
 {
     return player->HasUnitState(UNIT_STATE_STUNNED | UNIT_STATE_CONFUSED | UNIT_STATE_FLEEING);
@@ -671,6 +871,7 @@ void UpdateCarry(Player* player, uint32 diff)
     }
     MirrorStun(player, twin);
     MirrorCurse(player, twin);
+    UpdateCompanion(player, twin);
     if (twin->HasUnitFlag(UNIT_FLAG_STUNNED))
         return;
     MirrorStance(player, twin);
@@ -699,6 +900,7 @@ void DismissTwin(Player* player)
         motions.erase(player->GetGUID().GetCounter());
         swingPartners.erase(player->GetGUID());
     }
+    DismissCompanion(player);
     if (Creature* twin = ObjectAccessor::GetCreature(*player, guid))
     {
         if (twin->GetVehicle())
@@ -1268,6 +1470,8 @@ public:
 
     bool CanPacketReceive(WorldSession* session, WorldPacket const& packet) override
     {
+        if (session)
+            OrderCompanion(session, packet);
         return !session || AnswerMirrorImage(session, packet);
     }
 };
