@@ -214,11 +214,19 @@ Wardrobe Worn(Player const* player)
     return worn;
 }
 
+Item* OwnBow(Player const* player)
+{
+    return player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_RANGED);
+}
+
 Wardrobe Dressed(Player const* player)
 {
     Wardrobe wardrobe = WardrobeOf(player);
     if (!IsSplit(player))
         wardrobe.Items = Worn(player).Items;
+    else if (!wardrobe.Items[Ranged])
+        if (Item const* bow = OwnBow(player))
+            wardrobe.Items[Ranged] = bow->GetEntry();
     return wardrobe;
 }
 
@@ -760,11 +768,33 @@ void UpdateReach(Player* player)
         player->RemoveAurasDueToSpell(ReachAura);
 }
 
+void HandBowToBrother(Player* player)
+{
+    Item* bow = OwnBow(player);
+    uint16 const field = PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_RANGED * 2;
+    if (bow && BrotherOut(player))
+    {
+        if (player->GetUInt32Value(field))
+        {
+            player->SetUInt32Value(field, 0);
+            player->SetUInt32Value(field + 1, 0);
+        }
+        if (Creature* twin = TwinOf(player))
+            if (uint32 const shown = Dressed(player).Items[Ranged];
+                twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID + 2) != shown)
+                twin->SetVirtualItem(2, shown);
+        return;
+    }
+    if (bow && !player->GetUInt32Value(field))
+        player->SetVisibleItemSlot(EQUIPMENT_SLOT_RANGED, bow);
+}
+
 void UpdateSelfAura(Player* player)
 {
     if (!player->IsAlive())
         return;
     UpdateReach(player);
+    HandBowToBrother(player);
     if (!OtherHalfAwake(player))
     {
         player->RemoveAurasDueToSpell(CowboyAura);
@@ -1023,8 +1053,10 @@ public:
         HopOffFor(player, AfootStride);
     }
 
-    void OnPlayerAfterSetVisibleItemSlot(Player* player, uint8 /*slot*/, Item* /*item*/) override
+    void OnPlayerAfterSetVisibleItemSlot(Player* player, uint8 slot, Item* /*item*/) override
     {
+        if (slot == EQUIPMENT_SLOT_RANGED && BrotherOut(player))
+            return HandBowToBrother(player);
         MarkRestyle(player);
     }
 
