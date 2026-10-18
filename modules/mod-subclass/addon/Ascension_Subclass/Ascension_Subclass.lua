@@ -831,6 +831,9 @@ local function AttachToWindow()
             if other.SetChecked then
                 other:SetChecked(false)
             end
+            if other.Enable then
+                other:Enable()
+            end
         end
         if tab.SetChecked then
             tab:SetChecked(true)
