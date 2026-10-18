@@ -1503,7 +1503,20 @@ SlashCmdList.ASCENSIONSUBCLASS = function(message)
     end
 end
 
+local KNOWN_TOOLTIP_FAULT = "GameTooltipMods.lua:109"
+
+local function QuietKnownTooltipFault()
+    local report = geterrorhandler()
+    seterrorhandler(function(message, ...)
+        if type(message) == "string" and string.find(message, KNOWN_TOOLTIP_FAULT, 1, true) then
+            return
+        end
+        return report(message, ...)
+    end)
+end
+
 local tries = 0
+local quietened = false
 local events = CreateFrame("Frame")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("CHAT_MSG_ADDON")
@@ -1513,6 +1526,10 @@ events:SetScript("OnEvent", function(_, event, prefix, message, _, sender)
             Receive(message)
         end
     elseif event == "PLAYER_ENTERING_WORLD" then
+        if not quietened then
+            quietened = true
+            QuietKnownTooltipFault()
+        end
         Send("SYNC")
         tries = 0
         events:SetScript("OnUpdate", function(self, elapsed)
