@@ -62,7 +62,7 @@ REPLACE INTO `quest_template` (`ID`, `QuestType`, `QuestLevel`, `MinLevel`, `Que
     `VerifiedBuild`)
 VALUES (9530020, 2, 22, 20, 1581, 81, 5, 5, 0, 0, 'One From the Same',
     'Take your father''s Bravery Badge from Edwin VanCleef in the Deadmines, then let your twin pin it on.',
-    'All our lives they have called us by one name. One bed, one bowl, one shadow. Mother was a sailor''s daughter from Kul Tiras, and she always said we came from the same. She never said we were the same.$B$BFather earned his Bravery Badge pulling three masons out of the rubble while the Stonemasons rebuilt Stormwind. Then the nobles refused to pay the guild, and he followed Edwin VanCleef into the dark. VanCleef keeps the badge of every mason who joined him, as proof of what the city owes them.$B$BThe Deadmines, under Moonbrook. I want that badge back, brother. And this time, I go first.',
+    'All our lives they have called us by one name. One bed, one bowl, one shadow. Mother was a sailor''s daughter from Kul Tiras, and she always said we came from the same. She never said we were the same. And she said every Kul Tiran looked like us once, before Boralus learned to brew. We just never caught up.$B$BFather earned his Bravery Badge pulling three masons out of the rubble while the Stonemasons rebuilt Stormwind. Then the nobles refused to pay the guild, and he followed Edwin VanCleef into the dark. VanCleef keeps the badge of every mason who joined him, as proof of what the city owes them.$B$BThe Deadmines, under Moonbrook. I want that badge back, brother. And this time, I go first.',
     '', 'Let your twin pin on the Bravery Badge.', 9530020, 1, 0);
 
 DELETE FROM `quest_template_addon` WHERE `ID` = 9530020;
@@ -73,8 +73,8 @@ DELETE FROM `npc_text` WHERE `ID` IN (9530020, 9530021, 9530022);
 INSERT INTO `npc_text` (`ID`, `text0_0`, `text0_1`, `BroadcastTextID0`, `lang0`, `Probability0`, `VerifiedBuild`)
 VALUES
 (9530020,
-    'Your twin has been quiet all day. Now he steps out from behind your shoulder, which he never does.$B$B"They have always called us one name. Mother never did. She said we came from the same, not that we are the same. I think I finally understand her.$B$BFather''s Bravery Badge is in the Deadmines, with Edwin VanCleef. I want it back. And this time, I go first."',
-    'Your twin has been quiet all day. Now he steps out from behind your shoulder, which he never does.$B$B"They have always called us one name. Mother never did. She said we came from the same, not that we are the same. I think I finally understand her.$B$BFather''s Bravery Badge is in the Deadmines, with Edwin VanCleef. I want it back. And this time, I go first."',
+    'Your twin has been quiet all day. Now he steps out from behind your shoulder, which he never does.$B$B"They have always called us one name. Mother never did. She said we came from the same, not that we are the same. I think I finally understand her. She also said every Kul Tiran looked like us once, before Boralus learned to brew. We just never caught up.$B$BFather''s Bravery Badge is in the Deadmines, with Edwin VanCleef. I want it back. And this time, I go first."',
+    'Your twin has been quiet all day. Now he steps out from behind your shoulder, which he never does.$B$B"They have always called us one name. Mother never did. She said we came from the same, not that we are the same. I think I finally understand her. She also said every Kul Tiran looked like us once, before Boralus learned to brew. We just never caught up.$B$BFather''s Bravery Badge is in the Deadmines, with Edwin VanCleef. I want it back. And this time, I go first."',
     0, 0, 1, 0),
 (9530021,
     'Your twin steps past you to the trainer before you can say a word.$B$B"I will ask this time. Which of you teaches something my brother does not know?"',
