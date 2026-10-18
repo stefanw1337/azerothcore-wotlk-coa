@@ -115,6 +115,10 @@ local function Locked(tree, node)
     return false
 end
 
+local function GrantedByLevel(entry)
+    return (entry.AECost or 0) == 0 and (entry.TECost or 0) == 0
+end
+
 local function NodeEnter(button)
     local node = button.node
     local entry = node.entry
@@ -140,6 +144,12 @@ local function NodeEnter(button)
     elseif Locked(button.tree, node) then
         GameTooltip:AddLine("Locked: spend more points in this tree or learn the talents above it.", 1, 0.3, 0.3, true)
     end
+    if GrantedByLevel(entry) then
+        GameTooltip:AddLine(string.format("Learned automatically at level %d", math.max(entry.RequiredLevel or 0, 1)),
+            0.8, 0.8, 0.8)
+        GameTooltip:Show()
+        return
+    end
     if rank < maxRank then
         GameTooltip:AddLine("Left-click: learn the next rank", 0, 1, 0)
     end
@@ -154,6 +164,9 @@ local function NodeClick(button, mouse)
         return
     end
     local node = button.node
+    if GrantedByLevel(node.entry) then
+        return
+    end
     local rank = RankOf(node.id)
     local maxRank = #(node.entry.Spells or {})
     local wanted

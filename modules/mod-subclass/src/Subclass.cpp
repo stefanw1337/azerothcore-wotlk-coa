@@ -580,7 +580,8 @@ void SendSubclassState(Player* player)
             tree.SpecId ? SpecializationName(tree.SpecId) : PlainClassName(tree.ClassId)));
         std::vector<std::string> ids;
         for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
-            if (entry.ClassId == tree.ClassId && entry.SpecId == tree.SpecId && (entry.AECost || entry.TECost))
+            if (entry.ClassId == tree.ClassId && entry.SpecId == tree.SpecId &&
+                (entry.AECost || entry.TECost || entry.SpellCount))
                 ids.push_back(std::to_string(entry.EntryId));
         SendAddonList(player, Acore::StringFormat("IDS {}", index + 1), ids);
     }
