@@ -1227,11 +1227,14 @@ local function IsInside(frame, ancestor)
     return false
 end
 
+local applyButtons = {}
+
 local function HookApplyButton(wardrobe)
     local frame = EnumerateFrames()
     while frame do
         if frame.GetObjectType and frame:GetObjectType() == "Button" and TextOf(frame) == "Apply"
             and IsInside(frame, wardrobe) and not frame.subclassTwinHooked then
+            applyButtons[#applyButtons + 1] = frame
             local original = frame:GetScript("OnClick")
             frame:SetScript("OnClick", function(...)
                 if dressingTwin then
@@ -1284,8 +1287,60 @@ local function ShowOwnPreview()
     end
 end
 
+local function OwnSlotWarnings(root)
+    local warnings = {}
+    local frame = EnumerateFrames()
+    while frame do
+        if IsInside(frame, root) then
+            if frame.GetObjectType and frame:GetObjectType() == "Button" and TextOf(frame) == "Clear invalid slots" then
+                warnings[#warnings + 1] = frame
+            end
+            for _, region in ipairs({ frame:GetRegions() }) do
+                if region.GetObjectType and region:GetObjectType() == "FontString" then
+                    local text = region:GetText()
+                    if text and text:find("^Invalid appearance selection") then
+                        warnings[#warnings + 1] = region
+                    end
+                end
+            end
+        end
+        frame = EnumerateFrames(frame)
+    end
+    return warnings
+end
+
+local twinApplyKeeper = CreateFrame("Frame")
+twinApplyKeeper:Hide()
+twinApplyKeeper:SetScript("OnUpdate", function(self, elapsed)
+    self.wait = (self.wait or 0) + elapsed
+    if self.wait < 0.1 then
+        return
+    end
+    self.wait = 0
+    for _, button in ipairs(applyButtons) do
+        if button:IsVisible() and not button:IsEnabled() then
+            button:Enable()
+        end
+    end
+    self.scan = (self.scan or 0) + 1
+    if self.scan % 10 == 1 and wardrobeFrame then
+        self.warnings = OwnSlotWarnings(wardrobeFrame)
+    end
+    for _, warning in ipairs(self.warnings or {}) do
+        if warning:IsShown() then
+            warning:Hide()
+        end
+    end
+end)
+
 local function ShowDressing()
     twinButton:SetText(dressingTwin and "Dressing: Your twin" or "Dressing: You")
+    if dressingTwin then
+        twinApplyKeeper.scan = 0
+        twinApplyKeeper:Show()
+    else
+        twinApplyKeeper:Hide()
+    end
 end
 
 local function AttachTwinButton()

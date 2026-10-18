@@ -156,6 +156,7 @@ struct BrotherCast
     ObjectGuid Player;
     ObjectGuid Twin;
     uint32 Spell = 0;
+    uint32 Shown = 0;
 };
 
 thread_local BrotherCast castingAsBrother;
@@ -959,6 +960,7 @@ bool ShowCastOnBrother(WorldSession* session, WorldPacket const& packet)
     shown << castingAsBrother.Twin.WriteAsPacked();
     shown << castingAsBrother.Twin.WriteAsPacked();
     shown.append(packet.contents() + afterCasters, packet.size() - afterCasters);
+    ++castingAsBrother.Shown;
     resendingAsBrother = true;
     session->SendPacket(&shown);
     resendingAsBrother = false;
@@ -1218,8 +1220,11 @@ void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid)
     ActOutCast(player, info, target);
     if (twin)
         castingAsBrother = { player->GetGUID(), twin->GetGUID(), spellId };
-    player->CastSpell(target, spellId, TriggerCastFlags(TRIGGERED_IGNORE_GCD | TRIGGERED_IGNORE_CAST_IN_PROGRESS |
-        TRIGGERED_CAST_DIRECTLY | TRIGGERED_IGNORE_SET_FACING | TRIGGERED_DONT_REPORT_CAST_ERROR));
+    SpellCastResult const result = player->CastSpell(target, spellId, TriggerCastFlags(TRIGGERED_IGNORE_GCD |
+        TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_CAST_DIRECTLY | TRIGGERED_IGNORE_SET_FACING |
+        TRIGGERED_DONT_REPORT_CAST_ERROR));
+    LOG_INFO("module", "The other half of {} casts {} ({}) at {}: result {}, {} cast packet(s) shown on the twin",
+        player->GetName(), info->SpellName[0], spellId, target->GetName(), uint32(result), castingAsBrother.Shown);
     castingAsBrother = {};
 }
 
