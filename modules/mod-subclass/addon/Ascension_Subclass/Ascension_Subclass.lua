@@ -623,6 +623,104 @@ local function CreatePanel(parent)
     end
 end
 
+local TAB_ICON = "Interface\\Icons\\INV_Misc_GroupNeedMore"
+
+local function CopyPoints(region, mapped, copy)
+    for index = 1, region:GetNumPoints() do
+        local point, relative, relativePoint, x, y = region:GetPoint(index)
+        copy:SetPoint(point, mapped[relative] or relative, relativePoint, x, y)
+    end
+end
+
+local function CopyTab(source, parent)
+    local copy = CreateFrame("Button", "Ascension_SubclassTab", parent)
+    copy:SetWidth(source:GetWidth())
+    copy:SetHeight(source:GetHeight())
+    copy:SetPoint("LEFT", source, "RIGHT", 2, 0)
+    local text = source.GetFontString and source:GetFontString()
+    local mapped = { [source] = copy }
+    for _, region in ipairs({ source:GetRegions() }) do
+        if region:GetObjectType() == "Texture" and region:GetTexture() then
+            local texture = copy:CreateTexture(nil, region:GetDrawLayer())
+            local path = region:GetTexture()
+            texture:SetTexture(string.find(string.lower(path), "interface\\icons\\", 1, true) and TAB_ICON or path)
+            texture:SetTexCoord(region:GetTexCoord())
+            texture:SetVertexColor(region:GetVertexColor())
+            texture:SetBlendMode(region:GetBlendMode())
+            texture:SetAlpha(region:GetAlpha())
+            texture:SetWidth(region:GetWidth())
+            texture:SetHeight(region:GetHeight())
+            mapped[region] = texture
+            if not region:IsShown() then
+                texture:Hide()
+            end
+        elseif region:GetObjectType() == "FontString" and region ~= text then
+            local label = copy:CreateFontString(nil, region:GetDrawLayer())
+            label:SetFontObject(region:GetFontObject())
+            label:SetText(Naming().tab)
+            mapped[region] = label
+        end
+    end
+    for region, own in pairs(mapped) do
+        if region ~= source then
+            if region:GetNumPoints() > 0 then
+                CopyPoints(region, mapped, own)
+            else
+                own:SetAllPoints(copy)
+            end
+        end
+    end
+    for _, kind in ipairs({ "Normal", "Pushed", "Highlight", "Disabled" }) do
+        local texture = source["Get" .. kind .. "Texture"](source)
+        if texture and texture:GetTexture() then
+            copy["Set" .. kind .. "Texture"](copy, texture:GetTexture())
+            local own = copy["Get" .. kind .. "Texture"](copy)
+            own:SetTexCoord(texture:GetTexCoord())
+            if kind == "Highlight" then
+                own:SetBlendMode(texture:GetBlendMode())
+            end
+        end
+    end
+    if text then
+        copy:SetNormalFontObject(source:GetNormalFontObject() or text:GetFontObject())
+        copy:SetHighlightFontObject(source:GetHighlightFontObject() or text:GetFontObject())
+        copy:SetText(Naming().tab)
+        local own = copy:GetFontString()
+        own:ClearAllPoints()
+        CopyPoints(text, mapped, own)
+        if own:GetNumPoints() == 0 then
+            own:SetPoint("CENTER", copy, "CENTER", 0, 0)
+        end
+    end
+    return copy
+end
+
+local function KeepTabsInRow(first, following, gap)
+    local function Arrange()
+        local previous = tab
+        for _, other in ipairs(following) do
+            if other:IsShown() then
+                local left, right = other:GetLeft(), previous:GetRight()
+                if not left or not right or math.abs(left - right - gap) > 1 then
+                    other:ClearAllPoints()
+                    other:SetPoint("LEFT", previous, "RIGHT", gap, 0)
+                end
+                previous = other
+            end
+        end
+    end
+    local keeper = CreateFrame("Frame", nil, tab)
+    keeper:SetScript("OnUpdate", function(self, elapsed)
+        self.wait = (self.wait or 0) + elapsed
+        if self.wait >= 0.2 then
+            self.wait = 0
+            Arrange()
+        end
+    end)
+    tab:SetPoint("LEFT", first, "RIGHT", gap, 0)
+    Arrange()
+end
+
 local function AttachToWindow()
     if tab then
         return true
@@ -645,16 +743,20 @@ local function AttachToWindow()
             first, after = other, tabs[index + 1]
         end
     end
-    tab = CreateFrame("Button", "Ascension_SubclassTab", parent, "UIPanelButtonTemplate")
-    tab:SetText(Naming().tab)
-    tab:SetWidth(math.max(120, first:GetWidth() * 0.8))
-    tab:SetHeight(first:GetHeight())
-    tab:SetPoint("LEFT", first, "RIGHT", 6, 0)
-    if after then
-        local gap = (after:GetLeft() or 0) - (first:GetRight() or 0)
-        after:ClearAllPoints()
-        after:SetPoint("LEFT", tab, "RIGHT", math.max(gap, 4), 0)
+    tab = CopyTab(first, parent)
+    local gap = 4
+    if after and after:GetLeft() and first:GetRight() then
+        gap = math.max(after:GetLeft() - first:GetRight(), 2)
     end
+    local following = {}
+    local seen = false
+    for _, other in ipairs(tabs) do
+        if seen then
+            following[#following + 1] = other
+        end
+        seen = seen or other == first
+    end
+    KeepTabsInRow(first, following, gap)
     tab:SetScript("OnClick", function()
         if panel:IsShown() then
             panel:Hide()
