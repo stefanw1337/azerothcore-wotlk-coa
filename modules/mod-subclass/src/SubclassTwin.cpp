@@ -41,6 +41,7 @@ constexpr uint32 AgreedAura = 9530104;
 constexpr uint32 DisagreedAura = 9530105;
 constexpr std::array<uint32, 4> SelfAuras = { TeamingUpAura, LonelyAura, AgreedAura, DisagreedAura };
 constexpr uint32 SelfAuraTick = 1000;
+constexpr uint32 SheathEmote = 573;
 constexpr uint32 TwinQuest = 9530020;
 constexpr char const* EchoRefusal = "Your brother still wears whatever you wear. He will want his own clothes "
     "once you have earned the Bravery Badge together.";
@@ -344,7 +345,10 @@ void MirrorStance(Player* player, Creature* twin)
     {
         SheathState const drawn = DrawnLike(player);
         if (twin->GetSheath() != drawn)
+        {
+            twin->HandleEmoteCommand(SheathEmote);
             twin->SetSheath(drawn);
+        }
     }
     if (twin->GetVehicle())
         return;
