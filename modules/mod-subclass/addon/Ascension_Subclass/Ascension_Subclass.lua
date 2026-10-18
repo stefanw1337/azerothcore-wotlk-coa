@@ -1188,11 +1188,15 @@ local dressingTwin = false
 local twinRedressPending = false
 local twinButton
 
+local TWIN_SLOT_OF_CATEGORY = { 1, 2, 10, 4, 11, 3, 8, 9, 5, 6, 7, 14, 12, 13 }
+
 local function SendTwinLook()
     local looks = {}
     for category = 1, 14 do
         local appearance = C_Appearance.GetPendingAppearance(category)
-        if appearance then
+        if appearance == 0 then
+            looks[#looks + 1] = category .. ":0"
+        elseif appearance then
             local _, itemId = C_Appearance.GetAppearanceDisplayInfo(appearance)
             if itemId and itemId > 0 then
                 looks[#looks + 1] = category .. ":" .. itemId
@@ -1282,30 +1286,33 @@ local function FindPreviewModels(root)
 end
 
 local function PendingTwinItems()
-    local items = {}
+    local items, stripped = {}, {}
     if not (C_Appearance and C_Appearance.GetPendingAppearance and C_Appearance.GetAppearanceDisplayInfo) then
-        return items
+        return items, stripped
     end
     for category = 1, 14 do
         local appearance = C_Appearance.GetPendingAppearance(category)
-        if appearance then
+        if appearance == 0 then
+            stripped[TWIN_SLOT_OF_CATEGORY[category]] = true
+        elseif appearance then
             local _, itemId = C_Appearance.GetAppearanceDisplayInfo(appearance)
             if itemId and itemId > 0 then
                 items[#items + 1] = itemId
             end
         end
     end
-    return items
+    return items, stripped
 end
 
 local function DressTwin(model)
+    local pending, stripped = PendingTwinItems()
     model:Undress()
-    for _, itemId in ipairs(twinOutfit) do
-        if itemId > 0 then
+    for slot, itemId in ipairs(twinOutfit) do
+        if itemId > 0 and not stripped[slot] then
             model:TryOn(itemId)
         end
     end
-    for _, itemId in ipairs(PendingTwinItems()) do
+    for _, itemId in ipairs(pending) do
         model:TryOn(itemId)
     end
 end
