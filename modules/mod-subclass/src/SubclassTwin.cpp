@@ -47,6 +47,7 @@ constexpr std::array<uint32, 4> SelfAuras = { TeamingUpAura, LonelyAura, AgreedA
 constexpr uint32 SelfAuraTick = 1000;
 constexpr uint32 SheathEmote = 573;
 constexpr uint32 ArrivalDelay = 2000;
+constexpr uint32 LoginArrivalDelay = 10000;
 constexpr float RangedStandoff = 15.0f;
 constexpr uint8 BlackoutDrunk = 100;
 constexpr uint32 CowboySpell = 9530106;
@@ -764,10 +765,10 @@ void UpdateSelfAura(Player* player)
     }
 }
 
-void ArriveLater(Player const* player)
+void ArriveLater(Player const* player, uint32 delay)
 {
     std::lock_guard<std::mutex> lock(twinMutex);
-    arrivals[player->GetGUID().GetCounter()] = ArrivalDelay;
+    arrivals[player->GetGUID().GetCounter()] = delay;
 }
 
 bool Arrives(Player const* player, uint32 diff)
@@ -1013,7 +1014,7 @@ public:
 
     void OnPlayerLogin(Player* player) override
     {
-        ArriveLater(player);
+        ArriveLater(player, LoginArrivalDelay);
         LearnRacials(player);
         {
             std::lock_guard<std::mutex> lock(twinMutex);
@@ -1027,7 +1028,7 @@ public:
     void OnPlayerMapChanged(Player* player) override
     {
         DismissTwin(player);
-        ArriveLater(player);
+        ArriveLater(player, ArrivalDelay);
     }
 
     void OnPlayerLogout(Player* player) override
