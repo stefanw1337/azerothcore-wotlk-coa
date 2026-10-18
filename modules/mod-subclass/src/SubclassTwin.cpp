@@ -11,6 +11,7 @@
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "PlayerScript.h"
+#include "Random.h"
 #include "ServerScript.h"
 #include "TemporarySummon.h"
 #include "Vehicle.h"
@@ -35,6 +36,8 @@ constexpr uint32 SaddleVehicle = 9531;
 constexpr int8 TwinSeat = 1;
 constexpr uint32 MotionTick = 200;
 constexpr uint32 HopDelay = 1000;
+constexpr uint32 PointMin = 20000;
+constexpr uint32 PointMax = 45000;
 
 enum class Carry
 {
@@ -47,6 +50,7 @@ struct Motion
 {
     uint32 Tick = 0;
     uint32 Moving = 0;
+    uint32 NextPoint = PointMin;
     Carry Mode = Carry::Beside;
 };
 
@@ -226,6 +230,7 @@ Carry WantedCarry(Player const* player, Motion const& motion)
 void UpdateCarry(Player* player, uint32 diff)
 {
     Motion motion;
+    bool pointNow = false;
     uint32 const guid = player->GetGUID().GetCounter();
     {
         std::lock_guard<std::mutex> lock(twinMutex);
@@ -237,12 +242,24 @@ void UpdateCarry(Player* player, uint32 diff)
             return;
         bool const moving = player->isMoving();
         stored.Moving = moving ? stored.Moving + stored.Tick : 0;
+        pointNow = false;
+        if (stored.Mode == Carry::Piggyback && moving)
+        {
+            stored.NextPoint = stored.NextPoint > stored.Tick ? stored.NextPoint - stored.Tick : 0;
+            if (!stored.NextPoint)
+            {
+                pointNow = true;
+                stored.NextPoint = urand(PointMin, PointMax);
+            }
+        }
         stored.Tick = 0;
         motion = stored;
     }
     Creature* twin = TwinOf(player);
     if (!twin)
         return;
+    if (pointNow && twin->GetVehicle())
+        twin->HandleEmoteCommand(EMOTE_ONESHOT_POINT);
     Carry const wanted = WantedCarry(player, motion);
     bool const seated = twin->GetVehicle() != nullptr;
     if (wanted == motion.Mode && (wanted == Carry::Beside) != seated)
