@@ -1118,7 +1118,7 @@ local twinButton
 
 local function SendTwinLook()
     local looks = {}
-    for category = 1, 11 do
+    for category = 1, 14 do
         local appearance = C_Appearance.GetPendingAppearance(category)
         if appearance then
             local _, itemId = C_Appearance.GetAppearanceDisplayInfo(appearance)

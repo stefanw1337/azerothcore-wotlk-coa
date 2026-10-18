@@ -33,6 +33,12 @@ constexpr float TwinDistance = 0.35f;
 constexpr float TwinReach = 0.15f;
 constexpr float TwinAngle = float(M_PI) * 1.5f;
 constexpr std::size_t LookSlots = 11;
+constexpr std::size_t WardrobeSlots = LookSlots + 3;
+constexpr std::size_t MainHand = LookSlots;
+constexpr std::size_t OffHand = LookSlots + 1;
+constexpr std::size_t Ranged = LookSlots + 2;
+constexpr float TwinFarAway = 40.0f;
+constexpr uint32 GhostSpell = 8326;
 constexpr uint32 PiggybackVehicle = 9530;
 constexpr uint32 SaddleVehicle = 9531;
 constexpr int8 TwinSeat = 1;
@@ -66,16 +72,17 @@ struct TwinSlot
     EquipmentSlots Slot;
 };
 
-constexpr std::array<TwinSlot, LookSlots> Slots = { {
+constexpr std::array<TwinSlot, WardrobeSlots> Slots = { {
     { "head", EQUIPMENT_SLOT_HEAD }, { "shoulders", EQUIPMENT_SLOT_SHOULDERS }, { "shirt", EQUIPMENT_SLOT_BODY },
     { "chest", EQUIPMENT_SLOT_CHEST }, { "waist", EQUIPMENT_SLOT_WAIST }, { "legs", EQUIPMENT_SLOT_LEGS },
     { "feet", EQUIPMENT_SLOT_FEET }, { "wrists", EQUIPMENT_SLOT_WRISTS }, { "hands", EQUIPMENT_SLOT_HANDS },
-    { "back", EQUIPMENT_SLOT_BACK }, { "tabard", EQUIPMENT_SLOT_TABARD } } };
+    { "back", EQUIPMENT_SLOT_BACK }, { "tabard", EQUIPMENT_SLOT_TABARD }, { "mainhand", EQUIPMENT_SLOT_MAINHAND },
+    { "offhand", EQUIPMENT_SLOT_OFFHAND }, { "ranged", EQUIPMENT_SLOT_RANGED } } };
 
 struct Wardrobe
 {
     bool Enabled = false;
-    std::array<uint32, LookSlots> Items = {};
+    std::array<uint32, WardrobeSlots> Items = {};
 };
 
 struct Look
@@ -105,12 +112,13 @@ Wardrobe WardrobeOf(Player const* player)
 
     Wardrobe wardrobe;
     if (QueryResult result = CharacterDatabase.Query("SELECT `enabled`, `head`, `shoulders`, `shirt`, `chest`, "
-            "`waist`, `legs`, `feet`, `wrists`, `hands`, `back`, `tabard` FROM `mod_subclass_twin` WHERE `guid` = {}",
+            "`waist`, `legs`, `feet`, `wrists`, `hands`, `back`, `tabard`, `mainhand`, `offhand`, `ranged` "
+            "FROM `mod_subclass_twin` WHERE `guid` = {}",
             guid))
     {
         Field* fields = result->Fetch();
         wardrobe.Enabled = fields[0].Get<bool>();
-        for (std::size_t slot = 0; slot < LookSlots; ++slot)
+        for (std::size_t slot = 0; slot < WardrobeSlots; ++slot)
             wardrobe.Items[slot] = fields[slot + 1].Get<uint32>();
     }
 
@@ -123,9 +131,10 @@ void StoreWardrobe(Player const* player, Wardrobe const& wardrobe)
     uint32 const guid = player->GetGUID().GetCounter();
     auto const& items = wardrobe.Items;
     CharacterDatabase.Execute("REPLACE INTO `mod_subclass_twin` (`guid`, `enabled`, `head`, `shoulders`, `shirt`, "
-        "`chest`, `waist`, `legs`, `feet`, `wrists`, `hands`, `back`, `tabard`) "
-        "VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})", guid, wardrobe.Enabled ? 1 : 0, items[0],
-        items[1], items[2], items[3], items[4], items[5], items[6], items[7], items[8], items[9], items[10]);
+        "`chest`, `waist`, `legs`, `feet`, `wrists`, `hands`, `back`, `tabard`, `mainhand`, `offhand`, `ranged`) "
+        "VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})", guid, wardrobe.Enabled ? 1 : 0,
+        items[0], items[1], items[2], items[3], items[4], items[5], items[6], items[7], items[8], items[9], items[10],
+        items[MainHand], items[OffHand], items[Ranged]);
     std::lock_guard<std::mutex> lock(twinMutex);
     wardrobes[guid] = wardrobe;
 }
@@ -236,12 +245,54 @@ Carry WantedCarry(Player const* player, Motion const& motion)
     return motion.Moving >= HopDelay ? Carry::Piggyback : Carry::Beside;
 }
 
+void BecomeGhost(Player* player, Creature* twin, bool ghost)
+{
+    uint32 const seen = ghost ? GHOST_VISIBILITY_GHOST : GHOST_VISIBILITY_ALIVE | GHOST_VISIBILITY_GHOST;
+    twin->m_serverSideVisibility.SetValue(SERVERSIDE_VISIBILITY_GHOST, seen);
+    twin->m_serverSideVisibilityDetect.SetValue(SERVERSIDE_VISIBILITY_GHOST, seen);
+    if (ghost)
+        twin->AddAura(GhostSpell, twin);
+    else
+        twin->RemoveAurasDueToSpell(GhostSpell);
+    twin->SetStandState(UNIT_STAND_STATE_STAND);
+    twin->UpdateObjectVisibility();
+    twin->GetMotionMaster()->Clear();
+    twin->GetMotionMaster()->MoveFollow(player, TwinDistance, TwinAngle);
+}
+
 void MirrorStance(Player* player, Creature* twin)
 {
-    UnitStandStateType const stance = player->IsAlive() ? UnitStandStateType(player->getStandState()) :
-        UNIT_STAND_STATE_STAND;
-    if (!twin->GetVehicle() && twin->getStandState() != stance)
-        twin->SetStandState(stance);
+    if (!player->IsInCombat() && twin->GetSheath() != SHEATH_STATE_UNARMED)
+        twin->SetSheathState(SHEATH_STATE_UNARMED);
+    if (twin->GetVehicle())
+        return;
+    bool const ghost = player->HasPlayerFlag(PLAYER_FLAGS_GHOST);
+    if (!player->IsAlive() && !ghost)
+    {
+        if (twin->getStandState() != UNIT_STAND_STATE_DEAD)
+        {
+            twin->GetMotionMaster()->Clear();
+            twin->StopMoving();
+            twin->SetStandState(UNIT_STAND_STATE_DEAD);
+        }
+        return;
+    }
+    if (ghost != twin->HasAura(GhostSpell))
+        BecomeGhost(player, twin, ghost);
+    else if (twin->getStandState() == UNIT_STAND_STATE_DEAD)
+    {
+        twin->SetStandState(UNIT_STAND_STATE_STAND);
+        twin->GetMotionMaster()->MoveFollow(player, TwinDistance, TwinAngle);
+    }
+    if (!twin->IsWithinDist(player, TwinFarAway))
+    {
+        Position near = player->GetPosition();
+        player->MovePositionToFirstCollision(near, TwinDistance, TwinAngle);
+        twin->NearTeleportTo(near.GetPositionX(), near.GetPositionY(), near.GetPositionZ(), player->GetOrientation());
+        twin->GetMotionMaster()->MoveFollow(player, TwinDistance, TwinAngle);
+    }
+    if (twin->getStandState() != player->getStandState())
+        twin->SetStandState(player->getStandState());
 }
 
 void HopOffFor(Player* player, uint32 duration)
@@ -252,12 +303,32 @@ void HopOffFor(Player* player, uint32 duration)
         itr->second.Afoot = std::max(itr->second.Afoot, duration);
 }
 
+Unit* TwinTarget(Player* player)
+{
+    if (Unit* victim = player->GetVictim())
+        return victim;
+    Unit* selected = player->GetSelectedUnit();
+    if (selected && selected->IsAlive() && player->IsValidAttackTarget(selected))
+        return selected;
+    auto const& attackers = player->getAttackers();
+    return attackers.empty() ? nullptr : *attackers.begin();
+}
+
 bool EchoSwing(Player* player, Creature* twin, uint32 swing)
 {
-    Unit* victim = player->GetVictim();
-    if (!victim || twin->GetVehicle() || swing < std::max<uint32>(player->GetAttackTime(BASE_ATTACK), MotionTick))
+    Unit* victim = TwinTarget(player);
+    ItemTemplate const* ranged = RangedOf(player);
+    uint32 const pace = ranged && ranged->Delay ? ranged->Delay : player->GetAttackTime(BASE_ATTACK);
+    if (!victim || twin->GetVehicle() || swing < std::max<uint32>(pace, MotionTick))
         return false;
     twin->SetFacingToObject(victim);
+    if (ranged)
+    {
+        twin->SetSheathState(SHEATH_STATE_RANGED);
+        twin->HandleEmoteCommand(RangedEmote(ranged));
+        return true;
+    }
+    twin->SetSheathState(SHEATH_STATE_MELEE);
     twin->HandleEmoteCommand(twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID) ?
         EMOTE_ONESHOT_ATTACK1H : EMOTE_ONESHOT_ATTACK_UNARMED);
     return true;
@@ -336,6 +407,35 @@ void DismissTwin(Player* player)
     DropKit(player);
 }
 
+void Arm(Creature* twin, Wardrobe const& wardrobe)
+{
+    twin->SetVirtualItem(0, wardrobe.Items[MainHand]);
+    twin->SetVirtualItem(1, wardrobe.Items[OffHand]);
+    twin->SetVirtualItem(2, wardrobe.Items[Ranged]);
+}
+
+ItemTemplate const* RangedOf(Player const* player)
+{
+    uint32 const itemId = WardrobeOf(player).Items[Ranged];
+    return itemId ? sObjectMgr->GetItemTemplate(itemId) : nullptr;
+}
+
+uint32 RangedEmote(ItemTemplate const* ranged)
+{
+    switch (ranged->SubClass)
+    {
+        case ITEM_SUBCLASS_WEAPON_BOW:
+            return EMOTE_ONESHOT_ATTACK_BOW;
+        case ITEM_SUBCLASS_WEAPON_GUN:
+        case ITEM_SUBCLASS_WEAPON_CROSSBOW:
+            return EMOTE_ONESHOT_ATTACK_RIFLE;
+        case ITEM_SUBCLASS_WEAPON_THROWN:
+            return EMOTE_ONESHOT_ATTACK_THROWN;
+        default:
+            return EMOTE_ONESHOT_SPELL_CAST_OMNI;
+    }
+}
+
 void SummonTwin(Player* player)
 {
     DismissTwin(player);
@@ -365,6 +465,7 @@ void SummonTwin(Player* player)
     twin->SetOwnerGUID(player->GetGUID());
     twin->SetCreatorGUID(player->GetGUID());
     twin->SetFaction(player->GetFaction());
+    Arm(twin, WardrobeOf(player));
     twin->GetMotionMaster()->MoveFollow(player, TwinDistance, TwinAngle);
 }
 
@@ -408,7 +509,7 @@ bool AnswerMirrorImage(WorldSession* session, WorldPacket const& packet)
 
 int SlotIndex(std::string_view name)
 {
-    for (std::size_t slot = 0; slot < LookSlots; ++slot)
+    for (std::size_t slot = 0; slot < WardrobeSlots; ++slot)
         if (name == Slots[slot].Name)
             return int(slot);
     return -1;
@@ -436,7 +537,8 @@ std::string TwinWearing(Player const* player)
 
 void HandleTwinLook(Player* player, std::vector<std::string_view> const& words)
 {
-    constexpr std::array<int, 12> SlotOfCategory = { -1, 0, 1, 9, 3, 10, 2, 7, 8, 4, 5, 6 };
+    constexpr std::array<int, 15> SlotOfCategory = { -1, 0, 1, 9, 3, 10, 2, 7, 8, 4, 5, 6, int(Ranged),
+        int(MainHand), int(OffHand) };
     if (!HasTwin(player))
         return;
     Wardrobe wardrobe = WardrobeOf(player);
@@ -613,7 +715,7 @@ public:
             return true;
         Player* player = handler->GetSession()->GetPlayer();
         Wardrobe wardrobe = WardrobeOf(player);
-        for (std::size_t slot = 0; slot < LookSlots; ++slot)
+        for (std::size_t slot = 0; slot < WardrobeSlots; ++slot)
             wardrobe.Items[slot] = player->GetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + Slots[slot].Slot * 2);
         handler->SendSysMessage("Your twin copies your outfit.");
         return Dress(handler, wardrobe);
@@ -626,7 +728,7 @@ public:
         Player* player = handler->GetSession()->GetPlayer();
         Wardrobe const wardrobe = WardrobeOf(player);
         std::string worn;
-        for (std::size_t slot = 0; slot < LookSlots; ++slot)
+        for (std::size_t slot = 0; slot < WardrobeSlots; ++slot)
             if (wardrobe.Items[slot])
                 worn += Acore::StringFormat(" {}={}", Slots[slot].Name, wardrobe.Items[slot]);
         handler->PSendSysMessage("Twin: {}, {}. Wears:{}", wardrobe.Enabled ? "out" : "away",
