@@ -37,6 +37,10 @@ constexpr uint32 SaddleVehicle = 9531;
 constexpr int8 TwinSeat = 1;
 constexpr uint32 MotionTick = 200;
 constexpr uint32 HopDelay = 1000;
+constexpr uint32 PointMin = 20000;
+constexpr uint32 PointMax = 45000;
+constexpr uint32 PointHold = 1500;
+constexpr uint32 AfootStride = 2000;
 
 enum class Carry
 {
@@ -49,7 +53,9 @@ struct Motion
 {
     uint32 Tick = 0;
     uint32 Moving = 0;
+    uint32 NextPoint = PointMin;
     uint32 Swing = 0;
+    uint32 Afoot = 0;
     Carry Mode = Carry::Beside;
 };
 
@@ -222,6 +228,8 @@ Carry WantedCarry(Player const* player, Motion const& motion)
         return player->GetVehicleKit() && !OwnsKit(player) ? Carry::Beside : Carry::Saddle;
     if (player->IsFlying())
         return Carry::Beside;
+    if (motion.Afoot && motion.Afoot <= AfootStride)
+        return Carry::Beside;
     if (motion.Mode == Carry::Piggyback)
         return Carry::Piggyback;
     return motion.Moving >= HopDelay ? Carry::Piggyback : Carry::Beside;
@@ -241,6 +249,7 @@ bool EchoSwing(Player* player, Creature* twin, uint32 swing)
 void UpdateCarry(Player* player, uint32 diff)
 {
     Motion motion;
+    bool pointNow = false;
     uint32 const guid = player->GetGUID().GetCounter();
     {
         std::lock_guard<std::mutex> lock(twinMutex);
@@ -253,12 +262,26 @@ void UpdateCarry(Player* player, uint32 diff)
         bool const moving = player->isMoving();
         stored.Swing = player->IsInCombat() ? stored.Swing + stored.Tick : 0;
         stored.Moving = moving ? stored.Moving + stored.Tick : 0;
+        pointNow = false;
+        stored.Afoot = stored.Afoot > stored.Tick ? stored.Afoot - stored.Tick : 0;
+        if (stored.Mode == Carry::Piggyback && moving && !stored.Afoot)
+        {
+            stored.NextPoint = stored.NextPoint > stored.Tick ? stored.NextPoint - stored.Tick : 0;
+            if (!stored.NextPoint)
+            {
+                pointNow = true;
+                stored.Afoot = PointHold + AfootStride;
+                stored.NextPoint = urand(PointMin, PointMax);
+            }
+        }
         stored.Tick = 0;
         motion = stored;
     }
     Creature* twin = TwinOf(player);
     if (!twin)
         return;
+    if (pointNow && twin->GetVehicle())
+        twin->HandleEmoteCommand(EMOTE_ONESHOT_POINT);
     if (EchoSwing(player, twin, motion.Swing))
     {
         std::lock_guard<std::mutex> lock(twinMutex);
