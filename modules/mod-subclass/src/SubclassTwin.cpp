@@ -5,6 +5,7 @@
 #include "Chat.h"
 #include "CommandScript.h"
 #include "DatabaseEnv.h"
+#include "GameTime.h"
 #include "Log.h"
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
@@ -51,6 +52,7 @@ constexpr uint32 PointMin = 20000;
 constexpr uint32 PointMax = 45000;
 constexpr uint32 PointHold = 1500;
 constexpr uint32 AfootStride = 2000;
+constexpr uint32 CallBackDelay = 5000;
 
 enum class Carry
 {
@@ -105,6 +107,7 @@ std::unordered_map<uint32, Wardrobe>& wardrobes = *new std::unordered_map<uint32
 std::unordered_map<uint32, ObjectGuid>& twinOfOwner = *new std::unordered_map<uint32, ObjectGuid>;
 std::unordered_map<ObjectGuid, Look>& looks = *new std::unordered_map<ObjectGuid, Look>;
 std::unordered_map<uint32, Motion>& motions = *new std::unordered_map<uint32, Motion>;
+std::unordered_map<uint32, uint32>& sentHome = *new std::unordered_map<uint32, uint32>;
 
 Wardrobe WardrobeOf(Player const* player)
 {
@@ -372,7 +375,7 @@ Unit* TwinTarget(Player* player)
 bool EchoSwing(Player* player, Creature* twin, uint32 swing)
 {
     Unit* victim = TwinTarget(player);
-    ItemTemplate const* ranged = RangedOf(player);
+    ItemTemplate const* ranged = IsSplit(player) || !player->GetVictim() ? RangedOf(player) : nullptr;
     uint32 const pace = ranged && ranged->Delay ? ranged->Delay : player->GetAttackTime(BASE_ATTACK);
     if (!victim || twin->GetVehicle() || swing < std::max<uint32>(pace, MotionTick))
         return false;
@@ -588,19 +591,42 @@ std::string TwinWearing(Player const* player)
     return reply;
 }
 
+void SetBorrowedPassives(Player* player, bool active);
+
 std::string TwinState(Player const* player)
 {
     return Acore::StringFormat("TWINSTATE {} {} {}", HasTwin(player) ? 1 : 0, WardrobeOf(player).Enabled ? 1 : 0,
         IsSplit(player) ? 1 : 0);
 }
 
-bool ToggleTwin(Player* player)
+bool BrotherAway(Player const* player)
 {
+    return HasTwin(player) && IsSplit(player) && !WardrobeOf(player).Enabled;
+}
+
+std::string ToggleTwin(Player* player)
+{
+    if (!HasTwin(player))
+        return "Only the Thin Twins have a brother to call.";
+    if (player->IsInCombat())
+        return "Your brother can't come or go in the middle of a fight.";
     Wardrobe wardrobe = WardrobeOf(player);
+    uint32 const guid = player->GetGUID().GetCounter();
+    uint32 const now = GameTime::GetGameTimeMS().count();
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        auto itr = sentHome.find(guid);
+        if (!wardrobe.Enabled && itr != sentHome.end() && now - itr->second < CallBackDelay)
+            return "Your brother is still on his way home. Give him a few seconds.";
+        if (wardrobe.Enabled)
+            sentHome[guid] = now;
+    }
     wardrobe.Enabled = !wardrobe.Enabled;
     StoreWardrobe(player, wardrobe);
     RefreshTwin(player);
-    return wardrobe.Enabled;
+    if (IsSplit(player))
+        SetBorrowedPassives(player, wardrobe.Enabled);
+    return wardrobe.Enabled ? "Your brother comes running." : "Your brother goes home.";
 }
 
 void HandleTwinLook(Player* player, std::vector<std::string_view> const& words)
@@ -676,6 +702,8 @@ public:
     void OnPlayerLogin(Player* player) override
     {
         RefreshTwin(player);
+        if (BrotherAway(player))
+            SetBorrowedPassives(player, false);
     }
 
     void OnPlayerMapChanged(Player* player) override
@@ -729,8 +757,7 @@ public:
     {
         if (RefuseWithoutTwin(handler))
             return true;
-        bool const enabled = ToggleTwin(handler->GetSession()->GetPlayer());
-        handler->SendSysMessage(enabled ? "Your twin steps out beside you." : "Your twin goes home.");
+        handler->SendSysMessage(ToggleTwin(handler->GetSession()->GetPlayer()));
         return true;
     }
 

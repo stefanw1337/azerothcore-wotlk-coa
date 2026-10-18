@@ -3,6 +3,7 @@
  */
 
 #include "AllCreatureScript.h"
+#include "AllSpellScript.h"
 #include "AscensionCoATalentData.h"
 #include "AscensionCustomClassData.h"
 #include "AscensionCustomResourceData.h"
@@ -20,6 +21,8 @@
 #include "PlayerScript.h"
 #include "Random.h"
 #include "ScriptedGossip.h"
+#include "Spell.h"
+#include "SpellInfo.h"
 #include "SpellMgr.h"
 #include "SubclassRules.h"
 #include "StringConvert.h"
@@ -35,7 +38,8 @@ using namespace Acore::ChatCommands;
 void HandleTwinLook(Player* player, std::vector<std::string_view> const& words);
 std::string TwinWearing(Player const* player);
 std::string TwinState(Player const* player);
-bool ToggleTwin(Player* player);
+std::string ToggleTwin(Player* player);
+bool BrotherAway(Player const* player);
 
 namespace
 {
@@ -630,7 +634,7 @@ void HandleAddonMessage(Player* player, std::string_view message)
     }
     if (message == "TWINTOGGLE")
     {
-        ToggleTwin(player);
+        ChatHandler(player->GetSession()).SendSysMessage(ToggleTwin(player));
         SendAddon(player, TwinState(player));
         return;
     }
@@ -935,6 +939,74 @@ public:
     {
         LoadPairs();
         LoadStories();
+    }
+};
+
+bool IsBorrowedSpell(Player const* player, uint32 spellId)
+{
+    Record const record = RecordOf(player);
+    if (!record.Choice.Complete() || OwnClassGrants(player, spellId))
+        return false;
+    for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)
+        if (spell.ClassId == record.Choice.SubClass && spell.SpellId == spellId)
+            return true;
+    std::vector<Subclass::Tree> const trees = Subclass::BorrowedTrees(record.Choice,
+        HasClassTree(record.Choice.SubClass));
+    for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
+        if (InTrees(trees, entry) &&
+            std::find(entry.SpellIds.begin(), entry.SpellIds.end(), spellId) != entry.SpellIds.end())
+            return true;
+    return false;
+}
+
+std::vector<uint32> KnownBorrowedPassives(Player const* player)
+{
+    std::vector<uint32> passives;
+    Record const record = RecordOf(player);
+    if (!record.Choice.Complete())
+        return passives;
+    auto consider = [&](uint32 spellId)
+    {
+        SpellInfo const* info = spellId ? sSpellMgr->GetSpellInfo(spellId) : nullptr;
+        if (info && info->IsPassive() && player->HasSpell(spellId) && !OwnClassGrants(player, spellId))
+            passives.push_back(spellId);
+    };
+    for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)
+        if (spell.ClassId == record.Choice.SubClass)
+            consider(spell.SpellId);
+    std::vector<Subclass::Tree> const trees = Subclass::BorrowedTrees(record.Choice,
+        HasClassTree(record.Choice.SubClass));
+    for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
+        if (InTrees(trees, entry))
+            for (uint32 spellId : entry.SpellIds)
+                consider(spellId);
+    return passives;
+}
+
+void SetBorrowedPassives(Player* player, bool active)
+{
+    for (uint32 spellId : KnownBorrowedPassives(player))
+    {
+        if (!active)
+            player->RemoveAurasDueToSpell(spellId);
+        else if (!player->HasAura(spellId))
+            player->CastSpell(player, spellId, true);
+    }
+}
+
+class mod_subclass_spells : public AllSpellScript
+{
+public:
+    mod_subclass_spells() : AllSpellScript("mod_subclass_spells", { ALLSPELLHOOK_ON_SPELL_CHECK_CAST }) { }
+
+    void OnSpellCheckCast(Spell* spell, bool /*strict*/, SpellCastResult& res) override
+    {
+        Player* player = spell->GetCaster() ? spell->GetCaster()->ToPlayer() : nullptr;
+        if (res != SPELL_CAST_OK || !player || !BrotherAway(player) ||
+            !IsBorrowedSpell(player, spell->GetSpellInfo()->Id))
+            return;
+        res = SPELL_FAILED_DONT_REPORT;
+        ChatHandler(player->GetSession()).SendNotification("That is your brother's ability, and he is not here.");
     }
 };
 
@@ -1330,6 +1402,7 @@ void AddSC_mod_subclass()
     new mod_subclass_trainers();
     new mod_subclass_bosses();
     new mod_subclass_commands();
+    new mod_subclass_spells();
 
     AddAscensionTalentTreeProvider([](Player const* player)
     {
