@@ -109,9 +109,10 @@ namespace Trainer
     using RankTrainerHero = bool (*)(Player const* player);
     AC_GAME_API void SetRankTrainerHero(RankTrainerHero heroes);
 
-    /// The class trainer a realm serves this player in place of `trainer`, or nullptr to keep it.
+    /// The class trainer a realm serves this player in place of `trainer`, or nullptr to keep it. Returns the
+    /// previous choice so that a module can extend it.
     using ClassTrainerFor = Trainer* (*)(Trainer const& trainer, Player const* player);
-    AC_GAME_API void SetClassTrainerFor(ClassTrainerFor trainers);
+    AC_GAME_API ClassTrainerFor SetClassTrainerFor(ClassTrainerFor trainers);
 
     /// The trainer that serves this player at this unit: its own, or the class trainer the realm puts in its place,
     /// except that a rank-training Hero is taught the next rank of each ability it knows at any class trainer or

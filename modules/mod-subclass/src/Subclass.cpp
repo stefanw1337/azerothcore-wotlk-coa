@@ -27,10 +27,12 @@
 #include "SubclassRules.h"
 #include "StringConvert.h"
 #include "Tokenize.h"
+#include "Trainer.h"
 #include "UnitScript.h"
 #include "WorldScript.h"
 #include <algorithm>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 
 using namespace Acore::ChatCommands;
@@ -1537,8 +1539,41 @@ public:
     }
 };
 
+Trainer::ClassTrainerFor PreviousTrainerFor = nullptr;
+
+Trainer::Trainer const* ClassTrainerOf(uint8 classId)
+{
+    Trainer::Trainer const* largest = nullptr;
+    for (auto const& [id, trainer] : sObjectMgr->GetTrainers())
+        if (trainer.GetTrainerType() == Trainer::Type::Class && trainer.GetTrainerRequirement() == classId &&
+            (!largest || trainer.GetSpells().size() > largest->GetSpells().size()))
+            largest = &trainer;
+    return largest;
+}
+
+Trainer::Trainer* TrainerWithSubclass(Trainer::Trainer const& trainer, Player const* player)
+{
+    Trainer::Trainer* replaced = PreviousTrainerFor ? PreviousTrainerFor(trainer, player) : nullptr;
+    Trainer::Trainer const& own = replaced ? *replaced : trainer;
+    Subclass::Choice const choice = ChoiceOf(player);
+    if (!choice.Complete() || own.GetTrainerRequirement() != player->getClass())
+        return replaced;
+    Trainer::Trainer const* borrowed = ClassTrainerOf(choice.SubClass);
+    if (!borrowed)
+        return replaced;
+    std::vector<Trainer::Spell> spells = own.GetSpells();
+    for (Trainer::Spell const& spell : borrowed->GetSpells())
+        if (std::none_of(spells.begin(), spells.end(),
+                [&spell](Trainer::Spell const& known) { return known.SpellId == spell.SpellId; }))
+            spells.push_back(spell);
+    thread_local std::optional<Trainer::Trainer> merged;
+    merged.emplace(own.WithSpells(std::move(spells)));
+    return &*merged;
+}
+
 void AddSC_mod_subclass()
 {
+    PreviousTrainerFor = Trainer::SetClassTrainerFor(&TrainerWithSubclass);
     new mod_subclass_world();
     new mod_subclass_player();
     new item_subclass_relic(BookScriptName);

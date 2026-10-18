@@ -28,6 +28,7 @@
 
 #include <limits>
 #include <optional>
+#include <utility>
 
 namespace
 {
@@ -424,9 +425,9 @@ namespace Trainer
         WildcardRankRowsOf = rows;
     }
 
-    void SetClassTrainerFor(ClassTrainerFor trainers)
+    ClassTrainerFor SetClassTrainerFor(ClassTrainerFor trainers)
     {
-        ClassTrainerOf = trainers;
+        return std::exchange(ClassTrainerOf, trainers);
     }
 
     void SetRankTrainerHero(RankTrainerHero heroes)
