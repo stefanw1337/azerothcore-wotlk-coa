@@ -51,8 +51,9 @@ def column(name, columns):
     return columns.index(name) * 4
 
 
-def seat(rows, seat_id, attachment, offset):
+def seat(rows, seat_id, attachment, offset, pitch=0.0):
     row = bytearray(find(rows, TEMPLATE_SEAT))
+    struct.pack_into("<f", row, column("PassengerPitch", SEAT_COLUMNS), pitch)
     struct.pack_into("<I", row, 0, seat_id)
     struct.pack_into("<I", row, column("AttachmentID", SEAT_COLUMNS), attachment)
     struct.pack_into("<3f", row, column("AttachmentOffsetX", SEAT_COLUMNS), *offset)
@@ -91,7 +92,7 @@ def sql(table, columns, fmt, rows, strings):
 
 _, seat_fields, seat_size, seats, seat_strings = load(f"{SRC}/VehicleSeat.dbc")
 _, vehicle_fields, vehicle_size, vehicles, vehicle_strings = load(f"{SRC}/Vehicle.dbc")
-new_seats = [seat(seats, PIGGYBACK_SEAT, 10, (-0.35, 0.0, -0.25)), seat(seats, SADDLE_SEAT, 0, (-0.55, 0.0, 0.05))]
+new_seats = [seat(seats, PIGGYBACK_SEAT, 10, (-0.35, 0.0, -0.25), -0.35), seat(seats, SADDLE_SEAT, 0, (-0.55, 0.0, 0.05))]
 new_vehicles = [vehicle(vehicles, PIGGYBACK, PIGGYBACK_SEAT), vehicle(vehicles, SADDLE, SADDLE_SEAT)]
 seats = [row for row in seats if struct.unpack_from("<I", row)[0] not in (PIGGYBACK_SEAT, SADDLE_SEAT)] + new_seats
 vehicles = [row for row in vehicles if struct.unpack_from("<I", row)[0] not in (PIGGYBACK, SADDLE)] + new_vehicles
