@@ -958,6 +958,16 @@ bool UsesBow(SpellInfo const* info)
     return info && (info->IsRangedWeaponSpell() || info->HasAttribute(SPELL_ATTR0_USES_RANGED_SLOT));
 }
 
+bool SharedByManyClasses(uint32 spellId)
+{
+    constexpr std::size_t ManyClasses = 3;
+    std::size_t classes = 0;
+    for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)
+        if (spell.SpellId == spellId)
+            ++classes;
+    return classes >= ManyClasses;
+}
+
 bool ClassShoots(uint8 classId)
 {
     static std::mutex shootersMutex;
@@ -967,7 +977,7 @@ bool ClassShoots(uint8 classId)
         return known->second;
     bool shoots = classId == CLASS_HUNTER;
     for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)
-        if (!shoots && spell.ClassId == classId)
+        if (!shoots && spell.ClassId == classId && !SharedByManyClasses(spell.SpellId))
             shoots = UsesBow(sSpellMgr->GetSpellInfo(spell.SpellId));
     for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
         if (!shoots && entry.ClassId == classId)
