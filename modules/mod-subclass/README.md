@@ -107,8 +107,9 @@ become specialization points. In `mod_subclass_pair.sub_class` use the normal cl
 
 `addon/Ascension_Subclass` goes into the client's `Interface/AddOns`. It adds a tab named for the race (**Two-Head**
 for Ogres, **Two-Thins** for the Thin Twins): with a CoA main class next to the Character Advancement window's
-tabs, with a standard main class along the bottom of the classic talent window (or it opens with `/subclass`). It
-draws the borrowed trees from the client's own
+tabs. With a standard main class, the talent key opens a wide Cataclysm-style window instead: a Character
+Advancement page with the class's three trees side by side, and the subclass tab next to it (the classic window
+stays one click away). `/subclass` opens either. It draws the borrowed trees from the client's own
 `C_CharacterAdvancement` data, with the borrowed class's purchasable abilities under each tree. The addon and the
 server talk through addon whispers to oneself with the prefix `SUBCLASS`: `SYNC` asks for the state (`RESET`, `TREE`,
 `IDS`, `RANKS`, `POINTS`, `DONE`), and `LEARN <entry> <rank>` changes a borrowed rank through the same validation as
