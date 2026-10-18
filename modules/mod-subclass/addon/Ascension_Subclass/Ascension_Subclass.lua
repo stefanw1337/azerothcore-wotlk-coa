@@ -1266,16 +1266,19 @@ end
 local wardrobeFrame
 
 local function FindPreviewModels(root)
-    local models = {}
+    local largest, largestArea = nil, 0
     local frame = EnumerateFrames()
     while frame do
         if frame.GetObjectType and frame:GetObjectType() == "DressUpModel" and IsInside(frame, root)
             and frame:IsVisible() then
-            models[#models + 1] = frame
+            local area = (frame:GetWidth() or 0) * (frame:GetHeight() or 0)
+            if area > largestArea then
+                largest, largestArea = frame, area
+            end
         end
         frame = EnumerateFrames(frame)
     end
-    return models
+    return largest and { largest } or {}
 end
 
 local function PendingTwinItems()
