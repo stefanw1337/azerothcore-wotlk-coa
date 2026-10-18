@@ -109,7 +109,9 @@ become specialization points. In `mod_subclass_pair.sub_class` use the normal cl
 for Ogres, **Two-Thins** for the Thin Twins): with a CoA main class next to the Character Advancement window's
 tabs. With a standard main class, the talent key opens a wide Cataclysm-style window instead: a Character
 Advancement page with the class's three trees side by side, and the subclass tab next to it (the classic window
-stays one click away). `/subclass` opens either. It draws the borrowed trees from the client's own
+stays one click away). `/subclass` opens either. Each classic tree shows its specialization painting from
+`Textures/bg-<class>-<spec>.blp` (Blizzard art from a 6.x client, not kept in this repository; without the files the
+window falls back to the 3.3.5 tree backgrounds). It draws the borrowed trees from the client's own
 `C_CharacterAdvancement` data, with the borrowed class's purchasable abilities under each tree. The addon and the
 server talk through addon whispers to oneself with the prefix `SUBCLASS`: `SYNC` asks for the state (`RESET`, `TREE`,
 `IDS`, `RANKS`, `POINTS`, `DONE`), and `LEARN <entry> <rank>` changes a borrowed rank through the same validation as

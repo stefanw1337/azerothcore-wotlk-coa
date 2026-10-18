@@ -675,6 +675,23 @@ local function IsStandardClass()
 end
 
 local CLASSIC_TIERS, CLASSIC_COLUMNS = 11, 4
+local ART_FOLDER = "Interface\\AddOns\\Ascension_Subclass\\Textures\\"
+local ART_WIDTH, ART_HEIGHT, ART_SIZE = 512, 360, 512
+local CLASSIC_ART = {
+    deathknightblood = "bg-deathknight-blood", deathknightfrost = "bg-deathknight-frost",
+    deathknightunholy = "bg-deathknight-unholy", druidbalance = "bg-druid-balance", druidferalcombat = "bg-druid-cat",
+    druidrestoration = "bg-druid-restoration", hunterbeastmastery = "bg-hunter-beastmaster",
+    huntermarksmanship = "bg-hunter-marksman", huntersurvival = "bg-hunter-survival", magearcane = "bg-mage-arcane",
+    magefire = "bg-mage-fire", magefrost = "bg-mage-frost", paladinholy = "bg-paladin-holy",
+    paladinprotection = "bg-paladin-protection", paladincombat = "bg-paladin-retribution",
+    priestdiscipline = "bg-priest-discipline", priestholy = "bg-priest-holy", priestshadow = "bg-priest-shadow",
+    rogueassassination = "bg-rogue-assassination", roguecombat = "bg-rogue-combat",
+    roguesubtlety = "bg-rogue-subtlety", shamanelementalcombat = "bg-shaman-elemental",
+    shamanenhancement = "bg-shaman-enhancement", shamanrestoration = "bg-shaman-restoration",
+    warlockcurses = "bg-warlock-affliction", warlocksummoning = "bg-warlock-demonology",
+    warlockdestruction = "bg-warlock-destruction", warriorarms = "bg-warrior-arms", warriorfury = "bg-warrior-fury",
+    warriorprotection = "bg-warrior-protection",
+}
 local BACKGROUND_PIECES = {
     { suffix = "-TopLeft", x = 0, y = 0, w = 256 / 300, h = 256 / 331, u = 1, v = 1 },
     { suffix = "-TopRight", x = 256 / 300, y = 0, w = 44 / 300, h = 256 / 331, u = 0.6875, v = 1 },
@@ -697,6 +714,9 @@ local function ClassicCanvas(index)
         texture:SetAlpha(0.7)
         frame.background[#frame.background + 1] = texture
     end
+    frame.art = frame:CreateTexture(nil, "BACKGROUND")
+    frame.art:SetAllPoints(frame)
+    frame.art:SetAlpha(0.8)
     frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
     frame.title:SetPoint("TOP", frame, "TOP", 0, -6)
     frame.points = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
@@ -748,9 +768,19 @@ local function RenderClassicTree(tabIndex, canvas)
     canvas.title:SetText(name or "")
     canvas.points:SetText(string.format("%d point(s) spent", spent or 0))
     local width, height = canvas:GetWidth(), canvas:GetHeight() - 50
+    local art = background and CLASSIC_ART[string.lower(background)]
+    if art and canvas.art:SetTexture(ART_FOLDER .. art) then
+        local shown = math.min(ART_WIDTH, ART_HEIGHT * width / canvas:GetHeight())
+        local left = (ART_WIDTH - shown) / 2
+        canvas.art:SetTexCoord(left / ART_SIZE, (left + shown) / ART_SIZE, 0, ART_HEIGHT / ART_SIZE)
+        canvas.art:Show()
+    else
+        canvas.art:Hide()
+        art = nil
+    end
     for index, piece in ipairs(BACKGROUND_PIECES) do
         local texture = canvas.background[index]
-        if background and background ~= "" then
+        if background and background ~= "" and not art then
             texture:SetTexture("Interface\\TalentFrame\\" .. background .. piece.suffix)
             texture:ClearAllPoints()
             texture:SetPoint("TOPLEFT", canvas, "TOPLEFT", piece.x * width, -piece.y * canvas:GetHeight())
