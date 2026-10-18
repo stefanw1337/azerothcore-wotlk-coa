@@ -1506,6 +1506,11 @@ SLASH_ASCENSIONSUBCLASS1 = "/subclass"
 SlashCmdList.ASCENSIONSUBCLASS = function(message)
     if message == "dump" then
         DumpTabs()
+    elseif message == "watch" then
+        Ascension_SubclassDump = Ascension_SubclassDump or {}
+        Ascension_SubclassDump.watching = true
+        Ascension_SubclassDump.hovered = {}
+        DEFAULT_CHAT_FRAME:AddMessage("Ascension Subclass: hover the nodes you want me to see, then /reload.")
     elseif message == "icons" then
         ShowIcons()
     else
@@ -1524,6 +1529,54 @@ local function QuietKnownTooltipFault()
         return report(message, ...)
     end)
 end
+
+local function PlainFields(object)
+    local plain = {}
+    for key, value in pairs(object) do
+        local kind = type(value)
+        if type(key) == "string" and (kind == "string" or kind == "number" or kind == "boolean") then
+            plain[key] = value
+        elseif type(key) == "string" and kind == "table" and not value.GetObjectType then
+            local inner = {}
+            for innerKey, innerValue in pairs(value) do
+                local innerKind = type(innerValue)
+                if innerKind == "string" or innerKind == "number" or innerKind == "boolean" then
+                    inner[tostring(innerKey)] = innerValue
+                end
+            end
+            plain[key] = inner
+        end
+    end
+    return plain
+end
+
+local function RecordHoveredNode()
+    local owner = GameTooltip:GetOwner()
+    if not owner or owner == UIParent or not owner.GetName then
+        return
+    end
+    Ascension_SubclassDump = Ascension_SubclassDump or {}
+    Ascension_SubclassDump.hovered = Ascension_SubclassDump.hovered or {}
+    local chain = {}
+    local frame = owner
+    while frame and #chain < 6 do
+        chain[#chain + 1] = (frame.GetName and frame:GetName()) or (frame.GetObjectType and frame:GetObjectType()) or "?"
+        frame = frame.GetParent and frame:GetParent()
+    end
+    local record = { chain = table.concat(chain, " < "), fields = PlainFields(owner),
+        tooltip = GameTooltipTextLeft1 and GameTooltipTextLeft1:GetText() }
+    local list = Ascension_SubclassDump.hovered
+    list[#list + 1] = record
+    if #list > 12 then
+        table.remove(list, 1)
+    end
+end
+
+GameTooltip:HookScript("OnShow", function()
+    if Ascension_SubclassDump and Ascension_SubclassDump.watching then
+        RecordHoveredNode()
+    end
+end)
 
 local tries = 0
 local quietened = false
