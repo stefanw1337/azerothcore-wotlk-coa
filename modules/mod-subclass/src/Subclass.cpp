@@ -34,6 +34,8 @@ using namespace Acore::ChatCommands;
 
 void HandleTwinLook(Player* player, std::vector<std::string_view> const& words);
 std::string TwinWearing(Player const* player);
+std::string TwinState(Player const* player);
+bool ToggleTwin(Player* player);
 
 namespace
 {
@@ -623,6 +625,13 @@ void HandleAddonMessage(Player* player, std::string_view message)
     if (message == "SYNC")
     {
         SendSubclassState(player);
+        SendAddon(player, TwinState(player));
+        return;
+    }
+    if (message == "TWINTOGGLE")
+    {
+        ToggleTwin(player);
+        SendAddon(player, TwinState(player));
         return;
     }
     std::vector<std::string_view> const words = Acore::Tokenize(message, ' ', false);

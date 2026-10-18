@@ -498,9 +498,19 @@ end
 
 local twinOutfit = {}
 local ShowTwinPreview
+local twinState = { has = false, out = false, split = false }
+local ShowTwinState
 
 local function Receive(message)
     local command, rest = string.match(message, "^(%S+)%s?(.*)$")
+    if command == "TWINSTATE" then
+        local has, out, split = string.match(rest, "^(%d) (%d) (%d)$")
+        twinState = { has = has == "1", out = out == "1", split = split == "1" }
+        if ShowTwinState then
+            ShowTwinState()
+        end
+        return
+    end
     if command == "TWINWEAR" then
         twinOutfit = {}
         for itemId in string.gmatch(rest, "%d+") do
@@ -599,6 +609,18 @@ local function FindAdvancementTabs()
     return tabs, parent
 end
 
+ShowTwinState = function()
+    if not (panel and panel.brother) then
+        return
+    end
+    if not twinState.has then
+        panel.brother:Hide()
+        return
+    end
+    panel.brother:SetText(twinState.out and "Send your brother home" or "Call your brother back")
+    panel.brother:Show()
+end
+
 local function CreatePanel(parent)
     panel = CreateFrame("Frame", "Ascension_SubclassPanel", parent or UIParent)
     panel:SetBackdrop({
@@ -616,6 +638,12 @@ local function CreatePanel(parent)
     panel.status = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
     panel.status:SetPoint("CENTER", panel, "CENTER", 0, 0)
     panel.status:SetWidth(500)
+    panel.brother = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    panel.brother:SetWidth(190)
+    panel.brother:SetHeight(22)
+    panel.brother:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 18, 14)
+    panel.brother:SetScript("OnClick", function() Send("TWINTOGGLE") end)
+    panel.brother:Hide()
     panel:SetScript("OnShow", function()
         Send("SYNC")
         Render()

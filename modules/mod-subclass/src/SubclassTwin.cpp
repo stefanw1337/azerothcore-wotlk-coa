@@ -29,6 +29,9 @@ namespace
 {
 constexpr uint32 TwinEntry = 9530030;
 constexpr uint8 TwinRace = 32;
+constexpr uint32 TwinQuest = 9530020;
+constexpr char const* EchoRefusal = "Your brother still wears whatever you wear. He will want his own clothes "
+    "once you have earned the Bravery Badge together.";
 constexpr float TwinDistance = 0.35f;
 constexpr float TwinReach = 0.15f;
 constexpr float TwinAngle = float(M_PI) * 1.5f;
@@ -63,6 +66,8 @@ struct Motion
     uint32 NextPoint = PointMin;
     uint32 Swing = 0;
     uint32 Afoot = 0;
+    bool Split = false;
+    bool Restyle = false;
     Carry Mode = Carry::Beside;
 };
 
@@ -137,6 +142,27 @@ void StoreWardrobe(Player const* player, Wardrobe const& wardrobe)
         items[MainHand], items[OffHand], items[Ranged]);
     std::lock_guard<std::mutex> lock(twinMutex);
     wardrobes[guid] = wardrobe;
+}
+
+bool IsSplit(Player const* player)
+{
+    return player->GetQuestRewardStatus(TwinQuest);
+}
+
+Wardrobe Worn(Player const* player)
+{
+    Wardrobe worn;
+    for (std::size_t slot = 0; slot < WardrobeSlots; ++slot)
+        worn.Items[slot] = player->GetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + Slots[slot].Slot * 2);
+    return worn;
+}
+
+Wardrobe Dressed(Player const* player)
+{
+    Wardrobe wardrobe = WardrobeOf(player);
+    if (!IsSplit(player))
+        wardrobe.Items = Worn(player).Items;
+    return wardrobe;
 }
 
 uint32 DisplayOfItem(uint32 itemId)
@@ -254,7 +280,7 @@ void Arm(Creature* twin, Wardrobe const& wardrobe)
 
 ItemTemplate const* RangedOf(Player const* player)
 {
-    uint32 const itemId = WardrobeOf(player).Items[Ranged];
+    uint32 const itemId = Dressed(player).Items[Ranged];
     return itemId ? sObjectMgr->GetItemTemplate(itemId) : nullptr;
 }
 
@@ -363,6 +389,29 @@ bool EchoSwing(Player* player, Creature* twin, uint32 swing)
     return true;
 }
 
+void SummonTwin(Player* player);
+
+void Restyle(Player* player, bool split)
+{
+    if (split)
+    {
+        Wardrobe wardrobe = WardrobeOf(player);
+        wardrobe.Items = Worn(player).Items;
+        StoreWardrobe(player, wardrobe);
+        ChatHandler(player->GetSession()).SendSysMessage(
+            "Your brother looks down at his clothes, then at yours. From now on he picks his own.");
+    }
+    SummonTwin(player);
+}
+
+void MarkRestyle(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(twinMutex);
+    auto itr = motions.find(player->GetGUID().GetCounter());
+    if (itr != motions.end() && !itr->second.Split)
+        itr->second.Restyle = true;
+}
+
 void UpdateCarry(Player* player, uint32 diff)
 {
     Motion motion;
@@ -397,6 +446,8 @@ void UpdateCarry(Player* player, uint32 diff)
     Creature* twin = TwinOf(player);
     if (!twin)
         return;
+    if (motion.Restyle || motion.Split != IsSplit(player))
+        return Restyle(player, !motion.Split && IsSplit(player));
     if (pointNow && twin->GetVehicle())
         twin->HandleEmoteCommand(EMOTE_ONESHOT_POINT);
     if (EchoSwing(player, twin, motion.Swing))
@@ -448,11 +499,13 @@ void SummonTwin(Player* player)
     if (!twin)
         return;
 
-    Look const look = LookOf(player, WardrobeOf(player));
+    Wardrobe const dressed = Dressed(player);
+    Look const look = LookOf(player, dressed);
     {
         std::lock_guard<std::mutex> lock(twinMutex);
         twinOfOwner[player->GetGUID().GetCounter()] = twin->GetGUID();
         looks[twin->GetGUID()] = look;
+        motions[player->GetGUID().GetCounter()].Split = IsSplit(player);
     }
     twin->SetLevel(player->GetLevel());
     twin->SetDisplayId(player->GetNativeDisplayId());
@@ -465,7 +518,7 @@ void SummonTwin(Player* player)
     twin->SetOwnerGUID(player->GetGUID());
     twin->SetCreatorGUID(player->GetGUID());
     twin->SetFaction(player->GetFaction());
-    Arm(twin, WardrobeOf(player));
+    Arm(twin, dressed);
     twin->GetMotionMaster()->MoveFollow(player, TwinDistance, TwinAngle);
 }
 
@@ -529,10 +582,25 @@ std::string TwinWearing(Player const* player)
     std::string reply = "TWINWEAR";
     if (!HasTwin(player))
         return reply;
-    Wardrobe const wardrobe = WardrobeOf(player);
+    Wardrobe const wardrobe = Dressed(player);
     for (uint32 itemId : wardrobe.Items)
         reply += Acore::StringFormat(" {}", itemId);
     return reply;
+}
+
+std::string TwinState(Player const* player)
+{
+    return Acore::StringFormat("TWINSTATE {} {} {}", HasTwin(player) ? 1 : 0, WardrobeOf(player).Enabled ? 1 : 0,
+        IsSplit(player) ? 1 : 0);
+}
+
+bool ToggleTwin(Player* player)
+{
+    Wardrobe wardrobe = WardrobeOf(player);
+    wardrobe.Enabled = !wardrobe.Enabled;
+    StoreWardrobe(player, wardrobe);
+    RefreshTwin(player);
+    return wardrobe.Enabled;
 }
 
 void HandleTwinLook(Player* player, std::vector<std::string_view> const& words)
@@ -541,6 +609,11 @@ void HandleTwinLook(Player* player, std::vector<std::string_view> const& words)
         int(MainHand), int(OffHand) };
     if (!HasTwin(player))
         return;
+    if (!IsSplit(player))
+    {
+        ChatHandler(player->GetSession()).SendSysMessage(EchoRefusal);
+        return;
+    }
     Wardrobe wardrobe = WardrobeOf(player);
     uint32 changed = 0;
     for (std::size_t index = 1; index < words.size(); ++index)
@@ -580,7 +653,8 @@ class mod_subclass_twin_player : public PlayerScript
 {
 public:
     mod_subclass_twin_player() : PlayerScript("mod_subclass_twin_player", { PLAYERHOOK_ON_LOGIN,
-        PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_ON_MAP_CHANGED, PLAYERHOOK_ON_DELETE, PLAYERHOOK_ON_UPDATE, PLAYERHOOK_ON_TEXT_EMOTE })
+        PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_ON_MAP_CHANGED, PLAYERHOOK_ON_DELETE, PLAYERHOOK_ON_UPDATE,
+        PLAYERHOOK_ON_TEXT_EMOTE, PLAYERHOOK_ON_AFTER_SET_VISIBLE_ITEM_SLOT })
     {
     }
 
@@ -592,6 +666,11 @@ public:
     void OnPlayerTextEmote(Player* player, uint32 /*textEmote*/, uint32 /*emoteNum*/, ObjectGuid /*guid*/) override
     {
         HopOffFor(player, AfootStride);
+    }
+
+    void OnPlayerAfterSetVisibleItemSlot(Player* player, uint8 /*slot*/, Item* /*item*/) override
+    {
+        MarkRestyle(player);
     }
 
     void OnPlayerLogin(Player* player) override
@@ -650,12 +729,16 @@ public:
     {
         if (RefuseWithoutTwin(handler))
             return true;
-        Player* player = handler->GetSession()->GetPlayer();
-        Wardrobe wardrobe = WardrobeOf(player);
-        wardrobe.Enabled = !wardrobe.Enabled;
-        StoreWardrobe(player, wardrobe);
-        RefreshTwin(player);
-        handler->SendSysMessage(wardrobe.Enabled ? "Your twin steps out beside you." : "Your twin steps back.");
+        bool const enabled = ToggleTwin(handler->GetSession()->GetPlayer());
+        handler->SendSysMessage(enabled ? "Your twin steps out beside you." : "Your twin goes home.");
+        return true;
+    }
+
+    static bool RefuseWhileEcho(ChatHandler* handler)
+    {
+        if (IsSplit(handler->GetSession()->GetPlayer()))
+            return false;
+        handler->SendSysMessage(EchoRefusal);
         return true;
     }
 
@@ -669,7 +752,7 @@ public:
 
     static bool HandleWear(ChatHandler* handler, std::string slotName, Variant<Hyperlink<item>, uint32> itemArg)
     {
-        if (RefuseWithoutTwin(handler))
+        if (RefuseWithoutTwin(handler) || RefuseWhileEcho(handler))
             return true;
         int const slot = SlotIndex(slotName);
         if (slot < 0)
@@ -693,7 +776,7 @@ public:
 
     static bool HandleStrip(ChatHandler* handler, Optional<std::string> slotName)
     {
-        if (RefuseWithoutTwin(handler))
+        if (RefuseWithoutTwin(handler) || RefuseWhileEcho(handler))
             return true;
         Wardrobe wardrobe = WardrobeOf(handler->GetSession()->GetPlayer());
         if (!slotName || *slotName == "all")
@@ -711,7 +794,7 @@ public:
 
     static bool HandleCopy(ChatHandler* handler)
     {
-        if (RefuseWithoutTwin(handler))
+        if (RefuseWithoutTwin(handler) || RefuseWhileEcho(handler))
             return true;
         Player* player = handler->GetSession()->GetPlayer();
         Wardrobe wardrobe = WardrobeOf(player);
