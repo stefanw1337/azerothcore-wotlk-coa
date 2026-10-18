@@ -1399,6 +1399,11 @@ void AddSC_mod_subclass()
     new mod_subclass_commands();
     new mod_subclass_spells();
 
+    AddAscensionClassMechanicsProvider([](Player const* player, uint8 classId)
+    {
+        Subclass::Choice const choice = RecordOf(player).Choice;
+        return classId && choice.Complete() && choice.SubClass == classId && !SubclassResting(player);
+    });
     AddAscensionTalentTreeProvider([](Player const* player)
     {
         AscensionCoATalentState::TalentGrant grant;
