@@ -1,4 +1,5 @@
-"""Write the subclass racials and second-self auras into Spell.dbc and the matching spell_dbc SQL."""
+"""Write the subclass racials and second-self auras into Spell.dbc and the matching spell_dbc SQL, and lift the
+ranged dead zone from shots so a brother standing back can take them (reads Spell.dbc and SpellRange.dbc from SRC)."""
 import struct
 import sys
 
@@ -160,6 +161,47 @@ def wrapped(tokens, opener="(", closer=")", width=120):
     return "\n".join(lines)
 
 
+SHOOTERS = (1 << 2) | (1 << 3) | (1 << 18)
+SPELLFAMILY_HUNTER = 9
+SHARED_SHOTS = {75, 2764, 3018, 5019}
+SPELL_RANGE_RANGED = 2
+
+
+def range_table():
+    table = open(f"{SRC}/SpellRange.dbc", "rb").read()
+    _, rows_count, _, row_size, _ = struct.unpack_from("<4s4I", table)
+    return {struct.unpack_from("<I", table, 20 + i * row_size)[0]: struct.unpack_from("<I4fI", table, 20 + i * row_size)
+            for i in range(rows_count)}
+
+
+def without_dead_zone(ranges):
+    plain = {}
+    for index, (_, min_hostile, min_friend, max_hostile, max_friend, flags) in ranges.items():
+        if flags & SPELL_RANGE_RANGED:
+            same_reach = (min_hostile, min_friend, max_hostile, max_friend)
+            plain[index] = next((other for other, row in sorted(ranges.items())
+                                 if row[1:5] == same_reach and not row[5]), None)
+    return {index: other for index, other in plain.items() if other}
+
+
+def lift_dead_zones(records, count):
+    plain = without_dead_zone(range_table())
+    lifted = 0
+    for index in range(count):
+        offset = index * SIZE
+        spell_id, = struct.unpack_from("<I", records, offset)
+        item_class, = struct.unpack_from("<i", records, offset + 68 * 4)
+        item_mask, = struct.unpack_from("<I", records, offset + 69 * 4)
+        family, = struct.unpack_from("<I", records, offset + 208 * 4)
+        range_index, = struct.unpack_from("<I", records, offset + 46 * 4)
+        if (item_class == 2 and item_mask & SHOOTERS and family != SPELLFAMILY_HUNTER and
+                spell_id not in SHARED_SHOTS and range_index in plain):
+            struct.pack_into("<I", records, offset + 46 * 4, plain[range_index])
+            lifted += 1
+    return lifted
+
+
+print("shots without a dead zone:", lift_dead_zones(records, count))
 rows = bytearray()
 values = []
 for spell in SPELLS:

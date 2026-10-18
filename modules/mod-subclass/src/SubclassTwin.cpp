@@ -1528,10 +1528,28 @@ void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid)
     castingAsBrother = {};
 }
 
+bool IsShot(SpellInfo const* info)
+{
+    constexpr uint32 Shooters = (1 << ITEM_SUBCLASS_WEAPON_BOW) | (1 << ITEM_SUBCLASS_WEAPON_GUN) |
+        (1 << ITEM_SUBCLASS_WEAPON_CROSSBOW);
+    return info->HasAttribute(SPELL_ATTR0_USES_RANGED_SLOT) ||
+        (info->EquippedItemClass == ITEM_CLASS_WEAPON && (info->EquippedItemSubClassMask & Shooters));
+}
+
+bool BrotherReaches(Player* player, SpellInfo const* info, Unit* target)
+{
+    Creature* twin = HasTwin(player) ? TwinOf(player) : nullptr;
+    if (!twin || target == player || !IsShot(info))
+        return true;
+    float const reach = info->GetMaxRange(false, player);
+    return (reach <= 0.0f || twin->IsWithinCombatRange(target, reach)) && twin->IsWithinLOSInMap(target);
+}
+
 bool OrderOtherHalf(Player* player, uint32 spellId, Unit* target, uint32 pause)
 {
     SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
-    if (!info || !target || !OtherHalfAwake(player) || !Affordable(player, info) || Helpless(player))
+    if (!info || !target || !OtherHalfAwake(player) || !Affordable(player, info) || Helpless(player) ||
+        !BrotherReaches(player, info, target))
         return false;
     {
         std::lock_guard<std::mutex> lock(twinMutex);
@@ -1565,7 +1583,12 @@ bool OrderBrother(Player* player, uint32 spellId, Unit* target)
     LOG_INFO("module", "{} presses {} for the brother at {}: {}", player->GetName(), spellId, target->GetName(),
         ordered ? "ordered" : "refused");
     if (!ordered)
-        ChatHandler(player->GetSession()).SendNotification("Your brother can't cast that right now.");
+    {
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+        bool const outOfReach = info && BrotherOut(player) && !BrotherReaches(player, info, target);
+        ChatHandler(player->GetSession()).SendNotification(outOfReach ?
+            "Your brother can't reach that from where he stands." : "Your brother can't cast that right now.");
+    }
     return true;
 }
 
@@ -1597,7 +1620,9 @@ std::pair<uint32, Unit*> PickSpell(Player* player)
         if (!foe)
             continue;
         float const range = info->GetMaxRange(false, player);
-        if ((range > 0.0f && !player->IsWithinDistInMap(foe, range)) || !player->IsWithinLOSInMap(foe))
+        bool const reaches = IsShot(info) ? BrotherReaches(player, info, foe) :
+            (range <= 0.0f || player->IsWithinDistInMap(foe, range)) && player->IsWithinLOSInMap(foe);
+        if (!reaches)
             continue;
         uint32 const recovery = std::max(info->RecoveryTime, info->CategoryRecoveryTime);
         if (!attack || recovery > attackRecovery)
