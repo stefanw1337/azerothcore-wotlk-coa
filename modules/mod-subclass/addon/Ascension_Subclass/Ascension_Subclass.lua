@@ -1382,9 +1382,34 @@ local function DumpTabs()
         DEFAULT_CHAT_FRAME:AddMessage("Ascension Subclass: open the Character Advancement window first.")
         return
     end
-    Ascension_SubclassDump = {}
+    Ascension_SubclassDump = { tabs = {}, trees = {} }
     for index, other in ipairs(tabs) do
-        Ascension_SubclassDump[index] = DescribeFrame(other, 0)
+        Ascension_SubclassDump.tabs[index] = DescribeFrame(other, 0)
+    end
+    for index, tree in ipairs(state.trees) do
+        local entries = {}
+        for _, id in ipairs(tree.ids or {}) do
+            local entry = Entry(id)
+            if type(entry) == "table" then
+                local plain = { id = id }
+                for key, value in pairs(entry) do
+                    local kind = type(value)
+                    if kind == "string" or kind == "number" or kind == "boolean" then
+                        plain[key] = value
+                    elseif kind == "table" then
+                        local list = {}
+                        for _, item in ipairs(value) do
+                            if type(item) ~= "table" and type(item) ~= "function" and type(item) ~= "userdata" then
+                                list[#list + 1] = item
+                            end
+                        end
+                        plain[key] = list
+                    end
+                end
+                entries[#entries + 1] = plain
+            end
+        end
+        Ascension_SubclassDump.trees[index] = { title = tree.title, entries = entries }
     end
     DEFAULT_CHAT_FRAME:AddMessage("Ascension Subclass: tab layout saved. /reload to write it to disk.")
 end
