@@ -52,8 +52,9 @@ Subclass.BookItemId = 9530010
 Subclass.BookDropChance = 5
 
 #    Subclass.StandardClasses
-#        Offer the ten standard classes (Warrior ... Druid) at class trainers. Each lends two of
-#        its specializations. Off while standard classes are not ready on CoA realms; GMs can
+#        Offer the standard classes (Warrior ... Druid) at class trainers. Each lends two of
+#        its specializations. Death Knight is never offered: it is a hero class and its runes
+#        need a real Death Knight. Off while standard classes are not ready on CoA realms; GMs can
 #        still use .subclass set.
 #        Default: 0 - CoA classes only
 #                 1 - also standard classes

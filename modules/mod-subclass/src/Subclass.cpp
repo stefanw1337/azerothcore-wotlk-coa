@@ -893,6 +893,13 @@ void AcceptQuest(Player* player)
     ChatHandler(player->GetSession()).SendSysMessage(VoiceOf(player).Says(VoiceOf(player).Accepted));
 }
 
+bool OfferedAsSubclass(uint8 catalogClassId)
+{
+    if (catalogClassId == AscensionCompatData::CoABorrowOnlyClassOf(CLASS_DEATH_KNIGHT))
+        return false;
+    return settings.StandardClasses || !AscensionCompatData::IsCoABorrowOnlyClass(catalogClassId);
+}
+
 void ShowClasses(Player* player, Creature* trainer)
 {
     ClearGossipMenuFor(player);
@@ -900,7 +907,7 @@ void ShowClasses(Player* player, Creature* trainer)
     {
         std::lock_guard<std::mutex> lock(subclassMutex);
         for (NamedClass const& named : Classes)
-            if ((settings.StandardClasses || !AscensionCompatData::IsCoABorrowOnlyClass(named.Id)) &&
+            if (OfferedAsSubclass(named.Id) &&
                 Subclass::AllowsAnySpecializationOf(pairs, character, named.Id))
                 AddGossipItemFor(player, GOSSIP_ICON_TRAINER, ClassName(named.Id), SenderClass, named.Id);
     }
@@ -946,7 +953,7 @@ void ChooseAtTrainer(Player* player, uint16 specId, uint16 secondSpecId)
     bool allowed = false;
     {
         std::lock_guard<std::mutex> lock(subclassMutex);
-        allowed = (settings.StandardClasses || !AscensionCompatData::IsCoABorrowOnlyClass(classId)) &&
+        allowed = OfferedAsSubclass(classId) &&
             Subclass::AllowsChoice(pairs, CharacterOf(player), wanted) &&
             !BorrowedTreesOf(wanted).empty() && player->GetLevel() >= settings.MinLevel;
     }
