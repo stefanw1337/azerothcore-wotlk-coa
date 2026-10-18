@@ -460,7 +460,8 @@ void ShowClasses(Player* player, Creature* trainer)
     {
         std::lock_guard<std::mutex> lock(subclassMutex);
         for (NamedClass const& named : Classes)
-            if (Subclass::AllowsAnySpecializationOf(pairs, character, named.Id))
+            if ((settings.StandardClasses || !AscensionCompatData::IsCoABorrowOnlyClass(named.Id)) &&
+                Subclass::AllowsAnySpecializationOf(pairs, character, named.Id))
                 AddGossipItemFor(player, GOSSIP_ICON_TRAINER, ClassName(named.Id), SenderClass, named.Id);
     }
     SendGossipMenuFor(player, ClassTextId, trainer->GetGUID());
@@ -518,7 +519,8 @@ void ChooseAtTrainer(Player* player, uint16 specId, uint16 secondSpecId)
     bool allowed = false;
     {
         std::lock_guard<std::mutex> lock(subclassMutex);
-        allowed = Subclass::AllowsChoice(pairs, CharacterOf(player), wanted) &&
+        allowed = (settings.StandardClasses || !AscensionCompatData::IsCoABorrowOnlyClass(classId)) &&
+            Subclass::AllowsChoice(pairs, CharacterOf(player), wanted) &&
             !Subclass::BorrowedTrees(wanted, hasClassTree).empty() && player->GetLevel() >= settings.MinLevel;
     }
     if (!record.Insights || !allowed || !IsSpecializationOf(classId, specId) ||
@@ -562,6 +564,7 @@ public:
         loaded.QuestId = sConfigMgr->GetOption<uint32>("Subclass.QuestId", 9530010);
         loaded.BookItemId = sConfigMgr->GetOption<uint32>("Subclass.BookItemId", 9530010);
         loaded.BookDropChance = sConfigMgr->GetOption<float>("Subclass.BookDropChance", 5.0f);
+        loaded.StandardClasses = sConfigMgr->GetOption<bool>("Subclass.StandardClasses", false);
         std::lock_guard<std::mutex> lock(subclassMutex);
         settings = loaded;
     }

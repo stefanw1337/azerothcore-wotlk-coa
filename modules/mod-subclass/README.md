@@ -39,7 +39,7 @@ compile.
 |---|---|
 | `.subclass info` | Selected player (or you): race, gender, class, active specialization, eligibility, choice. |
 | `.subclass specs <classId>` | Lists the specialization ids of a class. |
-| `.subclass set <class> <spec> [spec2]` | A CoA class lends its Class tree and `spec`; a standard class (1-11) lends `spec` and `spec2`. |
+| `.subclass set <class> <spec> [spec2]` | CoA class: Class tree and `spec`. Standard class (1-11): `spec` and `spec2`. |
 | `.subclass clear` | Removes the subclass and the talents learned in its trees. |
 | `.subclass spec <specId>` | Switches the own active specialization (testing). |
 | `.subclass learn <entryId> <rank>` | Sets a talent rank server-side (testing; no budget check). |
@@ -63,9 +63,10 @@ so the talent window reloads.
 ## Standard classes
 
 The ten standard classes (Warrior 1 ... Druid 11) have no Class tree. Their Warcraft Reborn trees from
-`CharacterAdvancement.dbc` load into the CoA catalog under borrow-only class ids (100 + class, e.g. Mage = 108), which no
-character has, so only a granted extra tree opens them. Borrowing one opens two of its three specializations, and the
-bonus class points become specialization points. In `mod_subclass_pair.sub_class` use the normal class id (8 for Mage).
+`CharacterAdvancement.dbc` load into the CoA catalog under borrow-only class ids (100 + class, e.g. Mage = 108), which
+no character has, so only a granted extra tree opens them. They are offered at trainers only with
+`Subclass.StandardClasses = 1`. Borrowing one opens two of its three specializations, and the bonus class points
+become specialization points. In `mod_subclass_pair.sub_class` use the normal class id (8 for Mage).
 
 ## Known limits
 
