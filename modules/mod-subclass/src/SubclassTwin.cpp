@@ -38,6 +38,7 @@ bool SubclassChosen(Player const* player);
 bool OtherHalfShoots(Player const* player);
 bool MainHalfShoots(Player const* player);
 bool BrotherOut(Player const* player);
+void RefreshSubclassResources(Player* player);
 
 namespace
 {
@@ -1221,6 +1222,7 @@ std::string ToggleHeads(Player* player)
     StoreWardrobe(player, wardrobe);
     SetBorrowedPassives(player, !agreeing);
     UpdateSelfAura(player);
+    RefreshSubclassResources(player);
     return agreeing ? "Your heads agree. For once." : "Your heads disagree again.";
 }
 
@@ -1241,6 +1243,7 @@ std::string ToggleTwin(Player* player)
     else if (wardrobe.Enabled)
         OfferStoryLater(player);
     UpdateSelfAura(player);
+    RefreshSubclassResources(player);
     return wardrobe.Enabled ? "Your brother comes running." : "Your brother goes home.";
 }
 

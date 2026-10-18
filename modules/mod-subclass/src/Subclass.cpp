@@ -38,6 +38,7 @@
 #include <mutex>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 
 using namespace Acore::ChatCommands;
 
@@ -290,6 +291,12 @@ Subclass::Settings CurrentSettings()
 Subclass::Character CharacterOf(Player const* player)
 {
     return { player->getRace(), player->getGender(), player->getClass(), player->GetLevel() };
+}
+
+uint8 PlayableClassOf(uint8 catalogClassId)
+{
+    return AscensionCompatData::IsCoABorrowOnlyClass(catalogClassId) ?
+        uint8(catalogClassId - AscensionCompatData::CoABorrowOnlyClassBase) : catalogClassId;
 }
 
 uint8 CatalogClassOf(uint8 classId)
@@ -614,9 +621,36 @@ bool HandlesOwnPet(SpellInfo const* info)
     return false;
 }
 
-Powers StandardClassPower(uint8 classId)
+std::unordered_set<uint32> runesLent;
+thread_local bool raisingRunes = false;
+
+bool BorrowsDeathKnight(Player const* player)
 {
-    switch (classId)
+    Subclass::Choice const choice = ChoiceOf(player);
+    return player->getClass() != CLASS_DEATH_KNIGHT && choice.Complete() &&
+        PlayableClassOf(choice.SubClass) == CLASS_DEATH_KNIGHT;
+}
+
+bool HasLentRunes(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(subclassMutex);
+    return runesLent.contains(player->GetGUID().GetCounter());
+}
+
+void LendRunes(Player* player)
+{
+    if (!BorrowsDeathKnight(player) || HasLentRunes(player))
+        return;
+    raisingRunes = true;
+    player->InitRunes();
+    raisingRunes = false;
+    std::lock_guard<std::mutex> lock(subclassMutex);
+    runesLent.insert(player->GetGUID().GetCounter());
+}
+
+Powers StandardClassPower(uint8 catalogClassId)
+{
+    switch (PlayableClassOf(catalogClassId))
     {
         case CLASS_WARRIOR: return POWER_RAGE;
         case CLASS_ROGUE: return POWER_ENERGY;
@@ -672,8 +706,13 @@ void SendSubclassState(Player* player)
         if (Powers const standard = StandardClassPower(subClass); standard != MAX_POWERS &&
             player->getPowerType() != standard)
             powers.push_back(standard);
-        for (uint32 power : powers)
-            SendAddon(player, Acore::StringFormat("POWER {}", power));
+        if (!SubclassResting(player))
+        {
+            for (uint32 power : powers)
+                SendAddon(player, Acore::StringFormat("POWER {}", power));
+            if (BorrowsDeathKnight(player) && HasLentRunes(player))
+                SendAddon(player, "RUNES");
+        }
     }
     SendAddon(player, "DONE");
 }
@@ -829,6 +868,7 @@ uint32 ApplyChoice(Player* player, Subclass::Choice const& wanted)
     }
     record.Choice = wanted;
     StoreRecord(player, record);
+    LendRunes(player);
     SyncBorrowedBaseSpells(player);
     RefreshPowerPools(player);
     if (uint32 const active = GetAscensionActiveSpecialization(player))
@@ -898,8 +938,6 @@ void AcceptQuest(Player* player)
 
 bool OfferedAsSubclass(uint8 catalogClassId)
 {
-    if (catalogClassId == AscensionCompatData::CoABorrowOnlyClassOf(CLASS_DEATH_KNIGHT))
-        return false;
     return settings.StandardClasses || !AscensionCompatData::IsCoABorrowOnlyClass(catalogClassId);
 }
 
@@ -985,6 +1023,12 @@ void GrantBook(Player* player, uint32 bookItemId)
 }
 }
 
+void RefreshSubclassResources(Player* player)
+{
+    RefreshPowerPools(player);
+    SendSubclassState(player);
+}
+
 class mod_subclass_world : public WorldScript
 {
 public:
@@ -1063,7 +1107,7 @@ bool ClassShoots(uint8 classId)
         if (entry.ClassId == classId)
             for (uint32 spellId : entry.SpellIds)
                 consider(spellId);
-    bool const shoots = classId == CLASS_HUNTER || because;
+    bool const shoots = PlayableClassOf(classId) == CLASS_HUNTER || because;
     LOG_INFO("module", "Class {} {} a bow{}", uint32(classId), shoots ? "uses" : "does not use",
         because ? Acore::StringFormat(" (spell {})", because) : std::string());
     shooters.emplace(classId, shoots);
@@ -1083,7 +1127,7 @@ bool MainHalfShoots(Player const* player)
 
 uint32 ClassFamily(uint8 classId)
 {
-    switch (classId)
+    switch (PlayableClassOf(classId))
     {
         case CLASS_WARRIOR: return SPELLFAMILY_WARRIOR;
         case CLASS_PALADIN: return SPELLFAMILY_PALADIN;
@@ -1277,8 +1321,12 @@ public:
         }
         if (playerClass < CLASS_WARRIOR || playerClass > CLASS_DRUID || playerClass == player->getClass())
             return std::nullopt;
+        if (playerClass == CLASS_DEATH_KNIGHT && raisingRunes)
+            return true;
+        if (playerClass == CLASS_DEATH_KNIGHT && !HasLentRunes(player))
+            return std::nullopt;
         Subclass::Choice const choice = ChoiceOf(player);
-        if (!choice.Complete() || choice.SubClass != playerClass || SubclassResting(player))
+        if (!choice.Complete() || PlayableClassOf(choice.SubClass) != playerClass || SubclassResting(player))
             return std::nullopt;
         return true;
     }
@@ -1286,6 +1334,7 @@ public:
     void OnPlayerLogin(Player* player) override
     {
         TrimChoice(player);
+        LendRunes(player);
         SyncBorrowedBaseSpells(player);
         RefreshPowerPools(player);
         SchedulePrompt(player, 5s);
@@ -1329,6 +1378,7 @@ public:
         std::lock_guard<std::mutex> lock(subclassMutex);
         records.erase(player->GetGUID().GetCounter());
         focusLent.erase(player->GetGUID().GetCounter());
+        runesLent.erase(player->GetGUID().GetCounter());
     }
 
     void OnPlayerDelete(ObjectGuid guid, uint32 /*accountId*/) override
@@ -1669,7 +1719,7 @@ Trainer::Trainer* TrainerWithSubclass(Trainer::Trainer const& trainer, Player co
     Subclass::Choice const choice = ChoiceOf(player);
     if (!choice.Complete() || own.GetTrainerRequirement() != player->getClass())
         return replaced;
-    Trainer::Trainer const* borrowed = ClassTrainerOf(choice.SubClass);
+    Trainer::Trainer const* borrowed = ClassTrainerOf(PlayableClassOf(choice.SubClass));
     if (!borrowed)
         return replaced;
     std::vector<Trainer::Spell> spells = own.GetSpells();

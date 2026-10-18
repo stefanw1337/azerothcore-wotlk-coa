@@ -9,6 +9,7 @@ local POWER_COLORS = { [0] = { 0, 0, 1 }, [1] = { 1, 0, 0 }, [2] = { 1, 0.5, 0.2
     [6] = { 0, 0.82, 1 } }
 local resourceFrame
 local UpdateResourceFrame
+local UpdateLentRunes
 local incoming
 local pending = false
 local panel, tab, window
@@ -509,6 +510,27 @@ UpdateResourceFrame = function()
     end
 end
 
+UpdateLentRunes = function()
+    local frame = _G.RuneFrame
+    if not frame then
+        return
+    end
+    if not state.runes then
+        frame:Hide()
+        return
+    end
+    frame:Show()
+    for index = 1, 6 do
+        local button = _G["RuneButtonIndividual" .. index]
+        if button then
+            button:Show()
+            if _G.RuneButton_Update then
+                pcall(_G.RuneButton_Update, button, index, true)
+            end
+        end
+    end
+end
+
 local twinOutfit = {}
 local ShowTwinPreview
 local twinState = { has = false, out = false, split = false }
@@ -545,7 +567,7 @@ local function Receive(message)
     if command == "RESET" then
         local eligible, _, insights = string.match(rest, "^(%d+) (%d+) (%d+)$")
         incoming = { eligible = eligible == "1", insights = tonumber(insights) or 0, trees = {}, ranks = {},
-            classPoints = 0, specPoints = 0, resources = {}, powers = {} }
+            classPoints = 0, specPoints = 0, resources = {}, powers = {}, runes = false }
     elseif not incoming then
         return
     elseif command == "TREE" then
@@ -577,6 +599,8 @@ local function Receive(message)
         end
     elseif command == "POWER" then
         incoming.powers[#incoming.powers + 1] = tonumber(rest)
+    elseif command == "RUNES" then
+        incoming.runes = true
     elseif command == "DONE" then
         state = incoming
         incoming = nil
@@ -584,6 +608,7 @@ local function Receive(message)
         BuildTrees()
         Render()
         UpdateResourceFrame()
+        UpdateLentRunes()
     end
 end
 
