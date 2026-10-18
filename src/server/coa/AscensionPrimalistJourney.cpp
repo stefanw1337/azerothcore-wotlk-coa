@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -27,8 +28,8 @@ class aura_ascension_journey_damage : public AuraScript
         Unit* owner = GetTarget();
         Unit* victim = event.GetActionTarget();
         DamageInfo const* damage = event.GetDamageInfo();
-        return owner->IsPlayer() && owner->getClass() == CLASS_WILDWALKER && owner->IsAlive() &&
-            GetCaster() == owner && event.GetActor() == owner && victim && victim != owner &&
+        return owner->IsPlayer() && UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_WILDWALKER) &&
+            owner->IsAlive() && GetCaster() == owner && event.GetActor() == owner && victim && victim != owner &&
             !owner->IsFriendlyTo(victim) && damage && damage->GetDamage();
     }
 
@@ -76,7 +77,7 @@ class spell_ascension_journey_ground : public SpellScript
 
     bool Load() override
     {
-        return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_WILDWALKER;
+        return GetCaster()->IsPlayer() && UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_WILDWALKER);
     }
 
     bool Validate(SpellInfo const*) override { return ValidateSpellInfo({JourneyGround, CragDamage}); }

@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionRangerDamage.h"
+#include "AscensionSpecialization.h"
 #include "Log.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -85,7 +86,7 @@ class spell_ascension_ranger_rusty_shiv : public AuraScript
     bool Load() override
     {
         Unit* caster = GetCaster();
-        return caster && caster->IsPlayer() && caster->ToPlayer()->getClass() == CLASS_RANGER;
+        return caster && caster->IsPlayer() && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_RANGER);
     }
 
     void CalculateAmount(AuraEffect const*, int32& amount, bool& canBeRecalculated)
@@ -136,7 +137,7 @@ class spell_ascension_ranger_rusty_shiv : public AuraScript
         Unit* caster = GetCaster();
         Unit* target = GetTarget();
         int32 amount = effect->GetAmount();
-        if (!caster || !caster->IsPlayer() || caster->ToPlayer()->getClass() != CLASS_RANGER ||
+        if (!caster || !caster->IsPlayer() || !UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_RANGER) ||
             !caster->IsAlive() || !caster->IsInWorld() || !target->IsAlive() || !target->IsInWorld() ||
             caster->GetMap() != target->GetMap() || !caster->ToPlayer()->GetSession() ||
             caster->ToPlayer()->GetSession()->PlayerLogout() || amount <= 0)
@@ -175,7 +176,7 @@ class spell_ascension_ranger_rusty_shiv_damage : public SpellScript
 
     bool Load() override
     {
-        return GetCaster()->IsPlayer() && GetCaster()->ToPlayer()->getClass() == CLASS_RANGER &&
+        return GetCaster()->IsPlayer() && UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_RANGER) &&
             GetSpell()->IsTriggered();
     }
 

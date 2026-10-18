@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -35,7 +36,8 @@ class spell_ascension_witch_hunter_torch_stacks : public AuraScript
     bool Load() override
     {
         Unit* caster = GetCaster();
-        return caster && caster->IsPlayer() && caster->getClass() == CLASS_WITCH_HUNTER && caster == GetUnitOwner();
+        return caster && caster->IsPlayer() && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_WITCH_HUNTER) &&
+            caster == GetUnitOwner();
     }
 
     bool CheckProc(ProcEventInfo& eventInfo)
@@ -88,7 +90,8 @@ class spell_ascension_witch_hunter_pyro_torchlight : public SpellScript
     bool Load() override
     {
         Unit* caster = GetCaster();
-        return caster && caster->IsPlayer() && caster->getClass() == CLASS_WITCH_HUNTER && !GetSpell()->IsTriggered();
+        return caster && caster->IsPlayer() && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_WITCH_HUNTER) &&
+            !GetSpell()->IsTriggered();
     }
 
     void ResetTorchlight()

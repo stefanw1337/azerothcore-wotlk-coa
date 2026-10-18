@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Pet.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -22,7 +23,7 @@ enum PrimalistAbilitySpells : uint32
 Player* Primalist(Unit* unit)
 {
     Player* player = unit ? unit->ToPlayer() : nullptr;
-    return player && player->getClass() == CLASS_WILDWALKER ? player : nullptr;
+    return player && UsesAscensionClassMechanics(player, CLASS_WILDWALKER) ? player : nullptr;
 }
 
 class primalist_talent_events : public UnitScript

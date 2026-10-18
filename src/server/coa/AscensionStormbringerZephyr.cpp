@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Creature.h"
 #include "EventMap.h"
 #include "MotionMaster.h"
@@ -29,7 +30,8 @@ bool HasZephyrOwner(Creature* zephyr)
     if (!zephyr || zephyr->GetEntry() != NPC_RAGING_ZEPHYR || !zephyr->IsAlive() || !zephyr->IsInWorld())
         return false;
     Player* owner = zephyr->GetCharmerOrOwnerPlayerOrPlayerItself();
-    return owner && owner->GetGUID() == zephyr->GetOwnerGUID() && owner->getClass() == CLASS_STORMBRINGER &&
+    return owner && owner->GetGUID() == zephyr->GetOwnerGUID() &&
+        UsesAscensionClassMechanics(owner, CLASS_STORMBRINGER) &&
         owner->IsAlive() && owner->IsInWorld() && owner->HasActiveSpell(SPELL_RAGING_ZEPHYR) &&
         owner->GetMap() == zephyr->GetMap() && owner->InSamePhase(zephyr);
 }
@@ -46,7 +48,8 @@ struct npc_ascension_stormbringer_zephyr : ScriptedAI
     void IsSummonedBy(WorldObject* summoner) override
     {
         Player* owner = summoner ? summoner->ToPlayer() : nullptr;
-        if (!owner || owner->getClass() != CLASS_STORMBRINGER || !owner->HasActiveSpell(SPELL_RAGING_ZEPHYR))
+        if (!owner || !UsesAscensionClassMechanics(owner, CLASS_STORMBRINGER) ||
+            !owner->HasActiveSpell(SPELL_RAGING_ZEPHYR))
         {
             me->DespawnOrUnsummon();
             return;
@@ -83,7 +86,7 @@ class spell_ascension_raging_zephyr : public SpellScript
     bool Load() override
     {
         Player* player = GetCaster()->ToPlayer();
-        return player && player->getClass() == CLASS_STORMBRINGER;
+        return player && UsesAscensionClassMechanics(player, CLASS_STORMBRINGER);
     }
 
     void Summon(SpellEffIndex index)

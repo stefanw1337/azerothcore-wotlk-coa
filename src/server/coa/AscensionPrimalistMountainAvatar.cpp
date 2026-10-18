@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuras.h"
@@ -29,7 +30,8 @@ class aura_ascension_mountain_avatar : public AuraScript
         Unit* owner = GetTarget();
         Unit* victim = event.GetActionTarget();
         DamageInfo const* damage = event.GetDamageInfo();
-        return owner->IsPlayer() && owner->getClass() == CLASS_WILDWALKER && owner->IsAlive() &&
+        return owner->IsPlayer() && UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_WILDWALKER) &&
+            owner->IsAlive() &&
             GetCasterGUID() == owner->GetGUID() && event.GetActor() == owner && victim && victim != owner &&
             !owner->IsFriendlyTo(victim) && damage && damage->GetDamage();
     }
@@ -71,7 +73,8 @@ class aura_ascension_earthen_avatar : public AuraScript
 
     bool Load() override
     {
-        return GetUnitOwner()->IsPlayer() && GetUnitOwner()->getClass() == CLASS_WILDWALKER &&
+        return GetUnitOwner()->IsPlayer() &&
+            UsesAscensionClassMechanics(GetUnitOwner()->ToPlayer(), CLASS_WILDWALKER) &&
             GetCasterGUID() == GetUnitOwner()->GetGUID();
     }
 

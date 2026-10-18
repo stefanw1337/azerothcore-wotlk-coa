@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Item.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -29,7 +30,7 @@ class spell_ascension_ranger_assault : public SpellScript
     bool Load() override
     {
         Unit* caster = GetCaster();
-        return caster && caster->IsPlayer() && caster->ToPlayer()->getClass() == CLASS_RANGER;
+        return caster && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_RANGER);
     }
 
     void ScaleWeaponDamage(SpellEffIndex)

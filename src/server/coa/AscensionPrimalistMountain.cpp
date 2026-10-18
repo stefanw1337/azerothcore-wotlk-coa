@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
@@ -22,7 +23,8 @@ class aura_ascension_blessed_by_earth : public AuraScript
         Unit* owner = GetTarget();
         DamageInfo const* damage = event.GetDamageInfo();
         SpellInfo const* info = damage ? damage->GetSpellInfo() : nullptr;
-        return owner->IsPlayer() && owner->getClass() == CLASS_WILDWALKER && owner->IsAlive() &&
+        return owner->IsPlayer() && UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_WILDWALKER) &&
+            owner->IsAlive() &&
             event.GetActor() == owner && damage && damage->GetDamage() && info && info->SpellFamilyName == 37 &&
             ((info->SpellFamilyFlags[0] & 16384) || (info->SpellFamilyFlags[2] & 256)) &&
             event.GetActionTarget() && !owner->IsFriendlyTo(event.GetActionTarget());
@@ -57,7 +59,7 @@ class aura_ascension_mountain_threshold : public AuraScript
         _previous = current;
         Unit* owner = GetTarget();
         if (mode == AURA_EFFECT_HANDLE_REAL || !owner->IsPlayer() ||
-            owner->getClass() != CLASS_WILDWALKER || GetCasterGUID() != owner->GetGUID())
+            !UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_WILDWALKER) || GetCasterGUID() != owner->GetGUID())
             return;
         if (crossedDown)
             owner->RemoveAurasDueToSpell(MountainBuff, owner->GetGUID());

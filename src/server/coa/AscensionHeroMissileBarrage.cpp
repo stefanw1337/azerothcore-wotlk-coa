@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
@@ -34,7 +35,7 @@ class aura_hero_missile_barrage : public AuraScript
     void CalculateChannelReduction(AuraEffect const*, int32& amount, bool&)
     {
         Player const* player = GetUnitOwner() ? GetUnitOwner()->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_HERO)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_HERO))
             return;
 
         if (SpellInfo const* missiles = HighestKnownArcaneMissiles(player))

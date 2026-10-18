@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 #include "AscensionPrimalistWeapons.h"
+#include "AscensionSpecialization.h"
 #include "Item.h"
 #include "Pet.h"
 #include "Player.h"
@@ -134,7 +135,8 @@ class aura_ascension_primal_weapon : public AuraScript
 
 void RemoveAscensionPrimalistWeapons(Player* player)
 {
-    if (!player || player->getClass() != CLASS_WILDWALKER || IsAscensionPrimalistWeaponsEligible(player, true))
+    if (!player || !UsesAscensionClassMechanics(player, CLASS_WILDWALKER) ||
+        IsAscensionPrimalistWeaponsEligible(player, true))
         return;
     for (uint32 id : {SPELL_BESTIAL_MIGHT, SPELL_PRIMAL_MIGHT, SPELL_WILDCLAW_BONUS, SPELL_TALONFURY})
         player->RemoveAurasDueToSpell(id, player->GetGUID());

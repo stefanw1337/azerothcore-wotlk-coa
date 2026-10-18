@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -70,7 +71,7 @@ class aura_ascension_tinker_augmentor : public AuraScript
         Unit* owner = GetUnitOwner();
         Player* player = owner ? owner->ToPlayer() : nullptr;
         canBeRecalculated = true;
-        if (!player || player->getClass() != CLASS_TINKER ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_TINKER) ||
             (!player->HasAura(SPELL_AETHER_PASSIVE) && !player->HasAura(SPELL_PIERCING_PASSIVE)))
             amount = 0;
     }
@@ -90,7 +91,7 @@ class AscensionTinkerAugmentorLifecycle : public UnitScript
             return;
 
         Player* player = unit ? unit->ToPlayer() : nullptr;
-        if (player && player->getClass() == CLASS_TINKER)
+        if (player && UsesAscensionClassMechanics(player, CLASS_TINKER))
             if (AuraEffect* effect = player->GetAuraEffect(SPELL_AUGMENTOR, EFFECT_0))
                 if (effect->GetAuraType() == SPELL_AURA_MOD_RANGED_HASTE)
                     effect->RecalculateAmount();
@@ -117,7 +118,7 @@ HealInfo const* EffectiveStimHeal(Unit* owner, ProcEventInfo& eventInfo)
 {
     Player* player = owner ? owner->ToPlayer() : nullptr;
     HealInfo const* heal = eventInfo.GetHealInfo();
-    if (!player || player->getClass() != CLASS_TINKER || eventInfo.GetActor() != player ||
+    if (!player || !UsesAscensionClassMechanics(player, CLASS_TINKER) || eventInfo.GetActor() != player ||
         !heal || heal->GetHealer() != player || !heal->GetTarget() || !heal->GetEffectiveHeal() ||
         !IsTinkerSpell(heal->GetSpellInfo(), SPELL_STIM_HEAL) ||
         (eventInfo.GetTypeMask() & PROC_FLAG_DONE_PERIODIC))
@@ -168,7 +169,7 @@ class spell_ascension_tinker_stim_cooldown : public SpellScript
         PreventHitDefaultEffect(effIndex);
         Player* player = GetCaster()->ToPlayer();
         int32 delta = GetEffectValue();
-        if (!player || player->getClass() != CLASS_TINKER || !GetSpell()->IsTriggered() || delta >= 0)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_TINKER) || !GetSpell()->IsTriggered() || delta >= 0)
             return;
 
         for (uint32 id : MED_PACK_RANKS)

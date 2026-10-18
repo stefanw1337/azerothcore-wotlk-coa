@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellMgr.h"
@@ -24,7 +25,7 @@ class spell_ascension_verdant_chase : public SpellScript
 
     bool Load() override
     {
-        return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_WILDWALKER;
+        return UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_WILDWALKER);
     }
 
     bool Validate(SpellInfo const* info) override

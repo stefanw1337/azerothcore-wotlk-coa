@@ -2,6 +2,7 @@
 #include "AscensionClientSpellPatches.h"
 #include "AscensionPooledVitality.h"
 #include "AscensionRealmClock.h"
+#include "AscensionSpecialization.h"
 #include "DBCStores.h"
 #include "Group.h"
 #include "Log.h"
@@ -164,7 +165,7 @@ bool BloodScentTarget(Unit const* player, Unit const* target)
 uint32 BloodScentDamage(Unit* target, Unit* attacker, uint32 amount)
 {
     Player* player = attacker ? attacker->ToPlayer() : nullptr;
-    if (!player || player->getClass() != CLASS_SON_OF_ARUGAL || !player->IsAlive() || !amount ||
+    if (!player || !UsesAscensionClassMechanics(player, CLASS_SON_OF_ARUGAL) || !player->IsAlive() || !amount ||
         !BloodScentTarget(player, target) || !player->HasAura(SPELL_ACCURSED_FORM, player->GetGUID()))
         return amount;
     AuraEffect const* effect = player->GetAuraEffect(SPELL_BLOOD_SCENT, EFFECT_0, player->GetGUID());
@@ -410,7 +411,7 @@ public:
     void OnAuraApply(Unit* unit, Aura* aura) override
     {
         Player* player = unit ? unit->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_SON_OF_ARUGAL || !aura)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SON_OF_ARUGAL) || !aura)
             return;
         if (IsCursedForm(aura->GetId()))
         {
@@ -449,7 +450,7 @@ public:
     void OnAuraRemove(Unit* unit, AuraApplication* application, AuraRemoveMode mode) override
     {
         Player* player = unit ? unit->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_SON_OF_ARUGAL || !application)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SON_OF_ARUGAL) || !application)
             return;
         Aura* aura = application->GetBase();
         if (IsCursedForm(aura->GetId()))
@@ -504,7 +505,7 @@ public:
 
     void OnPlayerJustDied(Player* player) override
     {
-        if (!player || player->getClass() != CLASS_SON_OF_ARUGAL)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SON_OF_ARUGAL))
             return;
         for (uint32 form : CursedForms)
             player->RemoveAurasDueToSpell(form);
@@ -522,7 +523,7 @@ public:
 
     void OnPlayerAfterSetVisibleItemSlot(Player* player, uint8 slot, Item*) override
     {
-        if (!player || player->getClass() != CLASS_SON_OF_ARUGAL)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SON_OF_ARUGAL))
             return;
         if (std::find(std::begin(CursedFormWeaponSlots), std::end(CursedFormWeaponSlots), slot) ==
             std::end(CursedFormWeaponSlots) || !HasCursedForm(player))
@@ -539,7 +540,7 @@ public:
 
     void OnPlayerBeforeTempSummonInitStats(Player* player, TempSummon* summon, uint32& duration) override
     {
-        if (!player || player->getClass() != CLASS_SON_OF_ARUGAL || !summon || !duration)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SON_OF_ARUGAL) || !summon || !duration)
             return;
         if (std::find(std::begin(AnimatedBloodSummons), std::end(AnimatedBloodSummons), summon->GetEntry())
             == std::end(AnimatedBloodSummons))
@@ -560,7 +561,8 @@ bool IsBloodmageDamageProc(Unit* player, Unit* caster, ProcEventInfo& event)
 {
     Unit* victim = event.GetActionTarget();
     DamageInfo const* damage = event.GetDamageInfo();
-    return player->IsPlayer() && player->getClass() == CLASS_SON_OF_ARUGAL && player->IsAlive() &&
+    return player->IsPlayer() && UsesAscensionClassMechanics(player->ToPlayer(), CLASS_SON_OF_ARUGAL) &&
+        player->IsAlive() &&
         caster == player && event.GetActor() == player && victim && victim != player &&
         !player->IsFriendlyTo(victim) && damage && damage->GetDamage();
 }
@@ -759,7 +761,7 @@ class aura_ascension_bloodmage_crimson_feast : public AuraScript
     void Tick(AuraEffect const*)
     {
         Player* player = GetTarget() ? GetTarget()->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_SON_OF_ARUGAL || !HasCursedForm(player))
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SON_OF_ARUGAL) || !HasCursedForm(player))
             PreventDefaultAction();
     }
 
@@ -817,7 +819,7 @@ class aura_ascension_bloodmage_forbidden_power : public AuraScript
     {
         amount = 0;
         Player* player = GetUnitOwner() ? GetUnitOwner()->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_SON_OF_ARUGAL)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SON_OF_ARUGAL))
             return;
         uint32 rating = player->GetUInt32Value(
             static_cast<uint16>(PLAYER_FIELD_COMBAT_RATING_1) + static_cast<uint16>(CR_ARMOR_PENETRATION));
@@ -1441,7 +1443,7 @@ public:
     void OnSpellCast(Spell* spell, Unit* caster, SpellInfo const* info, bool) override
     {
         Player* player = caster ? caster->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_SON_OF_ARUGAL || !info ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SON_OF_ARUGAL) || !info ||
             info->Id != SPELL_BLOODGALE || spell->IsTriggered() ||
             player->GetTemporarySpellReplacement(SPELL_ACCURSED_FORM) != SPELL_BLOODGALE)
             return;

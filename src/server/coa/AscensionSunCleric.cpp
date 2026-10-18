@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "AscensionSunCleric.h"
 #include "AscensionSunClericData.h"
 #include "AscensionCustomResourceData.h"
@@ -36,7 +37,7 @@ Player* Owner(Unit const* unit)
     Player* player = const_cast<Unit*>(unit)->ToPlayer();
     if (!player && unit->GetOwner())
         player = unit->GetOwner()->ToPlayer();
-    return player && player->getClass() == CLASS_SUN_CLERIC ? player : nullptr;
+    return player && UsesAscensionClassMechanics(player, CLASS_SUN_CLERIC) ? player : nullptr;
 }
 SunClericState& State(Player* player)
 {
@@ -236,7 +237,7 @@ void StackWithoutRefresh(Player* player, uint32 id)
 }
 bool Resource(Player* player, uint32 id, int32 delta)
 {
-    if (!player || player->getClass() != CLASS_SUN_CLERIC || id != SolarPower)
+    if (!player || !UsesAscensionClassMechanics(player, CLASS_SUN_CLERIC) || id != SolarPower)
         return false;
     if (delta > 0 && (player->HasAura(Dawn) || State(player).dawnEvent))
         return true;

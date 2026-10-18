@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
@@ -79,8 +80,8 @@ class spell_ascension_templar_temporary_libram : public AuraScript
     {
         Unit* owner = GetTarget();
         Player* player = owner ? owner->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_MONK || GetCaster() != owner || eventInfo.GetActor() != owner ||
-            !IsCurrentTemporaryLibramTalent(GetSpellInfo()))
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_MONK) || GetCaster() != owner ||
+            eventInfo.GetActor() != owner || !IsCurrentTemporaryLibramTalent(GetSpellInfo()))
             return false;
 
         SpellInfo const* castInfo = eventInfo.GetSpellInfo();

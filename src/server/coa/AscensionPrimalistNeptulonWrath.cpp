@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
@@ -29,7 +30,7 @@ public:
     void ModifySpellEffectBaseValue(Unit const* caster, SpellInfo const* info, uint8 index,
         float& value) override
     {
-        if (caster && caster->IsPlayer() && caster->getClass() == CLASS_WILDWALKER &&
+        if (caster && caster->IsPlayer() && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_WILDWALKER) &&
             info->Id == NeptulonWrath && index == EFFECT_0)
             value += std::clamp(caster->GetTotalAttackPowerValue(BASE_ATTACK) * 0.35f,
                 0.0f, float(std::numeric_limits<int32>::max() / 2));

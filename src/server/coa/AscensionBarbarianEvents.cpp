@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionBarbarianCompletion.h"
+#include "AscensionSpecialization.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "Random.h"
@@ -385,7 +386,7 @@ public:
 private:
     static void Reward(Player* player, Unit* killed)
     {
-        if (player->getClass() != CLASS_BARBARIAN || !player->isHonorOrXPTarget(killed))
+        if (!UsesAscensionClassMechanics(player, CLASS_BARBARIAN) || !player->isHonorOrXPTarget(killed))
             return;
         for (uint32 rank : {804765u, 807946u, 807947u, 807948u})
             if (player->HasSpell(rank))

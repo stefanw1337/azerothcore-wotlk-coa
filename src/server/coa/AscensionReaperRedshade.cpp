@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "Opcodes.h"
 #include "ScriptMgr.h"
@@ -66,7 +67,7 @@ class aura_ascension_reaper_decimation_counter : public AuraScript
     bool Load() override
     {
         Unit* owner = GetUnitOwner();
-        return owner && owner->IsPlayer() && owner->getClass() == CLASS_REAPER &&
+        return owner && owner->IsPlayer() && UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_REAPER) &&
             GetCasterGUID() == owner->GetGUID() && owner->HasAura(SPELL_DECIMATION);
     }
 
@@ -108,7 +109,7 @@ public:
     void OnSpellCheckCast(Spell* spell, bool, SpellCastResult& result) override
     {
         Player* player = spell->GetCaster()->ToPlayer();
-        if (!player || player->getClass() != CLASS_REAPER || spell->IsTriggered())
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_REAPER) || spell->IsTriggered())
             return;
         if (spell->GetSpellInfo()->Id == SPELL_DECIMATE)
         {
@@ -130,8 +131,8 @@ public:
 
     void OnSpellCast(Spell* spell, Unit* caster, SpellInfo const* info, bool) override
     {
-        if (caster->IsPlayer() && caster->getClass() == CLASS_REAPER && !spell->IsTriggered() &&
-            info->Id == SPELL_DECIMATE)
+        if (caster->IsPlayer() && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_REAPER) &&
+            !spell->IsTriggered() && info->Id == SPELL_DECIMATE)
             caster->RemoveAurasDueToSpell(SPELL_DECIMATION_COUNTER, caster->GetGUID());
     }
 };
@@ -143,7 +144,7 @@ public:
 
     void OnAuraRemove(Unit* unit, AuraApplication* application, AuraRemoveMode) override
     {
-        if (!unit->IsPlayer() || unit->getClass() != CLASS_REAPER || !application ||
+        if (!unit->IsPlayer() || !UsesAscensionClassMechanics(unit->ToPlayer(), CLASS_REAPER) || !application ||
             application->GetBase()->GetId() != SPELL_DECIMATION ||
             application->GetBase()->GetCasterGUID() != unit->GetGUID())
             return;

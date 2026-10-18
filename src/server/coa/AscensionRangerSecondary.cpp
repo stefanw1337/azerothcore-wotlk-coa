@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Item.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -20,8 +21,8 @@ class aura_ascension_ranger_advantage : public AuraScript
 
     bool Load() override
     {
-        return GetCaster() && GetCaster() == GetUnitOwner() && GetCaster()->IsPlayer() &&
-            GetCaster()->getClass() == CLASS_RANGER;
+        return GetCaster() && GetCaster() == GetUnitOwner() &&
+            UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_RANGER);
     }
 
     void Sync(AuraEffect const*, AuraEffectHandleModes)
@@ -61,7 +62,7 @@ public:
 
     void OnSpellBeforeEffects(Spell* spell, Unit* caster, SpellInfo const* info) override
     {
-        if (caster->IsPlayer() && caster->getClass() == CLASS_RANGER && info->SpellFamilyName == 27 &&
+        if (UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_RANGER) && info->SpellFamilyName == 27 &&
             !spell->IsTriggered() && sSpellMgr->GetFirstSpellInChain(info->Id) == 804712)
             if (Aura const* advantage = caster->GetAura(804329, caster->GetGUID()))
                 spell->SetScriptValue(801935, 2000 * advantage->GetStackAmount());
@@ -70,7 +71,8 @@ public:
     void OnSpellHitResult(Spell* spell, Unit* target, uint8 miss, uint32, uint32, bool) override
     {
         Player* player = spell->GetCaster()->ToPlayer();
-        if (!player || player->getClass() != CLASS_RANGER || spell->GetSpellInfo()->SpellFamilyName != 27 ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_RANGER) ||
+            spell->GetSpellInfo()->SpellFamilyName != 27 ||
             miss != SPELL_MISS_NONE || !target || target == player || player->IsFriendlyTo(target))
             return;
         if (!spell->IsTriggered() && sSpellMgr->GetFirstSpellInChain(spell->GetSpellInfo()->Id) == 804712 &&
@@ -136,7 +138,7 @@ class spell_ascension_ranger_whipvine_targets : public SpellScript
 
     bool Load() override
     {
-        return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_RANGER;
+        return UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_RANGER);
     }
 
     void Select(std::list<WorldObject*>& targets)

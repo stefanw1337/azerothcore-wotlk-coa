@@ -2,6 +2,7 @@
 
 #include "AscensionClassMechanics26To32.h"
 #include "AscensionPrimalistEarthshaping.h"
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "Random.h"
 #include "Spell.h"
@@ -114,7 +115,7 @@ void HandleAscensionClassMechanics26To32Hit(Spell* spell, Player* player,
 void HandleAscensionClassMechanics26To32SuccessfulInterrupt(Spell* spell,
     Player* player)
 {
-    if (!spell || !player || player->getClass() != CLASS_WILDWALKER ||
+    if (!spell || !player || !UsesAscensionClassMechanics(player, CLASS_WILDWALKER) ||
         spell->GetSpellInfo()->Id != SPELL_PRIMALIST_CAVE_IN)
         return;
 

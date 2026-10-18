@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Creature.h"
 #include "Map.h"
 #include "MotionMaster.h"
@@ -28,7 +29,7 @@ enum OutmaneuverIds : uint32
 Player* ManeuverRanger(Unit* unit)
 {
     Player* player = unit ? unit->ToPlayer() : nullptr;
-    return player && player->getClass() == CLASS_RANGER ? player : nullptr;
+    return player && UsesAscensionClassMechanics(player, CLASS_RANGER) ? player : nullptr;
 }
 
 bool CanManeuver(Player* player)

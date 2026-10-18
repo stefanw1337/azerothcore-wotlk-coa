@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellMgr.h"
@@ -16,8 +17,8 @@ class aura_ascension_primal_strikes : public AuraScript
         Unit* owner = GetTarget();
         Unit* victim = event.GetActionTarget();
         DamageInfo const* damage = event.GetDamageInfo();
-        return owner->IsPlayer() && owner->getClass() == CLASS_WILDWALKER && owner->IsAlive() &&
-            GetCaster() == owner && event.GetActor() == owner && victim && victim != owner &&
+        return owner->IsPlayer() && UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_WILDWALKER) &&
+            owner->IsAlive() && GetCaster() == owner && event.GetActor() == owner && victim && victim != owner &&
             !owner->IsFriendlyTo(victim) && event.GetSpellInfo() && damage && damage->GetDamage() &&
             (damage->GetSchoolMask() & SPELL_SCHOOL_MASK_NORMAL) && (event.GetHitMask() & PROC_HIT_CRITICAL);
     }

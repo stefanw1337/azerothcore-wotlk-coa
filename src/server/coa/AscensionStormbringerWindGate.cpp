@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Creature.h"
 #include "EventMap.h"
 #include "Map.h"
@@ -64,7 +65,7 @@ void RemoveWindGate(Player* player)
 
 void SyncEvacuate(Player* player)
 {
-    if (player->getClass() != CLASS_STORMBRINGER)
+    if (!UsesAscensionClassMechanics(player, CLASS_STORMBRINGER))
         return;
     if (!player->HasActiveSpell(SPELL_WIND_GATE))
     {
@@ -77,7 +78,7 @@ void SyncEvacuate(Player* player)
 
 bool CanEvacuate(Player* player, Unit* target)
 {
-    if (!player || player->getClass() != CLASS_STORMBRINGER || !player->IsAlive() ||
+    if (!player || !UsesAscensionClassMechanics(player, CLASS_STORMBRINGER) || !player->IsAlive() ||
         !player->HasActiveSpell(SPELL_WIND_GATE) || !target || !target->IsAlive() || !target->IsInWorld() ||
         target->IsInFlight() || target->GetVehicle() || target->GetTransport())
         return false;
@@ -106,7 +107,8 @@ struct npc_ascension_stormbringer_gate : ScriptedAI
     void IsSummonedBy(WorldObject* summoner) override
     {
         Player* owner = summoner ? summoner->ToPlayer() : nullptr;
-        if (!owner || owner->getClass() != CLASS_STORMBRINGER || !owner->HasActiveSpell(SPELL_WIND_GATE))
+        if (!owner || !UsesAscensionClassMechanics(owner, CLASS_STORMBRINGER) ||
+            !owner->HasActiveSpell(SPELL_WIND_GATE))
         {
             me->DespawnOrUnsummon();
             return;
@@ -146,7 +148,7 @@ class spell_ascension_wind_gate : public SpellScript
     bool Load() override
     {
         Player* player = GetCaster()->ToPlayer();
-        return player && player->getClass() == CLASS_STORMBRINGER;
+        return player && UsesAscensionClassMechanics(player, CLASS_STORMBRINGER);
     }
 
     void Summon(SpellEffIndex index)

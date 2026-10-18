@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionTinkerCombatSymbiosis.h"
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
@@ -86,7 +87,7 @@ class aura_ascension_tinker_combat_symbiosis : public AuraScript
 
         Unit* caster = GetCaster();
         Player* player = caster ? caster->ToPlayer() : nullptr;
-        return !caster || (player && player->getClass() == CLASS_TINKER);
+        return !caster || (player && UsesAscensionClassMechanics(player, CLASS_TINKER));
     }
 
     bool CheckDamage(ProcEventInfo& eventInfo)

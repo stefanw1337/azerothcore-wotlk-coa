@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Creature.h"
 #include "EventMap.h"
 #include "MotionMaster.h"
@@ -28,7 +29,7 @@ bool HasThunderOrbOwner(Creature* orb)
     if (!orb || orb->GetEntry() != NPC_THUNDER_ORB || !orb->IsAlive() || !orb->IsInWorld())
         return false;
     Player* owner = orb->GetCharmerOrOwnerPlayerOrPlayerItself();
-    return owner && owner->GetGUID() == orb->GetOwnerGUID() && owner->getClass() == CLASS_STORMBRINGER &&
+    return owner && owner->GetGUID() == orb->GetOwnerGUID() && UsesAscensionClassMechanics(owner, CLASS_STORMBRINGER) &&
         owner->IsAlive() && owner->IsInWorld() && owner->GetMap() == orb->GetMap() && owner->InSamePhase(orb);
 }
 
@@ -44,7 +45,7 @@ struct npc_ascension_thunder_orb : ScriptedAI
     void IsSummonedBy(WorldObject* summoner) override
     {
         Player* owner = summoner ? summoner->ToPlayer() : nullptr;
-        if (!owner || owner->getClass() != CLASS_STORMBRINGER)
+        if (!owner || !UsesAscensionClassMechanics(owner, CLASS_STORMBRINGER))
         {
             me->DespawnOrUnsummon();
             return;
@@ -82,7 +83,7 @@ class spell_ascension_summon_thunder_orb : public SpellScript
     bool Load() override
     {
         Player* player = GetCaster()->ToPlayer();
-        return player && player->getClass() == CLASS_STORMBRINGER;
+        return player && UsesAscensionClassMechanics(player, CLASS_STORMBRINGER);
     }
 
     void Summon(SpellEffIndex index)

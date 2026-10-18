@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Creature.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -41,7 +42,7 @@ struct npc_ascension_infinite_clone : ScriptedAI
     void IsSummonedBy(WorldObject* summoner) override
     {
         Player* player = summoner ? summoner->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_CHRONOMANCER || !CanRecordPosition(player))
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_CHRONOMANCER) || !CanRecordPosition(player))
             return;
         owner = player->GetGUID();
         origin = player->GetPosition();
@@ -89,7 +90,8 @@ class spell_ascension_rewind : public SpellScript
     SpellCastResult CheckClone()
     {
         Player* player = GetCaster()->ToPlayer();
-        return player && player->getClass() == CLASS_CHRONOMANCER && CanRecordPosition(player) && FindClone(player)
+        return player && UsesAscensionClassMechanics(player, CLASS_CHRONOMANCER) && CanRecordPosition(player) &&
+            FindClone(player)
             ? SPELL_CAST_OK : SPELL_FAILED_CANT_DO_THAT_RIGHT_NOW;
     }
 

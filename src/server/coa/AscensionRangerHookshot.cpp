@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -16,7 +17,7 @@ constexpr uint32 HookRoot = 800360;
 Player* HookRanger(Unit* caster)
 {
     Player* player = caster ? caster->ToPlayer() : nullptr;
-    return player && player->getClass() == CLASS_RANGER ? player : nullptr;
+    return player && UsesAscensionClassMechanics(player, CLASS_RANGER) ? player : nullptr;
 }
 
 Unit* HookTarget(Player* player)

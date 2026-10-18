@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Pet.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -17,7 +18,7 @@ class aura_ascension_primalist_bloody_claws : public AuraScript
         Unit* pet = GetTarget();
         Unit* victim = event.GetActionTarget();
         DamageInfo const* damage = event.GetDamageInfo();
-        return owner && owner->getClass() == CLASS_WILDWALKER && owner->GetPet() == pet &&
+        return owner && UsesAscensionClassMechanics(owner, CLASS_WILDWALKER) && owner->GetPet() == pet &&
             pet->IsAlive() && event.GetActor() == pet && victim && victim != pet &&
             !pet->IsFriendlyTo(victim) && damage && damage->GetDamage();
     }

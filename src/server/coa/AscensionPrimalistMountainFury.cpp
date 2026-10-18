@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "DBCStores.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -48,7 +49,7 @@ public:
 
     void ModifySpellEffectBaseValue(Unit const* caster, SpellInfo const* info, uint8 index, float& value) override
     {
-        if (!caster || !caster->IsPlayer() || caster->getClass() != CLASS_WILDWALKER ||
+        if (!caster || !caster->IsPlayer() || !UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_WILDWALKER) ||
             info->SpellFamilyName != 37 || info->Id != MountainFuryHit || index != EFFECT_1 ||
             info->Effects[index].Effect != SPELL_EFFECT_SCHOOL_DAMAGE)
             return;
@@ -65,7 +66,7 @@ class spell_ascension_mountain_fury_pull : public SpellScript
 
     bool Load() override
     {
-        return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_WILDWALKER;
+        return GetCaster()->IsPlayer() && UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_WILDWALKER);
     }
 
     void Defend(SpellEffIndex)

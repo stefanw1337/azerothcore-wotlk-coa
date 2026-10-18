@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Creature.h"
 #include "EventMap.h"
 #include "Map.h"
@@ -68,7 +69,7 @@ Player* RedFlowerOwner(Creature* flower)
     if (!flower || flower->GetEntry() != NPC_RED_FLOWER || !flower->IsAlive() || !flower->IsInWorld())
         return nullptr;
     Player* owner = flower->GetCharmerOrOwnerPlayerOrPlayerItself();
-    return owner && owner->getClass() == CLASS_RANGER && owner->GetGUID() == flower->GetOwnerGUID() &&
+    return owner && UsesAscensionClassMechanics(owner, CLASS_RANGER) && owner->GetGUID() == flower->GetOwnerGUID() &&
         owner->IsAlive() && owner->IsInWorld() && owner->HasAura(SPELL_PETALKEEPER) &&
         owner->GetMap() == flower->GetMap() && owner->InSamePhase(flower) ? owner : nullptr;
 }
@@ -87,7 +88,7 @@ struct npc_ascension_ranger_red_flower : ScriptedAI
     void IsSummonedBy(WorldObject* summoner) override
     {
         Player* player = summoner ? summoner->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_RANGER || !player->HasAura(SPELL_PETALKEEPER))
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_RANGER) || !player->HasAura(SPELL_PETALKEEPER))
         {
             me->DespawnOrUnsummon();
             return;
@@ -123,7 +124,10 @@ class spell_ascension_ranger_red_flower : public SpellScript
 {
     PrepareSpellScript(spell_ascension_ranger_red_flower);
 
-    bool Load() override { return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_RANGER; }
+    bool Load() override
+    {
+        return GetCaster()->IsPlayer() && UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_RANGER);
+    }
 
     void Summon(SpellEffIndex index)
     {
@@ -153,7 +157,8 @@ class aura_ascension_ranger_petalkeeper : public AuraScript
     {
         Unit* owner = GetTarget();
         Unit* victim = event.GetActionTarget();
-        return owner->IsPlayer() && owner->getClass() == CLASS_RANGER && owner->IsAlive() && owner->IsInWorld() &&
+        return owner->IsPlayer() && UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_RANGER) && owner->IsAlive() &&
+            owner->IsInWorld() &&
             event.GetActor() == owner && victim && victim != owner && !owner->IsFriendlyTo(victim) &&
             (event.GetHitMask() & PROC_HIT_CRITICAL) && event.GetDamageInfo() && event.GetDamageInfo()->GetDamage();
     }
@@ -182,8 +187,8 @@ public:
     void OnSpellCast(Spell* spell, Unit* caster, SpellInfo const* info, bool) override
     {
         Player* player = caster ? caster->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_RANGER || info->SpellFamilyName != 27 || spell->IsTriggered() ||
-            !player->IsAlive() || !player->IsInWorld() || !player->HasAura(SPELL_PETALKEEPER))
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_RANGER) || info->SpellFamilyName != 27 ||
+            spell->IsTriggered() || !player->IsAlive() || !player->IsInWorld() || !player->HasAura(SPELL_PETALKEEPER))
             return;
         if (info->SpellFamilyFlags[2] & 8192)
             player->CastSpell(player, SPELL_RED_FLOWER, true);

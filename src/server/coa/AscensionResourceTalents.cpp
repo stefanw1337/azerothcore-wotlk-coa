@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -87,8 +88,10 @@ class aura_ascension_resource_talent : public AuraScript
     void Calculate(AuraEffect const*, int32& amount, bool&)
     {
         Unit* owner = GetUnitOwner();
-        bool felsworn = GetId() == Felheart && owner->IsPlayer() && owner->getClass() == CLASS_DEMON_HUNTER;
-        bool bloodmage = GetId() == RecklessAbandon && owner->IsPlayer() && owner->getClass() == CLASS_SON_OF_ARUGAL;
+        bool felsworn = GetId() == Felheart && owner->IsPlayer() &&
+            UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_DEMON_HUNTER);
+        bool bloodmage = GetId() == RecklessAbandon && owner->IsPlayer() &&
+            UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_SON_OF_ARUGAL);
         amount *= felsworn ? GetResourceAuraStackCount(owner, Felfury) :
             bloodmage ? GetResourceAuraStackCount(owner, Thirst) : 0;
     }
@@ -112,8 +115,9 @@ class aura_ascension_resource_talent_refresh : public AuraScript
     void RefreshTalentBonusForResourceStacks(uint32 stacks)
     {
         Unit* owner = GetTarget();
-        if (!owner->IsPlayer() || (GetId() == Felfury ? owner->getClass() != CLASS_DEMON_HUNTER :
-            owner->getClass() != CLASS_SON_OF_ARUGAL))
+        if (!owner->IsPlayer() ||
+            (GetId() == Felfury ? !UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_DEMON_HUNTER) :
+            !UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_SON_OF_ARUGAL)))
             return;
         uint32 talent = GetId() == Felfury ? Felheart : RecklessAbandon;
         if (Aura* aura = owner->GetAura(talent))
@@ -124,7 +128,8 @@ class aura_ascension_resource_talent_refresh : public AuraScript
 
     void ApplyInsatiableWithoutResettingPenaltyTimer(Unit* owner)
     {
-        if (GetId() == Thirst && owner->IsPlayer() && owner->getClass() == CLASS_SON_OF_ARUGAL &&
+        if (GetId() == Thirst && owner->IsPlayer() &&
+            UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_SON_OF_ARUGAL) &&
             GetStackAmount() >= GetSpellInfo()->CalcMaxAuraStacks(owner) &&
             !owner->HasAura(Insatiable, owner->GetGUID()))
             owner->CastSpell(owner, Insatiable, true);
@@ -135,7 +140,8 @@ class aura_ascension_resource_talent_refresh : public AuraScript
         RefreshTalentBonusForResourceStacks(GetStackAmount());
         ApplyInsatiableWithoutResettingPenaltyTimer(GetTarget());
         Unit* owner = GetTarget();
-        if (GetId() == Thirst && owner->IsPlayer() && owner->getClass() == CLASS_SON_OF_ARUGAL)
+        if (GetId() == Thirst && owner->IsPlayer() &&
+            UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_SON_OF_ARUGAL))
         {
             if (!owner->HasAura(ThirstCastSpeed, owner->GetGUID()))
                 owner->AddAura(sSpellMgr->GetSpellInfo(ThirstCastSpeed), 1 << EFFECT_2, owner);
@@ -151,7 +157,8 @@ class aura_ascension_resource_talent_refresh : public AuraScript
     {
         RefreshTalentBonusForResourceStacks(0);
         Unit* owner = GetTarget();
-        if (GetId() == Thirst && owner->IsPlayer() && owner->getClass() == CLASS_SON_OF_ARUGAL)
+        if (GetId() == Thirst && owner->IsPlayer() &&
+            UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_SON_OF_ARUGAL))
         {
             owner->RemoveAurasDueToSpell(ThirstCastSpeed, owner->GetGUID());
             owner->RemoveAurasDueToSpell(Insatiable, owner->GetGUID());
@@ -177,7 +184,7 @@ class aura_ascension_bloodmage_thirst_rage : public AuraScript
     void Apply(AuraEffect const*, AuraEffectHandleModes)
     {
         Unit* owner = GetTarget();
-        if (!owner->IsPlayer() || owner->ToPlayer()->getClass() != CLASS_SON_OF_ARUGAL)
+        if (!owner->IsPlayer() || !UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_SON_OF_ARUGAL))
             return;
         uint8 stacks = GetStackAmount();
         if (stacks > stacksEnergized)
@@ -209,8 +216,8 @@ public:
     void OnSpellCalculatedTarget(Spell* spell, Unit*, TargetInfo& result) override
     {
         Unit* caster = spell->GetCaster();
-        if (!caster->IsPlayer() || caster->getClass() != CLASS_STORMBRINGER || spell->IsTriggered() ||
-            sSpellMgr->GetFirstSpellInChain(spell->GetSpellInfo()->Id) != ArmOfThorim ||
+        if (!caster->IsPlayer() || !UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_STORMBRINGER) ||
+            spell->IsTriggered() || sSpellMgr->GetFirstSpellInChain(spell->GetSpellInfo()->Id) != ArmOfThorim ||
             caster->HasAura(ChargedConduit))
             return;
         if (AuraEffect const* talent = caster->GetAuraEffect(Superconductor, EFFECT_0))

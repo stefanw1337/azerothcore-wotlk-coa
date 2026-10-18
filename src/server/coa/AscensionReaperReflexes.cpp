@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellMgr.h"
@@ -18,7 +19,7 @@ class aura_ascension_spiritual_reflexes : public AuraScript
     {
         Unit* owner = GetTarget();
         Unit* attacker = event.GetActor();
-        return owner->IsPlayer() && owner->getClass() == CLASS_REAPER && owner->IsAlive() &&
+        return owner->IsPlayer() && UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_REAPER) && owner->IsAlive() &&
             owner->IsInWorld() && owner->HealthBelowPct(35) && event.GetActionTarget() == owner &&
             (event.GetHitMask() & PROC_HIT_DODGE) && attacker && attacker->IsAlive() &&
             owner->IsValidAttackTarget(attacker);

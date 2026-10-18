@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 #include "AscensionPooledVitality.h"
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -21,7 +22,8 @@ constexpr uint32 DarkLiturgy = 800781;
 
 bool IsBloodmage(Player const* player)
 {
-    return player && player->getClass() == CLASS_SON_OF_ARUGAL && player->IsAlive() && player->IsInWorld();
+    return player && UsesAscensionClassMechanics(player, CLASS_SON_OF_ARUGAL) && player->IsAlive() &&
+        player->IsInWorld();
 }
 
 bool CanEmpower(Player* player)
@@ -103,7 +105,7 @@ public:
 
     void ModifySpellEffectBaseValue(Unit const* caster, SpellInfo const* info, uint8 index, float& value) override
     {
-        if (!caster || !caster->IsPlayer() || caster->getClass() != CLASS_SON_OF_ARUGAL ||
+        if (!caster || !caster->IsPlayer() || !UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_SON_OF_ARUGAL) ||
             info->SpellFamilyName != 26 || index != EFFECT_0 ||
             (info->Effects[EFFECT_0].Effect != SPELL_EFFECT_HEAL &&
              info->Effects[EFFECT_0].Effect != SPELL_EFFECT_HEALTH_LEECH))
@@ -184,7 +186,7 @@ class spell_ascension_bloodmage_empowered : public SpellScript
     void SnapshotNightFeastRage()
     {
         Player* player = GetCaster()->ToPlayer();
-        if (!player || player->getClass() != CLASS_SON_OF_ARUGAL ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SON_OF_ARUGAL) ||
             GetEmpowerment(m_scriptSpellId) != Bloodbolt || !player->HasAura(NightFeast))
             return;
         GetSpell()->SetScriptValue(m_scriptSpellId, player->GetPower(POWER_RAGE));
@@ -192,7 +194,7 @@ class spell_ascension_bloodmage_empowered : public SpellScript
 
     bool Load() override
     {
-        return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_SON_OF_ARUGAL &&
+        return GetCaster()->IsPlayer() && UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_SON_OF_ARUGAL) &&
             GetSpellInfo()->SpellFamilyName == 26;
     }
 

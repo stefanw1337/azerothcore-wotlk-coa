@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -23,7 +24,8 @@ public:
     {
         Unit* caster = spell->GetCaster();
         if (damage && miss == SPELL_MISS_NONE && caster->IsPlayer() && caster->IsAlive() &&
-            caster->getClass() == CLASS_WILDWALKER && spell->GetSpellInfo()->Id == JudgementDamage &&
+            UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_WILDWALKER) &&
+            spell->GetSpellInfo()->Id == JudgementDamage &&
             spell->GetSpellInfo()->SpellFamilyName == 37 && caster->HasAura(Shattering, caster->GetGUID()))
             caster->CastSpell(caster, ShatteringBuff, TRIGGERED_FULL_MASK);
     }

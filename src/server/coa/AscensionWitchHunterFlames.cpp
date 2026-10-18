@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionWitchHunterFlames.h"
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -19,7 +20,7 @@ constexpr uint32 SPELL_FLAMES_DAMAGE = 802850;
 
 bool IsFlameCaster(Unit* caster)
 {
-    return caster && caster->IsPlayer() && caster->getClass() == CLASS_WITCH_HUNTER;
+    return caster && caster->IsPlayer() && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_WITCH_HUNTER);
 }
 
 bool IsFlameGrantHelper(uint32 id)

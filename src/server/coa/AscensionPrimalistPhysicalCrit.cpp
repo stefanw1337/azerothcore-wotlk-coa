@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -17,7 +18,7 @@ public:
     {
         Unit* caster = spell->GetCaster();
         SpellInfo const* info = spell->GetSpellInfo();
-        if (!target || !caster->IsPlayer() || caster->getClass() != CLASS_WILDWALKER ||
+        if (!target || !UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_WILDWALKER) ||
             info->SpellFamilyName != 37 || info->DmgClass != SPELL_DAMAGE_CLASS_MAGIC ||
             info->GetSchoolMask() != SPELL_SCHOOL_MASK_NORMAL || !info->IsCritCapable() ||
             info->HasAttribute(SPELL_ATTR2_CANT_CRIT))

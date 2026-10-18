@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionClassMechanics19To25.h"
+#include "AscensionSpecialization.h"
 #include "Log.h"
 #include "Player.h"
 #include "Spell.h"
@@ -147,14 +148,15 @@ bool CanPrepareAscensionClassMechanics19To25(Spell* spell)
 
     Player* player = spell->GetCaster()->ToPlayer();
     SpellInfo const* info = spell->GetSpellInfo();
-    if (player && player->getClass() == CLASS_RANGER && info->SpellFamilyName == uint32(CLASS_RANGER) + 6 &&
+    if (player && UsesAscensionClassMechanics(player, CLASS_RANGER) &&
+        info->SpellFamilyName == uint32(CLASS_RANGER) + 6 &&
         info->Id == SPELL_RANGER_FOREST_DWELLER_HEAL && info->Effects[EFFECT_0].Effect == SPELL_EFFECT_HEAL_PCT)
     {
         return player->HasAura(SPELL_RANGER_FOREST_DWELLER) &&
             (player->HasAura(SPELL_RANGER_ELUDE) || player->HasAura(SPELL_RANGER_ONSLAUGHT));
     }
 
-    if (!player || player->getClass() != CLASS_PYROMANCER ||
+    if (!player || !UsesAscensionClassMechanics(player, CLASS_PYROMANCER) ||
         info->Id != SPELL_PYROMANCER_CLEANSING_FLAMES_BONUS ||
         info->SpellFamilyName != PYROMANCER_FAMILY)
         return true;
@@ -171,7 +173,7 @@ void HandleAscensionClassMechanics19To25Hit(Spell* spell, Player* player,
     Unit* target, std::uint8_t missInfo, std::uint32_t damage)
 {
     if (!spell || !player || !target || spell->IsTriggered() ||
-        player->getClass() != CLASS_MONK ||
+        !UsesAscensionClassMechanics(player, CLASS_MONK) ||
         !IsTemplarReckoning(spell->GetSpellInfo()->Id) ||
         spell->GetSpellInfo()->SpellFamilyName != std::uint32_t(CLASS_MONK) + 6 ||
         target == player || missInfo != SPELL_MISS_NONE || !damage ||

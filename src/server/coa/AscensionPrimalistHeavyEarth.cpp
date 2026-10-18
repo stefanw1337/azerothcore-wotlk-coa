@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
@@ -34,7 +35,7 @@ class spell_ascension_heavy_earth : public SpellScript
 
     bool Load() override
     {
-        return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_WILDWALKER;
+        return GetCaster()->IsPlayer() && UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_WILDWALKER);
     }
 
     void Consume()
@@ -79,8 +80,8 @@ class aura_ascension_heavy_earth : public AuraScript
         Unit* victim = event.GetActionTarget();
         SpellInfo const* spell = event.GetSpellInfo();
         DamageInfo const* damage = event.GetDamageInfo();
-        return owner->IsPlayer() && owner->getClass() == CLASS_WILDWALKER && owner->IsAlive() &&
-            GetCasterGUID() == owner->GetGUID() && event.GetActor() == owner &&
+        return owner->IsPlayer() && UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_WILDWALKER) &&
+            owner->IsAlive() && GetCasterGUID() == owner->GetGUID() && event.GetActor() == owner &&
             victim && !owner->IsFriendlyTo(victim) && spell && spell->SpellFamilyName == 37 &&
             (spell->Id == GeodeBarrageDamage || spell->GetFirstRankSpell()->Id == Stoneshard) &&
             damage && damage->GetDamage() && damage->GetDamageType() != DOT;

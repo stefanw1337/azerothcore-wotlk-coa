@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -16,7 +17,7 @@ enum TremorSpells : uint32
 
 void EnergizeTremor(Unit* caster, SpellInfo const* info, uint32 damage)
 {
-    if (caster && caster->IsPlayer() && caster->getClass() == CLASS_WILDWALKER &&
+    if (caster && caster->IsPlayer() && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_WILDWALKER) &&
         caster->IsAlive() && damage && info && info->SpellFamilyName == 37 &&
         sSpellMgr->GetFirstSpellInChain(info->Id) == SeismicTremor)
         caster->CastSpell(caster, TremorRage, TRIGGERED_FULL_MASK);

@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionClassMechanics12To17.h"
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "Spell.h"
 #include <array>
@@ -99,7 +100,7 @@ void RestoreAllEnergy(Player* player)
 void HandleAscensionClassMechanics12To17CalculatedTarget(Spell* spell,
     Player* player, Unit* target, TargetInfo& targetInfo)
 {
-    if (!spell || !player || !target || player->getClass() != CLASS_BARBARIAN)
+    if (!spell || !player || !target || !UsesAscensionClassMechanics(player, CLASS_BARBARIAN))
         return;
 
     if (player->HasAura(SPELL_BARBARIAN_GIANT_TOSSER) &&

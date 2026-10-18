@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 #include "AscensionRangerTalents.h"
+#include "AscensionSpecialization.h"
 #include "CellImpl.h"
 #include "Creature.h"
 #include "GridNotifiers.h"
@@ -113,7 +114,8 @@ class aura_ascension_ranger_barbed_quills : public AuraScript
         Unit* target = event.GetActionTarget();
         SpellInfo const* info = event.GetSpellInfo();
         DamageInfo const* hit = event.GetDamageInfo();
-        return owner->IsPlayer() && owner->getClass() == CLASS_RANGER && GetCaster() == owner &&
+        return owner->IsPlayer() && UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_RANGER) &&
+            GetCaster() == owner &&
             event.GetActor() == owner && target && owner->IsValidAttackTarget(target) && hit && hit->GetDamage() &&
             info && info->SpellFamilyName == 27 && (info->SpellFamilyFlags[1] & (256 | 131072 | 4));
     }
@@ -203,7 +205,7 @@ public:
 
     void OnPlayerAfterGuardianInitStatsForLevel(Player* player, Guardian* guardian) override
     {
-        if (!player || player->getClass() != CLASS_RANGER || !IsWingmanCompanion(guardian))
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_RANGER) || !IsWingmanCompanion(guardian))
             return;
 
         CreatureTemplate const* info = guardian->GetCreatureTemplate();
@@ -242,7 +244,10 @@ class spell_ascension_ranger_light_arrows : public SpellScript
     PrepareSpellScript(spell_ascension_ranger_light_arrows);
     int32 _bonus = 0;
 
-    bool Load() override { return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_RANGER; }
+    bool Load() override
+    {
+        return GetCaster()->IsPlayer() && UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_RANGER);
+    }
 
     void Snapshot()
     {
@@ -271,7 +276,10 @@ class spell_ascension_ranger_knockout : public SpellScript
     PrepareSpellScript(spell_ascension_ranger_knockout);
 
     bool Validate(SpellInfo const*) override { return ValidateSpellInfo({SPELL_KNOCKOUT_INCAPACITATE}); }
-    bool Load() override { return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_RANGER; }
+    bool Load() override
+    {
+        return GetCaster()->IsPlayer() && UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_RANGER);
+    }
 
     void Incapacitate(SpellEffIndex)
     {
@@ -403,7 +411,8 @@ class aura_ascension_ranger_dirty_blades : public AuraScript
     bool Load() override
     {
         Unit* ranger = GetUnitOwner();
-        return ranger && ranger->IsPlayer() && ranger->getClass() == CLASS_RANGER && GetCaster() == ranger;
+        return ranger && ranger->IsPlayer() && UsesAscensionClassMechanics(ranger->ToPlayer(), CLASS_RANGER) &&
+            GetCaster() == ranger;
     }
 
     bool CheckProc(ProcEventInfo& event)
@@ -446,7 +455,7 @@ class spell_ascension_ranger_dirty_blades : public SpellScript
     bool Load() override
     {
         Unit* ranger = GetCaster();
-        return ranger && ranger->IsPlayer() && ranger->getClass() == CLASS_RANGER;
+        return ranger && ranger->IsPlayer() && UsesAscensionClassMechanics(ranger->ToPlayer(), CLASS_RANGER);
     }
 
     void Heal()
@@ -535,7 +544,7 @@ public:
 void HandleAscensionRangerStonemason(Spell* spell, Player* player)
 {
     SpellInfo const* info = spell->GetSpellInfo();
-    if (player->getClass() != CLASS_RANGER || info->SpellFamilyName != 27 ||
+    if (!UsesAscensionClassMechanics(player, CLASS_RANGER) || info->SpellFamilyName != 27 ||
         !(info->SpellFamilyFlags[1] & (32768 | 134217728)) || !player->HasAura(SPELL_STONEMASONS_SECRET) ||
         !player->HasAura(SPELL_DIRTY_BLADES, player->GetGUID()))
         return;

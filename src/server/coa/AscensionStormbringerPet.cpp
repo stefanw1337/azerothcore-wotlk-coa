@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Pet.h"
 #include "Player.h"
 #include "Random.h"
@@ -47,14 +48,14 @@ Player* AirElementalOwner(Unit* unit)
     if (!pet || pet->GetEntry() != NPC_AIR_ELEMENTAL)
         return nullptr;
     Player* owner = pet->GetOwner();
-    return owner && owner->getClass() == CLASS_STORMBRINGER && owner->GetPet() == pet &&
+    return owner && UsesAscensionClassMechanics(owner, CLASS_STORMBRINGER) && owner->GetPet() == pet &&
         owner->HasActiveSpell(SPELL_SUMMON_AIR_ELEMENTAL) ? owner : nullptr;
 }
 
 Player* StormbringerProcActor(Unit* target, ProcEventInfo& event)
 {
     Player* owner = target ? target->ToPlayer() : nullptr;
-    return owner && owner->getClass() == CLASS_STORMBRINGER && owner->IsAlive() && owner->IsInWorld() &&
+    return owner && UsesAscensionClassMechanics(owner, CLASS_STORMBRINGER) && owner->IsAlive() && owner->IsInWorld() &&
         event.GetActor() == owner ? owner : nullptr;
 }
 
@@ -81,13 +82,14 @@ public:
     void OnPlayerBeforeGuardianInitStatsForLevel(Player* player, Guardian* guardian, CreatureTemplate const*,
         PetType& type) override
     {
-        if (player->getClass() == CLASS_STORMBRINGER && guardian && guardian->GetEntry() == NPC_AIR_ELEMENTAL)
+        if (UsesAscensionClassMechanics(player, CLASS_STORMBRINGER) && guardian &&
+            guardian->GetEntry() == NPC_AIR_ELEMENTAL)
             type = SUMMON_PET;
     }
 
     void OnPlayerUpdate(Player* player, uint32) override
     {
-        if (player->getClass() != CLASS_STORMBRINGER)
+        if (!UsesAscensionClassMechanics(player, CLASS_STORMBRINGER))
             return;
         Pet* pet = player->GetPet();
         if (!pet || pet->GetEntry() != NPC_AIR_ELEMENTAL || pet->isBeingLoaded())

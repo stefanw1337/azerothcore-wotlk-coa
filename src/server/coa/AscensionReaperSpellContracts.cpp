@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Creature.h"
 #include "CreatureAI.h"
 #include "DBCStores.h"
@@ -149,7 +150,7 @@ public:
         void IsSummonedBy(WorldObject* summoner) override
         {
             Player* player = summoner ? summoner->ToPlayer() : nullptr;
-            if (!player || player->getClass() != CLASS_REAPER)
+            if (!player || !UsesAscensionClassMechanics(player, CLASS_REAPER))
                 return;
 
             me->SetOwnerGUID(player->GetGUID());

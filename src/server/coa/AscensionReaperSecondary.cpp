@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 #include "AscensionReaperTalents.h"
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -62,7 +63,7 @@ public:
     void OnAuraApply(Unit* unit, Aura* aura) override
     {
         Player* player = unit ? unit->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_REAPER || !aura ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_REAPER) || !aura ||
             aura->GetCasterGUID() != player->GetGUID() ||
             (aura->GetId() != SPELL_GHOST && aura->GetId() != SPELL_SPIRIT_WALKER))
             return;
@@ -75,7 +76,7 @@ public:
     void OnAuraRemove(Unit* unit, AuraApplication* application, AuraRemoveMode) override
     {
         Player* player = unit ? unit->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_REAPER || !application)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_REAPER) || !application)
             return;
         Aura* aura = application->GetBase();
         if (aura->GetCasterGUID() == player->GetGUID() &&
@@ -93,7 +94,7 @@ public:
     void OnAuraApply(Unit* unit, Aura* aura) override
     {
         Player* player = unit ? unit->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_REAPER || !aura ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_REAPER) || !aura ||
             aura->GetCasterGUID() != player->GetGUID() ||
             (aura->GetId() != SPELL_HARD_BARGAIN && aura->GetId() != SPELL_TORMENTED_SOULS))
             return;
@@ -107,7 +108,7 @@ public:
     void OnAuraRemove(Unit* unit, AuraApplication* application, AuraRemoveMode) override
     {
         Player* player = unit ? unit->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_REAPER || !application)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_REAPER) || !application)
             return;
 
         Aura* aura = application->GetBase();
@@ -125,20 +126,21 @@ public:
 
     void OnSpellBeforeEffects(Spell* spell, Unit* caster, SpellInfo const* info) override
     {
-        if (caster->IsPlayer() && caster->getClass() == CLASS_REAPER && !spell->IsTriggered() &&
-            sSpellMgr->GetFirstSpellInChain(info->Id) == SPELL_MURDER)
+        if (caster->IsPlayer() && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_REAPER) &&
+            !spell->IsTriggered() && sSpellMgr->GetFirstSpellInChain(info->Id) == SPELL_MURDER)
             if (Aura const* stacks = caster->GetAura(SPELL_CRIMSON_STACK, caster->GetGUID()))
                 spell->SetScriptValue(SPELL_CRIMSON_STACK, stacks->GetStackAmount());
     }
 
     void OnSpellCast(Spell* spell, Unit* caster, SpellInfo const* info, bool) override
     {
-        if (info->Id == SPELL_ENDBRINGER && caster->IsPlayer() && caster->getClass() == CLASS_REAPER &&
+        if (info->Id == SPELL_ENDBRINGER && caster->IsPlayer() &&
+            UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_REAPER) &&
             !spell->IsTriggered() && caster->HasAura(SPELL_GRAVESITE, caster->GetGUID()))
             caster->CastSpell(caster, SPELL_GRAVESITE_AREA, true);
 
-        if (caster->IsPlayer() && caster->getClass() == CLASS_REAPER && !spell->IsTriggered() &&
-            sSpellMgr->GetFirstSpellInChain(info->Id) == SPELL_MURDER &&
+        if (caster->IsPlayer() && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_REAPER) &&
+            !spell->IsTriggered() && sSpellMgr->GetFirstSpellInChain(info->Id) == SPELL_MURDER &&
             spell->GetScriptValue(SPELL_CRIMSON_STACK))
             caster->RemoveAurasDueToSpell(SPELL_CRIMSON_STACK, caster->GetGUID());
     }
@@ -146,7 +148,8 @@ public:
     void OnSpellHitResult(Spell* spell, Unit* target, uint8 miss, uint32 damage, uint32, bool) override
     {
         Player* player = spell->GetCaster()->ToPlayer();
-        if (!player || player->getClass() != CLASS_REAPER || !player->IsAlive() || !player->IsInWorld() ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_REAPER) || !player->IsAlive() ||
+            !player->IsInWorld() ||
             miss != SPELL_MISS_NONE || !target || target == player || player->IsFriendlyTo(target))
             return;
         uint32 id = spell->GetSpellInfo()->Id;
@@ -179,7 +182,8 @@ class aura_ascension_gravesite : public AuraScript
     {
         Unit* player = GetTarget();
         Unit* victim = event.GetActionTarget();
-        if (!player->IsPlayer() || player->getClass() != CLASS_REAPER || GetCaster() != player ||
+        if (!player->IsPlayer() || !UsesAscensionClassMechanics(player->ToPlayer(), CLASS_REAPER) ||
+            GetCaster() != player ||
             event.GetActor() != player || !victim || victim == player || player->IsFriendlyTo(victim) ||
             !event.GetDamageInfo() || !event.GetDamageInfo()->GetDamage() ||
             !(event.GetHitMask() & PROC_HIT_CRITICAL) ||
@@ -203,8 +207,8 @@ class aura_ascension_crimson_thirst : public AuraScript
     {
         Unit* player = GetTarget();
         Unit* victim = event.GetActionTarget();
-        return player->IsPlayer() && player->getClass() == CLASS_REAPER && player->IsAlive() &&
-            GetCaster() == player && event.GetActor() == player && victim && victim != player &&
+        return player->IsPlayer() && UsesAscensionClassMechanics(player->ToPlayer(), CLASS_REAPER) &&
+            player->IsAlive() && GetCaster() == player && event.GetActor() == player && victim && victim != player &&
             !player->IsFriendlyTo(victim) && event.GetDamageInfo() && event.GetDamageInfo()->GetDamage() &&
             (event.GetDamageInfo()->GetSchoolMask() & SPELL_SCHOOL_MASK_NORMAL);
     }
@@ -273,7 +277,7 @@ class aura_ascension_ghostly_weapon : public AuraScript
         Unit* victim = event.GetActionTarget();
         DamageInfo const* damage = event.GetDamageInfo();
         SpellInfo const* spell = event.GetSpellInfo();
-        return owner->IsPlayer() && owner->getClass() == CLASS_REAPER && owner->IsAlive() &&
+        return owner->IsPlayer() && UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_REAPER) && owner->IsAlive() &&
             GetCasterGUID() == owner->GetGUID() && event.GetActor() == owner && victim &&
             victim->IsAlive() && !owner->IsFriendlyTo(victim) && damage && damage->GetDamage() &&
             damage->GetDamageType() != DOT && (!spell || spell->Id != SPELL_GHOSTLY_WEAPON_FROST) &&

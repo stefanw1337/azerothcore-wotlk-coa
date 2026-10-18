@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "Random.h"
 #include "ScriptMgr.h"
@@ -37,7 +38,7 @@ public:
     {
         Player* owner = spell->GetCaster()->ToPlayer();
         SpellInfo const* info = spell->GetSpellInfo();
-        if (!owner || owner->getClass() != CLASS_STORMBRINGER || info->SpellFamilyName != 22 ||
+        if (!owner || !UsesAscensionClassMechanics(owner, CLASS_STORMBRINGER) || info->SpellFamilyName != 22 ||
             !target || !target->IsAlive() || !owner->IsValidAttackTarget(target) ||
             miss != SPELL_MISS_NONE || !damage)
             return;

@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "AscensionWitchDoctorCompletion.h"
 #include "AscensionWitchDoctorCoefficients.h"
 #include "CellImpl.h"
@@ -30,7 +31,7 @@ std::mutex stateMutex;
 Player* Owner(Unit const* unit)
 {
     Player* player = unit ? unit->GetCharmerOrOwnerPlayerOrPlayerItself() : nullptr;
-    return player && player->getClass() == CLASS_WITCH_DOCTOR ? player : nullptr;
+    return player && UsesAscensionClassMechanics(player, CLASS_WITCH_DOCTOR) ? player : nullptr;
 }
 DoctorState& State(Player* player)
 {

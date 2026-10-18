@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuras.h"
@@ -23,7 +24,7 @@ class aura_ascension_battle_cleric : public AuraScript
     bool Load() override
     {
         return GetCaster() && GetCaster() == GetUnitOwner() && GetCaster()->IsPlayer() &&
-            GetCaster()->getClass() == CLASS_SUN_CLERIC;
+            UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_SUN_CLERIC);
     }
 
     void Apply(AuraEffect const*, AuraEffectHandleModes)

@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Pet.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -39,7 +40,8 @@ class aura_ascension_empowered_boons : public AuraScript
 
     bool Load() override
     {
-        return GetUnitOwner()->IsPlayer() && GetUnitOwner()->getClass() == CLASS_WILDWALKER &&
+        return GetUnitOwner()->IsPlayer() &&
+            UsesAscensionClassMechanics(GetUnitOwner()->ToPlayer(), CLASS_WILDWALKER) &&
             GetCasterGUID() == GetUnitOwner()->GetGUID();
     }
 

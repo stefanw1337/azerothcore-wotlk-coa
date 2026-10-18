@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "ObjectAccessor.h"
 #include "AscensionWildcard.h"
 #include "Player.h"
@@ -39,7 +40,7 @@ constexpr WaterRune WaterRunes[] = {{EFFECT_1, SPELL_WATER_ENGRAVING}, {EFFECT_2
 bool CanUseHurricane(Unit* caster, uint32 spell)
 {
     Player* player = caster ? caster->ToPlayer() : nullptr;
-    return player && ((spell == SPELL_HURRICANE && player->getClass() == CLASS_SPIRIT_MAGE) ||
+    return player && ((spell == SPELL_HURRICANE && UsesAscensionClassMechanics(player, CLASS_SPIRIT_MAGE)) ||
         (spell == SPELL_RUNIC_HURRICANE && AscensionWildcard::IsWildcardHero(player)));
 }
 
@@ -144,7 +145,10 @@ class spell_ascension_hurricane_damage : public SpellScript
 {
     PrepareSpellScript(spell_ascension_hurricane_damage);
 
-    bool Load() override { return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_SPIRIT_MAGE; }
+    bool Load() override
+    {
+        return GetCaster()->IsPlayer() && UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_SPIRIT_MAGE);
+    }
 
     void Scale()
     {

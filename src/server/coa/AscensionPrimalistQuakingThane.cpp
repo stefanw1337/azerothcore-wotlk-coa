@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
@@ -26,7 +27,7 @@ class spell_ascension_quaking_thane : public SpellScript
 
     bool Load() override
     {
-        return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_WILDWALKER;
+        return GetCaster()->IsPlayer() && UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_WILDWALKER);
     }
 
     void Grant()
@@ -78,7 +79,8 @@ class aura_ascension_thanes_rage : public AuraScript
 
     bool Load() override
     {
-        return GetUnitOwner()->IsPlayer() && GetUnitOwner()->getClass() == CLASS_WILDWALKER &&
+        return GetUnitOwner()->IsPlayer() &&
+            UsesAscensionClassMechanics(GetUnitOwner()->ToPlayer(), CLASS_WILDWALKER) &&
             GetCasterGUID() == GetUnitOwner()->GetGUID();
     }
 

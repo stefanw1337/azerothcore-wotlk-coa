@@ -2,6 +2,7 @@
 
 #include "AscensionGuardianResources.h"
 #include "AscensionGuardianCompletion.h"
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "Spell.h"
 #include "SpellAuras.h"
@@ -99,7 +100,7 @@ void HandleAscensionGuardianResourceCast(Spell* spell)
     if (!spell)
         return;
     Player* player = spell->GetCaster()->ToPlayer();
-    if (!player || player->getClass() != CLASS_GUARDIAN)
+    if (!player || !UsesAscensionClassMechanics(player, CLASS_GUARDIAN))
         return;
 
     uint32 id = spell->GetSpellInfo()->Id;
@@ -144,7 +145,7 @@ void HandleAscensionGuardianResourceCast(Spell* spell)
 
 void RemoveAscensionGuardianResourceTalent(Player* player, std::uint32_t id)
 {
-    if (!player || player->getClass() != CLASS_GUARDIAN)
+    if (!player || !UsesAscensionClassMechanics(player, CLASS_GUARDIAN))
         return;
 
     switch (id)

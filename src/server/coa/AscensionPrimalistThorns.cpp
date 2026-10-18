@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellScript.h"
@@ -15,8 +16,8 @@ class aura_ascension_primalist_thorns : public AuraScript
         Unit* owner = GetTarget();
         Unit* enemy = event.GetActor() == owner ? event.GetActionTarget() : event.GetActor();
         DamageInfo const* damage = event.GetDamageInfo();
-        return owner->IsPlayer() && owner->getClass() == CLASS_WILDWALKER && owner->IsAlive() &&
-            GetCaster() == owner && enemy && enemy != owner && !owner->IsFriendlyTo(enemy) &&
+        return owner->IsPlayer() && UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_WILDWALKER) &&
+            owner->IsAlive() && GetCaster() == owner && enemy && enemy != owner && !owner->IsFriendlyTo(enemy) &&
             damage && damage->GetDamage() && (damage->GetSchoolMask() & SPELL_SCHOOL_MASK_NORMAL);
     }
 

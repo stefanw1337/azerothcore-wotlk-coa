@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionReaperDirge.h"
+#include "AscensionSpecialization.h"
 #include "Item.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -69,7 +70,7 @@ class spell_ascension_reaper_dirge_weapons : public SpellScript
 
     bool Load() override
     {
-        return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_REAPER;
+        return GetCaster()->IsPlayer() && UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_REAPER);
     }
 
     SpellCastResult CheckWeapons()
@@ -136,7 +137,7 @@ class spell_ascension_reaper_dirge_dagger : public SpellScript
 
     bool Load() override
     {
-        return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_REAPER;
+        return GetCaster()->IsPlayer() && UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_REAPER);
     }
 
     void ApplyDaggerMultiplier()

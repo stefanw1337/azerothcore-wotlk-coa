@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -111,7 +112,7 @@ public:
     void ModifySpellDamageTaken(Unit* target, Unit* caster, int32& amount, SpellInfo const* info) override
     {
         Player* player = caster ? caster->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_STORMBRINGER || !player->IsAlive() || !info ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_STORMBRINGER) || !player->IsAlive() || !info ||
             info->SpellFamilyName != 22 || amount <= 0 || !target || target == player ||
             player->IsFriendlyTo(target) || !StormflowChannel(player) ||
             (!(info->SpellFamilyFlags[0] & 2048) && !(info->SpellFamilyFlags[1] & 128)))
@@ -135,7 +136,7 @@ public:
         if (!caster || !damage || !IsStormflow(info))
             return;
         Player* owner = caster->ToPlayer();
-        if (!owner || owner->getClass() != CLASS_STORMBRINGER || !owner->IsAlive())
+        if (!owner || !UsesAscensionClassMechanics(owner, CLASS_STORMBRINGER) || !owner->IsAlive())
             return;
         AuraEffect const* blessing = owner->GetAuraEffect(SPELL_BLESSING_OF_LEI_SHEN, EFFECT_0);
         if (!blessing)
@@ -155,7 +156,7 @@ public:
     {
         Player* player = spell->GetCaster() ? spell->GetCaster()->ToPlayer() : nullptr;
         SpellInfo const* info = spell->GetSpellInfo();
-        if (!player || player->getClass() != CLASS_STORMBRINGER || info->SpellFamilyName != 22 ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_STORMBRINGER) || info->SpellFamilyName != 22 ||
             !target || target == player || player->IsFriendlyTo(target) || miss != SPELL_MISS_NONE ||
             !damage || spell->IsTriggered())
             return;

@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "AscensionWitchHunterCompletion.h"
 #include "AscensionWitchHunterCoefficients.h"
 #include "CellImpl.h"
@@ -22,7 +23,7 @@ namespace AscensionWitchHunter
 Player* Owner(Unit* unit)
 {
     Player* player = unit ? unit->ToPlayer() : nullptr;
-    return player && player->getClass() == CLASS_WITCH_HUNTER ? player : nullptr;
+    return player && UsesAscensionClassMechanics(player, CLASS_WITCH_HUNTER) ? player : nullptr;
 }
 
 Unit* Hound(Player* player)
@@ -371,7 +372,7 @@ class witch_hunter_scaling : public UnitScript
     void ModifySpellEffectBaseValue(Unit const* caster, SpellInfo const* info, uint8 index, float& value) override
     {
         Player* player = caster ? caster->GetCharmerOrOwnerPlayerOrPlayerItself() : nullptr;
-        if (!player || player->getClass() != CLASS_WITCH_HUNTER)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_WITCH_HUNTER))
             return;
         for (WitchCoefficient const& c : WitchCoefficients)
             if (c.id == info->Id && c.effect == index)

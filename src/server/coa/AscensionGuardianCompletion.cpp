@@ -2,6 +2,7 @@
 
 #include "AscensionGuardianCompletion.h"
 #include "AscensionClientSpellPatches.h"
+#include "AscensionSpecialization.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
 #include "CellImpl.h"
@@ -23,7 +24,7 @@ namespace
 Player* GuardianPlayer(Unit* unit)
 {
     Player* player = unit ? unit->ToPlayer() : nullptr;
-    return player && player->getClass() == CLASS_GUARDIAN ? player : nullptr;
+    return player && UsesAscensionClassMechanics(player, CLASS_GUARDIAN) ? player : nullptr;
 }
 
 float ShieldValue(Player const* player)
@@ -83,12 +84,12 @@ public:
         if (caster && info->Id == 800629 && !index)
         {
             Player const* owner = caster->GetCharmerOrOwnerPlayerOrPlayerItself();
-            if (owner && owner->getClass() == CLASS_GUARDIAN && owner->HasAura(802296))
+            if (owner && UsesAscensionClassMechanics(owner, CLASS_GUARDIAN) && owner->HasAura(802296))
                 value -= 15.0f;
             return;
         }
         Player const* player = caster ? caster->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_GUARDIAN || info->SpellFamilyName != 24)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_GUARDIAN) || info->SpellFamilyName != 24)
             return;
         uint32 id = info->Id;
         if (!index && AscensionGuardian::Ram(id))

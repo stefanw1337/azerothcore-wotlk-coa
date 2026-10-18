@@ -6100,7 +6100,7 @@ public:
 
     uint32 GetShadowhoundDisplay(Player* player)
     {
-        if (!player || player->getClass() != CLASS_WITCH_HUNTER ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_WITCH_HUNTER) ||
             !ascensionCompatConfig.GetConfigValue<bool>(AscensionCompatConfig::ENABLED))
             return 0;
 
@@ -10008,7 +10008,7 @@ namespace AscensionCompatData
     MinionCapacityState QueryMinionCapacityState(Player* player)
     {
         MinionCapacityState state;
-        if (!player || player->getClass() != CLASS_NECROMANCER)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_NECROMANCER))
             return state;
 
         state.Maximum = AscensionNecromancer::Capacity(player);
@@ -10018,7 +10018,7 @@ namespace AscensionCompatData
 
     uint32 QueryMinionCapacityCost(Player* player, uint32 resolvedSpellId)
     {
-        if (!player || player->getClass() != CLASS_NECROMANCER)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_NECROMANCER))
             return 0;
         return AscensionNecromancer::Cost(player, resolvedSpellId);
     }

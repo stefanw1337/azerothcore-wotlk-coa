@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionRunemasterBrand.h"
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -46,7 +47,7 @@ constexpr WeaponEngraving WeaponEngravings[] =
 
 bool IsRunemaster(Unit const* unit)
 {
-    return unit && unit->IsPlayer() && unit->getClass() == CLASS_SPIRIT_MAGE;
+    return unit && UsesAscensionClassMechanics(unit->ToPlayer(), CLASS_SPIRIT_MAGE);
 }
 
 bool IsRunicBrand(uint32 id)
@@ -74,7 +75,7 @@ class spell_ascension_runemaster_brand : public SpellScript
     bool Load() override
     {
         Unit* caster = GetCaster();
-        return caster && caster->IsPlayer() && caster->getClass() == CLASS_SPIRIT_MAGE;
+        return caster && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_SPIRIT_MAGE);
     }
 
     void PreventEarlyMark(SpellEffIndex effIndex)
@@ -120,7 +121,7 @@ class spell_ascension_runemaster_brand_runeblade : public SpellScript
     bool Load() override
     {
         Unit* caster = GetCaster();
-        return caster && caster->IsPlayer() && caster->getClass() == CLASS_SPIRIT_MAGE;
+        return caster && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_SPIRIT_MAGE);
     }
 
     void PreventUnconditionalExplosion(SpellEffIndex effIndex)

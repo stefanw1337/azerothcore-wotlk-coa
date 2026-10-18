@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionReaperSoulStrike.h"
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "Spell.h"
 #include "SpellMgr.h"
@@ -55,7 +56,7 @@ bool IsSoulStrikeHealingContract(SpellInfo const* leech, SpellInfo const* missin
 void HandleAscensionReaperSoulStrikeHit(Spell* spell, Player* player,
     Unit* target, uint8 missInfo)
 {
-    if (!spell || !player || player != spell->GetCaster() || player->getClass() != CLASS_REAPER ||
+    if (!spell || !player || player != spell->GetCaster() || !UsesAscensionClassMechanics(player, CLASS_REAPER) ||
         !player->IsAlive() || !target || target == player ||
         player->IsFriendlyTo(target) || missInfo != SPELL_MISS_NONE || !IsSoulStrike(spell->GetSpellInfo()))
         return;

@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "AscensionTinkerRockadier.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -103,7 +104,7 @@ class aura_ascension_tinker_rockadier : public AuraScript
     {
         Unit* owner = GetUnitOwner();
         Player* player = owner ? owner->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_TINKER || GetCasterGUID() != player->GetGUID())
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_TINKER) || GetCasterGUID() != player->GetGUID())
             return false;
 
         GetAura()->SetCharges(0);

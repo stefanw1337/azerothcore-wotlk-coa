@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 #include "AscensionRunemasterTalents.h"
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -86,7 +87,7 @@ public:
     void SelectChapter(Spell* spell, Unit* caster, SpellInfo const* info)
     {
         Player* player = caster ? caster->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_SPIRIT_MAGE || info->SpellFamilyName != 38 ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SPIRIT_MAGE) || info->SpellFamilyName != 38 ||
             spell->IsTriggered() || spell->GetScriptValue(SELECTED_CHAPTER) || !IsDirectChapterCast(info))
             return;
         for (Chapter const& chapter : Chapters)
@@ -111,7 +112,8 @@ public:
     void OnSpellCast(Spell* spell, Unit* caster, SpellInfo const* info, bool) override
     {
         Player* player = caster ? caster->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_SPIRIT_MAGE || info->SpellFamilyName != 38 || spell->IsTriggered())
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SPIRIT_MAGE) || info->SpellFamilyName != 38 ||
+            spell->IsTriggered())
             return;
         if (uint32 selected = uint32(spell->GetScriptValue(SELECTED_CHAPTER)))
             if (Aura* aura = player->GetAura(selected, player->GetGUID()))
@@ -131,7 +133,7 @@ public:
     void OnSpellHitResult(Spell* spell, Unit* target, uint8 miss, uint32, uint32, bool) override
     {
         Player* player = spell->GetCaster()->ToPlayer();
-        if (!player || player->getClass() != CLASS_SPIRIT_MAGE || spell->IsTriggered() ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SPIRIT_MAGE) || spell->IsTriggered() ||
             miss != SPELL_MISS_NONE || !target || !player->IsValidAttackTarget(target) ||
             spell->GetScriptValue(CHAPTER_FIRED))
             return;

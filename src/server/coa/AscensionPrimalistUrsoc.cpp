@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
@@ -27,7 +28,7 @@ class aura_ascension_son_of_ursoc : public AuraScript
     bool Load() override
     {
         Unit* owner = GetUnitOwner();
-        return owner->IsPlayer() && owner->getClass() == CLASS_WILDWALKER &&
+        return owner->IsPlayer() && UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_WILDWALKER) &&
             GetCasterGUID() == owner->GetGUID();
     }
 

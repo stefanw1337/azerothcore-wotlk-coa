@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Pet.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -34,7 +35,7 @@ public:
             if (!owner || owner->GetPet() != pet)
                 return;
         }
-        if (owner->getClass() != CLASS_WILDWALKER || !owner->IsAlive() ||
+        if (!UsesAscensionClassMechanics(owner, CLASS_WILDWALKER) || !owner->IsAlive() ||
             !owner->HasAura(RipsAndTears, owner->GetGUID()))
             return;
         owner->CastSpell(owner, RipsRage, TRIGGERED_FULL_MASK);

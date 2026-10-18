@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionGuardianCompletion.h"
+#include "AscensionSpecialization.h"
 #include "GameTime.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -39,7 +40,7 @@ struct SynchronizeState : public DataMap::Base
 
 void Synchronize(Player* player)
 {
-    if (!player || player->getClass() != CLASS_GUARDIAN || !player->IsInWorld())
+    if (!player || !UsesAscensionClassMechanics(player, CLASS_GUARDIAN) || !player->IsInWorld())
         return;
 
     // The inputs that can change a result at once are the level and three auras; the one time-based input (Advance
@@ -132,7 +133,7 @@ public:
 
     void OnPlayerForgotSpell(Player* player, uint32 id) override
     {
-        if (player->getClass() == CLASS_GUARDIAN)
+        if (UsesAscensionClassMechanics(player, CLASS_GUARDIAN))
             player->SetTemporarySpellReplacement(id, 0);
     }
 };

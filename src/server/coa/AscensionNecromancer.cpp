@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionNecromancer.h"
+#include "AscensionSpecialization.h"
 #include "CellImpl.h"
 #include "Creature.h"
 #include "GridNotifiers.h"
@@ -28,7 +29,7 @@ std::mutex stateMutex;
 Player* Owner(Unit const* unit)
 {
     Player* player = unit ? unit->GetCharmerOrOwnerPlayerOrPlayerItself() : nullptr;
-    return player && player->getClass() == CLASS_NECROMANCER ? player : nullptr;
+    return player && UsesAscensionClassMechanics(player, CLASS_NECROMANCER) ? player : nullptr;
 }
 NecromancerState& State(Player* player)
 {

@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Pet.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -15,7 +16,8 @@ class aura_ascension_rylaks_blessing : public AuraScript
 
     bool Load() override
     {
-        return GetUnitOwner()->IsPlayer() && GetUnitOwner()->getClass() == CLASS_WILDWALKER &&
+        return GetUnitOwner()->IsPlayer() &&
+            UsesAscensionClassMechanics(GetUnitOwner()->ToPlayer(), CLASS_WILDWALKER) &&
             GetCasterGUID() == GetUnitOwner()->GetGUID();
     }
 
@@ -49,7 +51,7 @@ class aura_ascension_rylaks_blessing_pet : public AuraScript
     bool Check(Unit* target)
     {
         Player* owner = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
-        return owner && owner->getClass() == CLASS_WILDWALKER && target == owner->GetPet();
+        return owner && UsesAscensionClassMechanics(owner, CLASS_WILDWALKER) && target == owner->GetPet();
     }
 
     void Register() override

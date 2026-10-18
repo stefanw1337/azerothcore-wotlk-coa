@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionPrimalistEarthshaping.h"
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "Random.h"
 #include "ScriptMgr.h"
@@ -33,7 +34,7 @@ constexpr std::array<uint32, 3> EARTHSHAPING_HELPERS =
 
 bool IsEarthshapingOwner(Unit* owner)
 {
-    return owner && owner->IsPlayer() && owner->getClass() == CLASS_WILDWALKER;
+    return owner && owner->IsPlayer() && UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_WILDWALKER);
 }
 
 void SynchronizeEarthshapingHelpers(Unit* owner, bool remove)

@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Item.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -14,7 +15,7 @@ constexpr uint32 TwoHandedRage = 303030;
 
 void UpdatePowerHammer(Player* player)
 {
-    if (!player || player->getClass() != CLASS_WILDWALKER || !player->IsInWorld())
+    if (!player || !UsesAscensionClassMechanics(player, CLASS_WILDWALKER) || !player->IsInWorld())
         return;
     Item* weapon = player->GetWeaponForAttack(BASE_ATTACK, true);
     if (player->IsAlive() && player->HasAura(PowerHammer, player->GetGUID()) && weapon &&
@@ -32,7 +33,7 @@ class aura_ascension_power_hammer : public AuraScript
 
     bool Load() override
     {
-        return GetUnitOwner()->IsPlayer() && GetUnitOwner()->getClass() == CLASS_WILDWALKER &&
+        return UsesAscensionClassMechanics(GetUnitOwner()->ToPlayer(), CLASS_WILDWALKER) &&
             GetCasterGUID() == GetUnitOwner()->GetGUID();
     }
 

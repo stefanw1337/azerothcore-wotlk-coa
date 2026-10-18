@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
@@ -19,7 +20,7 @@ class aura_ascension_earthshaker_periodic : public AuraScript
     bool Load() override
     {
         Unit* caster = GetCaster();
-        return caster && caster->IsPlayer() && caster->getClass() == CLASS_WILDWALKER &&
+        return caster && caster->IsPlayer() && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_WILDWALKER) &&
             GetSpellInfo()->SpellFamilyName == 37 && GetSpellInfo()->GetSchoolMask() == SPELL_SCHOOL_MASK_NORMAL;
     }
 

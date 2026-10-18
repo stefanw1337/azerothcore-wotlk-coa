@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -24,8 +25,9 @@ public:
     {
         Unit* caster = spell->GetCaster();
         SpellInfo const* info = spell->GetSpellInfo();
-        if (!count || !target || !target->IsAlive() || !caster->IsPlayer() ||
-            caster->getClass() != CLASS_WILDWALKER || info->Id != SoothingTouch || info->SpellFamilyName != 37 ||
+        if (!count || !target || !target->IsAlive() ||
+            !UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_WILDWALKER) || info->Id != SoothingTouch ||
+            info->SpellFamilyName != 37 ||
             !caster->HasAura(EmeraldWill, caster->GetGUID()))
             return;
         int32 type = info->Effects[effect].MiscValue;

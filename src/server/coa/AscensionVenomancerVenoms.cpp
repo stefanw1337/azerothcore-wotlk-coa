@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionVenomancerVenoms.h"
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
@@ -86,7 +87,7 @@ bool IsRemoveVenoms(SpellInfo const* spellInfo)
 Player* Venomancer(Unit* unit)
 {
     Player* player = unit ? unit->ToPlayer() : nullptr;
-    return player && player->getClass() == CLASS_PROPHET ? player : nullptr;
+    return player && UsesAscensionClassMechanics(player, CLASS_PROPHET) ? player : nullptr;
 }
 
 Aura* OwnActiveVenom(Player* player, uint32 spellId)

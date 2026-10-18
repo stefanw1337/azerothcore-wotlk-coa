@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Log.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -165,8 +166,8 @@ public:
     void OnSpellHitResult(Spell* spell, Unit* target, uint8 miss, uint32 damage, uint32, bool critical) override
     {
         Player* player = spell->GetCaster()->ToPlayer();
-        if (!player || player->getClass() != CLASS_RANGER || miss != SPELL_MISS_NONE || !damage || !target ||
-            target == player || !target->IsAlive() || !IsRangerSpell(spell->GetSpellInfo()))
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_RANGER) || miss != SPELL_MISS_NONE || !damage ||
+            !target || target == player || !target->IsAlive() || !IsRangerSpell(spell->GetSpellInfo()))
             return;
         if (critical && IsPiercingShot(spell->GetSpellInfo()))
             ApplyPierced(player, target, damage);
@@ -191,7 +192,7 @@ class aura_ascension_ranger_hawkeye : public AuraScript
     bool IsMarkedEnemy(Unit* target)
     {
         Unit* ranger = GetUnitOwner();
-        if (!target || !ranger || !ranger->IsPlayer() || ranger->ToPlayer()->getClass() != CLASS_RANGER)
+        if (!target || !ranger || !ranger->IsPlayer() || !UsesAscensionClassMechanics(ranger->ToPlayer(), CLASS_RANGER))
             return false;
         return target == ranger ||
             (!ranger->IsFriendlyTo(target) && target->GetAuraOfRankedSpell(CHAIN_HUNTING_SHOT, ranger->GetGUID()));

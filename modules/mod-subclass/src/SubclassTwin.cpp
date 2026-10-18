@@ -45,6 +45,8 @@ constexpr std::array<uint32, 4> SelfAuras = { TeamingUpAura, LonelyAura, AgreedA
 constexpr uint32 SelfAuraTick = 1000;
 constexpr uint32 SheathEmote = 573;
 constexpr uint32 ArrivalDelay = 2000;
+constexpr float RangedStandoff = 15.0f;
+constexpr uint8 BlackoutDrunk = 100;
 constexpr uint32 TwinQuest = 9530020;
 constexpr char const* EchoRefusal = "Your brother still wears whatever you wear. He will want his own clothes "
     "once you have earned the Bravery Badge together.";
@@ -83,6 +85,7 @@ struct Motion
     uint32 NextPoint = PointMin;
     uint32 Swing = 0;
     uint32 Afoot = 0;
+    float Follow = 0.0f;
     bool Split = false;
     bool Restyle = false;
     Carry Mode = Carry::Beside;
@@ -125,6 +128,8 @@ std::unordered_map<uint32, Motion>& motions = *new std::unordered_map<uint32, Mo
 std::unordered_map<uint32, uint32>& sentHome = *new std::unordered_map<uint32, uint32>;
 std::unordered_map<uint32, uint32>& auraTicks = *new std::unordered_map<uint32, uint32>;
 std::unordered_map<uint32, uint32>& arrivals = *new std::unordered_map<uint32, uint32>;
+std::unordered_map<uint32, uint8>& sips = *new std::unordered_map<uint32, uint8>;
+std::unordered_map<uint32, bool>& hangovers = *new std::unordered_map<uint32, bool>;
 
 Wardrobe WardrobeOf(Player const* player)
 {
@@ -268,6 +273,8 @@ void SetCarry(Player* player, Creature* twin, Carry mode)
         DropKit(player);
         twin->GetMotionMaster()->Clear();
         twin->GetMotionMaster()->MoveFollow(player, TwinDistance, TwinAngle);
+        std::lock_guard<std::mutex> lock(twinMutex);
+        motions[player->GetGUID().GetCounter()].Follow = TwinDistance;
         return;
     }
     if (!GiveKit(player, mode == Carry::Piggyback ? PiggybackVehicle : SaddleVehicle))
@@ -278,7 +285,8 @@ void SetCarry(Player* player, Creature* twin, Carry mode)
 
 Carry WantedCarry(Player const* player, Motion const& motion)
 {
-    if (!player->IsAlive() || player->IsInCombat() || player->IsInWater() || !player->IsStandState())
+    if (!player->IsAlive() || player->IsInCombat() || player->IsInWater() || !player->IsStandState() ||
+        player->HasStealthAura())
         return Carry::Beside;
     if (player->IsMounted())
         return player->GetVehicleKit() && !OwnsKit(player) ? Carry::Beside : Carry::Saddle;
@@ -343,6 +351,16 @@ void BecomeGhost(Player* player, Creature* twin, bool ghost)
     twin->GetMotionMaster()->MoveFollow(player, TwinDistance, TwinAngle);
 }
 
+bool FightsFromRange(Player const* player, Creature const* twin)
+{
+    return RangedOf(player) || (IsSplit(player) && !twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID));
+}
+
+float FollowDistanceFor(Player const* player, Creature const* twin)
+{
+    return player->IsInCombat() && FightsFromRange(player, twin) ? RangedStandoff : TwinDistance;
+}
+
 void MirrorStance(Player* player, Creature* twin)
 {
     if (!player->IsInCombat())
@@ -356,6 +374,16 @@ void MirrorStance(Player* player, Creature* twin)
     }
     if (twin->GetVehicle())
         return;
+    if (player->HasStealthAura())
+    {
+        if (twin->getStandState() != UNIT_STAND_STATE_KNEEL)
+        {
+            twin->GetMotionMaster()->Clear();
+            twin->StopMoving();
+            twin->SetStandState(UNIT_STAND_STATE_KNEEL);
+        }
+        return;
+    }
     bool const ghost = player->HasPlayerFlag(PLAYER_FLAGS_GHOST);
     if (!player->IsAlive() && !ghost)
     {
@@ -384,6 +412,20 @@ void MirrorStance(Player* player, Creature* twin)
     }
     if (twin->getStandState() != player->getStandState())
         twin->SetStandState(player->getStandState());
+    if (player->IsAlive() && twin->GetMotionMaster()->GetCurrentMovementGeneratorType() != FOLLOW_MOTION_TYPE)
+        twin->GetMotionMaster()->MoveFollow(player, FollowDistanceFor(player, twin), TwinAngle);
+}
+
+void KeepStandoff(Player* player, Creature* twin, float current)
+{
+    if (twin->GetVehicle() || player->HasStealthAura() || !player->IsAlive())
+        return;
+    float const wanted = FollowDistanceFor(player, twin);
+    if (current == wanted)
+        return;
+    twin->GetMotionMaster()->MoveFollow(player, wanted, TwinAngle);
+    std::lock_guard<std::mutex> lock(twinMutex);
+    motions[player->GetGUID().GetCounter()].Follow = wanted;
 }
 
 void HopOffFor(Player* player, uint32 duration)
@@ -497,6 +539,7 @@ void UpdateCarry(Player* player, uint32 diff)
         motions[guid].Swing = 0;
     }
     MirrorStance(player, twin);
+    KeepStandoff(player, twin, motion.Follow);
     Carry const wanted = WantedCarry(player, motion);
     bool const seated = twin->GetVehicle() != nullptr;
     if (wanted == motion.Mode && (wanted == Carry::Beside) != seated)
@@ -695,6 +738,45 @@ bool Arrives(Player const* player, uint32 diff)
     return true;
 }
 
+void OneSipTooMany(Player* player)
+{
+    if (!HasTwin(player))
+        return;
+    uint8 const drunk = player->GetDrunkValue();
+    uint8 before = 0;
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        uint8& last = sips[player->GetGUID().GetCounter()];
+        before = last;
+        last = drunk;
+    }
+    if (drunk < before)
+    {
+        bool linger = false;
+        {
+            std::lock_guard<std::mutex> lock(twinMutex);
+            bool& skip = hangovers[player->GetGUID().GetCounter()];
+            skip = !skip;
+            linger = skip;
+            if (linger)
+                sips[player->GetGUID().GetCounter()] = before;
+        }
+        if (linger)
+            player->SetDrunkValue(before);
+        return;
+    }
+    if (drunk > before && drunk < BlackoutDrunk)
+    {
+        player->SetDrunkValue(BlackoutDrunk);
+        {
+            std::lock_guard<std::mutex> lock(twinMutex);
+            sips[player->GetGUID().GetCounter()] = BlackoutDrunk;
+        }
+        ChatHandler(player->GetSession()).SendSysMessage(
+            "One sip and the floor is very interesting. Kul Tiran blood, Kul Tiran tolerance: none.");
+    }
+}
+
 void TickSelfAura(Player* player, uint32 diff)
 {
     {
@@ -706,6 +788,7 @@ void TickSelfAura(Player* player, uint32 diff)
         elapsed = 0;
     }
     UpdateSelfAura(player);
+    OneSipTooMany(player);
 }
 
 void LearnRacials(Player* player)
@@ -843,6 +926,10 @@ public:
     {
         ArriveLater(player);
         LearnRacials(player);
+        {
+            std::lock_guard<std::mutex> lock(twinMutex);
+            sips[player->GetGUID().GetCounter()] = player->GetDrunkValue();
+        }
         if (SubclassResting(player))
             SetBorrowedPassives(player, false);
         UpdateSelfAura(player);
