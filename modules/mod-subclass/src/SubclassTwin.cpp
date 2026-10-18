@@ -352,7 +352,7 @@ void SetCarry(Player* player, Creature* twin, Carry mode)
 Carry WantedCarry(Player const* player, Motion const& motion)
 {
     if (!player->IsAlive() || player->IsInCombat() || player->IsInWater() || !player->IsStandState() ||
-        player->HasStealthAura())
+        player->HasStealthAura() || player->GetSheath() != SHEATH_STATE_UNARMED)
         return Carry::Beside;
     if (player->IsMounted())
         return player->GetVehicleKit() && !OwnsKit(player) ? Carry::Beside : Carry::Saddle;
@@ -876,18 +876,8 @@ void HandBowToBrother(Player* player)
             if (uint32 const shown = Dressed(player).Items[Ranged];
                 twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID + 2) != shown)
                 twin->SetVirtualItem(2, shown);
-    Item* bow = OwnBow(player);
     uint16 const field = PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_RANGED * 2;
-    if (bow && OnlyBrotherShoots(player))
-    {
-        if (player->GetUInt32Value(field))
-        {
-            player->SetUInt32Value(field, 0);
-            player->SetUInt32Value(field + 1, 0);
-        }
-        return;
-    }
-    if (bow && !player->GetUInt32Value(field))
+    if (Item* bow = OwnBow(player); bow && !player->GetUInt32Value(field))
         player->SetVisibleItemSlot(EQUIPMENT_SLOT_RANGED, bow);
 }
 
@@ -1309,8 +1299,6 @@ public:
 
     void OnPlayerAfterSetVisibleItemSlot(Player* player, uint8 slot, Item* /*item*/) override
     {
-        if (slot == EQUIPMENT_SLOT_RANGED && OnlyBrotherShoots(player))
-            return HandBowToBrother(player);
         MarkRestyle(player);
     }
 
