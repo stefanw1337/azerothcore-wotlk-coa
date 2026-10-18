@@ -79,7 +79,7 @@ constexpr uint32 MotionTick = 200;
 constexpr uint32 HopDelay = 1000;
 constexpr uint32 PointMin = 20000;
 constexpr uint32 PointMax = 45000;
-constexpr uint32 PointHold = 1500;
+constexpr uint32 PointHold = 1000;
 constexpr uint32 AfootStride = 2000;
 constexpr uint32 CallBackDelay = 5000;
 
@@ -400,7 +400,8 @@ void MirrorStance(Player* player, Creature* twin)
         SheathState const drawn = DrawnLike(player);
         if (twin->GetSheath() != drawn)
         {
-            twin->HandleEmoteCommand(SheathEmote);
+            if (!twin->GetVehicle())
+                twin->HandleEmoteCommand(SheathEmote);
             twin->SetSheath(drawn);
         }
     }
