@@ -45,6 +45,23 @@ out from behind his brother: **One From the Same**. Their father, a mason of the
 guild. VanCleef in the Deadmines (normal, heroic and mythic) drops the badge; the twin pins it on, gains the insight
 and, at a trainer, chooses his own way. Later dungeon bosses can give another Bravery Badge instead of a Book.
 
+## The second twin (prototype)
+
+With two units, each twin wears his own clothes: the character is one normal Thin Human, and his twin is a companion
+the server dresses like a mirror image. He follows at his brother's right side and cannot be targeted. His look
+(item appearances per visible slot) is stored in `mod_subclass_twin`; until a wardrobe tab exists, GM commands dress
+him:
+
+| Command | Effect |
+|---|---|
+| `.twin` | Calls the twin out, or sends him away. |
+| `.twin wear <slot> <item>` | Shows an item's appearance on one slot (head, shoulders, shirt, chest, waist, legs, feet, wrists, hands, back, tabard). |
+| `.twin strip [slot]` | Takes off one slot, or everything. |
+| `.twin copy` | Copies your own visible outfit. |
+| `.twin info` | Shows what he wears. |
+
+For this test, remove the client's two-twin model patch (`patch-ZZZ.MPQ`), or every Thin Human shows two twins.
+
 ## GM commands
 
 | Command | What it does |

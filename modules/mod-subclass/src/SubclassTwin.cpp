@@ -1,0 +1,379 @@
+/*
+ * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU AGPL v3 license.
+ */
+
+#include "Chat.h"
+#include "CommandScript.h"
+#include "DatabaseEnv.h"
+#include "Log.h"
+#include "MotionMaster.h"
+#include "ObjectAccessor.h"
+#include "ObjectMgr.h"
+#include "Player.h"
+#include "PlayerScript.h"
+#include "ServerScript.h"
+#include "TemporarySummon.h"
+#include "WorldPacket.h"
+#include "WorldSession.h"
+#include <array>
+#include <cmath>
+#include <mutex>
+#include <unordered_map>
+
+using namespace Acore::ChatCommands;
+
+namespace
+{
+constexpr uint32 TwinEntry = 9530030;
+constexpr float TwinDistance = 1.0f;
+constexpr float TwinAngle = float(M_PI) * 1.5f;
+constexpr std::size_t LookSlots = 11;
+
+struct TwinSlot
+{
+    char const* Name;
+    EquipmentSlots Slot;
+};
+
+constexpr std::array<TwinSlot, LookSlots> Slots = { {
+    { "head", EQUIPMENT_SLOT_HEAD }, { "shoulders", EQUIPMENT_SLOT_SHOULDERS }, { "shirt", EQUIPMENT_SLOT_BODY },
+    { "chest", EQUIPMENT_SLOT_CHEST }, { "waist", EQUIPMENT_SLOT_WAIST }, { "legs", EQUIPMENT_SLOT_LEGS },
+    { "feet", EQUIPMENT_SLOT_FEET }, { "wrists", EQUIPMENT_SLOT_WRISTS }, { "hands", EQUIPMENT_SLOT_HANDS },
+    { "back", EQUIPMENT_SLOT_BACK }, { "tabard", EQUIPMENT_SLOT_TABARD } } };
+
+struct Wardrobe
+{
+    bool Enabled = false;
+    std::array<uint32, LookSlots> Items = {};
+};
+
+struct Look
+{
+    uint32 DisplayId = 0;
+    uint8 Race = 0;
+    uint8 Gender = 0;
+    uint8 Class = 0;
+    std::array<uint8, 5> Features = {};
+    std::array<uint32, LookSlots> Displays = {};
+};
+
+std::mutex twinMutex;
+std::unordered_map<uint32, Wardrobe> wardrobes;
+std::unordered_map<uint32, ObjectGuid> twinOfOwner;
+std::unordered_map<ObjectGuid, Look> looks;
+
+Wardrobe WardrobeOf(Player const* player)
+{
+    uint32 const guid = player->GetGUID().GetCounter();
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        if (auto itr = wardrobes.find(guid); itr != wardrobes.end())
+            return itr->second;
+    }
+
+    Wardrobe wardrobe;
+    if (QueryResult result = CharacterDatabase.Query("SELECT `enabled`, `head`, `shoulders`, `shirt`, `chest`, "
+            "`waist`, `legs`, `feet`, `wrists`, `hands`, `back`, `tabard` FROM `mod_subclass_twin` WHERE `guid` = {}",
+            guid))
+    {
+        Field* fields = result->Fetch();
+        wardrobe.Enabled = fields[0].Get<bool>();
+        for (std::size_t slot = 0; slot < LookSlots; ++slot)
+            wardrobe.Items[slot] = fields[slot + 1].Get<uint32>();
+    }
+
+    std::lock_guard<std::mutex> lock(twinMutex);
+    return wardrobes.try_emplace(guid, wardrobe).first->second;
+}
+
+void StoreWardrobe(Player const* player, Wardrobe const& wardrobe)
+{
+    uint32 const guid = player->GetGUID().GetCounter();
+    auto const& items = wardrobe.Items;
+    CharacterDatabase.Execute("REPLACE INTO `mod_subclass_twin` (`guid`, `enabled`, `head`, `shoulders`, `shirt`, "
+        "`chest`, `waist`, `legs`, `feet`, `wrists`, `hands`, `back`, `tabard`) "
+        "VALUES ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})", guid, wardrobe.Enabled ? 1 : 0, items[0], items[1], items[2], items[3], items[4],
+        items[5], items[6], items[7], items[8], items[9], items[10]);
+    std::lock_guard<std::mutex> lock(twinMutex);
+    wardrobes[guid] = wardrobe;
+}
+
+uint32 DisplayOfItem(uint32 itemId)
+{
+    ItemTemplate const* item = itemId ? sObjectMgr->GetItemTemplate(itemId) : nullptr;
+    return item ? item->DisplayInfoID : 0;
+}
+
+Look LookOf(Player const* player, Wardrobe const& wardrobe)
+{
+    Look look;
+    look.DisplayId = player->GetNativeDisplayId();
+    look.Race = player->getRace();
+    look.Gender = player->getGender();
+    look.Class = player->getClass();
+    look.Features = { player->GetByteValue(PLAYER_BYTES, 0), player->GetByteValue(PLAYER_BYTES, 1),
+        player->GetByteValue(PLAYER_BYTES, 2), player->GetByteValue(PLAYER_BYTES, 3),
+        player->GetByteValue(PLAYER_BYTES_2, 0) };
+    for (std::size_t slot = 0; slot < LookSlots; ++slot)
+        look.Displays[slot] = DisplayOfItem(wardrobe.Items[slot]);
+    return look;
+}
+
+Creature* TwinOf(Player const* player)
+{
+    ObjectGuid guid;
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        auto itr = twinOfOwner.find(player->GetGUID().GetCounter());
+        if (itr == twinOfOwner.end())
+            return nullptr;
+        guid = itr->second;
+    }
+    return ObjectAccessor::GetCreature(*player, guid);
+}
+
+void DismissTwin(Player* player)
+{
+    ObjectGuid guid;
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        auto itr = twinOfOwner.find(player->GetGUID().GetCounter());
+        if (itr == twinOfOwner.end())
+            return;
+        guid = itr->second;
+        twinOfOwner.erase(itr);
+        looks.erase(guid);
+    }
+    if (Creature* twin = ObjectAccessor::GetCreature(*player, guid))
+        twin->DespawnOrUnsummon();
+}
+
+void SummonTwin(Player* player)
+{
+    DismissTwin(player);
+    if (!player->IsInWorld() || !sObjectMgr->GetCreatureTemplate(TwinEntry))
+        return;
+
+    Position position = player->GetPosition();
+    player->MovePositionToFirstCollision(position, TwinDistance, TwinAngle);
+    TempSummon* twin = player->SummonCreature(TwinEntry, position, TEMPSUMMON_MANUAL_DESPAWN);
+    if (!twin)
+        return;
+
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        twinOfOwner[player->GetGUID().GetCounter()] = twin->GetGUID();
+        looks[twin->GetGUID()] = LookOf(player, WardrobeOf(player));
+    }
+    twin->SetLevel(player->GetLevel());
+    twin->SetDisplayId(player->GetNativeDisplayId());
+    twin->SetNativeDisplayId(player->GetNativeDisplayId());
+    twin->SetUnitFlag2(UNIT_FLAG2_MIRROR_IMAGE);
+    twin->SetUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
+    twin->SetReactState(REACT_PASSIVE);
+    twin->SetOwnerGUID(player->GetGUID());
+    twin->SetCreatorGUID(player->GetGUID());
+    twin->SetFaction(player->GetFaction());
+    twin->GetMotionMaster()->MoveFollow(player, TwinDistance, TwinAngle);
+}
+
+void RefreshTwin(Player* player)
+{
+    if (WardrobeOf(player).Enabled)
+        SummonTwin(player);
+    else
+        DismissTwin(player);
+}
+
+bool AnswerMirrorImage(WorldSession* session, WorldPacket const& packet)
+{
+    if (packet.GetOpcode() != CMSG_GET_MIRRORIMAGE_DATA || packet.size() < sizeof(uint64))
+        return true;
+    ObjectGuid const guid = packet.read<ObjectGuid>(0);
+    Look look;
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        auto itr = looks.find(guid);
+        if (itr == looks.end())
+            return true;
+        look = itr->second;
+    }
+
+    WorldPacket response(SMSG_MIRRORIMAGE_DATA, 68);
+    response << guid << uint32(look.DisplayId) << uint8(look.Race) << uint8(look.Gender) << uint8(look.Class);
+    for (uint8 feature : look.Features)
+        response << uint8(feature);
+    response << uint32(0);
+    for (uint32 display : look.Displays)
+        response << uint32(display);
+    session->SendPacket(&response);
+    return false;
+}
+
+int SlotIndex(std::string_view name)
+{
+    for (std::size_t slot = 0; slot < LookSlots; ++slot)
+        if (name == Slots[slot].Name)
+            return int(slot);
+    return -1;
+}
+
+std::string SlotList()
+{
+    std::string list;
+    for (TwinSlot const& slot : Slots)
+        list += list.empty() ? slot.Name : std::string(", ") + slot.Name;
+    return list;
+}
+}
+
+class mod_subclass_twin_packets : public ServerScript
+{
+public:
+    mod_subclass_twin_packets() : ServerScript("mod_subclass_twin_packets", { SERVERHOOK_CAN_PACKET_RECEIVE }) { }
+
+    bool CanPacketReceive(WorldSession* session, WorldPacket const& packet) override
+    {
+        return !session || AnswerMirrorImage(session, packet);
+    }
+};
+
+class mod_subclass_twin_player : public PlayerScript
+{
+public:
+    mod_subclass_twin_player() : PlayerScript("mod_subclass_twin_player", { PLAYERHOOK_ON_LOGIN,
+        PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_ON_MAP_CHANGED, PLAYERHOOK_ON_DELETE })
+    {
+    }
+
+    void OnPlayerLogin(Player* player) override
+    {
+        RefreshTwin(player);
+    }
+
+    void OnPlayerMapChanged(Player* player) override
+    {
+        RefreshTwin(player);
+    }
+
+    void OnPlayerLogout(Player* player) override
+    {
+        DismissTwin(player);
+        std::lock_guard<std::mutex> lock(twinMutex);
+        wardrobes.erase(player->GetGUID().GetCounter());
+    }
+
+    void OnPlayerDelete(ObjectGuid guid, uint32 /*accountId*/) override
+    {
+        CharacterDatabase.Execute("DELETE FROM `mod_subclass_twin` WHERE `guid` = {}", guid.GetCounter());
+        std::lock_guard<std::mutex> lock(twinMutex);
+        wardrobes.erase(guid.GetCounter());
+    }
+};
+
+class mod_subclass_twin_commands : public CommandScript
+{
+public:
+    mod_subclass_twin_commands() : CommandScript("mod_subclass_twin_commands") { }
+
+    ChatCommandTable GetCommands() const override
+    {
+        static ChatCommandTable twinCommands =
+        {
+            { "", HandleToggle, SEC_GAMEMASTER, Console::No },
+            { "wear", HandleWear, SEC_GAMEMASTER, Console::No },
+            { "strip", HandleStrip, SEC_GAMEMASTER, Console::No },
+            { "copy", HandleCopy, SEC_GAMEMASTER, Console::No },
+            { "info", HandleInfo, SEC_GAMEMASTER, Console::No }
+        };
+        static ChatCommandTable commands = { { "twin", twinCommands } };
+        return commands;
+    }
+
+    static bool HandleToggle(ChatHandler* handler)
+    {
+        Player* player = handler->GetSession()->GetPlayer();
+        Wardrobe wardrobe = WardrobeOf(player);
+        wardrobe.Enabled = !wardrobe.Enabled;
+        StoreWardrobe(player, wardrobe);
+        RefreshTwin(player);
+        handler->SendSysMessage(wardrobe.Enabled ? "Your twin steps out beside you." : "Your twin steps back.");
+        return true;
+    }
+
+    static bool Dress(ChatHandler* handler, Wardrobe const& wardrobe)
+    {
+        Player* player = handler->GetSession()->GetPlayer();
+        StoreWardrobe(player, wardrobe);
+        RefreshTwin(player);
+        return true;
+    }
+
+    static bool HandleWear(ChatHandler* handler, std::string slotName, Variant<Hyperlink<item>, uint32> itemArg)
+    {
+        int const slot = SlotIndex(slotName);
+        if (slot < 0)
+        {
+            handler->SendErrorMessage("Unknown slot. Slots: {}.", SlotList());
+            return false;
+        }
+        uint32 const itemId = itemArg.holds_alternative<Hyperlink<item>>() ?
+            itemArg.get<Hyperlink<item>>()->Item->ItemId : itemArg.get<uint32>();
+        ItemTemplate const* item = sObjectMgr->GetItemTemplate(itemId);
+        if (!item || !item->DisplayInfoID)
+        {
+            handler->SendErrorMessage("Item {} has no appearance.", itemId);
+            return false;
+        }
+        Wardrobe wardrobe = WardrobeOf(handler->GetSession()->GetPlayer());
+        wardrobe.Items[slot] = itemId;
+        handler->PSendSysMessage("Your twin now wears {} on his {}.", item->Name1, Slots[slot].Name);
+        return Dress(handler, wardrobe);
+    }
+
+    static bool HandleStrip(ChatHandler* handler, Optional<std::string> slotName)
+    {
+        Wardrobe wardrobe = WardrobeOf(handler->GetSession()->GetPlayer());
+        if (!slotName || *slotName == "all")
+            wardrobe.Items = {};
+        else if (int const slot = SlotIndex(*slotName); slot >= 0)
+            wardrobe.Items[slot] = 0;
+        else
+        {
+            handler->SendErrorMessage("Unknown slot. Slots: {}, or all.", SlotList());
+            return false;
+        }
+        handler->SendSysMessage("Your twin takes it off.");
+        return Dress(handler, wardrobe);
+    }
+
+    static bool HandleCopy(ChatHandler* handler)
+    {
+        Player* player = handler->GetSession()->GetPlayer();
+        Wardrobe wardrobe = WardrobeOf(player);
+        for (std::size_t slot = 0; slot < LookSlots; ++slot)
+            wardrobe.Items[slot] = player->GetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + Slots[slot].Slot * 2);
+        handler->SendSysMessage("Your twin copies your outfit.");
+        return Dress(handler, wardrobe);
+    }
+
+    static bool HandleInfo(ChatHandler* handler)
+    {
+        Player* player = handler->GetSession()->GetPlayer();
+        Wardrobe const wardrobe = WardrobeOf(player);
+        std::string worn;
+        for (std::size_t slot = 0; slot < LookSlots; ++slot)
+            if (wardrobe.Items[slot])
+                worn += Acore::StringFormat(" {}={}", Slots[slot].Name, wardrobe.Items[slot]);
+        handler->PSendSysMessage("Twin: {}, {}. Wears:{}", wardrobe.Enabled ? "out" : "away",
+            TwinOf(player) ? "spawned" : "not spawned", worn.empty() ? " nothing" : worn);
+        return true;
+    }
+};
+
+void AddSC_mod_subclass_twin()
+{
+    new mod_subclass_twin_packets();
+    new mod_subclass_twin_player();
+    new mod_subclass_twin_commands();
+}
