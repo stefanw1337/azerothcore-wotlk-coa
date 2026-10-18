@@ -5,6 +5,9 @@
 #include "AllCreatureScript.h"
 #include "AscensionCoATalentData.h"
 #include "AscensionCustomClassData.h"
+#include "AscensionCustomResourceData.h"
+#include "AscensionLiveBaselineData.h"
+#include "DBCStores.h"
 #include "AscensionSpecialization.h"
 #include "Chat.h"
 #include "CommandScript.h"
@@ -463,6 +466,23 @@ void SendSubclassState(Player* player)
     uint32 specializationPoints = 0;
     GetAscensionTalentPointsLeft(player, classPoints, specializationPoints);
     SendAddon(player, Acore::StringFormat("POINTS {} {}", classPoints, specializationPoints));
+    if (!open.empty())
+    {
+        uint8 const subClass = record.Choice.SubClass;
+        for (AscensionCompatData::ResourceDisplay const& display : AscensionCompatData::ResourceDisplays)
+            if (display.ClassId == subClass)
+                SendAddon(player, Acore::StringFormat("RES {} {} {}", display.SpellId, display.DisplayMaximum,
+                    display.Name));
+        std::vector<uint32> powers;
+        for (AscensionCompatData::NativePowerGainRule const& rule : AscensionCompatData::NativePowerGainRules)
+            if (rule.ClassId == subClass && rule.PowerType != player->getPowerType() &&
+                std::find(powers.begin(), powers.end(), uint32(rule.PowerType)) == powers.end())
+                powers.push_back(rule.PowerType);
+        if (subClass == CLASS_RANGER && player->getPowerType() != POWER_FOCUS)
+            powers.push_back(POWER_FOCUS);
+        for (uint32 power : powers)
+            SendAddon(player, Acore::StringFormat("POWER {}", power));
+    }
     SendAddon(player, "DONE");
 }
 
@@ -526,11 +546,61 @@ uint32 ForgetBorrowedBaseSpells(Player* player, uint8 subClass)
     return removed;
 }
 
+bool IsClassSkillLine(uint16 skillId)
+{
+    SkillLineEntry const* skillLine = sSkillLineStore.LookupEntry(skillId);
+    return skillLine && skillLine->categoryId == SKILL_CATEGORY_CLASS;
+}
+
+bool OwnClassSkill(Player const* player, uint16 skillId)
+{
+    return std::any_of(AscensionLiveBaseline::Skills.begin(), AscensionLiveBaseline::Skills.end(),
+        [player, skillId](AscensionLiveBaseline::Skill const& skill)
+        {
+            return skill.ClassId == player->getClass() && skill.SkillId == skillId;
+        });
+}
+
+void ForgetBorrowedSkillLines(Player* player, uint8 subClass)
+{
+    for (AscensionLiveBaseline::Skill const& skill : AscensionLiveBaseline::Skills)
+        if (skill.ClassId == subClass && IsClassSkillLine(skill.SkillId) && player->HasSkill(skill.SkillId) &&
+            !OwnClassSkill(player, skill.SkillId))
+            player->SetSkill(skill.SkillId, 0, 0, 0);
+}
+
+void SyncBorrowedSkillLines(Player* player, uint8 subClass)
+{
+    for (AscensionLiveBaseline::Skill const& skill : AscensionLiveBaseline::Skills)
+        if (skill.ClassId == subClass && IsClassSkillLine(skill.SkillId) && !player->HasSkill(skill.SkillId))
+            player->SetSkill(skill.SkillId, 0, skill.Rank, skill.Maximum);
+}
+
+constexpr float BorrowedFocus = 100.0f;
+std::unordered_map<uint32, bool> focusLent;
+
+void RefreshPowerPools(Player* player)
+{
+    bool const lend = player->getClass() != CLASS_RANGER && ChoiceOf(player).SubClass == CLASS_RANGER &&
+        !OpenTreesOf(player).empty();
+    bool lent = false;
+    {
+        std::lock_guard<std::mutex> lock(subclassMutex);
+        lent = focusLent[player->GetGUID().GetCounter()];
+        focusLent[player->GetGUID().GetCounter()] = lend;
+    }
+    if (lend != lent)
+        player->HandleStatFlatModifier(UNIT_MOD_FOCUS, TOTAL_VALUE, BorrowedFocus, lend);
+    for (Powers power : { POWER_FOCUS, POWER_ENERGY, POWER_RUNIC_POWER, POWER_RAGE })
+        player->UpdateMaxPower(power);
+}
+
 uint32 SyncBorrowedBaseSpells(Player* player)
 {
     if (OpenTreesOf(player).empty())
         return 0;
     uint8 const subClass = ChoiceOf(player).SubClass;
+    SyncBorrowedSkillLines(player, subClass);
     uint32 learned = 0;
     for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)
         if (spell.ClassId == subClass && spell.RequiredLevel <= player->GetLevel() &&
@@ -547,10 +617,14 @@ uint32 ApplyChoice(Player* player, Subclass::Choice const& wanted)
     Record record = RecordOf(player);
     uint32 removed = record.Choice == wanted ? 0 : ForgetBorrowedTrees(player, record.Choice);
     if (record.Choice.SubClass && record.Choice.SubClass != wanted.SubClass)
+    {
         removed += ForgetBorrowedBaseSpells(player, record.Choice.SubClass);
+        ForgetBorrowedSkillLines(player, record.Choice.SubClass);
+    }
     record.Choice = wanted;
     StoreRecord(player, record);
     SyncBorrowedBaseSpells(player);
+    RefreshPowerPools(player);
     if (uint32 const active = GetAscensionActiveSpecialization(player))
         SwitchAscensionSpecialization(player, active);
     SendSubclassState(player);
@@ -753,6 +827,7 @@ public:
     {
         TrimChoice(player);
         SyncBorrowedBaseSpells(player);
+        RefreshPowerPools(player);
         SchedulePrompt(player, 5s);
     }
 
@@ -793,6 +868,7 @@ public:
     {
         std::lock_guard<std::mutex> lock(subclassMutex);
         records.erase(player->GetGUID().GetCounter());
+        focusLent.erase(player->GetGUID().GetCounter());
     }
 
     void OnPlayerDelete(ObjectGuid guid, uint32 /*accountId*/) override
@@ -1135,6 +1211,13 @@ void AddSC_mod_subclass()
         for (Subclass::Tree const& tree : OpenTreesOf(player))
             grant.ExtraTrees.push_back({ tree.ClassId, tree.SpecId });
         return grant;
+    });
+    AddAscensionClassMechanicsProvider([](Player const* player, uint8 classId)
+    {
+        if (!IsEligible(player))
+            return false;
+        Subclass::Choice const choice = ChoiceOf(player);
+        return choice.SubClass == classId && !OpenTreesOf(player).empty();
     });
     AddAscensionTalentBudgetProvider([](Player const* player, uint32& classPoints, uint32& specializationPoints)
     {

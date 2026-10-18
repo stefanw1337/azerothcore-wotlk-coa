@@ -2,7 +2,13 @@ local PREFIX = "SUBCLASS"
 local NODE = 34
 local LINE_TEXTURE = "Interface\\TaxiFrame\\UI-Taxi-Line"
 
-local state = { eligible = false, insights = 0, trees = {}, ranks = {}, classPoints = 0, specPoints = 0 }
+local state = { eligible = false, insights = 0, trees = {}, ranks = {}, classPoints = 0, specPoints = 0,
+    resources = {}, powers = {} }
+local POWER_NAMES = { [0] = "Mana", [1] = "Rage", [2] = "Focus", [3] = "Energy", [6] = "Runic Power" }
+local POWER_COLORS = { [0] = { 0, 0, 1 }, [1] = { 1, 0, 0 }, [2] = { 1, 0.5, 0.25 }, [3] = { 1, 1, 0 },
+    [6] = { 0, 0.82, 1 } }
+local resourceFrame
+local UpdateResourceFrame
 local incoming
 local pending = false
 local panel, tab, window
@@ -364,6 +370,111 @@ local function BuildTrees()
     end
 end
 
+local function AuraStacks(spell)
+    for _, filter in ipairs({ "HELPFUL", "HARMFUL" }) do
+        for index = 1, 40 do
+            local name, _, _, count, _, _, _, _, _, _, id = UnitAura("player", index, filter)
+            if not name then
+                break
+            end
+            if id == spell then
+                return (count and count > 0) and count or 1
+            end
+        end
+    end
+    return 0
+end
+
+local function ResourceRow(index)
+    local row = resourceFrame.rows[index]
+    if row then
+        return row
+    end
+    row = CreateFrame("StatusBar", nil, resourceFrame)
+    row:SetHeight(14)
+    row:SetPoint("TOPLEFT", resourceFrame, "TOPLEFT", 8, -8 - (index - 1) * 18)
+    row:SetPoint("TOPRIGHT", resourceFrame, "TOPRIGHT", -8, -8 - (index - 1) * 18)
+    row:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+    row.background = row:CreateTexture(nil, "BACKGROUND")
+    row.background:SetAllPoints(row)
+    row.background:SetTexture(0, 0, 0, 0.6)
+    row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.text:SetPoint("CENTER", row, "CENTER", 0, 0)
+    resourceFrame.rows[index] = row
+    return row
+end
+
+local function RefreshResources()
+    if not resourceFrame or not resourceFrame:IsShown() then
+        return
+    end
+    local index = 0
+    for _, resource in ipairs(state.resources) do
+        index = index + 1
+        local row = ResourceRow(index)
+        local stacks = AuraStacks(resource.spell)
+        local maximum = resource.maximum > 0 and resource.maximum or math.max(stacks, 1)
+        row:SetMinMaxValues(0, maximum)
+        row:SetValue(stacks)
+        row:SetStatusBarColor(0.6, 0.3, 0.9)
+        row.text:SetText(resource.maximum > 0 and string.format("%s %d/%d", resource.name, stacks, resource.maximum)
+            or string.format("%s %d", resource.name, stacks))
+        row:Show()
+    end
+    for _, power in ipairs(state.powers) do
+        index = index + 1
+        local row = ResourceRow(index)
+        local value, maximum = UnitPower("player", power), UnitPowerMax("player", power)
+        local color = POWER_COLORS[power] or { 0.7, 0.7, 0.7 }
+        row:SetMinMaxValues(0, math.max(maximum, 1))
+        row:SetValue(value)
+        row:SetStatusBarColor(color[1], color[2], color[3])
+        local divisor = (power == 1 or power == 6) and 10 or 1
+        row.text:SetText(string.format("%s %d/%d", POWER_NAMES[power] or ("Power " .. power), value / divisor,
+            maximum / divisor))
+        row:Show()
+    end
+    for extra = index + 1, #resourceFrame.rows do
+        resourceFrame.rows[extra]:Hide()
+    end
+    resourceFrame:SetHeight(16 + index * 18)
+end
+
+UpdateResourceFrame = function()
+    if not resourceFrame then
+        resourceFrame = CreateFrame("Frame", "Ascension_SubclassResourceFrame", UIParent)
+        resourceFrame:SetWidth(180)
+        resourceFrame:SetBackdrop({
+            bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile = true, tileSize = 16, edgeSize = 12,
+            insets = { left = 3, right = 3, top = 3, bottom = 3 },
+        })
+        resourceFrame:SetBackdropColor(0, 0, 0, 0.7)
+        resourceFrame:SetPoint("TOPLEFT", PlayerFrame, "BOTTOMLEFT", 100, 30)
+        resourceFrame:SetMovable(true)
+        resourceFrame:EnableMouse(true)
+        resourceFrame:RegisterForDrag("LeftButton")
+        resourceFrame:SetScript("OnDragStart", resourceFrame.StartMoving)
+        resourceFrame:SetScript("OnDragStop", resourceFrame.StopMovingOrSizing)
+        resourceFrame:SetUserPlaced(true)
+        resourceFrame.rows = {}
+        resourceFrame:SetScript("OnUpdate", function(self, elapsed)
+            self.wait = (self.wait or 0) + elapsed
+            if self.wait >= 0.2 then
+                self.wait = 0
+                RefreshResources()
+            end
+        end)
+    end
+    if #state.resources + #state.powers > 0 then
+        resourceFrame:Show()
+        RefreshResources()
+    else
+        resourceFrame:Hide()
+    end
+end
+
 local function Receive(message)
     local command, rest = string.match(message, "^(%S+)%s?(.*)$")
     if command == "RESULT" then
@@ -377,7 +488,7 @@ local function Receive(message)
     if command == "RESET" then
         local eligible, _, insights = string.match(rest, "^(%d+) (%d+) (%d+)$")
         incoming = { eligible = eligible == "1", insights = tonumber(insights) or 0, trees = {}, ranks = {},
-            classPoints = 0, specPoints = 0 }
+            classPoints = 0, specPoints = 0, resources = {}, powers = {} }
     elseif not incoming then
         return
     elseif command == "TREE" then
@@ -401,12 +512,21 @@ local function Receive(message)
     elseif command == "POINTS" then
         local ae, te = string.match(rest, "^(%d+) (%d+)$")
         incoming.classPoints, incoming.specPoints = tonumber(ae) or 0, tonumber(te) or 0
+    elseif command == "RES" then
+        local spell, maximum, name = string.match(rest, "^(%d+) (%d+) (.*)$")
+        if spell then
+            incoming.resources[#incoming.resources + 1] = { spell = tonumber(spell), maximum = tonumber(maximum),
+                name = name }
+        end
+    elseif command == "POWER" then
+        incoming.powers[#incoming.powers + 1] = tonumber(rest)
     elseif command == "DONE" then
         state = incoming
         incoming = nil
         pending = false
         BuildTrees()
         Render()
+        UpdateResourceFrame()
     end
 end
 

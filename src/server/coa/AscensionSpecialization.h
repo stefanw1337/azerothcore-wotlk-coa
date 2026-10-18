@@ -32,6 +32,12 @@ using AscensionTalentBudgetProvider =
 
 void AddAscensionTalentBudgetProvider(AscensionTalentBudgetProvider provider);
 
+using AscensionClassMechanicsProvider = std::function<bool(Player const* player, uint8 classId)>;
+
+void AddAscensionClassMechanicsProvider(AscensionClassMechanicsProvider provider);
+
+bool UsesAscensionClassMechanics(Player const* player, uint8 classId);
+
 AscensionCoATalentState::TalentAccess GetAscensionTalentAccess(Player const* player);
 
 bool ApplyAscensionTalentBuild(Player* player, std::vector<AscensionCoATalentState::KnownEntry> const& build,

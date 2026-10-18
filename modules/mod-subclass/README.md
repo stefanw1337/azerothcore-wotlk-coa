@@ -81,8 +81,10 @@ the native window's uploads (points, prerequisites, level and removal prices), a
 
 - The game's own talent window shows only the character's own trees; the Second Head tab shows the borrowed ones.
   Saving from the native window keeps borrowed talents it does not show.
-- A borrowed CoA class's base kit (`ClassSpells`) is granted by level while its trees are open and removed when the
-  choice changes. Its resource (rage, energy, runes, CoA resources), resource UI and spellbook tabs are not added yet.
+- A borrowed CoA class's base kit (`ClassSpells`) and its class skill lines (the spellbook tabs) are granted while its
+  trees are open and removed when the choice changes. Its resources follow the core's resource rules through
+  `UsesAscensionClassMechanics` (a borrowed Ranger also gets a focus pool); the addon shows them in a small movable
+  frame under the player frame. Other class scripts that test the player's own class do not apply yet.
 
 - The CoA talent window draws the own class tree and active specialization only. Showing the borrowed trees needs
   client work (an addon or a DBC patch); until then use the GM commands to test.

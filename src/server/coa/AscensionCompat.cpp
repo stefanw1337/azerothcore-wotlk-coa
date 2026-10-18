@@ -793,6 +793,12 @@ std::vector<AscensionTalentBudgetProvider>& TalentBudgetProviders()
     return providers;
 }
 
+std::vector<AscensionClassMechanicsProvider>& ClassMechanicsProviders()
+{
+    static std::vector<AscensionClassMechanicsProvider> providers;
+    return providers;
+}
+
 AscensionCoATalentState::TalentAccess TalentAccessOf(Player const* player, uint32 activeSpecializationId)
 {
     AscensionCoATalentState::TalentAccess access;
@@ -3083,7 +3089,7 @@ public:
             return true;
 
         if (spell->GetSpellInfo()->Id != SPELL_REAPER_GENERATE_SOUL ||
-            player->getClass() != CLASS_REAPER)
+            !UsesAscensionClassMechanics(player, CLASS_REAPER))
             return true;
 
         return GetAuraStacks(player, SPELL_REAPER_SOUL_FRAGMENT) >=
@@ -3101,7 +3107,7 @@ public:
 
         SpellInfo const* spellInfo = spell->GetSpellInfo();
         uint32 spellId = spellInfo->Id;
-        if (player->getClass() == CLASS_RANGER &&
+        if (UsesAscensionClassMechanics(player, CLASS_RANGER) &&
             spellInfo->SpellFamilyName == uint32(CLASS_RANGER) + 6 &&
             spellInfo->CasterAuraSpell == 804329 && !player->HasAura(804329))
         {
@@ -3109,7 +3115,7 @@ public:
             return;
         }
 
-        if (player->getClass() == CLASS_REAPER && spellId == SPELL_REAPER_SCYTHE_RUSH)
+        if (UsesAscensionClassMechanics(player, CLASS_REAPER) && spellId == SPELL_REAPER_SCYTHE_RUSH)
         {
             Unit* target = spell->m_targets.GetUnitTarget();
             if (target && target->HasAura(SPELL_REAPER_SCYTHE_RUSH_MARKER,
@@ -3145,7 +3151,7 @@ public:
         SpellInfo const* spellInfo = spell->GetSpellInfo();
         uint32 spellId = spellInfo->Id;
 
-        if (player->getClass() == CLASS_SON_OF_ARUGAL && spellInfo->SpellFamilyName == 26 &&
+        if (UsesAscensionClassMechanics(player, CLASS_SON_OF_ARUGAL) && spellInfo->SpellFamilyName == 26 &&
             spellInfo->PowerType == POWER_HEALTH && spell->GetPowerCost() > 0 &&
             player->HasAura(SPELL_BLOODMAGE_THIRST_PASSIVE))
             ModifyAuraStacks(player, SPELL_BLOODMAGE_THIRST, 1);
@@ -3437,7 +3443,7 @@ public:
         for (AscensionCompatData::ResourceGainRule const& rule :
              AscensionCompatData::ResourceGainRules)
         {
-            if (rule.ClassId != player->getClass() ||
+            if (!UsesAscensionClassMechanics(player, rule.ClassId) ||
                 rule.Event != AscensionCompatData::ResourceGainEvent::Block ||
                 (rule.RequiredAuraSpellId &&
                     !player->HasAura(rule.RequiredAuraSpellId)) ||
@@ -3461,7 +3467,7 @@ public:
         handler->PSendSysMessage("Ascension resource status for class {}:",
             uint32(player->getClass()));
 
-        if (player->getClass() == CLASS_REAPER)
+        if (UsesAscensionClassMechanics(player, CLASS_REAPER))
         {
             handler->PSendSysMessage("Runic Power: {}/{}",
                 player->GetPower(POWER_RUNIC_POWER) / 10,
@@ -3472,7 +3478,7 @@ public:
         for (AscensionCompatData::ResourceDisplay const& resource :
              AscensionCompatData::ResourceDisplays)
         {
-            if (resource.ClassId != player->getClass())
+            if (!UsesAscensionClassMechanics(player, resource.ClassId))
                 continue;
 
             uint32 maximum = resource.DisplayMaximum;
@@ -3492,7 +3498,7 @@ public:
         for (AscensionCompatData::ResourceThresholdRule const& threshold :
              AscensionCompatData::ResourceThresholdRules)
         {
-            if (threshold.ClassId != player->getClass())
+            if (!UsesAscensionClassMechanics(player, threshold.ClassId))
                 continue;
 
             handler->PSendSysMessage(
@@ -3503,7 +3509,7 @@ public:
                                                                "inactive");
         }
 
-        if (!displayed && player->getClass() != CLASS_REAPER)
+        if (!displayed && !UsesAscensionClassMechanics(player, CLASS_REAPER))
             handler->SendSysMessage(
                 "This class has no separate Ascension resource widget.");
     }
@@ -3531,26 +3537,25 @@ private:
     static bool Matches(Player const* player, uint32 spellId, uint8 classId,
         uint32 firstSpellId, uint32 lastSpellId)
     {
-        return player->getClass() == classId && spellId >= firstSpellId &&
-               spellId <= lastSpellId;
+        return spellId >= firstSpellId && spellId <= lastSpellId && UsesAscensionClassMechanics(player, classId);
     }
 
     static bool MatchesGainRule(Player const* player, uint32 spellId,
         AscensionCompatData::ResourceGainRule const& rule)
     {
-        return player->getClass() == rule.ClassId &&
-            ((!rule.FirstSpellId && !rule.LastSpellId) ||
+        return ((!rule.FirstSpellId && !rule.LastSpellId) ||
                 (spellId >= rule.FirstSpellId &&
-                    spellId <= rule.LastSpellId));
+                    spellId <= rule.LastSpellId)) &&
+            UsesAscensionClassMechanics(player, rule.ClassId);
     }
 
     static bool MatchesNativePowerRule(Player const* player, uint32 spellId,
         AscensionCompatData::NativePowerGainRule const& rule)
     {
-        return player->getClass() == rule.ClassId &&
-            ((!rule.FirstSpellId && !rule.LastSpellId) ||
+        return ((!rule.FirstSpellId && !rule.LastSpellId) ||
                 (spellId >= rule.FirstSpellId &&
-                    spellId <= rule.LastSpellId));
+                    spellId <= rule.LastSpellId)) &&
+            UsesAscensionClassMechanics(player, rule.ClassId);
     }
 
     static uint8 GetAuraStacks(Unit const* unit, uint32 spellId)
@@ -3653,7 +3658,7 @@ private:
 
     static void ConsumeReaperSouls(Player* player, Spell* spell)
     {
-        if (player->getClass() != CLASS_REAPER)
+        if (!UsesAscensionClassMechanics(player, CLASS_REAPER))
             return;
 
         SpellInfo const* spellInfo = spell->GetSpellInfo();
@@ -3698,7 +3703,7 @@ private:
     {
         ObjectGuid const guid = player->GetGUID();
         uint8 const stacks = GetAuraStacks(player, SPELL_STORMBRINGER_STATIC);
-        if (player->getClass() != CLASS_STORMBRINGER || !player->IsAlive() || !stacks || player->IsInCombat())
+        if (!UsesAscensionClassMechanics(player, CLASS_STORMBRINGER) || !player->IsAlive() || !stacks || player->IsInCombat())
         {
             _staticDecayTimers.erase(guid);
             return;
@@ -3726,7 +3731,7 @@ private:
         for (AscensionCompatData::ResourceThresholdRule const& rule :
              AscensionCompatData::ResourceThresholdRules)
         {
-            if (rule.ClassId != player->getClass())
+            if (!UsesAscensionClassMechanics(player, rule.ClassId))
                 continue;
 
             bool meetsThreshold =
@@ -3742,7 +3747,7 @@ private:
             }
         }
 
-        if (player->getClass() == CLASS_PYROMANCER)
+        if (UsesAscensionClassMechanics(player, CLASS_PYROMANCER))
         {
             while (GetAuraStacks(player, SPELL_PYROMANCER_HEAT) >=
                    PYROMANCER_HEAT_PER_EMBER)
@@ -3753,7 +3758,7 @@ private:
             }
         }
 
-        if (player->getClass() == CLASS_REAPER &&
+        if (UsesAscensionClassMechanics(player, CLASS_REAPER) &&
             GetAuraStacks(player, SPELL_REAPER_SOUL_FRAGMENT) >=
                 REAPER_SOUL_FRAGMENT_COST)
         {
@@ -3766,7 +3771,7 @@ private:
             }
         }
 
-        if (player->getClass() == CLASS_REAPER &&
+        if (UsesAscensionClassMechanics(player, CLASS_REAPER) &&
             GetAuraStacks(player, SPELL_REAPER_REAPED_SOUL) >= 3 &&
             !player->HasAura(SPELL_REAPER_SOUL_INFUSION))
         {
@@ -10122,6 +10127,22 @@ void AddAscensionTalentBudgetProvider(AscensionTalentBudgetProvider provider)
 {
     if (provider)
         TalentBudgetProviders().push_back(std::move(provider));
+}
+
+void AddAscensionClassMechanicsProvider(AscensionClassMechanicsProvider provider)
+{
+    if (provider)
+        ClassMechanicsProviders().push_back(std::move(provider));
+}
+
+bool UsesAscensionClassMechanics(Player const* player, uint8 classId)
+{
+    if (!player)
+        return false;
+    if (player->getClass() == classId)
+        return true;
+    return std::any_of(ClassMechanicsProviders().begin(), ClassMechanicsProviders().end(),
+        [player, classId](AscensionClassMechanicsProvider const& provider) { return provider(player, classId); });
 }
 
 AscensionCoATalentState::TalentAccess GetAscensionTalentAccess(Player const* player)
