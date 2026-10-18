@@ -28,6 +28,8 @@
 
 using namespace Acore::ChatCommands;
 
+bool SubclassChosen(Player const* player);
+
 namespace
 {
 constexpr uint32 TwinEntry = 9530030;
@@ -162,7 +164,7 @@ void StoreWardrobe(Player const* player, Wardrobe const& wardrobe)
 
 bool IsSplit(Player const* player)
 {
-    return player->GetQuestRewardStatus(TwinQuest);
+    return player->GetQuestRewardStatus(TwinQuest) || SubclassChosen(player);
 }
 
 Wardrobe Worn(Player const* player)
