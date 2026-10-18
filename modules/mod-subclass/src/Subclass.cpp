@@ -22,6 +22,7 @@
 #include "PlayerScript.h"
 #include "Random.h"
 #include "ScriptedGossip.h"
+#include "ServerScript.h"
 #include "Spell.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
@@ -30,7 +31,9 @@
 #include "Tokenize.h"
 #include "Trainer.h"
 #include "UnitScript.h"
+#include "WorldPacket.h"
 #include "WorldScript.h"
+#include "WorldSession.h"
 #include <algorithm>
 #include <mutex>
 #include <optional>
@@ -999,6 +1002,8 @@ public:
         loaded.BookItemId = sConfigMgr->GetOption<uint32>("Subclass.BookItemId", 9530010);
         loaded.BookDropChance = sConfigMgr->GetOption<float>("Subclass.BookDropChance", 5.0f);
         loaded.StandardClasses = sConfigMgr->GetOption<bool>("Subclass.StandardClasses", false);
+        loaded.StandardMains = sConfigMgr->GetOption<bool>("Subclass.StandardMains", false) &&
+            sConfigMgr->GetOption<std::string>("CoA.ClassModel", "coa") == "coa";
         std::lock_guard<std::mutex> lock(subclassMutex);
         settings = loaded;
     }
@@ -1677,8 +1682,84 @@ Trainer::Trainer* TrainerWithSubclass(Trainer::Trainer const& trainer, Player co
     return &*merged;
 }
 
+constexpr uint16 RealmInfoOpcode = 0x09BC;
+constexpr std::size_t RealmCreationFlagsOffset = 36;
+constexpr std::size_t ConquestOfAzerothFlag = 6;
+constexpr std::size_t WarcraftRebornFlag = 7;
+thread_local bool resendingRealmInfo = false;
+
+bool OffersStandardMains()
+{
+    std::lock_guard<std::mutex> lock(subclassMutex);
+    return settings.Enabled && settings.StandardMains;
+}
+
+bool IsStandardMainClass(uint8 classId)
+{
+    return classId >= CLASS_WARRIOR && classId <= CLASS_DRUID && classId != CLASS_DEATH_KNIGHT &&
+        classId != CLASS_HERO;
+}
+
+bool MayPlayStandardMain(uint8 race, uint8 gender)
+{
+    std::lock_guard<std::mutex> lock(subclassMutex);
+    return Subclass::StoryFor(stories, { race, gender, 0, 0 }) != nullptr;
+}
+
+bool OpenStandardClassesAtCreation(WorldSession* session, WorldPacket const& packet)
+{
+    std::size_t const flag = RealmCreationFlagsOffset + WarcraftRebornFlag;
+    if (resendingRealmInfo || packet.GetOpcode() != RealmInfoOpcode || packet.size() <= flag ||
+        !packet.contents()[RealmCreationFlagsOffset + ConquestOfAzerothFlag] || packet.contents()[flag] ||
+        !OffersStandardMains())
+        return true;
+    WorldPacket opened(packet);
+    opened.put<uint8>(flag, 1);
+    resendingRealmInfo = true;
+    session->SendPacket(&opened);
+    resendingRealmInfo = false;
+    return false;
+}
+
+bool AllowsCreation(WorldSession* session, WorldPacket const& packet)
+{
+    if (packet.GetOpcode() != CMSG_CHAR_CREATE || !OffersStandardMains())
+        return true;
+    WorldPacket reader(packet);
+    reader.rpos(0);
+    std::string name;
+    uint8 race = 0;
+    uint8 classId = 0;
+    uint8 gender = 0;
+    reader >> name >> race >> classId >> gender;
+    if (!IsStandardMainClass(classId) || MayPlayStandardMain(race, gender))
+        return true;
+    WorldPacket refusal(SMSG_CHAR_CREATE, 1);
+    refusal << uint8(CHAR_CREATE_RESTRICTED_RACECLASS);
+    session->SendPacket(&refusal);
+    return false;
+}
+
+class mod_subclass_standard_mains : public ServerScript
+{
+public:
+    mod_subclass_standard_mains() : ServerScript("mod_subclass_standard_mains", { SERVERHOOK_CAN_PACKET_RECEIVE,
+        SERVERHOOK_CAN_PACKET_SEND }) { }
+
+    bool CanPacketSend(WorldSession* session, WorldPacket const& packet) override
+    {
+        return !session || OpenStandardClassesAtCreation(session, packet);
+    }
+
+    bool CanPacketReceive(WorldSession* session, WorldPacket const& packet) override
+    {
+        return !session || AllowsCreation(session, packet);
+    }
+};
+
 void AddSC_mod_subclass()
 {
+    new mod_subclass_standard_mains();
     PreviousTrainerFor = Trainer::SetClassTrainerFor(&TrainerWithSubclass);
     new mod_subclass_world();
     new mod_subclass_player();

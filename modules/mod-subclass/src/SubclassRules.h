@@ -59,6 +59,7 @@ struct Settings
     std::uint32_t BookItemId = 9530010;
     float BookDropChance = 5.0f;
     bool StandardClasses = false;
+    bool StandardMains = false;
 };
 
 inline bool GenderMatches(std::uint8_t genderMask, std::uint8_t gender)

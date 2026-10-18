@@ -60,3 +60,11 @@ Subclass.BookDropChance = 5
 #                 1 - also standard classes
 
 Subclass.StandardClasses = 0
+
+#    Subclass.StandardMains
+#        Let the races with a subclass story (female Ogres, male Thin Twins) create a standard
+#        class (Warrior ... Druid, not Death Knight) on a CoA realm. Other races are refused.
+#        Default: 0 - CoA classes only
+#                 1 - also standard classes for those races
+
+Subclass.StandardMains = 0
