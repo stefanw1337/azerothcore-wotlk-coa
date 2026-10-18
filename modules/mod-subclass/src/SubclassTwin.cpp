@@ -2,6 +2,7 @@
  * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU AGPL v3 license.
  */
 
+#include "AllCreatureScript.h"
 #include "Chat.h"
 #include "CommandScript.h"
 #include "DatabaseEnv.h"
@@ -1226,6 +1227,44 @@ bool ShowCastOnBrother(WorldSession* session, WorldPacket const& packet)
     return false;
 }
 
+bool SummonedByOtherHalf(Creature const* creature)
+{
+    if (!castingAsBrother.Spell || creature->GetEntry() == TwinEntry)
+        return false;
+    ObjectGuid summoner = creature->GetOwnerGUID();
+    if (TempSummon const* summon = creature->ToTempSummon(); summon && !summoner)
+        summoner = summon->GetSummonerGUID();
+    return summoner == castingAsBrother.Player;
+}
+
+void PlantAtBrothersFeet(Creature* creature)
+{
+    constexpr float AtCasterFeet = 3.0f;
+    if (!SummonedByOtherHalf(creature))
+        return;
+    Player* player = ObjectAccessor::GetPlayer(*creature, castingAsBrother.Player);
+    Creature* twin = ObjectAccessor::GetCreature(*creature, castingAsBrother.Twin);
+    if (!player || !twin || twin->GetVehicle() || !creature->IsWithinDist(player, AtCasterFeet))
+        return;
+    Position const feet = twin->GetPosition();
+    creature->m_Events.AddEventAtOffset([creature, feet]()
+    {
+        creature->NearTeleportTo(feet.GetPositionX(), feet.GetPositionY(), feet.GetPositionZ(),
+            feet.GetOrientation());
+    }, Milliseconds(1));
+}
+
+class mod_subclass_twin_creatures : public AllCreatureScript
+{
+public:
+    mod_subclass_twin_creatures() : AllCreatureScript("mod_subclass_twin_creatures") { }
+
+    void OnCreatureAddWorld(Creature* creature) override
+    {
+        PlantAtBrothersFeet(creature);
+    }
+};
+
 class mod_subclass_twin_packets : public ServerScript
 {
 public:
@@ -1655,6 +1694,7 @@ void AddSC_mod_subclass_twin()
     RegisterSpellScript(spell_subclass_second_self);
     RegisterSpellScript(spell_subclass_easy);
     new mod_subclass_twin_packets();
+    new mod_subclass_twin_creatures();
     new mod_subclass_twin_player();
     new mod_subclass_twin_commands();
 }
