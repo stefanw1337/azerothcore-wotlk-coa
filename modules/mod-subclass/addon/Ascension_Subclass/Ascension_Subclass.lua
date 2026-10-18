@@ -1383,16 +1383,16 @@ twinApplyKeeper:SetScript("OnUpdate", function(self, elapsed)
         twinRedressPending = false
         ShowTwinPreview()
     end
-    self.wait = (self.wait or 0) + elapsed
-    if self.wait < 0.1 then
-        return
-    end
-    self.wait = 0
     for _, button in ipairs(applyButtons) do
         if button:IsVisible() and not button:IsEnabled() then
             button:Enable()
         end
     end
+    self.wait = (self.wait or 0) + elapsed
+    if self.wait < 0.1 then
+        return
+    end
+    self.wait = 0
     self.scan = (self.scan or 0) + 1
     if self.scan % 10 == 1 and wardrobeFrame then
         self.warnings = OwnSlotWarnings(wardrobeFrame)
@@ -1649,6 +1649,10 @@ SlashCmdList.ASCENSIONSUBCLASS = function(message)
         DEFAULT_CHAT_FRAME:AddMessage("Ascension Subclass: hover the nodes you want me to see, then /reload.")
     elseif message == "icons" then
         ShowIcons()
+    elseif message == "applytwin" then
+        if not SendTwinLook() then
+            DEFAULT_CHAT_FRAME:AddMessage("|cffffd100Wardrobe:|r pick something for your twin first.")
+        end
     else
         Toggle()
     end
