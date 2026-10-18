@@ -103,10 +103,12 @@ no character has, so only a granted extra tree opens them. They are offered at t
 `Subclass.StandardClasses = 1`. Borrowing one opens two of its three specializations, and the bonus class points
 become specialization points. In `mod_subclass_pair.sub_class` use the normal class id (8 for Mage).
 
-## The Second Head tab (client addon)
+## The subclass tab (client addon)
 
-`addon/Ascension_Subclass` goes into the client's `Interface/AddOns`. It adds a **Second Head** tab next to the
-Character Advancement window's tabs (or opens with `/subclass`) and draws the borrowed trees from the client's own
+`addon/Ascension_Subclass` goes into the client's `Interface/AddOns`. It adds a tab named for the race (**Two-Head**
+for Ogres, **Two-Thins** for the Thin Twins): with a CoA main class next to the Character Advancement window's
+tabs, with a standard main class along the bottom of the classic talent window (or it opens with `/subclass`). It
+draws the borrowed trees from the client's own
 `C_CharacterAdvancement` data, with the borrowed class's purchasable abilities under each tree. The addon and the
 server talk through addon whispers to oneself with the prefix `SUBCLASS`: `SYNC` asks for the state (`RESET`, `TREE`,
 `IDS`, `RANKS`, `POINTS`, `DONE`), and `LEARN <entry> <rank>` changes a borrowed rank through the same validation as
@@ -114,7 +116,7 @@ the native window's uploads (points, prerequisites, level and removal prices), a
 
 ## Known limits
 
-- The game's own talent window shows only the character's own trees; the Second Head tab shows the borrowed ones.
+- The game's own talent window shows only the character's own trees; the subclass tab shows the borrowed ones.
   Saving from the native window keeps borrowed talents it does not show.
 - A borrowed CoA class's base kit (`ClassSpells`) and its class skill lines (the spellbook tabs) are granted while its
   trees are open and removed when the choice changes. Its resources follow the core's resource rules through

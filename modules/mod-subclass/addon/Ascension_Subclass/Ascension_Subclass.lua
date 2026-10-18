@@ -318,6 +318,29 @@ local function RenderTree(tree, canvas)
     end
 end
 
+local NAMINGS = {
+    Ogre = {
+        tab = "Two-Head",
+        waiting = "Your second head has no second way yet. Find the Book of Origins in Shadowfang Keep.",
+        insight = "Your second head holds an insight. Visit any class trainer to choose a second way.",
+    },
+    ThinHuman = {
+        tab = "Two-Thins",
+        waiting = "Your twin has no way of his own yet. Find your father's Bravery Badge in the Deadmines.",
+        insight = "Your twin wears the Bravery Badge. Visit any class trainer so he can choose his own way.",
+    },
+}
+local DEFAULT_NAMING = {
+    tab = "Second Head",
+    waiting = "No second way yet.",
+    insight = "You hold an insight. Visit any class trainer to choose a second way.",
+}
+
+local function Naming()
+    local _, race = UnitRace("player")
+    return NAMINGS[race] or DEFAULT_NAMING
+end
+
 local function Render()
     if not panel or not panel:IsShown() then
         return
@@ -326,11 +349,9 @@ local function Render()
         state.classPoints, state.specPoints))
     if #state.trees == 0 then
         if state.eligible then
-            panel.status:SetText(state.insights > 0 and
-                "Your second head holds an insight. Visit any class trainer to choose a second way." or
-                "Your second head has no second way yet. Find the Book of Origins in Shadowfang Keep.")
+            panel.status:SetText(state.insights > 0 and Naming().insight or Naming().waiting)
         else
-            panel.status:SetText("Only two-headed characters can learn a second way.")
+            panel.status:SetText("Only two-headed Ogres and the Thin Twins can learn a second way.")
         end
         panel.status:Show()
     else
@@ -576,7 +597,7 @@ local function CreatePanel(parent)
     panel:EnableMouse(true)
     panel.header = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     panel.header:SetPoint("TOP", panel, "TOP", 0, -16)
-    panel.header:SetText("Second Head - Character Advancement")
+    panel.header:SetText(Naming().tab)
     panel.points = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     panel.points:SetPoint("BOTTOM", panel, "BOTTOM", 0, 18)
     panel.status = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
@@ -625,7 +646,7 @@ local function AttachToWindow()
         end
     end
     tab = CreateFrame("Button", "Ascension_SubclassTab", parent, "UIPanelButtonTemplate")
-    tab:SetText("Second Head")
+    tab:SetText(Naming().tab)
     tab:SetWidth(math.max(120, first:GetWidth() * 0.8))
     tab:SetHeight(first:GetHeight())
     tab:SetPoint("LEFT", first, "RIGHT", 6, 0)
@@ -648,9 +669,73 @@ local function AttachToWindow()
     return true
 end
 
+local function IsStandardClass()
+    local _, _, classId = UnitClass("player")
+    return classId and classId <= 11
+end
+
+local function TalentFrameTabs()
+    local tabs = {}
+    local index = 1
+    while _G["PlayerTalentFrameTab" .. index] do
+        local other = _G["PlayerTalentFrameTab" .. index]
+        if other:IsShown() and other ~= tab then
+            tabs[#tabs + 1] = other
+        end
+        index = index + 1
+    end
+    return tabs
+end
+
+local function AttachToTalentFrame()
+    if tab then
+        return true
+    end
+    if not PlayerTalentFrame or not IsStandardClass() then
+        return false
+    end
+    local tabs = TalentFrameTabs()
+    local last = tabs[#tabs]
+    if not last then
+        return false
+    end
+    window = PlayerTalentFrame
+    CreatePanel(window)
+    panel:SetPoint("TOPLEFT", window, "TOPLEFT", 12, -12)
+    panel:SetWidth(720)
+    panel:SetHeight(520)
+    panel:SetFrameLevel(window:GetFrameLevel() + 40)
+    tab = CreateFrame("Button", "Ascension_SubclassTab", window, "CharacterFrameTabButtonTemplate")
+    tab:SetText(Naming().tab)
+    PanelTemplates_TabResize(tab, 0)
+    tab:SetPoint("LEFT", last, "RIGHT", -15, 0)
+    tab:SetScript("OnClick", function()
+        if panel:IsShown() then
+            panel:Hide()
+        else
+            panel:Show()
+        end
+    end)
+    for _, other in ipairs(tabs) do
+        other:HookScript("OnClick", function() panel:Hide() end)
+    end
+    window:HookScript("OnHide", function() panel:Hide() end)
+    return true
+end
+
+local function Attach()
+    if IsStandardClass() then
+        return AttachToTalentFrame()
+    end
+    return AttachToWindow()
+end
+
 local function Toggle()
     if not panel then
-        if not AttachToWindow() then
+        if IsStandardClass() and not PlayerTalentFrame and TalentFrame_LoadUI then
+            TalentFrame_LoadUI()
+        end
+        if not Attach() then
             CreatePanel(nil)
         end
     end
@@ -671,8 +756,13 @@ local tries = 0
 local events = CreateFrame("Frame")
 events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("CHAT_MSG_ADDON")
+events:RegisterEvent("ADDON_LOADED")
 events:SetScript("OnEvent", function(_, event, prefix, message, _, sender)
-    if event == "CHAT_MSG_ADDON" then
+    if event == "ADDON_LOADED" then
+        if prefix == "Blizzard_TalentUI" and not panel then
+            Attach()
+        end
+    elseif event == "CHAT_MSG_ADDON" then
         if prefix == PREFIX and sender == UnitName("player") then
             Receive(message)
         end
@@ -686,7 +776,7 @@ events:SetScript("OnEvent", function(_, event, prefix, message, _, sender)
             end
             self.wait = 0
             tries = tries + 1
-            if (panel and tab) or AttachToWindow() or tries >= 24 then
+            if (panel and tab) or Attach() or tries >= 24 then
                 self:SetScript("OnUpdate", nil)
             end
         end)

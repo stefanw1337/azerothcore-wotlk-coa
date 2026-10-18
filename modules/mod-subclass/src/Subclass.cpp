@@ -879,7 +879,7 @@ void ChooseAtTrainer(Player* player, uint16 specId, uint16 secondSpecId)
     StoreRecord(player, spent);
     handler.SendSysMessage(VoiceOf(player).Says(VoiceOf(player).Chosen));
     handler.PSendSysMessage("Learned the ways of the {}. {} talent spell(s) of the old way were forgotten. "
-        "Spend points in the Second Head tab of Character Advancement, or type /subclass.", Describe(wanted), removed);
+        "Spend points in the Two-Head or Two-Thins tab, or type /subclass.", Describe(wanted), removed);
     LOG_INFO("module", "mod-subclass: {} chose {} at a trainer", player->GetName(), Describe(wanted));
 }
 
