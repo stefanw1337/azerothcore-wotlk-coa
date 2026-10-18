@@ -47,7 +47,6 @@ struct Motion
 {
     uint32 Tick = 0;
     uint32 Moving = 0;
-    uint32 Still = 0;
     Carry Mode = Carry::Beside;
 };
 
@@ -220,7 +219,7 @@ Carry WantedCarry(Player const* player, Motion const& motion)
     if (player->IsFlying())
         return Carry::Beside;
     if (motion.Mode == Carry::Piggyback)
-        return motion.Still >= HopDelay ? Carry::Beside : Carry::Piggyback;
+        return Carry::Piggyback;
     return motion.Moving >= HopDelay ? Carry::Piggyback : Carry::Beside;
 }
 
@@ -238,7 +237,6 @@ void UpdateCarry(Player* player, uint32 diff)
             return;
         bool const moving = player->isMoving();
         stored.Moving = moving ? stored.Moving + stored.Tick : 0;
-        stored.Still = moving ? 0 : stored.Still + stored.Tick;
         stored.Tick = 0;
         motion = stored;
     }
