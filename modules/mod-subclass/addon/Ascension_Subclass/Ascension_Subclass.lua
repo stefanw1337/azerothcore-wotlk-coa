@@ -498,12 +498,22 @@ local function AttachToWindow()
     panel:SetPoint("TOPLEFT", window, "TOPLEFT", 8, -24)
     panel:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -8, 8)
     panel:SetFrameLevel(window:GetFrameLevel() + 40)
-    local last = tabs[#tabs]
+    local first, after = tabs[1], tabs[2]
+    for index, other in ipairs(tabs) do
+        if TextOf(other) == "Character Advancement" then
+            first, after = other, tabs[index + 1]
+        end
+    end
     tab = CreateFrame("Button", "Ascension_SubclassTab", parent, "UIPanelButtonTemplate")
     tab:SetText("Second Head")
-    tab:SetWidth(math.max(120, last:GetWidth()))
-    tab:SetHeight(last:GetHeight())
-    tab:SetPoint("LEFT", last, "RIGHT", 6, 0)
+    tab:SetWidth(math.max(120, first:GetWidth() * 0.8))
+    tab:SetHeight(first:GetHeight())
+    tab:SetPoint("LEFT", first, "RIGHT", 6, 0)
+    if after then
+        local gap = (after:GetLeft() or 0) - (first:GetRight() or 0)
+        after:ClearAllPoints()
+        after:SetPoint("LEFT", tab, "RIGHT", math.max(gap, 4), 0)
+    end
     tab:SetScript("OnClick", function()
         if panel:IsShown() then
             panel:Hide()
