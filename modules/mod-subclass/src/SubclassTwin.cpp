@@ -245,6 +245,35 @@ Carry WantedCarry(Player const* player, Motion const& motion)
     return motion.Moving >= HopDelay ? Carry::Piggyback : Carry::Beside;
 }
 
+void Arm(Creature* twin, Wardrobe const& wardrobe)
+{
+    twin->SetVirtualItem(0, wardrobe.Items[MainHand]);
+    twin->SetVirtualItem(1, wardrobe.Items[OffHand]);
+    twin->SetVirtualItem(2, wardrobe.Items[Ranged]);
+}
+
+ItemTemplate const* RangedOf(Player const* player)
+{
+    uint32 const itemId = WardrobeOf(player).Items[Ranged];
+    return itemId ? sObjectMgr->GetItemTemplate(itemId) : nullptr;
+}
+
+uint32 RangedEmote(ItemTemplate const* ranged)
+{
+    switch (ranged->SubClass)
+    {
+        case ITEM_SUBCLASS_WEAPON_BOW:
+            return EMOTE_ONESHOT_ATTACK_BOW;
+        case ITEM_SUBCLASS_WEAPON_GUN:
+        case ITEM_SUBCLASS_WEAPON_CROSSBOW:
+            return EMOTE_ONESHOT_ATTACK_RIFLE;
+        case ITEM_SUBCLASS_WEAPON_THROWN:
+            return EMOTE_ONESHOT_ATTACK_THROWN;
+        default:
+            return EMOTE_ONESHOT_SPELL_CAST_OMNI;
+    }
+}
+
 void BecomeGhost(Player* player, Creature* twin, bool ghost)
 {
     uint32 const seen = ghost ? GHOST_VISIBILITY_GHOST : GHOST_VISIBILITY_ALIVE | GHOST_VISIBILITY_GHOST;
@@ -263,7 +292,7 @@ void BecomeGhost(Player* player, Creature* twin, bool ghost)
 void MirrorStance(Player* player, Creature* twin)
 {
     if (!player->IsInCombat() && twin->GetSheath() != SHEATH_STATE_UNARMED)
-        twin->SetSheathState(SHEATH_STATE_UNARMED);
+        twin->SetSheath(SHEATH_STATE_UNARMED);
     if (twin->GetVehicle())
         return;
     bool const ghost = player->HasPlayerFlag(PLAYER_FLAGS_GHOST);
@@ -324,11 +353,11 @@ bool EchoSwing(Player* player, Creature* twin, uint32 swing)
     twin->SetFacingToObject(victim);
     if (ranged)
     {
-        twin->SetSheathState(SHEATH_STATE_RANGED);
+        twin->SetSheath(SHEATH_STATE_RANGED);
         twin->HandleEmoteCommand(RangedEmote(ranged));
         return true;
     }
-    twin->SetSheathState(SHEATH_STATE_MELEE);
+    twin->SetSheath(SHEATH_STATE_MELEE);
     twin->HandleEmoteCommand(twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID) ?
         EMOTE_ONESHOT_ATTACK1H : EMOTE_ONESHOT_ATTACK_UNARMED);
     return true;
@@ -405,35 +434,6 @@ void DismissTwin(Player* player)
         twin->DespawnOrUnsummon();
     }
     DropKit(player);
-}
-
-void Arm(Creature* twin, Wardrobe const& wardrobe)
-{
-    twin->SetVirtualItem(0, wardrobe.Items[MainHand]);
-    twin->SetVirtualItem(1, wardrobe.Items[OffHand]);
-    twin->SetVirtualItem(2, wardrobe.Items[Ranged]);
-}
-
-ItemTemplate const* RangedOf(Player const* player)
-{
-    uint32 const itemId = WardrobeOf(player).Items[Ranged];
-    return itemId ? sObjectMgr->GetItemTemplate(itemId) : nullptr;
-}
-
-uint32 RangedEmote(ItemTemplate const* ranged)
-{
-    switch (ranged->SubClass)
-    {
-        case ITEM_SUBCLASS_WEAPON_BOW:
-            return EMOTE_ONESHOT_ATTACK_BOW;
-        case ITEM_SUBCLASS_WEAPON_GUN:
-        case ITEM_SUBCLASS_WEAPON_CROSSBOW:
-            return EMOTE_ONESHOT_ATTACK_RIFLE;
-        case ITEM_SUBCLASS_WEAPON_THROWN:
-            return EMOTE_ONESHOT_ATTACK_THROWN;
-        default:
-            return EMOTE_ONESHOT_SPELL_CAST_OMNI;
-    }
 }
 
 void SummonTwin(Player* player)
