@@ -41,6 +41,7 @@ std::string TwinState(Player const* player);
 std::string ToggleTwin(Player* player);
 bool SubclassResting(Player const* player);
 bool LonelyTwin(Player const* player);
+bool OrderBrother(Player* player, uint32 spellId, Unit* target);
 
 namespace
 {
@@ -967,6 +968,34 @@ bool IsBorrowedSpell(Player const* player, uint32 spellId)
     return false;
 }
 
+std::vector<uint32> KnownBorrowedActives(Player const* player)
+{
+    std::vector<uint32> actives;
+    Record const record = RecordOf(player);
+    if (!record.Choice.Complete())
+        return actives;
+    auto consider = [&](uint32 spellId)
+    {
+        SpellInfo const* info = spellId ? sSpellMgr->GetSpellInfo(spellId) : nullptr;
+        if (!info || info->IsPassive() || !player->HasSpell(spellId) || OwnClassGrants(player, spellId))
+            return;
+        uint32 const next = sSpellMgr->GetNextSpellInChain(spellId);
+        if (next && player->HasSpell(next))
+            return;
+        if (std::find(actives.begin(), actives.end(), spellId) == actives.end())
+            actives.push_back(spellId);
+    };
+    for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)
+        if (spell.ClassId == record.Choice.SubClass)
+            consider(spell.SpellId);
+    std::vector<Subclass::Tree> const trees = BorrowedTreesOf(record.Choice);
+    for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
+        if (InTrees(trees, entry))
+            for (uint32 spellId : entry.SpellIds)
+                consider(spellId);
+    return actives;
+}
+
 std::vector<uint32> KnownBorrowedPassives(Player const* player)
 {
     std::vector<uint32> passives;
@@ -1009,9 +1038,16 @@ public:
     void OnSpellCheckCast(Spell* spell, bool /*strict*/, SpellCastResult& res) override
     {
         Player* player = spell->GetCaster() ? spell->GetCaster()->ToPlayer() : nullptr;
-        if (res != SPELL_CAST_OK || !player || !SubclassResting(player) ||
+        if (res != SPELL_CAST_OK || !player || spell->IsTriggered() ||
             !IsBorrowedSpell(player, spell->GetSpellInfo()->Id))
             return;
+        if (!SubclassResting(player))
+        {
+            Unit* target = spell->m_targets.GetUnitTarget();
+            if (OrderBrother(player, spell->GetSpellInfo()->Id, target ? target : player))
+                res = SPELL_FAILED_DONT_REPORT;
+            return;
+        }
         res = SPELL_FAILED_DONT_REPORT;
         ChatHandler(player->GetSession()).SendNotification(
             "That ability belongs to your other half, and they are not with you right now.");

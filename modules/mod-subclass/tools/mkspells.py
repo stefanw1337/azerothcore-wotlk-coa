@@ -8,7 +8,7 @@ ATTR0_CANT_CANCEL = 0x80000000
 ATTR0_HIDDEN_CLIENTSIDE = 0x00000080
 ATTR3_DEATH_PERSISTENT = 0x00100000
 
-RACIAL, AURA = "racial", "aura"
+RACIAL, AURA, MODE = "racial", "aura", "mode"
 SPELLS = [
     (9530100, RACIAL, 18227, "Brother, Where Art Thou?", "Racial",
      "Call your twin brother to your side, or send him home. Once you have split at level 20, his class "
@@ -21,7 +21,16 @@ SPELLS = [
     (9530104, AURA, 24897, "Agreed", "", "", "For once, both heads think alike. The other head's tricks stay quiet."),
     (9530105, AURA, 25332, "Disagreed", "", "",
      "Your heads can't agree on anything. Half your stats now belong to the other head."),
+    (9530106, RACIAL, 113360, "Play Easy, Cowboy", "Racial",
+     "Let your brother pick and cast his own spells in combat, or take the reins back. Pressing one of his "
+     "spells yourself always comes first. Requires your brother at your side.", ""),
+    (9530107, RACIAL, 25225, "Two Heads, Half a Brain", "Racial",
+     "Let your other head cast her own spells in combat, or take control back. Pressing one of her spells "
+     "yourself always comes first. Requires your heads to disagree.", ""),
+    (9530108, MODE, 113360, "Play Easy, Cowboy", "", "", "Your brother picks his own spells."),
+    (9530109, MODE, 25225, "Two Heads, Half a Brain", "", "", "Your other head does what she likes."),
 ]
+CASTER_AURA = {9530106: 9530102, 9530107: 9530105}
 
 data = open(f"{SRC}/Spell.dbc", "rb").read()
 magic, count, fields, size, string_size = struct.unpack_from("<4s4I", data)
@@ -53,11 +62,15 @@ def build(spell_id, kind, icon, name, rank, description, tooltip):
         row[column + 16] = 0x00FFFFEE if value else 0
     row[225] = 1
     floats.update({216: 1.0, 217: 1.0, 218: 1.0, 229: 1.0, 230: 1.0, 231: 1.0})
+    row[24] = CASTER_AURA.get(spell_id, 0)
     if kind == RACIAL:
         row[71] = 3
         row[205] = 133
         row[206] = 1500
         row[40] = 0
+    elif kind == MODE:
+        row[71] = 6
+        row[95] = 4
     else:
         row[4] = ATTR0_CANT_CANCEL
         row[7] = ATTR3_DEATH_PERSISTENT

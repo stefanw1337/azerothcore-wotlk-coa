@@ -17,6 +17,8 @@
 #include "ServerScript.h"
 #include "SpellScript.h"
 #include "SpellScriptLoader.h"
+#include "SpellInfo.h"
+#include "SpellMgr.h"
 #include "TemporarySummon.h"
 #include "Vehicle.h"
 #include "WorldPacket.h"
@@ -47,6 +49,14 @@ constexpr uint32 SheathEmote = 573;
 constexpr uint32 ArrivalDelay = 2000;
 constexpr float RangedStandoff = 15.0f;
 constexpr uint8 BlackoutDrunk = 100;
+constexpr uint32 CowboySpell = 9530106;
+constexpr uint32 HalfBrainSpell = 9530107;
+constexpr uint32 CowboyAura = 9530108;
+constexpr uint32 HalfBrainAura = 9530109;
+constexpr uint32 EasyTick = 600;
+constexpr uint32 ManualPause = 3000;
+constexpr float HealBelowPct = 60.0f;
+constexpr int32 LastingBuff = 10000;
 constexpr uint32 TwinQuest = 9530020;
 constexpr char const* EchoRefusal = "Your brother still wears whatever you wear. He will want his own clothes "
     "once you have earned the Bravery Badge together.";
@@ -130,6 +140,25 @@ std::unordered_map<uint32, uint32>& auraTicks = *new std::unordered_map<uint32, 
 std::unordered_map<uint32, uint32>& arrivals = *new std::unordered_map<uint32, uint32>;
 std::unordered_map<uint32, uint8>& sips = *new std::unordered_map<uint32, uint8>;
 std::unordered_map<uint32, bool>& hangovers = *new std::unordered_map<uint32, bool>;
+
+struct Brain
+{
+    uint32 Tick = 0;
+    uint32 Pause = 0;
+    bool Busy = false;
+};
+
+std::unordered_map<uint32, Brain>& brains = *new std::unordered_map<uint32, Brain>;
+
+struct BrotherCast
+{
+    ObjectGuid Player;
+    ObjectGuid Twin;
+    uint32 Spell = 0;
+};
+
+thread_local BrotherCast castingAsBrother;
+thread_local bool resendingAsBrother = false;
 
 Wardrobe WardrobeOf(Player const* player)
 {
@@ -710,10 +739,21 @@ uint32 WantedSelfAura(Player const* player)
     return 0;
 }
 
+bool OtherHalfAwake(Player const* player)
+{
+    uint32 const aura = WantedSelfAura(player);
+    return aura == TeamingUpAura || aura == DisagreedAura;
+}
+
 void UpdateSelfAura(Player* player)
 {
     if (!player->IsAlive())
         return;
+    if (!OtherHalfAwake(player))
+    {
+        player->RemoveAurasDueToSpell(CowboyAura);
+        player->RemoveAurasDueToSpell(HalfBrainAura);
+    }
     uint32 const wanted = WantedSelfAura(player);
     for (uint32 aura : SelfAuras)
     {
@@ -804,6 +844,10 @@ void LearnRacials(Player* player)
         player->learnSpell(BrotherSpell, false);
     if (HasSecondHead(player) && !player->HasSpell(HeadsSpell))
         player->learnSpell(HeadsSpell, false);
+    if (HasTwin(player) && !player->HasSpell(CowboySpell))
+        player->learnSpell(CowboySpell, false);
+    if (HasSecondHead(player) && !player->HasSpell(HalfBrainSpell))
+        player->learnSpell(HalfBrainSpell, false);
 }
 
 bool WaitingToReturn(Player const* player, bool returning)
@@ -893,16 +937,51 @@ void HandleTwinLook(Player* player, std::vector<std::string_view> const& words)
     ChatHandler(player->GetSession()).PSendSysMessage("Your twin changes into his new outfit ({} piece(s)).", changed);
 }
 
+bool ShowCastOnBrother(WorldSession* session, WorldPacket const& packet)
+{
+    if (resendingAsBrother || !castingAsBrother.Spell ||
+        (packet.GetOpcode() != SMSG_SPELL_START && packet.GetOpcode() != SMSG_SPELL_GO))
+        return true;
+    WorldPacket reader(packet);
+    reader.rpos(0);
+    ObjectGuid source;
+    ObjectGuid caster;
+    uint8 castCount = 0;
+    uint32 spellId = 0;
+    reader >> source.ReadAsPacked();
+    reader >> caster.ReadAsPacked();
+    std::size_t const afterCasters = reader.rpos();
+    reader >> castCount >> spellId;
+    if (caster != castingAsBrother.Player || spellId != castingAsBrother.Spell)
+        return true;
+    WorldPacket shown(packet.GetOpcode(), packet.size());
+    shown << castingAsBrother.Twin.WriteAsPacked();
+    shown << castingAsBrother.Twin.WriteAsPacked();
+    shown.append(packet.contents() + afterCasters, packet.size() - afterCasters);
+    resendingAsBrother = true;
+    session->SendPacket(&shown);
+    resendingAsBrother = false;
+    return false;
+}
+
 class mod_subclass_twin_packets : public ServerScript
 {
 public:
-    mod_subclass_twin_packets() : ServerScript("mod_subclass_twin_packets", { SERVERHOOK_CAN_PACKET_RECEIVE }) { }
+    mod_subclass_twin_packets() : ServerScript("mod_subclass_twin_packets", { SERVERHOOK_CAN_PACKET_RECEIVE,
+        SERVERHOOK_CAN_PACKET_SEND }) { }
+
+    bool CanPacketSend(WorldSession* session, WorldPacket const& packet) override
+    {
+        return !session || ShowCastOnBrother(session, packet);
+    }
 
     bool CanPacketReceive(WorldSession* session, WorldPacket const& packet) override
     {
         return !session || AnswerMirrorImage(session, packet);
     }
 };
+
+void PlayEasy(Player* player, uint32 diff);
 
 class mod_subclass_twin_player : public PlayerScript
 {
@@ -919,6 +998,7 @@ public:
             RefreshTwin(player);
         UpdateCarry(player, diff);
         TickSelfAura(player, diff);
+        PlayEasy(player, diff);
     }
 
     void OnPlayerTextEmote(Player* player, uint32 /*textEmote*/, uint32 /*emoteNum*/, ObjectGuid /*guid*/) override
@@ -1086,6 +1166,197 @@ public:
     }
 };
 
+std::vector<uint32> KnownBorrowedActives(Player const* player);
+
+bool BrotherOut(Player const* player)
+{
+    return HasTwin(player) && IsSplit(player) && WardrobeOf(player).Enabled && TwinOf(player);
+}
+
+bool Affordable(Player const* player, SpellInfo const* info)
+{
+    if (player->HasSpellCooldown(info->Id))
+        return false;
+    int32 const cost = info->CalcPowerCost(player, info->GetSchoolMask());
+    return cost <= 0 || info->PowerType >= MAX_POWERS || player->GetPower(Powers(info->PowerType)) >= cost;
+}
+
+void SetBusy(Player const* player, bool busy, uint32 pause)
+{
+    std::lock_guard<std::mutex> lock(twinMutex);
+    Brain& brain = brains[player->GetGUID().GetCounter()];
+    brain.Busy = busy;
+    brain.Pause = std::max(brain.Pause, pause);
+}
+
+void ActOutCast(Player* player, SpellInfo const* info, Unit* target)
+{
+    Creature* twin = TwinOf(player);
+    if (!twin)
+        return;
+    if (target && target != player)
+        twin->SetFacingToObject(target);
+    if (info->HasAttribute(SPELL_ATTR0_USES_RANGED_SLOT))
+        if (ItemTemplate const* ranged = RangedOf(player))
+        {
+            twin->HandleEmoteCommand(RangedEmote(ranged));
+            return;
+        }
+    twin->HandleEmoteCommand(info->IsPositive() ? EMOTE_ONESHOT_SPELL_CAST_OMNI : EMOTE_ONESHOT_SPELL_CAST);
+}
+
+void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid)
+{
+    SetBusy(player, false, 0);
+    SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+    Unit* target = targetGuid == player->GetGUID() ? player : ObjectAccessor::GetUnit(*player, targetGuid);
+    if (!info || !target || !player->IsInWorld() || !player->IsAlive() || !OtherHalfAwake(player) ||
+        !Affordable(player, info))
+        return;
+    Creature* twin = HasTwin(player) ? TwinOf(player) : nullptr;
+    ActOutCast(player, info, target);
+    if (twin)
+        castingAsBrother = { player->GetGUID(), twin->GetGUID(), spellId };
+    player->CastSpell(target, spellId, TriggerCastFlags(TRIGGERED_IGNORE_GCD | TRIGGERED_IGNORE_CAST_IN_PROGRESS |
+        TRIGGERED_CAST_DIRECTLY | TRIGGERED_IGNORE_SET_FACING | TRIGGERED_DONT_REPORT_CAST_ERROR));
+    castingAsBrother = {};
+}
+
+bool OrderOtherHalf(Player* player, uint32 spellId, Unit* target, uint32 pause)
+{
+    SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+    if (!info || !target || !OtherHalfAwake(player) || !Affordable(player, info))
+        return false;
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        Brain& brain = brains[player->GetGUID().GetCounter()];
+        if (brain.Busy)
+            return true;
+        brain.Busy = true;
+        brain.Pause = std::max(brain.Pause, pause);
+    }
+    uint32 const castTime = info->CalcCastTime(player);
+    if (castTime)
+        if (Creature* twin = HasTwin(player) ? TwinOf(player) : nullptr)
+        {
+            if (target != player)
+                twin->SetFacingToObject(target);
+            twin->HandleEmoteCommand(EMOTE_ONESHOT_SPELL_PRECAST);
+        }
+    ObjectGuid const targetGuid = target->GetGUID();
+    player->m_Events.AddEventAtOffset([player, spellId, targetGuid]()
+    {
+        ReleaseOtherHalf(player, spellId, targetGuid);
+    }, Milliseconds(std::max<uint32>(castTime, 1)));
+    return true;
+}
+
+bool OrderBrother(Player* player, uint32 spellId, Unit* target)
+{
+    return BrotherOut(player) && OrderOtherHalf(player, spellId, target, ManualPause);
+}
+
+std::pair<uint32, Unit*> PickSpell(Player* player)
+{
+    Unit* foe = TwinTarget(player);
+    uint32 attack = 0;
+    uint32 attackRecovery = 0;
+    uint32 buff = 0;
+    for (uint32 spellId : KnownBorrowedActives(player))
+    {
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+        if (!info || !Affordable(player, info))
+            continue;
+        bool const heals = info->HasEffect(SPELL_EFFECT_HEAL) || info->HasAura(SPELL_AURA_PERIODIC_HEAL);
+        if (heals)
+        {
+            if (player->GetHealthPct() < HealBelowPct)
+                return { spellId, player };
+            continue;
+        }
+        if (info->IsPositive())
+        {
+            if (!buff && info->HasEffect(SPELL_EFFECT_APPLY_AURA) && info->GetDuration() >= LastingBuff &&
+                !player->HasAura(spellId))
+                buff = spellId;
+            continue;
+        }
+        if (!foe)
+            continue;
+        float const range = info->GetMaxRange(false, player);
+        if ((range > 0.0f && !player->IsWithinDistInMap(foe, range)) || !player->IsWithinLOSInMap(foe))
+            continue;
+        uint32 const recovery = std::max(info->RecoveryTime, info->CategoryRecoveryTime);
+        if (!attack || recovery > attackRecovery)
+        {
+            attack = spellId;
+            attackRecovery = recovery;
+        }
+    }
+    if (attack)
+        return { attack, foe };
+    if (buff)
+        return { buff, player };
+    return { 0, nullptr };
+}
+
+void PlayEasy(Player* player, uint32 diff)
+{
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        Brain& brain = brains[player->GetGUID().GetCounter()];
+        brain.Pause = brain.Pause > diff ? brain.Pause - diff : 0;
+        brain.Tick += diff;
+        if (brain.Tick < EasyTick)
+            return;
+        brain.Tick = 0;
+        if (brain.Busy || brain.Pause)
+            return;
+    }
+    uint32 const easyAura = HasTwin(player) ? CowboyAura : HalfBrainAura;
+    if (!player->HasAura(easyAura) || !player->IsInCombat() || !player->IsAlive() || player->HasStealthAura() ||
+        !OtherHalfAwake(player) || (HasTwin(player) && !BrotherOut(player)))
+        return;
+    auto const [spellId, target] = PickSpell(player);
+    if (spellId)
+        OrderOtherHalf(player, spellId, target, 0);
+}
+
+std::string ToggleEasy(Player* player)
+{
+    bool const twin = HasTwin(player);
+    if (!twin && !HasSecondHead(player))
+        return "Only the Thin Twins and two-headed ogres have another half to let loose.";
+    if (!OtherHalfAwake(player))
+        return twin ? "Your brother has to be with you for that." :
+            "Your other head is too busy agreeing with you to do anything on her own.";
+    uint32 const aura = twin ? CowboyAura : HalfBrainAura;
+    if (player->HasAura(aura))
+    {
+        player->RemoveAurasDueToSpell(aura);
+        return twin ? "You take the reins back from your brother." : "You stop letting the dumb one drive.";
+    }
+    player->AddAura(aura, player);
+    return twin ? "Play easy, cowboy: your brother picks his own spells now." :
+        "Two heads, half a brain: your other head does what she likes now.";
+}
+
+class spell_subclass_easy : public SpellScript
+{
+    PrepareSpellScript(spell_subclass_easy);
+
+    void HandleDummy(SpellEffIndex /*effIndex*/)
+    {
+        if (Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr)
+            ChatHandler(player->GetSession()).SendSysMessage(ToggleEasy(player));
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_subclass_easy::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
 class spell_subclass_second_self : public SpellScript
 {
     PrepareSpellScript(spell_subclass_second_self);
@@ -1108,6 +1379,7 @@ class spell_subclass_second_self : public SpellScript
 void AddSC_mod_subclass_twin()
 {
     RegisterSpellScript(spell_subclass_second_self);
+    RegisterSpellScript(spell_subclass_easy);
     new mod_subclass_twin_packets();
     new mod_subclass_twin_player();
     new mod_subclass_twin_commands();
