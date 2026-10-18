@@ -1327,10 +1327,65 @@ local function DumpTabs()
     DEFAULT_CHAT_FRAME:AddMessage("Ascension Subclass: tab layout saved. /reload to write it to disk.")
 end
 
+local SHARE_ICONS = {
+    "Achievement_Reputation_01", "INV_Misc_GroupNeedMore", "INV_Misc_GroupLooking", "Spell_Shadow_DeathPact",
+    "Spell_Shadow_SoulLeech_3", "Spell_Holy_SealOfSacrifice", "Spell_Shadow_UnholyStrength", "Spell_Nature_Strength",
+    "Spell_Shadow_LifeDrain02", "Spell_Holy_PrayerOfFortitude", "Spell_Holy_PrayerOfSpirit", "Spell_Nature_Reincarnation",
+    "Ability_Rogue_FeignDeath", "Spell_Magic_LesserInvisibilty", "Achievement_Character_Human_Male",
+    "Spell_Shadow_CurseOfMannoroth", "Spell_Holy_SpiritualGuidence", "Ability_Warrior_Rampage",
+    "Spell_Shadow_Charm", "Spell_Holy_Heal02", "Ability_Hunter_Pet_Bear", "Spell_Misc_Drink", "INV_Drink_05",
+    "Spell_Shadow_BrainWash",
+}
+
+local iconSheet
+
+local function ShowIcons()
+    if iconSheet then
+        if iconSheet:IsShown() then
+            iconSheet:Hide()
+        else
+            iconSheet:Show()
+        end
+        return
+    end
+    iconSheet = CreateFrame("Frame", "Ascension_SubclassIcons", UIParent)
+    iconSheet:SetWidth(6 * 120 + 24)
+    iconSheet:SetHeight(math.ceil(#SHARE_ICONS / 6) * 92 + 48)
+    iconSheet:SetPoint("CENTER")
+    iconSheet:SetFrameStrata("DIALOG")
+    iconSheet:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border", tile = true, tileSize = 32, edgeSize = 32,
+        insets = { left = 11, right = 12, top = 12, bottom = 11 } })
+    iconSheet:EnableMouse(true)
+    iconSheet:SetMovable(true)
+    iconSheet:RegisterForDrag("LeftButton")
+    iconSheet:SetScript("OnDragStart", iconSheet.StartMoving)
+    iconSheet:SetScript("OnDragStop", iconSheet.StopMovingOrSizing)
+    local title = iconSheet:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("TOP", 0, -16)
+    title:SetText("Brotherly Share - pick an icon")
+    local close = CreateFrame("Button", nil, iconSheet, "UIPanelCloseButton")
+    close:SetPoint("TOPRIGHT", -4, -4)
+    for index, name in ipairs(SHARE_ICONS) do
+        local column, row = (index - 1) % 6, math.floor((index - 1) / 6)
+        local icon = iconSheet:CreateTexture(nil, "ARTWORK")
+        icon:SetWidth(48)
+        icon:SetHeight(48)
+        icon:SetPoint("TOPLEFT", 12 + column * 120 + 36, -40 - row * 92)
+        icon:SetTexture("Interface\\Icons\\" .. name)
+        local label = iconSheet:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        label:SetWidth(116)
+        label:SetPoint("TOP", icon, "BOTTOM", 0, -2)
+        label:SetText(index .. ". " .. name)
+    end
+end
+
 SLASH_ASCENSIONSUBCLASS1 = "/subclass"
 SlashCmdList.ASCENSIONSUBCLASS = function(message)
     if message == "dump" then
         DumpTabs()
+    elseif message == "icons" then
+        ShowIcons()
     else
         Toggle()
     end
