@@ -1088,6 +1088,108 @@ ToggleTalentFrame = function(...)
     end
 end
 
+local dressingTwin = false
+local twinButton
+
+local function SendTwinLook()
+    local looks = {}
+    for category = 1, 11 do
+        local appearance = C_Appearance.GetPendingAppearance(category)
+        if appearance then
+            local _, itemId = C_Appearance.GetAppearanceDisplayInfo(appearance)
+            if itemId and itemId > 0 then
+                looks[#looks + 1] = category .. ":" .. itemId
+            end
+        end
+    end
+    if #looks == 0 then
+        return false
+    end
+    Send("TWINLOOK " .. table.concat(looks, " "))
+    C_Appearance.ClearPendingAppearances()
+    return true
+end
+
+local function HookWardrobeApply()
+    if not C_Appearance or not C_Appearance.ApplyPendingAppearances or C_Appearance.SubclassTwinHooked then
+        return
+    end
+    local apply = C_Appearance.ApplyPendingAppearances
+    C_Appearance.ApplyPendingAppearances = function(...)
+        if dressingTwin then
+            return SendTwinLook()
+        end
+        return apply(...)
+    end
+    C_Appearance.SubclassTwinHooked = true
+end
+
+local function FindButton(text)
+    local frame = EnumerateFrames()
+    while frame do
+        if frame.GetObjectType and frame:GetObjectType() == "Button" and TextOf(frame) == text then
+            return frame
+        end
+        frame = EnumerateFrames(frame)
+    end
+end
+
+local function ShowDressing()
+    twinButton:SetText(dressingTwin and "Dressing: Your twin" or "Dressing: You")
+end
+
+local function AttachTwinButton()
+    if twinButton then
+        return true
+    end
+    local _, race = UnitRace("player")
+    if race ~= "ThinHuman" then
+        return true
+    end
+    local anchor = FindButton("Disable Spell Visuals") or FindButton("Disable Transmog")
+    if not anchor then
+        return false
+    end
+    HookWardrobeApply()
+    twinButton = CreateFrame("Button", "Ascension_SubclassTwinButton", anchor:GetParent(), "UIPanelButtonTemplate")
+    twinButton:SetWidth(150)
+    twinButton:SetHeight(anchor:GetHeight())
+    twinButton:SetPoint("LEFT", anchor, "RIGHT", 8, 0)
+    twinButton:SetScript("OnClick", function()
+        dressingTwin = not dressingTwin
+        if C_Appearance and C_Appearance.ClearPendingAppearances then
+            C_Appearance.ClearPendingAppearances()
+        end
+        ShowDressing()
+    end)
+    twinButton:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText("Who the Wardrobe dresses", 1, 1, 1)
+        GameTooltip:AddLine("Switch to your twin, pick his look and apply it as usual. "
+            .. "He wears it without needing the items.", nil, nil, nil, true)
+        GameTooltip:Show()
+    end)
+    twinButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    anchor:GetParent():HookScript("OnHide", function()
+        dressingTwin = false
+        ShowDressing()
+    end)
+    ShowDressing()
+    return true
+end
+
+local twinWatcher = CreateFrame("Frame")
+twinWatcher:SetScript("OnUpdate", function(self, elapsed)
+    self.wait = (self.wait or 0) + elapsed
+    if self.wait < 2 then
+        return
+    end
+    self.wait = 0
+    if AttachTwinButton() then
+        self:SetScript("OnUpdate", nil)
+    end
+end)
+
 SLASH_ASCENSIONSUBCLASS1 = "/subclass"
 SlashCmdList.ASCENSIONSUBCLASS = Toggle
 

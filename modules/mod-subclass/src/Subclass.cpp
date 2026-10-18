@@ -32,6 +32,8 @@
 
 using namespace Acore::ChatCommands;
 
+void HandleTwinLook(Player* player, std::vector<std::string_view> const& words);
+
 namespace
 {
 constexpr uint32 PromptMenuId = 9530010;
@@ -623,7 +625,9 @@ void HandleAddonMessage(Player* player, std::string_view message)
         return;
     }
     std::vector<std::string_view> const words = Acore::Tokenize(message, ' ', false);
-    if (words.size() == 3 && words[0] == "LEARN")
+    if (!words.empty() && words[0] == "TWINLOOK")
+        HandleTwinLook(player, words);
+    else if (words.size() == 3 && words[0] == "LEARN")
         if (Optional<uint32> entryId = Acore::StringTo<uint32>(words[1]))
             if (Optional<uint32> rank = Acore::StringTo<uint32>(words[2]))
                 LearnFromAddon(player, *entryId, *rank);

@@ -12,6 +12,7 @@
 #include "Player.h"
 #include "PlayerScript.h"
 #include "Random.h"
+#include "StringConvert.h"
 #include "ServerScript.h"
 #include "TemporarySummon.h"
 #include "Vehicle.h"
@@ -371,6 +372,33 @@ std::string SlotList()
         list += list.empty() ? slot.Name : std::string(", ") + slot.Name;
     return list;
 }
+}
+
+void HandleTwinLook(Player* player, std::vector<std::string_view> const& words)
+{
+    constexpr std::array<int, 12> SlotOfCategory = { -1, 0, 1, 9, 3, 10, 2, 7, 8, 4, 5, 6 };
+    Wardrobe wardrobe = WardrobeOf(player);
+    uint32 changed = 0;
+    for (std::size_t index = 1; index < words.size(); ++index)
+    {
+        std::string_view const pair = words[index];
+        std::size_t const colon = pair.find(':');
+        if (colon == std::string_view::npos)
+            continue;
+        Optional<uint32> const category = Acore::StringTo<uint32>(pair.substr(0, colon));
+        Optional<uint32> const itemId = Acore::StringTo<uint32>(pair.substr(colon + 1));
+        if (!category || !itemId || *category >= SlotOfCategory.size() || SlotOfCategory[*category] < 0)
+            continue;
+        if (*itemId && !DisplayOfItem(*itemId))
+            continue;
+        wardrobe.Items[SlotOfCategory[*category]] = *itemId;
+        ++changed;
+    }
+    if (!changed)
+        return;
+    StoreWardrobe(player, wardrobe);
+    RefreshTwin(player);
+    ChatHandler(player->GetSession()).PSendSysMessage("Your twin changes into his new outfit ({} piece(s)).", changed);
 }
 
 class mod_subclass_twin_packets : public ServerScript
