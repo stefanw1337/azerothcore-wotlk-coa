@@ -214,6 +214,9 @@ Wardrobe Worn(Player const* player)
     return worn;
 }
 
+bool OtherHalfShoots(Player const* player);
+bool MainHalfShoots(Player const* player);
+
 Item* OwnBow(Player const* player)
 {
     return player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_RANGED);
@@ -224,7 +227,7 @@ Wardrobe Dressed(Player const* player)
     Wardrobe wardrobe = WardrobeOf(player);
     if (!IsSplit(player))
         wardrobe.Items = Worn(player).Items;
-    else if (!wardrobe.Items[Ranged])
+    else if (!wardrobe.Items[Ranged] && OtherHalfShoots(player))
         if (Item const* bow = OwnBow(player))
             wardrobe.Items[Ranged] = bow->GetEntry();
     return wardrobe;
@@ -759,9 +762,14 @@ bool OtherHalfAwake(Player const* player)
 
 bool BrotherOut(Player const* player);
 
+bool OnlyBrotherShoots(Player const* player)
+{
+    return BrotherOut(player) && OtherHalfShoots(player) && !MainHalfShoots(player);
+}
+
 void UpdateReach(Player* player)
 {
-    bool const wanted = BrotherOut(player);
+    bool const wanted = OnlyBrotherShoots(player);
     if (wanted && !player->HasAura(ReachAura))
         player->AddAura(ReachAura, player);
     else if (!wanted && player->HasAura(ReachAura))
@@ -770,19 +778,20 @@ void UpdateReach(Player* player)
 
 void HandBowToBrother(Player* player)
 {
+    if (BrotherOut(player))
+        if (Creature* twin = TwinOf(player))
+            if (uint32 const shown = Dressed(player).Items[Ranged];
+                twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID + 2) != shown)
+                twin->SetVirtualItem(2, shown);
     Item* bow = OwnBow(player);
     uint16 const field = PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_RANGED * 2;
-    if (bow && BrotherOut(player))
+    if (bow && OnlyBrotherShoots(player))
     {
         if (player->GetUInt32Value(field))
         {
             player->SetUInt32Value(field, 0);
             player->SetUInt32Value(field + 1, 0);
         }
-        if (Creature* twin = TwinOf(player))
-            if (uint32 const shown = Dressed(player).Items[Ranged];
-                twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID + 2) != shown)
-                twin->SetVirtualItem(2, shown);
         return;
     }
     if (bow && !player->GetUInt32Value(field))
@@ -1055,7 +1064,7 @@ public:
 
     void OnPlayerAfterSetVisibleItemSlot(Player* player, uint8 slot, Item* /*item*/) override
     {
-        if (slot == EQUIPMENT_SLOT_RANGED && BrotherOut(player))
+        if (slot == EQUIPMENT_SLOT_RANGED && OnlyBrotherShoots(player))
             return HandBowToBrother(player);
         MarkRestyle(player);
     }

@@ -953,6 +953,41 @@ void OfferStoryLater(Player* player)
     SchedulePrompt(player, 2s);
 }
 
+bool UsesBow(SpellInfo const* info)
+{
+    return info && (info->IsRangedWeaponSpell() || info->HasAttribute(SPELL_ATTR0_USES_RANGED_SLOT));
+}
+
+bool ClassShoots(uint8 classId)
+{
+    static std::mutex shootersMutex;
+    static std::unordered_map<uint8, bool> shooters;
+    std::lock_guard<std::mutex> lock(shootersMutex);
+    if (auto known = shooters.find(classId); known != shooters.end())
+        return known->second;
+    bool shoots = classId == CLASS_HUNTER;
+    for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)
+        if (!shoots && spell.ClassId == classId)
+            shoots = UsesBow(sSpellMgr->GetSpellInfo(spell.SpellId));
+    for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
+        if (!shoots && entry.ClassId == classId)
+            for (uint32 spellId : entry.SpellIds)
+                shoots = shoots || (spellId && UsesBow(sSpellMgr->GetSpellInfo(spellId)));
+    shooters.emplace(classId, shoots);
+    return shoots;
+}
+
+bool OtherHalfShoots(Player const* player)
+{
+    Subclass::Choice const choice = ChoiceOf(player);
+    return choice.Complete() && ClassShoots(choice.SubClass);
+}
+
+bool MainHalfShoots(Player const* player)
+{
+    return ClassShoots(player->getClass());
+}
+
 bool IsBorrowedSpell(Player const* player, uint32 spellId)
 {
     Record const record = RecordOf(player);
