@@ -1435,8 +1435,58 @@ twinApplyKeeper:SetScript("OnUpdate", function(self, elapsed)
     end
 end)
 
+local TWIN_SLOT_NAMES = { "Head", "Shoulders", "Shirt", "Chest", "Waist", "Legs", "Feet", "Wrists", "Hands",
+    "Back", "Tabard", "Main hand", "Off hand", "Ranged" }
+local twinUndressButton
+local twinUndressMenu
+
+local function CategoryOfTwinSlot(slot)
+    for category, twinSlot in ipairs(TWIN_SLOT_OF_CATEGORY) do
+        if twinSlot == slot then
+            return category
+        end
+    end
+end
+
+local function TakeOffTwin(slots)
+    local looks = {}
+    for _, slot in ipairs(slots) do
+        looks[#looks + 1] = CategoryOfTwinSlot(slot) .. ":0"
+    end
+    if #looks > 0 then
+        Send("TWINLOOK " .. table.concat(looks, " "))
+    end
+end
+
+local function ShowUndressMenu(anchor)
+    local entries = { { text = "Take off your twin's", isTitle = true, notCheckable = true } }
+    local worn = {}
+    for slot, name in ipairs(TWIN_SLOT_NAMES) do
+        if (twinOutfit[slot] or 0) > 0 then
+            worn[#worn + 1] = slot
+            entries[#entries + 1] = { text = name, notCheckable = true,
+                func = function() TakeOffTwin({ slot }) end }
+        end
+    end
+    if #worn == 0 then
+        entries[#entries + 1] = { text = "He wears nothing you can take off", disabled = true, notCheckable = true }
+    else
+        entries[#entries + 1] = { text = "Everything", notCheckable = true, func = function() TakeOffTwin(worn) end }
+    end
+    twinUndressMenu = twinUndressMenu or CreateFrame("Frame", "Ascension_SubclassTwinUndressMenu", UIParent,
+        "UIDropDownMenuTemplate")
+    EasyMenu(entries, twinUndressMenu, anchor, 0, 0, "MENU")
+end
+
 local function ShowDressing()
     twinButton:SetText(dressingTwin and "Dressing: Your twin" or "Dressing: You")
+    if twinUndressButton then
+        if dressingTwin then
+            twinUndressButton:Show()
+        else
+            twinUndressButton:Hide()
+        end
+    end
     if dressingTwin then
         twinApplyKeeper.scan = 0
         twinApplyKeeper:Show()
@@ -1494,6 +1544,15 @@ local function AttachTwinButton()
         GameTooltip:Show()
     end)
     twinButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    twinUndressButton = CreateFrame("Button", "Ascension_SubclassTwinUndressButton", anchor:GetParent(),
+        "UIPanelButtonTemplate")
+    twinUndressButton:SetWidth(90)
+    twinUndressButton:SetHeight(anchor:GetHeight())
+    twinUndressButton:SetPoint("LEFT", twinButton, "RIGHT", 4, 0)
+    twinUndressButton:SetFrameStrata(anchor:GetFrameStrata())
+    twinUndressButton:SetFrameLevel(anchor:GetFrameLevel() + 20)
+    twinUndressButton:SetText("Take off")
+    twinUndressButton:SetScript("OnClick", function(self) ShowUndressMenu(self) end)
     anchor:GetParent():HookScript("OnHide", function()
         dressingTwin = false
         ShowDressing()
