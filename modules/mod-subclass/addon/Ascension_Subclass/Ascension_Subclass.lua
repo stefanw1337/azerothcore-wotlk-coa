@@ -1181,10 +1181,51 @@ local function RenderClassicTree(tabIndex, canvas)
     end
 end
 
+local CORNER_REACH = 110
+
+local function CornerTextures(frame, page, found)
+    local left, top = window:GetLeft(), window:GetTop()
+    local pageLeft, pageTop = page:GetLeft(), page:GetTop()
+    for _, region in ipairs({ frame:GetRegions() }) do
+        if region:GetObjectType() == "Texture" and region:IsShown() and region:GetTexture()
+            and region:GetLeft() and region:GetLeft() < left + CORNER_REACH and region:GetTop() > top - CORNER_REACH
+            and (region:GetLeft() < pageLeft or region:GetTop() > pageTop) then
+            table.insert(found, region)
+        end
+    end
+    for _, child in ipairs({ frame:GetChildren() }) do
+        if child ~= page and child ~= panel and child ~= ownPage and child:IsShown() then
+            CornerTextures(child, page, found)
+        end
+    end
+    return found
+end
+
+local function LiftWindowCorner(page)
+    if page.corner or not window:GetLeft() then
+        return
+    end
+    page.corner = CreateFrame("Frame", nil, page)
+    page.corner:SetAllPoints(window)
+    page.corner:SetFrameLevel(page:GetFrameLevel() + 30)
+    local left, top = window:GetLeft(), window:GetTop()
+    for _, source in ipairs(CornerTextures(window, page, {})) do
+        local copy = page.corner:CreateTexture(nil, source:GetDrawLayer())
+        copy:SetTexture(source:GetTexture())
+        copy:SetTexCoord(source:GetTexCoord())
+        copy:SetVertexColor(source:GetVertexColor())
+        copy:SetBlendMode(source:GetBlendMode())
+        copy:SetWidth(source:GetWidth())
+        copy:SetHeight(source:GetHeight())
+        copy:SetPoint("TOPLEFT", window, "TOPLEFT", source:GetLeft() - left, source:GetTop() - top)
+    end
+end
+
 local function RenderClassic()
     if not ownPage or not ownPage:IsShown() then
         return
     end
+    LiftWindowCorner(ownPage)
     ownPage.points:SetText(string.format("Talent points left: |cffffffff%d|r", FreeTalentPoints()))
     local tabs = GetNumTalentTabs() or 0
     local inner = ownPage:GetWidth() - 20
@@ -1344,6 +1385,10 @@ end
 local function Attach()
     if not AttachToWindow() then
         return false
+    end
+    if not panel.cornerHooked then
+        panel.cornerHooked = true
+        panel:HookScript("OnShow", function() LiftWindowCorner(panel) end)
     end
     if IsStandardClass() then
         AdoptOwnPage()

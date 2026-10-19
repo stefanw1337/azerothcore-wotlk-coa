@@ -53,6 +53,8 @@ std::string ToggleTwin(Player* player);
 bool SubclassResting(Player const* player);
 bool LonelyTwin(Player const* player);
 bool OrderBrother(Player* player, uint32 spellId, Unit* target);
+bool OffersStandardMains();
+bool IsStandardMainClass(uint8 classId);
 
 namespace
 {
@@ -509,9 +511,14 @@ void StoreRecord(Player const* player, Record const& record)
     records[guid] = record;
 }
 
+bool MainMaySubclass(uint8 classId)
+{
+    return IsAscensionCustomClassId(classId) || (IsStandardMainClass(classId) && OffersStandardMains());
+}
+
 bool IsEligible(Player const* player)
 {
-    if (!IsAscensionCustomClassId(player->getClass()))
+    if (!MainMaySubclass(player->getClass()))
         return false;
     std::lock_guard<std::mutex> lock(subclassMutex);
     return Subclass::IsEligible(pairs, CharacterOf(player));
@@ -519,7 +526,7 @@ bool IsEligible(Player const* player)
 
 std::vector<Subclass::Tree> OpenTreesOf(Player const* player)
 {
-    if (!IsAscensionCustomClassId(player->getClass()))
+    if (!MainMaySubclass(player->getClass()))
         return {};
     Subclass::Choice const choice = ChoiceOf(player);
     bool const hasClassTree = HasClassTree(choice.SubClass);
@@ -933,7 +940,7 @@ std::string Describe(Subclass::Choice const& choice)
 
 bool OffersQuest(Player const* player)
 {
-    if (!IsAscensionCustomClassId(player->getClass()) || LonelyTwin(player))
+    if (!MainMaySubclass(player->getClass()) || LonelyTwin(player))
         return false;
     Record const record = RecordOf(player);
     Subclass::Settings const current = SettingsOf(player);
@@ -972,8 +979,12 @@ void AcceptQuest(Player* player)
     ChatHandler(player->GetSession()).SendSysMessage(VoiceOf(player).Says(VoiceOf(player).Accepted));
 }
 
-bool OfferedAsSubclass(uint8 catalogClassId)
+bool OfferedAsSubclass(uint8 mainClass, uint8 catalogClassId)
 {
+    if (PlayableClassOf(catalogClassId) == mainClass)
+        return false;
+    if (!IsAscensionCustomClassId(mainClass))
+        return !IsAscensionCustomClassId(PlayableClassOf(catalogClassId));
     return settings.StandardClasses || !AscensionCompatData::IsCoABorrowOnlyClass(catalogClassId);
 }
 
@@ -984,7 +995,7 @@ void ShowClasses(Player* player, Creature* trainer)
     {
         std::lock_guard<std::mutex> lock(subclassMutex);
         for (NamedClass const& named : Classes)
-            if (OfferedAsSubclass(named.Id) &&
+            if (OfferedAsSubclass(character.Class, named.Id) &&
                 Subclass::AllowsAnySpecializationOf(pairs, character, named.Id))
                 AddGossipItemFor(player, GOSSIP_ICON_TRAINER, ClassName(named.Id), SenderClass, named.Id);
     }
@@ -1030,7 +1041,7 @@ void ChooseAtTrainer(Player* player, uint16 specId, uint16 secondSpecId)
     bool allowed = false;
     {
         std::lock_guard<std::mutex> lock(subclassMutex);
-        allowed = OfferedAsSubclass(classId) &&
+        allowed = OfferedAsSubclass(player->getClass(), classId) &&
             Subclass::AllowsChoice(pairs, CharacterOf(player), wanted) &&
             !BorrowedTreesOf(wanted).empty() && player->GetLevel() >= settings.MinLevel;
     }
@@ -1453,7 +1464,7 @@ private:
 
         Subclass::Character const character = CharacterOf(player);
         Subclass::Choice kept;
-        if (IsAscensionCustomClassId(character.Class) && IsSpecializationOf(choice.SubClass, choice.SubSpec))
+        if (MainMaySubclass(character.Class) && IsSpecializationOf(choice.SubClass, choice.SubSpec))
         {
             std::lock_guard<std::mutex> lock(subclassMutex);
             kept = Subclass::Trimmed(pairs, character, choice);
@@ -1556,7 +1567,7 @@ public:
         {
             Player* player = reference.GetSource();
             if (!player || !player->IsInWorld() || !player->IsAtGroupRewardDistance(boss) ||
-                !IsAscensionCustomClassId(player->getClass()))
+                !MainMaySubclass(player->getClass()))
                 continue;
             Subclass::Settings const current = SettingsOf(player);
             bool finds = false;
@@ -1649,9 +1660,10 @@ public:
         Subclass::Choice const wanted = { subClass, subSpec, secondSpec.value_or(0) };
         if (!wanted.Empty())
         {
-            if (!IsAscensionCustomClassId(character.Class))
+            if (!MainMaySubclass(character.Class))
             {
-                handler->SendErrorMessage("Only CoA classes can have a subclass.");
+                handler->SendErrorMessage("Only CoA classes and standard mains of a subclass race can have a "
+                    "subclass.");
                 return false;
             }
             if (!IsSpecializationOf(subClass, subSpec) ||
@@ -1930,6 +1942,9 @@ void AddSC_mod_subclass()
             return !tree.SpecId;
         });
         std::lock_guard<std::mutex> lock(subclassMutex);
-        Subclass::AddBonusPoints(settings, borrowsClassTree, classPoints, specializationPoints);
+        if (!IsAscensionCustomClassId(player->getClass()))
+            specializationPoints += Subclass::BonusPoints(settings, player->CalculateTalentsPoints());
+        else
+            Subclass::AddBonusPoints(settings, borrowsClassTree, classPoints, specializationPoints);
     });
 }

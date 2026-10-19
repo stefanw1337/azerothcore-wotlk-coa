@@ -1991,6 +1991,15 @@ public:
       return true;
     }
 
+    if (!IsAscensionCustomClass(player) && !AccessOf(player).ExtraTrees.empty())
+    {
+      classBudget = 0;
+      specializationBudget = 0;
+      for (AscensionTalentBudgetProvider const& provider : TalentBudgetProviders())
+        provider(player, classBudget, specializationBudget);
+      return true;
+    }
+
     LOG_ERROR("coa", "No CoA talent budget row for class {} at level {} ({})",
               uint32(player->getClass()), uint32(player->GetLevel()), player->GetName());
     error = Acore::StringFormat("No talent budget is known for class {} at level {}; no rank can be raised.",
@@ -10272,9 +10281,9 @@ bool RestoreAscensionSpecializationSignature(Player* player)
 bool ApplyAscensionTalentBuild(Player* player, std::vector<AscensionCoATalentState::KnownEntry> const& build,
     std::string& refusal)
 {
-    if (!player || !IsAscensionCustomClass(player))
+    if (!player || (!IsAscensionCustomClass(player) && AscensionClassService::AccessOf(player).ExtraTrees.empty()))
     {
-        refusal = "Only CoA classes have a character advancement build.";
+        refusal = "Only CoA classes and borrowed trees have a character advancement build.";
         return false;
     }
     auto& service = AscensionClassService::Instance();
