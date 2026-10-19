@@ -38,6 +38,7 @@ end
 COA_SUBCLASS_SMALL_RACES = { ["Two-Headed Ogre"] = 1.9 }
 do
 	local function SmallRaceScale()
+		if not (CharacterCreateFrame and CharacterCreateFrame:IsVisible()) then return end
 		local ok, name = pcall(GetNameForRace)
 		return ok and name and COA_SUBCLASS_SMALL_RACES[name]
 	end
@@ -54,10 +55,11 @@ do
 	local customize = CreateFrame("Frame")
 	local since, base
 	customize:SetScript("OnUpdate", function(self, elapsed)
-		local k = SmallRaceScale()
-		local active = k and CharacterCreateFrame and CharacterCreateFrame:IsShown() and Enum and Enum.CharCreateSteps
+		local active = CharacterCreateFrame and CharacterCreateFrame:IsVisible() and Enum and Enum.CharCreateSteps
 			and CharacterCreateFrame.state == Enum.CharCreateSteps.Customization
 			and C_CharacterCreate and C_CharacterCreate.GetCameraPosition
+		local k = active and SmallRaceScale()
+		active = active and k
 		if not active then
 			since, base = nil, nil
 			return
@@ -108,6 +110,7 @@ COA_SUBCLASS_EYE_RACES = { ["Two-Headed Ogre"] = true }
 do
 	local CUSTOMIZE_FACE = 2
 	local function EyesInsteadOfFace()
+		if not (CharacterCreateFrame and CharacterCreateFrame:IsVisible()) then return end
 		local ok, name = pcall(GetNameForRace)
 		return ok and name and COA_SUBCLASS_EYE_RACES[name]
 	end
