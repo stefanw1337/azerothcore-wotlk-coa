@@ -1188,7 +1188,7 @@ local function CornerTextures(frame, page, found)
     local pageLeft, pageTop = page:GetLeft(), page:GetTop()
     for _, region in ipairs({ frame:GetRegions() }) do
         if region:GetObjectType() == "Texture" and region:IsShown() and region:GetTexture()
-            and region:GetLeft() and region:GetLeft() < left + CORNER_REACH and region:GetTop() > top - CORNER_REACH
+            and region:GetLeft() and region:GetRight() < left + CORNER_REACH and region:GetBottom() > top - CORNER_REACH
             and (region:GetLeft() < pageLeft or region:GetTop() > pageTop) then
             table.insert(found, region)
         end
