@@ -34,7 +34,6 @@ class EyeColor:
     sclera: tuple = (128, 120, 104)
     pupil: tuple = (10, 8, 6)
     glow: bool = False
-    blind: bool = False
 
 
 CALM_GAZE = ((0, 0.0, 0.0), (1500, 0.0, 0.0), (1800, 0.13, 0.0), (2900, 0.13, 0.0), (3200, 0.0, 0.0),
@@ -61,21 +60,37 @@ EYE_COLORS = (
     EyeColor("FireGlow", (255, 220, 120), (230, 90, 20), (200, 150, 110), (70, 20, 5), glow=True),
     EyeColor("HolyGlow", (255, 250, 200), (230, 190, 70), (210, 200, 160), (90, 70, 20), glow=True),
     EyeColor("ShadowGlow", (220, 150, 255), (120, 40, 200), (150, 120, 170), (30, 5, 50), glow=True),
-    EyeColor("Blind", (196, 198, 200), (160, 164, 170), (170, 168, 160), blind=True),
 )
 COLOR = {color.name: color for color in EYE_COLORS}
 NATURAL = ("Brown", "Hazel", "Amber", "Green", "Grey", "Blue", "Ice", "Violet", "Black", "Red")
 GLOWING = ("FelGlow", "ArcaneGlow", "FireGlow", "HolyGlow", "ShadowGlow")
+SIGHTED = NATURAL + GLOWING
+ONE_BLIND = ((2,), (0,), (1,))
+TWO_BLIND = ((0, 1), (0, 2), (1, 2))
+ALL_BLIND = ((0, 1, 2),)
+
+
+def blinded(color, blind_eyes):
+    return tuple((color, eye in blind_eyes) for eye in range(3))
+
+
+def seeing(*colors):
+    return tuple((color, False) for color in colors)
+
+
 EYE_SETS = (
-    tuple((name, name, name) for name in NATURAL + GLOWING + ("Blind",)) +
-    tuple((name, name, "Blind") for name in NATURAL + GLOWING) +
-    tuple(("Blind", "Blind", name) for name in NATURAL + GLOWING) +
-    tuple(("Blind", name, name) for name in ("Brown", "Blue", "Green", "Grey", "FelGlow")) +
-    tuple((name, name, glow) for name, glow in (("Brown", "FelGlow"), ("Grey", "ArcaneGlow"), ("Black", "FireGlow"),
-                                              ("Blue", "HolyGlow"), ("Hazel", "ShadowGlow"))) +
-    tuple((first, second, cyclops) for first, second, cyclops in (("Blue", "Brown", "Green"),
-                                                                  ("Green", "Blue", "Brown")))
+    tuple(seeing(name, name, name) for name in SIGHTED) +
+    tuple(blinded(name, eyes) for name in SIGHTED for eyes in ONE_BLIND + TWO_BLIND + ALL_BLIND) +
+    tuple(seeing(name, name, glow) for name, glow in (("Brown", "FelGlow"), ("Grey", "ArcaneGlow"),
+                                                      ("Black", "FireGlow"), ("Blue", "HolyGlow"),
+                                                      ("Hazel", "ShadowGlow"))) +
+    (seeing("Blue", "Brown", "Green"), seeing("Green", "Blue", "Brown"))
 )
+CLOUD = (226, 230, 234)
+CLOUD_STRENGTH = 0.68
+SORE = (150, 42, 36)
+SORE_FROM = 0.42
+SORE_STRENGTH = 0.55
 HAIR_TEXTURE = 6
 CELLS = 4
 TWO_EYED_HEAD, CYCLOPS_HEAD = 21, 20
@@ -158,7 +173,7 @@ def outward(vertices, triangles, centre):
     return fixed
 
 
-def eye_cell(look, color):
+def eye_cell(look, color, blind=False):
     size = TEXTURE_SIZE
     yy, xx = np.mgrid[0:size, 0:size].astype(np.float32)
     r = np.hypot(xx - size / 2 + 0.5, yy - size / 2 + 0.5) / (size / 2)
@@ -173,13 +188,15 @@ def eye_cell(look, color):
     iris = r < look.iris
     t = np.clip(r / look.iris, 0, 1)[..., None]
     image[iris] = (inner * (1 - t) + outer * t)[iris]
-    if color.blind:
-        image[iris] = image[iris] * 0.6 + sclera * 0.4
-        return image
     ring = (r > look.iris - 0.06) & (r < look.iris + 0.02)
     image[ring] = image[ring] * (0.75 if color.glow else 0.45)
     image[r < look.iris * (0.28 if color.glow else 0.36)] = color.pupil
     image[np.hypot(xx - size * 0.38, yy - size * 0.36) < size * 0.05] = (176, 170, 160)
+    if blind:
+        cloud = (np.clip(1.15 - r / look.iris * 0.5, 0, 1) * CLOUD_STRENGTH)[..., None]
+        image = image * (1 - cloud) + np.array(CLOUD, np.float32) * cloud
+        sore = (np.clip((r - SORE_FROM) / (1.0 - SORE_FROM), 0, 1) ** 1.5)[..., None] * SORE_STRENGTH
+        image = image * (1 - sore) + np.array(SORE, np.float32) * sore
     return image
 
 
@@ -189,7 +206,7 @@ def eye_texture_name(index):
 
 def eye_atlas(eye_set, path):
     looks = [HEAD_LOOK[head] for _, _, head in EYES]
-    cells = [eye_cell(look, COLOR[name]) for look, name in zip(looks, eye_set)]
+    cells = [eye_cell(look, COLOR[name], blind) for look, (name, blind) in zip(looks, eye_set)]
     cells += [cells[-1]] * (CELLS - len(cells))
     image = np.vstack(cells)
     write_blp(Image.fromarray(np.clip(image, 0, 255).astype(np.uint8)), path)
