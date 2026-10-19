@@ -26,7 +26,7 @@ def read(path):
     return d[:16],ents
 import numpy as np
 from scipy import ndimage
-FACES=[0,3,6,9,16,17,18,19]
+FACES=[0,1,3,4,6,7,9,10,16,17,18,19]
 LOWERS=[2,5,8,11]
 
 def background(px):
