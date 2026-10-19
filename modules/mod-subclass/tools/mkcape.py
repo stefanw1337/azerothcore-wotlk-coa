@@ -12,6 +12,7 @@ SWING = {
 COLUMNS, ROWS = 9, 14
 TOP, BOTTOM = 1.60, 0.42
 TEXTURE_CAPE = 2
+TEXTURE_LEFT, TEXTURE_RIGHT = 0.08, 0.92
 TWO_SIDED_MATERIAL = 0
 
 def arr(data, offset):
@@ -67,7 +68,7 @@ def cape_mesh(back):
             side = (u - 0.5) * 2
             y = -side * half
             x = centre + 0.05 * side * side
-            vertices.append(((x, y, z), (u, v), bone_weights(v)))
+            vertices.append(((x, y, z), (TEXTURE_LEFT + u * (TEXTURE_RIGHT - TEXTURE_LEFT), v), bone_weights(v)))
     triangles = []
     for row in range(ROWS - 1):
         for column in range(COLUMNS - 1):
