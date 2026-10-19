@@ -1,6 +1,8 @@
 """Give the two-headed Ogre real eyes: calm, half-lidded eyes in the two sockets of one head and a large staring eye
 on the cyclops head. Every eyeball is drawn unlit so it glows a little and sits under a skin-coloured upper lid that
-drops over it to blink; the two heads blink out of step, and their irises glance around on their own."""
+drops over it to blink; the two heads blink out of step, and their irises glance around on their own.
+The eyeballs draw the character's hair texture, so CharSections hair colours choose the eyes: one atlas per eye set,
+stacked as the outer eye, the inner eye and the cyclops eye of that set."""
 import math
 import struct
 import sys
@@ -15,17 +17,24 @@ from mkcape import Blob, arr, compress
 
 @dataclass(frozen=True)
 class Look:
-    texture: str
     height: float
     depth: float
-    sclera: tuple
     iris: float
     lid_edge: float
     blink_period: int
     gaze_period: int
     gaze: tuple
-    iris_inner: tuple
-    iris_outer: tuple
+
+
+@dataclass(frozen=True)
+class EyeColor:
+    name: str
+    inner: tuple
+    outer: tuple
+    sclera: tuple = (128, 120, 104)
+    pupil: tuple = (10, 8, 6)
+    glow: bool = False
+    blind: bool = False
 
 
 CALM_GAZE = ((0, 0.0, 0.0), (1500, 0.0, 0.0), (1800, 0.13, 0.0), (2900, 0.13, 0.0), (3200, 0.0, 0.0),
@@ -34,10 +43,41 @@ CALM_GAZE = ((0, 0.0, 0.0), (1500, 0.0, 0.0), (1800, 0.13, 0.0), (2900, 0.13, 0.
 STARE_GAZE = ((0, 0.0, 0.0), (900, 0.0, 0.0), (1050, -0.16, 0.0), (1900, -0.16, 0.0), (2050, 0.16, 0.0),
               (3100, 0.16, 0.0), (3300, 0.0, 0.0), (4600, 0.0, 0.0), (4750, 0.05, -0.08), (5400, 0.05, -0.08),
               (5600, 0.0, 0.0), (7300, 0.0, 0.0))
-CALM = Look("OgreMagePCEye.blp", 0.62, 0.55, (128, 120, 104), 0.74, 22.0, 4100, 9900, CALM_GAZE,
-            (132, 92, 48), (58, 36, 18))
-STARE = Look("OgreMagePCCyclopsEye.blp", 0.72, 0.3, (140, 134, 116), 0.62, 62.0, 5300, 7300, STARE_GAZE,
-             (150, 132, 62), (70, 62, 26))
+CALM = Look(0.62, 0.55, 0.74, 22.0, 4100, 9900, CALM_GAZE)
+STARE = Look(0.72, 0.3, 0.62, 62.0, 5300, 7300, STARE_GAZE)
+EYE_COLORS = (
+    EyeColor("Brown", (132, 92, 48), (58, 36, 18)),
+    EyeColor("Hazel", (150, 132, 62), (70, 62, 26)),
+    EyeColor("Amber", (190, 130, 40), (110, 62, 14)),
+    EyeColor("Green", (96, 130, 60), (38, 62, 24)),
+    EyeColor("Grey", (130, 132, 128), (60, 64, 66)),
+    EyeColor("Blue", (96, 124, 150), (36, 54, 80)),
+    EyeColor("Ice", (170, 200, 215), (80, 110, 130)),
+    EyeColor("Violet", (130, 100, 150), (60, 40, 80)),
+    EyeColor("Black", (40, 34, 30), (14, 12, 10)),
+    EyeColor("Red", (150, 52, 36), (70, 18, 12)),
+    EyeColor("FelGlow", (170, 255, 90), (40, 160, 20), (150, 190, 120), (20, 60, 10), glow=True),
+    EyeColor("ArcaneGlow", (170, 220, 255), (40, 110, 230), (140, 170, 200), (10, 30, 70), glow=True),
+    EyeColor("FireGlow", (255, 220, 120), (230, 90, 20), (200, 150, 110), (70, 20, 5), glow=True),
+    EyeColor("HolyGlow", (255, 250, 200), (230, 190, 70), (210, 200, 160), (90, 70, 20), glow=True),
+    EyeColor("ShadowGlow", (220, 150, 255), (120, 40, 200), (150, 120, 170), (30, 5, 50), glow=True),
+    EyeColor("Blind", (196, 198, 200), (160, 164, 170), (170, 168, 160), blind=True),
+)
+COLOR = {color.name: color for color in EYE_COLORS}
+NATURAL = ("Brown", "Hazel", "Amber", "Green", "Grey", "Blue", "Ice", "Violet", "Black", "Red")
+GLOWING = ("FelGlow", "ArcaneGlow", "FireGlow", "HolyGlow", "ShadowGlow")
+EYE_SETS = (
+    tuple((name, name, name) for name in NATURAL + GLOWING + ("Blind",)) +
+    tuple((name, name, "Blind") for name in NATURAL + GLOWING) +
+    tuple(("Blind", "Blind", name) for name in NATURAL + GLOWING) +
+    tuple(("Blind", name, name) for name in ("Brown", "Blue", "Green", "Grey", "FelGlow")) +
+    tuple((name, name, glow) for name, glow in (("Brown", "FelGlow"), ("Grey", "ArcaneGlow"), ("Black", "FireGlow"),
+                                              ("Blue", "HolyGlow"), ("Hazel", "ShadowGlow"))) +
+    tuple((first, second, cyclops) for first, second, cyclops in (("Blue", "Brown", "Green"),
+                                                                  ("Green", "Blue", "Brown")))
+)
+HAIR_TEXTURE = 6
+CELLS = 3
 TWO_EYED_HEAD, CYCLOPS_HEAD = 21, 20
 HEAD_LOOK = {TWO_EYED_HEAD: CALM, CYCLOPS_HEAD: STARE}
 EYES = [
@@ -61,7 +101,7 @@ LID_ROWS, LID_COLUMNS = 8, 12
 TEXTURE_SIZE = 128
 
 
-def eyeball(centre, radius, look):
+def eyeball(centre, radius, look, cell):
     cx, cy, cz = centre
     vertices = []
     for ring in range(RINGS + 1):
@@ -73,7 +113,8 @@ def eyeball(centre, radius, look):
             nz = math.sin(polar) * math.sin(azimuth)
             position = (cx + nx * radius * look.depth, cy + ny * radius, cz + nz * radius * look.height)
             reach = min(1.0, 1.6 * math.sin(polar))
-            uv = (0.5 + 0.5 * ny * reach, 0.5 - 0.5 * nz * reach) if nx >= 0 else (0.02, 0.02)
+            u, v = (0.5 + 0.5 * ny * reach, 0.5 - 0.5 * nz * reach) if nx >= 0 else (0.02, 0.02)
+            uv = (u, (cell + v) / CELLS)
             vertices.append((position, (nx, ny, nz), uv))
     triangles = []
     for ring in range(RINGS):
@@ -117,21 +158,38 @@ def outward(vertices, triangles, centre):
     return fixed
 
 
-def eye_texture(look, path):
+def eye_cell(look, color):
     size = TEXTURE_SIZE
     yy, xx = np.mgrid[0:size, 0:size].astype(np.float32)
     r = np.hypot(xx - size / 2 + 0.5, yy - size / 2 + 0.5) / (size / 2)
-    iris_outer = np.array(look.iris_outer, np.float32)
-    iris_inner = np.array(look.iris_inner, np.float32)
+    outer = np.array(color.outer, np.float32)
+    inner = np.array(color.inner, np.float32)
+    sclera = np.array(color.sclera, np.float32)
     image = np.zeros((size, size, 3), np.float32)
-    image[:] = np.array(look.sclera, np.float32) * np.clip(1.15 - 0.45 * r, 0.55, 1.0)[..., None]
+    image[:] = sclera * np.clip(1.15 - 0.45 * r, 0.55, 1.0)[..., None]
+    if color.glow:
+        halo = np.clip(1.0 - (r - look.iris) / 0.5, 0, 1)[..., None] ** 2
+        image = image * (1 - halo) + outer * halo
     iris = r < look.iris
     t = np.clip(r / look.iris, 0, 1)[..., None]
-    image[iris] = (iris_inner * (1 - t) + iris_outer * t)[iris]
+    image[iris] = (inner * (1 - t) + outer * t)[iris]
+    if color.blind:
+        image[iris] = image[iris] * 0.6 + sclera * 0.4
+        return image
     ring = (r > look.iris - 0.06) & (r < look.iris + 0.02)
-    image[ring] = image[ring] * 0.45
-    image[r < look.iris * 0.36] = (10, 8, 6)
+    image[ring] = image[ring] * (0.75 if color.glow else 0.45)
+    image[r < look.iris * (0.28 if color.glow else 0.36)] = color.pupil
     image[np.hypot(xx - size * 0.38, yy - size * 0.36) < size * 0.05] = (176, 170, 160)
+    return image
+
+
+def eye_texture_name(index):
+    return TEXTURE_FOLDER + "TwoHeadedOgreEyes%02d.blp" % index
+
+
+def eye_atlas(eye_set, path):
+    looks = [HEAD_LOOK[head] for _, _, head in EYES]
+    image = np.vstack([eye_cell(look, COLOR[name]) for look, name in zip(looks, eye_set)])
     write_blp(Image.fromarray(np.clip(image, 0, 255).astype(np.uint8)), path)
 
 
@@ -246,21 +304,15 @@ def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
         new_bones += lid_bones(blob, m2, head, bone_count + 2 * i, centre, first_global + heads.index(head), look)
     append_array(blob, m2, 44, 88, new_bones, 16)
 
-    texture_count = arr(m2, 80)[0]
-    texture_records = b""
-    for head in heads:
-        name = (TEXTURE_FOLDER + HEAD_LOOK[head].texture).encode() + b"\0"
-        texture_records += struct.pack("<IIII", 0, 0, len(name), blob.append(name, 4))
-    append_array(blob, m2, 80, 16, texture_records, 16)
-    first_lookup = append_array(blob, m2, 128, 2,
-                                struct.pack("<%dh" % len(heads), *range(texture_count, texture_count + len(heads))))
-    eye_lookup = {head: first_lookup + i for i, head in enumerate(heads)}
+    hair_texture = append_array(blob, m2, 80, 16, struct.pack("<IIII", HAIR_TEXTURE, 0, 1, blob.append(b"\0", 4)), 16)
+    eye_texture_lookup = append_array(blob, m2, 128, 2, struct.pack("<h", hair_texture))
+    eye_lookup = {head: eye_texture_lookup for head in heads}
     eye_material = append_array(blob, m2, 112, 4, struct.pack("<HH", UNLIT, 0))
     transforms = b""
     for head in heads:
         gaze = HEAD_LOOK[head].gaze
         sliding = track(blob, m2, gaze_global[head], [g[0] for g in gaze],
-                        [struct.pack("<3f", g[1], g[2], 0.0) for g in gaze])
+                        [struct.pack("<3f", g[1], g[2] / CELLS, 0.0) for g in gaze])
         transforms += sliding + still_track(blob, m2) + still_track(blob, m2)
     first_transform = append_array(blob, m2, 96, 60, transforms, 16)
     first_transform_lookup = append_array(blob, m2, 152, 2, struct.pack(
@@ -273,7 +325,7 @@ def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
 
     meshes = []
     for i, (centre, radius, head, look) in enumerate(eyes):
-        vertices, triangles = eyeball(centre, radius, look)
+        vertices, triangles = eyeball(centre, radius, look, i)
         meshes.append((vertices, outward(vertices, triangles, centre), head, centre, radius,
                        eye_lookup[head], eye_material, gaze_lookup[head]))
         vertices, triangles = upper_lid(centre, radius, look)
@@ -326,8 +378,8 @@ def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
         struct.pack_into("<II", sk.data, header, len(payload) // size, offset)
     open(out_m2, "wb").write(blob.data)
     open(out_skin, "wb").write(sk.data)
-    for look in set(HEAD_LOOK.values()):
-        eye_texture(look, Path(out_folder) / look.texture)
+    for index, eye_set in enumerate(EYE_SETS):
+        eye_atlas(eye_set, Path(out_folder) / Path(eye_texture_name(index).replace("\\", "/")).name)
     print("eyes", len(eyes), "vertices", sum(len(m[0]) for m in meshes))
 
 

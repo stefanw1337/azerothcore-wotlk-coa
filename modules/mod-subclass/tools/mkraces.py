@@ -7,6 +7,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from mkeyes import EYE_SETS, eye_texture_name
+
 MALE, FEMALE = 0, 1
 
 
@@ -20,15 +22,24 @@ class Race:
     display_id: int = 0
     model_id: int = 0
     camera_distance: float = 1.0
+    eye_textures: tuple = ()
 
 
 THIN_HUMAN = Race(96, 32, "Thin Human", MALE)
 TWO_HEADED_OGRE = Race(85, 53, "Two-Headed Ogre", FEMALE, "Character\\Ogre\\Female\\TwoHeadedOgre.mdx", 977600, 901400,
-                       2.4)
+                       2.4, tuple(eye_texture_name(index) for index in range(len(EYE_SETS))))
 RACES = (THIN_HUMAN, TWO_HEADED_OGRE)
 
 CHR_DISPLAYS = (4, 5)
 CHR_NAMES = (14, 31, 48)
+CHR_FACIAL_HAIR = (65, 66)
+CHR_HAIR = 67
+EYES_CUSTOMIZATION = "EYES"
+NO_CUSTOMIZATION = "NONE"
+SECTION_HAIR = 3
+SECTION_TEXTURE = 4
+SECTION_VARIATION = 8
+SECTION_COLOR = 9
 
 
 @dataclass(frozen=True)
@@ -103,6 +114,27 @@ def clone_rows(dbc, table):
     return len(added)
 
 
+def eye_sections(dbc):
+    added = 0
+    for race in RACES:
+        if not race.eye_textures:
+            continue
+        hair = [row for row in dbc.rows if dbc.value(row, 1) == race.race_id and dbc.value(row, 2) == race.sex and
+                dbc.value(row, 3) == SECTION_HAIR]
+        template = hair[0]
+        dbc.rows = [row for row in dbc.rows if not any(row is other for other in hair)]
+        next_id = dbc.next_id()
+        for color, texture in enumerate(race.eye_textures):
+            row = bytearray(template)
+            dbc.set(row, 0, next_id + color)
+            dbc.set(row, SECTION_TEXTURE, dbc.text(texture))
+            dbc.set(row, SECTION_VARIATION, 0)
+            dbc.set(row, SECTION_COLOR, color)
+            dbc.rows.append(row)
+            added += 1
+    return added
+
+
 def clone_outfits(dbc):
     ours = {race.race_id for race in RACES}
     dbc.rows = [row for row in dbc.rows if row[4] not in ours]
@@ -173,6 +205,9 @@ def clone_races(dbc, displays):
         name = dbc.text(race.name)
         for group in CHR_NAMES:
             dbc.set(copy, group, name)
+        if race.eye_textures:
+            dbc.set(copy, CHR_HAIR, dbc.text(EYES_CUSTOMIZATION))
+            dbc.set(copy, CHR_FACIAL_HAIR[race.sex], dbc.text(NO_CUSTOMIZATION))
         dbc.rows = [row for row in dbc.rows if dbc.value(row, 0) != race.race_id] + [copy]
 
 
@@ -224,6 +259,8 @@ def main(source, output):
         if (source / table.file).exists():
             dbc = Dbc(source / table.file)
             print(table.file, clone_rows(dbc, table))
+            if table.file == "CharSections.dbc":
+                print("eye colours", eye_sections(dbc))
             dbc.save(output / table.file)
     if (source / "UICameras.dbc").exists() and (output / "UICameraAppearanceChrRaces.dbc").exists():
         cameras = Dbc(source / "UICameras.dbc")

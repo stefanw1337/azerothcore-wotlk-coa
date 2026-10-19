@@ -78,3 +78,36 @@ do
 		end
 	end)
 end
+
+HAIR_EYES_STYLE = ""
+HAIR_EYES_COLOR = ""
+COA_SUBCLASS_EYE_RACES = { ["Two-Headed Ogre"] = true }
+do
+	local CUSTOMIZE_FACE = 2
+	local function EyesInsteadOfFace()
+		local ok, name = pcall(GetNameForRace)
+		return ok and name and COA_SUBCLASS_EYE_RACES[name]
+	end
+	if C_CharacterCreate and C_CharacterCreate.CycleCustomizationSkipLocked then
+		local cycle = C_CharacterCreate.CycleCustomizationSkipLocked
+		C_CharacterCreate.CycleCustomizationSkipLocked = function(id, direction, ...)
+			if id == CUSTOMIZE_FACE and EyesInsteadOfFace() then
+				id = CHAR_CUSTOMIZE_HAIR_COLOR
+			end
+			return cycle(id, direction, ...)
+		end
+	end
+	local labels = CreateFrame("Frame")
+	labels:SetScript("OnUpdate", function(self, elapsed)
+		self.wait = (self.wait or 0) + elapsed
+		if self.wait < 0.2 then return end
+		self.wait = 0
+		local button = CharCreateCustomizationButton2
+		if button and button.text and button:IsVisible() then
+			local wanted = EyesInsteadOfFace() and "Eye Color" or "Face"
+			if button.text:GetText() ~= wanted then
+				button.text:SetText(wanted)
+			end
+		end
+	end)
+end
