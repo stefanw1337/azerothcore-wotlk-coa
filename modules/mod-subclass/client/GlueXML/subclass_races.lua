@@ -1,0 +1,111 @@
+
+-- mod-subclass races: Thin Human (96, male) and Two-Headed Ogre (85, female)
+CHAR_CREATE_RACE_IDS["Thin Human"] = {96}
+CHAR_CREATE_RACE_IDS["Two-Headed Ogre"] = {85}
+CHAR_CREATE_MALE_ONLY_RACES["Thin Human"] = true
+CHAR_CREATE_FEMALE_ONLY_RACES["Two-Headed Ogre"] = true
+if CHAR_CREATE_EXTRA_RACE_ICONS then
+	CHAR_CREATE_EXTRA_RACE_ICONS["Thin Human"] = "Interface\\Icons\\CoA_Race_ThinHuman"
+	CHAR_CREATE_EXTRA_RACE_ICONS["Two-Headed Ogre"] = "Interface\\Icons\\CoA_Race_Ogre"
+end
+if CHAR_CREATE_COA_RACIALS then
+	CHAR_CREATE_COA_RACIALS[96] = {
+		{"Brother, Where Art Thou?", "Spell_Holy_PrayerOfSpirit", "active", "Call your twin brother to your side, or send him home. From level 20 he can follow a class of his own."},
+		{"Twin-Linked", "Spell_Holy_SealOfSacrifice", "passive", "You and your brother share one health and mana pool, and whatever befalls you befalls him too."},
+		{"Desperate Flight", "Ability_Rogue_Sprint", "active", "Removes roots and snares and increases movement speed by 20% for 6 sec."},
+		{"Wiry Frame", "Ability_Racial_ShadowMeld", "passive", "Dodge chance increased by 1%."},
+		{"Nervous Energy", "Ability_Rogue_Sprint", "passive", "Haste increased by 1%."},
+		{"Make Do", "INV_Misc_Fork&Knife", "passive", "Food, drink and bandages restore 10% more health or mana."},
+		{"Field Dressing", "Spell_Holy_SealOfSacrifice", "passive", "First Aid skill increased by 15."},
+	}
+	CHAR_CREATE_COA_RACIALS[85] = {
+		{"Agree or Disagree", "Spell_Shadow_BrainWash", "active", "Your two heads agree for once, or go back to arguing. From level 20 the second head can follow a class of its own."},
+		{"Tolerance", "INV_Drink_05", "passive", "Drinks make you half as drunk, the haze wears off twice as fast, and you never get past merely drunk."},
+		{"Headbutt", "Ability_Warrior_DecisiveStrike", "active", "Stuns a nearby enemy for 2 sec."},
+		{"Brute Strength", "Spell_Nature_UnyeildingStamina", "passive", "Strength increased by 2%."},
+		{"Thick Hide", "Spell_Shadow_UnholyStrength", "passive", "Armor from equipped items increased by 2%."},
+		{"Heavy Hands", "INV_Axe_02", "passive", "Expertise with maces and fist weapons increased by 3."},
+		{"Ogre Cuisine", "Spell_Fire_Fire", "passive", "Cooking skill increased by 5."},
+	}
+end
+if CHAR_CREATE_RACE_LORE then
+	CHAR_CREATE_RACE_LORE.alliance = CHAR_CREATE_RACE_LORE.alliance or {}
+	CHAR_CREATE_RACE_LORE.horde = CHAR_CREATE_RACE_LORE.horde or {}
+	CHAR_CREATE_RACE_LORE.alliance["Thin Human"] = [==[Born in the shadow of Stormwind's walls to a stonemason who helped rebuild the city and a Kul Tiran sailor's daughter, the Thin Humans are lean, wiry folk who learned early to slip through crowds and out of trouble. Most of them travel alone. A few were born a pair, and somewhere out there a brother is waiting for the day his twin finds their father's lost Bravery Badge.]==]
+	CHAR_CREATE_RACE_LORE.horde["Two-Headed Ogre"] = [==[Two heads, one body, and never a moment's peace. The two-headed ogres of the Horde are mighty brawlers whose heads argue over everything from breakfast to battle plans. When they do agree, they hit twice as hard. Legend says an old book of origins hidden in Shadowfang Keep can teach the second head a craft of its own.]==]
+end
+
+COA_SUBCLASS_SMALL_RACES = { ["Two-Headed Ogre"] = 1.9 }
+do
+	local function SmallRaceScale()
+		local ok, name = pcall(GetNameForRace)
+		return ok and name and COA_SUBCLASS_SMALL_RACES[name]
+	end
+	local zoomIn = CHAR_CREATE_CAMERA_ZOOM_IN or {}
+	CHAR_CREATE_CAMERA_ZOOM_IN = setmetatable({}, { __index = function(_, fileString)
+		if SmallRaceScale() then
+			return 0
+		end
+		return zoomIn[fileString]
+	end })
+	local f = CreateFrame("Frame")
+	local pending
+	f:SetScript("OnUpdate", function(self, elapsed)
+		if not pending then return end
+		pending = pending - elapsed
+		if pending > 0 then return end
+		pending = nil
+		local k = SmallRaceScale()
+		if k and C_CharacterCreate and C_CharacterCreate.GetCameraPosition then
+			pcall(function()
+				local x, y, z = C_CharacterCreate.GetCameraPosition()
+				C_CharacterCreate.SetCameraPosition(x * k, y * k, z * (1 + (k - 1) * 0.6))
+			end)
+		end
+	end)
+	local old = SetCharacterRace
+	function SetCharacterRace(...)
+		local a, b, c, d, e = old(...)
+		pending = 0.7
+		return a, b, c, d, e
+	end
+	if SetFaceCustomizeCamera then
+		local setFace = SetFaceCustomizeCamera
+		function SetFaceCustomizeCamera(...)
+			local a, b, c = setFace(...)
+			if SmallRaceScale() then
+				pending = 0.35
+			end
+			return a, b, c
+		end
+	end
+	local selectWatch = CreateFrame("Frame")
+	local shownRace, applied
+	selectWatch:SetScript("OnUpdate", function(self, elapsed)
+		self.wait = (self.wait or 0) + elapsed
+		if self.wait < 0.2 then return end
+		self.wait = 0
+		if not (CharacterSelect and CharacterSelect:IsShown() and CharacterSelect.selectedIndex) then
+			shownRace = nil
+			return
+		end
+		local ok, _, race = pcall(GetCharacterInfo, GetCharIDFromIndex and GetCharIDFromIndex(CharacterSelect.selectedIndex) or CharacterSelect.selectedIndex)
+		race = ok and race or nil
+		if race == shownRace then return end
+		shownRace = race
+		local k = COA_SUBCLASS_SMALL_RACES[race or ""]
+		if CharacterSelect.SetCamDistanceScale then
+			pcall(CharacterSelect.SetCamDistanceScale, CharacterSelect, k or 1)
+		end
+		if k and not applied and C_CharacterCreate and C_CharacterCreate.GetCameraPosition then
+			pcall(function()
+				local x, y, z = C_CharacterCreate.GetCameraPosition()
+				applied = { x, y, z }
+				C_CharacterCreate.SetCameraPosition(x * k, y * k, z * (1 + (k - 1) * 0.6))
+			end)
+		elseif not k and applied and C_CharacterCreate and C_CharacterCreate.SetCameraPosition then
+			pcall(C_CharacterCreate.SetCameraPosition, applied[1], applied[2], applied[3])
+			applied = nil
+		end
+	end)
+end
