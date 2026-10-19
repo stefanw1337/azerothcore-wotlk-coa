@@ -14,6 +14,8 @@ TOP, BOTTOM = 1.60, 0.42
 TEXTURE_CAPE = 2
 TEXTURE_LEFT, TEXTURE_RIGHT = 0.30, 0.99
 TWO_SIDED_MATERIAL = 0
+HELMET_ATTACHMENT = 11
+HELMET_SHIFT = (0.07, 0.0, 0.18)
 
 def arr(data, offset):
     return struct.unpack_from('<II', data, offset)
@@ -133,6 +135,14 @@ class Blob:
         self.data += payload
         return offset
 
+def seat_helmet(data):
+    attachment_count, attachment_offset = arr(data, 240)
+    for index in range(attachment_count):
+        record = attachment_offset + index * 40
+        if struct.unpack_from('<I', data, record)[0] == HELMET_ATTACHMENT:
+            position = struct.unpack_from('<3f', data, record + 8)
+            struct.pack_into('<3f', data, record + 8, *(p + d for p, d in zip(position, HELMET_SHIFT)))
+
 def graft(m2_path, skin_path, out_m2, out_skin, names_path):
     m2 = open(m2_path, 'rb').read()
     skin = open(skin_path, 'rb').read()
@@ -214,6 +224,7 @@ def graft(m2_path, skin_path, out_m2, out_skin, names_path):
                                   (28, submeshes, 48), (36, batches, 24)):
         offset = sk.append(bytes(payload), 4)
         struct.pack_into('<II', sk.data, header, len(payload) // size, offset)
+    seat_helmet(blob.data)
     open(out_m2, 'wb').write(blob.data)
     open(out_skin, 'wb').write(sk.data)
     print('cape vertices', len(vertices), 'triangles', len(triangles) // 3, 'copies', len(CAPE_GEOSETS))
