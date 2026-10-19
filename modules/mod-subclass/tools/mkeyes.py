@@ -92,6 +92,9 @@ SORE = (150, 42, 36)
 SORE_FROM = 0.42
 SORE_STRENGTH = 0.55
 HAIR_TEXTURE = 6
+CAMERAS, CAMERA_SIZE, CAMERA_POSITION, CAMERA_TARGET = 272, 100, 36, 68
+CHARACTER_CAMERA = 1
+CHARACTER_CAMERA_PULL = 0.72
 CELLS = 4
 TWO_EYED_HEAD, CYCLOPS_HEAD = 21, 20
 HEAD_LOOK = {TWO_EYED_HEAD: CALM, CYCLOPS_HEAD: STARE}
@@ -302,6 +305,17 @@ def body_drawing(m2, skin):
     raise ValueError("no body batch")
 
 
+def frame_closer(data):
+    count, offset = arr(data, CAMERAS)
+    for index in range(count):
+        camera = offset + index * CAMERA_SIZE
+        if struct.unpack_from("<I", data, camera)[0] != CHARACTER_CAMERA:
+            continue
+        position = np.array(struct.unpack_from("<3f", data, camera + CAMERA_POSITION))
+        target = np.array(struct.unpack_from("<3f", data, camera + CAMERA_TARGET))
+        struct.pack_into("<3f", data, camera + CAMERA_POSITION, *(target + (position - target) * CHARACTER_CAMERA_PULL))
+
+
 def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
     m2 = open(m2_path, "rb").read()
     skin = open(skin_path, "rb").read()
@@ -395,6 +409,7 @@ def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
                                   (28, submeshes, 48), (36, batches, 24)):
         offset = sk.append(bytes(payload), 4)
         struct.pack_into("<II", sk.data, header, len(payload) // size, offset)
+    frame_closer(blob.data)
     open(out_m2, "wb").write(blob.data)
     open(out_skin, "wb").write(sk.data)
     for index, eye_set in enumerate(EYE_SETS):
