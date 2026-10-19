@@ -43,12 +43,24 @@ do
 		return ok and name and COA_SUBCLASS_SMALL_RACES[name]
 	end
 	local zoomIn = CHAR_CREATE_CAMERA_ZOOM_IN or {}
+	local wheeling = false
 	CHAR_CREATE_CAMERA_ZOOM_IN = setmetatable({}, { __index = function(_, fileString)
-		if SmallRaceScale() then
+		if not wheeling and SmallRaceScale() then
 			return 0
 		end
 		return zoomIn[fileString]
 	end })
+	local wheel = CharacterCreateFrame_OnMouseWheel
+	if wheel then
+		function CharacterCreateFrame_OnMouseWheel(...)
+			wheeling = true
+			local ok, problem = pcall(wheel, ...)
+			wheeling = false
+			if not ok then
+				error(problem)
+			end
+		end
+	end
 	local function Near(a, b)
 		return a and b and math.abs(a[1] - b[1]) + math.abs(a[2] - b[2]) + math.abs(a[3] - b[3]) < 0.01
 	end
