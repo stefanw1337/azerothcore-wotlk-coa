@@ -1,6 +1,6 @@
 """Give the two-headed Ogre real eyes: calm, half-lidded eyes in the two sockets of one head and a large staring eye
 on the cyclops head. Every eyeball is drawn unlit so it glows a little and sits under a skin-coloured upper lid that
-drops over it to blink; the two heads blink out of step."""
+drops over it to blink; the two heads blink out of step, and their irises glance around on their own."""
 import math
 import struct
 import sys
@@ -22,10 +22,18 @@ class Look:
     iris: float
     lid_edge: float
     blink_period: int
+    gaze_period: int
+    gaze: tuple
 
 
-CALM = Look("OgreMagePCEye.blp", 0.62, 0.55, (176, 170, 160), 0.74, 22.0, 4100)
-STARE = Look("OgreMagePCCyclopsEye.blp", 0.72, 0.3, (214, 222, 228), 0.62, 62.0, 5300)
+CALM_GAZE = ((0, 0.0, 0.0), (1500, 0.0, 0.0), (1800, 0.13, 0.0), (2900, 0.13, 0.0), (3200, 0.0, 0.0),
+             (4700, 0.0, 0.0), (5000, -0.13, 0.02), (6000, -0.13, 0.02), (6300, 0.0, 0.0), (7600, 0.0, 0.0),
+             (7800, 0.0, 0.07), (8400, 0.0, 0.07), (8700, 0.0, 0.0), (9900, 0.0, 0.0))
+STARE_GAZE = ((0, 0.0, 0.0), (900, 0.0, 0.0), (1050, -0.16, 0.0), (1900, -0.16, 0.0), (2050, 0.16, 0.0),
+              (3100, 0.16, 0.0), (3300, 0.0, 0.0), (4600, 0.0, 0.0), (4750, 0.05, -0.08), (5400, 0.05, -0.08),
+              (5600, 0.0, 0.0), (7300, 0.0, 0.0))
+CALM = Look("OgreMagePCEye.blp", 0.62, 0.55, (176, 170, 160), 0.74, 22.0, 4100, 9900, CALM_GAZE)
+STARE = Look("OgreMagePCCyclopsEye.blp", 0.72, 0.3, (214, 222, 228), 0.62, 62.0, 5300, 7300, STARE_GAZE)
 TWO_EYED_HEAD, CYCLOPS_HEAD = 21, 20
 HEAD_LOOK = {TWO_EYED_HEAD: CALM, CYCLOPS_HEAD: STARE}
 EYES = [
@@ -225,8 +233,9 @@ def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
         look = HEAD_LOOK[head]
         eyes.append(((EYE_FRONT_X[head] - radius * look.depth, cy, cz), radius, head, look))
 
-    first_global = append_array(blob, m2, 20, 4,
-                                struct.pack("<%dI" % len(heads), *[HEAD_LOOK[h].blink_period for h in heads]))
+    periods = [HEAD_LOOK[h].blink_period for h in heads] + [HEAD_LOOK[h].gaze_period for h in heads]
+    first_global = append_array(blob, m2, 20, 4, struct.pack("<%dI" % len(periods), *periods))
+    gaze_global = {head: first_global + len(heads) + i for i, head in enumerate(heads)}
     bone_count = arr(m2, 44)[0]
     new_bones = b""
     for i, (centre, _, head, look) in enumerate(eyes):
@@ -243,6 +252,16 @@ def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
                                 struct.pack("<%dh" % len(heads), *range(texture_count, texture_count + len(heads))))
     eye_lookup = {head: first_lookup + i for i, head in enumerate(heads)}
     eye_material = append_array(blob, m2, 112, 4, struct.pack("<HH", UNLIT, 0))
+    transforms = b""
+    for head in heads:
+        gaze = HEAD_LOOK[head].gaze
+        sliding = track(blob, m2, gaze_global[head], [g[0] for g in gaze],
+                        [struct.pack("<3f", g[1], g[2], 0.0) for g in gaze])
+        transforms += sliding + still_track(blob, m2) + still_track(blob, m2)
+    first_transform = append_array(blob, m2, 96, 60, transforms, 16)
+    first_transform_lookup = append_array(blob, m2, 152, 2, struct.pack(
+        "<%dh" % len(heads), *range(first_transform, first_transform + len(heads))))
+    gaze_lookup = {head: first_transform_lookup + i for i, head in enumerate(heads)}
 
     bones_used = heads + [bone_count + 2 * i + 1 for i in range(len(eyes))]
     first_combo = append_array(blob, m2, 120, 2, struct.pack("<%dH" % len(bones_used), *bones_used))
@@ -252,14 +271,15 @@ def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
     for i, (centre, radius, head, look) in enumerate(eyes):
         vertices, triangles = eyeball(centre, radius, look)
         meshes.append((vertices, outward(vertices, triangles, centre), head, centre, radius,
-                       eye_lookup[head], eye_material))
+                       eye_lookup[head], eye_material, gaze_lookup[head]))
         vertices, triangles = upper_lid(centre, radius, look)
-        meshes.append((vertices, outward(vertices, triangles, centre), bone_count + 2 * i + 1, centre, radius * LID_SCALE,
-                       body_lookup, body_material))
+        lid_bone = bone_count + 2 * i + 1
+        meshes.append((vertices, outward(vertices, triangles, centre), lid_bone, centre, radius * LID_SCALE,
+                       body_lookup, body_material, 0))
 
     vertex_count = arr(m2, 60)[0]
     new_vertices = bytearray()
-    for vertices, _, bone, _, _, _, _ in meshes:
+    for vertices, _, bone, _, _, _, _, _ in meshes:
         for position, normal, uv in vertices:
             new_vertices += struct.pack("<3f4B4B3f2f2f", *position, 255, 0, 0, 0, bone, 0, 0, 0, *normal, *uv,
                                         0.0, 0.0)
@@ -278,7 +298,7 @@ def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
     batches = bytearray(skin[batch_offset:batch_offset + batch_count * 24])
     template = bytes(submeshes[:48])
     first_vertex = vertex_count
-    for vertices, triangles, bone, centre, radius, lookup, material in meshes:
+    for vertices, triangles, bone, centre, radius, lookup, material, transform in meshes:
         first_skin_vertex = len(skin_vertices) // 2
         first_triangle = len(skin_triangles) // 2
         for i in range(len(vertices)):
@@ -294,7 +314,8 @@ def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
         struct.pack_into("<f", submesh, 44, radius)
         section = len(submeshes) // 48
         submeshes += submesh
-        batches += struct.pack("<BbHHHhHHHHHHH", 16, 0, 0, section, section, -1, material, 0, 1, lookup, 0, 0, 0)
+        batches += struct.pack("<BbHHHhHHHHHHH", 16, 0, 0, section, section, -1, material, 0, 1, lookup, 0, 0,
+                               transform)
     for header, payload, size in ((4, skin_vertices, 2), (12, skin_triangles, 2), (20, properties, 4),
                                   (28, submeshes, 48), (36, batches, 24)):
         offset = sk.append(bytes(payload), 4)
