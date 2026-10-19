@@ -64,16 +64,5 @@ public:
 
 void AddSC_CoaEsteriaRacials()
 {
-    void AddSC_race_racials();
-    void AddSC_drakkin_racials();
-    void AddSC_drakonid_racials();
-    void AddSC_darkfallen_racials();
-    void AddSC_broken_racials();
-
     new CoaRacialSync();
-    AddSC_race_racials();
-    AddSC_drakkin_racials();
-    AddSC_drakonid_racials();
-    AddSC_darkfallen_racials();
-    AddSC_broken_racials();
 }
