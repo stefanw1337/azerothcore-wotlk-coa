@@ -624,20 +624,35 @@ bool HandlesOwnPet(SpellInfo const* info)
 
 std::unordered_set<uint32> runesLent;
 std::unordered_set<uint16> tankSpecializations;
+std::unordered_set<uint16> distantSpecializations;
 constexpr uint32 ChrSpecsFields = 29;
+constexpr uint32 ChrSpecsMeleeRole = 11;
+constexpr uint32 ChrSpecsRangedRole = 12;
+constexpr uint32 ChrSpecsCasterRole = 13;
 constexpr uint32 ChrSpecsTankRole = 14;
+constexpr uint32 ChrSpecsHealerRole = 15;
 
-void LoadTankSpecializations()
+void LoadSpecializationRoles()
 {
     ClientDBC specs;
-    std::unordered_set<uint16> loaded;
+    std::unordered_set<uint16> tanks;
+    std::unordered_set<uint16> distant;
     if (specs.Load(GetClientDBCPath("ChrSpecs.dbc"), ChrSpecsFields))
         for (uint32 row = 0; row < specs.GetRecordCount(); ++row)
-            if (ClientDBC::Record record = specs.GetRecord(row); record.GetUInt32(ChrSpecsTankRole))
-                loaded.insert(uint16(record.GetUInt32(0)));
-    LOG_INFO("module", "mod-subclass: {} tank specialization(s)", loaded.size());
+        {
+            ClientDBC::Record record = specs.GetRecord(row);
+            uint16 const specId = uint16(record.GetUInt32(0));
+            bool const close = record.GetUInt32(ChrSpecsMeleeRole) || record.GetUInt32(ChrSpecsTankRole);
+            if (record.GetUInt32(ChrSpecsTankRole))
+                tanks.insert(specId);
+            if (!close && (record.GetUInt32(ChrSpecsRangedRole) || record.GetUInt32(ChrSpecsCasterRole) ||
+                    record.GetUInt32(ChrSpecsHealerRole)))
+                distant.insert(specId);
+        }
+    LOG_INFO("module", "mod-subclass: {} tank and {} ranged specialization(s)", tanks.size(), distant.size());
     std::lock_guard<std::mutex> lock(subclassMutex);
-    tankSpecializations = std::move(loaded);
+    tankSpecializations = std::move(tanks);
+    distantSpecializations = std::move(distant);
 }
 thread_local bool raisingRunes = false;
 
@@ -1049,6 +1064,15 @@ bool LendsTankSpecialization(Player const* player)
     return tankSpecializations.contains(choice.SubSpec);
 }
 
+bool LendsRangedSpecialization(Player const* player)
+{
+    Subclass::Choice const choice = ChoiceOf(player);
+    if (!choice.Complete())
+        return false;
+    std::lock_guard<std::mutex> lock(subclassMutex);
+    return distantSpecializations.contains(choice.SubSpec);
+}
+
 void RefreshSubclassResources(Player* player)
 {
     RefreshPowerPools(player);
@@ -1082,7 +1106,7 @@ public:
     {
         LoadPairs();
         LoadStories();
-        LoadTankSpecializations();
+        LoadSpecializationRoles();
     }
 };
 
@@ -1722,7 +1746,7 @@ public:
     {
         LoadPairs();
         LoadStories();
-        LoadTankSpecializations();
+        LoadSpecializationRoles();
         handler->SendSysMessage("Reloaded mod_subclass_pair and mod_subclass_story.");
         return true;
     }

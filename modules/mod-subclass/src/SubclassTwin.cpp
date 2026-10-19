@@ -43,6 +43,7 @@ void RefreshSubclassResources(Player* player);
 bool IsBorrowedSpell(Player const* player, uint32 spellId);
 void HandWeaponsToBrother(Player* player);
 bool LendsTankSpecialization(Player const* player);
+bool LendsRangedSpecialization(Player const* player);
 
 namespace
 {
@@ -484,7 +485,8 @@ void BecomeGhost(Player* player, Creature* twin, bool ghost)
 bool FightsFromRange(Player const* player, Creature const* twin)
 {
     if (IsSplit(player))
-        return !BrotherTanks(player) && (OtherHalfShoots(player) || !twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID));
+        return !BrotherTanks(player) && (OtherHalfShoots(player) || LendsRangedSpecialization(player) ||
+            !twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID));
     return RangedOf(player) != nullptr;
 }
 
