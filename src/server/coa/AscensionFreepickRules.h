@@ -160,6 +160,7 @@ struct Realm
     bool Development = false;
     bool ConquestOfAzeroth = false;
     bool WarcraftReborn = false;
+    bool Classless = false;
     std::uint32_t Ruleset = 2;
 };
 

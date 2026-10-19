@@ -194,10 +194,12 @@ CoA.RealmType = "live"
 #                     "coa"  - Conquest of Azeroth classes. Default.
 #                     "wcr"  - Warcraft Reborn (classic) classes.
 #                     "hero" - free-pick Hero.
+#                     A space-separated list serves several models on one realm,
+#                     e.g. "coa wcr" (Conquest of Azeroth + Warcraft Reborn classes).
 #        Default:     "coa"
 #
 
-CoA.ClassModel = "coa"
+CoA.ClassModel = "coa wcr"
 
 #
 #    CoA.GameModeMask

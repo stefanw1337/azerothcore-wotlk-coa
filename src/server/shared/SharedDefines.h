@@ -193,7 +193,8 @@ constexpr bool IsAscensionClass(uint8 classId)
 
 constexpr bool UsesProjectileAmmo(uint8 classId)
 {
-    return classId != CLASS_HERO && !IsAscensionClass(classId);
+    (void)classId;
+    return false;
 }
 
 // Several WotLK formulas have hard-coded per-class constants rather than DBC

@@ -653,6 +653,22 @@ bool IsAscensionCustomClass(Player const *player) {
   return playerClass >= CLASS_BARBARIAN && playerClass <= CLASS_SPIRIT_MAGE;
 }
 
+bool UnifiedClassAdvancement() {
+  static bool const unified = [] {
+    AscensionFreepick::Realm const classRealm = AscensionFreepick::ReadRealm();
+    return classRealm.ConquestOfAzeroth && classRealm.WarcraftReborn;
+  }();
+  return unified;
+}
+
+bool IsCharacterAdvancementClass(Player const *player) {
+  if (IsAscensionCustomClass(player))
+    return true;
+  uint8 const playerClass = player->getClass();
+  return UnifiedClassAdvancement() && playerClass >= CLASS_WARRIOR && playerClass <= CLASS_DRUID &&
+         playerClass != CLASS_HERO;
+}
+
 bool ReceivesClientRequests(Player const *player) {
   return !player->GetSession()->IsBot();
 }
@@ -729,7 +745,8 @@ std::vector<uint32> GetAscensionRacialSpells(Player const* player)
     if (sConfigMgr->GetOption<bool>("CoACustomRaces.Enable", false))
         if (CoaCustomRacial const* custom = GetCoaCustomRacial(player->getRace()))
             for (uint32 spell : custom->Spells)
-                spells.push_back(spell);
+                if (spell)
+                    spells.push_back(spell);
 
     std::sort(spells.begin(), spells.end());
     spells.erase(std::unique(spells.begin(), spells.end()), spells.end());
@@ -844,7 +861,11 @@ public:
 
   uint32 SynchronizeProgression(Player *player, bool explicitRequest = false) {
     if (!IsAscensionCustomClass(player))
-      return 0;
+    {
+      if (!IsCharacterAdvancementClass(player))
+        return 0;
+      return SynchronizeAutomaticTalents(player, GetActiveSpecialization(player));
+    }
 
     uint32 const activeSpec = GetActiveSpecialization(player);
     AscensionClassTuning::Synchronize(player, activeSpec, true);
@@ -1493,11 +1514,12 @@ public:
   }
 
   void OnPlayerLogin(Player *player) {
-    if (!IsAscensionCustomClass(player))
+    if (!IsCharacterAdvancementClass(player))
     {
       QueueCharacterAdvancementState(player);
       return;
     }
+    bool const customClass = IsAscensionCustomClass(player);
 
     uint32 const specializationId = player->GetPlayerSetting(ASCENSION_ACTIVE_SPEC_SETTING, 0).value;
     if (specializationId)
@@ -1510,9 +1532,14 @@ public:
         stored && stored->size() > 1 && (*stored)[0].value && (*stored)[1].value != player->getClass())
       ClearSlots(player);
     player->learnSpell(AscensionWildcard::SPECIALIZATION_SWAP_SPELLS[0]);
-    SynchronizeProgression(player);
-    SynchronizeProficiencies(player);
-    RepairStarterKit(player, false);
+    if (customClass)
+    {
+      SynchronizeProgression(player);
+      SynchronizeProficiencies(player);
+      RepairStarterKit(player, false);
+    }
+    else
+      SynchronizeProgression(player);
     QueueCharacterAdvancementState(player);
 
     CharacterDatabasePreparedStatement* actionsStmt =
@@ -1688,7 +1715,7 @@ public:
     WorldPacket packet(SMSG_CHARACTER_ADVANCEMENT_ACTIVE_SPEC, sizeof(uint32) * 2);
     bool const wildcard = AscensionWildcard::IsWildcardHero(player);
     packet << (wildcard ? AscensionWildcard::ActiveSpec(player) : ActiveSlot(player))
-           << uint32(wildcard || IsAscensionCustomClass(player) || AscensionFreepick::IsFreepickHero(player) ?
+           << uint32(wildcard || IsCharacterAdvancementClass(player) || AscensionFreepick::IsFreepickHero(player) ?
         AscensionWildcard::SPECIALIZATION_COUNT : 1);
     player->GetSession()->SendPacket(&packet);
 
@@ -2049,6 +2076,12 @@ public:
       }
       if (item.Rank && entry->SpecId && !AscensionCoATalentState::IsTreeOpen(targetAccess, *entry))
       {
+        if (UnifiedClassAdvancement() && !IsAscensionCustomClass(player) && !entry->AECost && !entry->TECost &&
+            !GetSelectableFreeGroup(entry->EntryId) &&
+            std::none_of(AscensionCompatData::CoASpecializations.begin(), AscensionCompatData::CoASpecializations.end(),
+                [entry](AscensionCompatData::CoASpecialization const& specialization)
+                { return specialization.IdentityEntryId == entry->EntryId; }))
+          continue;
         refusal = { "CA_UPDATE_ENTRIES_BAD_ENTRY", "CA_LEARN_WRONG_CLASS", item.EntryId, item.Rank,
                     "The uploaded build includes an entry of another specialization." };
         return false;
@@ -2233,7 +2266,7 @@ public:
       _pendingTalentRequests.erase(itr);
     }
 
-    if (!IsAscensionCustomClass(player) && !AscensionWildcard::IsWildcardHero(player) &&
+    if (!IsCharacterAdvancementClass(player) && !AscensionWildcard::IsWildcardHero(player) &&
         !AscensionFreepick::HasFreepickBuild(player))
       return;
     for (TalentRequest const& request : requests)
@@ -2475,7 +2508,7 @@ public:
   bool SwitchSpecialization(Player* player, uint32 specializationId, std::string* refusal = nullptr,
                             bool restoreStoredBuild = true)
   {
-    if (!IsAscensionCustomClass(player) || (!specializationId && restoreStoredBuild))
+    if (!IsCharacterAdvancementClass(player) || (!specializationId && restoreStoredBuild))
       return false;
 
     bool validSpecialization =
@@ -2602,7 +2635,7 @@ public:
 
     void SaveSlot(Player* player)
     {
-        if (IsAscensionCustomClass(player) && !AscensionWildcard::IsWildcardHero(player))
+        if (IsCharacterAdvancementClass(player) && !AscensionWildcard::IsWildcardHero(player))
             StoreSlot(player, ActiveSlot(player), LiveSlot(player, GetActiveSpecialization(player)));
     }
 
@@ -2645,7 +2678,7 @@ public:
 
     bool SwitchSlot(Player* player, uint32 index, std::string& error)
     {
-        if (!IsAscensionCustomClass(player) || AscensionWildcard::IsWildcardHero(player) ||
+        if (!IsCharacterAdvancementClass(player) || AscensionWildcard::IsWildcardHero(player) ||
             index >= AscensionWildcard::SPECIALIZATION_COUNT ||
             !player->HasSpell(AscensionWildcard::SPECIALIZATION_SWAP_SPELLS[index]))
         {
@@ -8637,7 +8670,7 @@ public:
 
   void OnPlayerLearnSpell(Player *player, uint32 spellId) override {
     if (ascensionCompatConfig.GetConfigValue<bool>(AscensionCompatConfig::ENABLED) &&
-        IsAscensionCustomClass(player) && !AscensionWildcard::IsWildcardHero(player) &&
+        IsCharacterAdvancementClass(player) && !AscensionWildcard::IsWildcardHero(player) &&
         std::find(AscensionWildcard::SPECIALIZATION_SWAP_SPELLS.begin(),
                   AscensionWildcard::SPECIALIZATION_SWAP_SPELLS.end(), spellId) !=
             AscensionWildcard::SPECIALIZATION_SWAP_SPELLS.end())
@@ -10085,7 +10118,7 @@ bool IsAscensionPrimalistWeaponsEligible(Player const* player, bool allowUnconfi
 
 uint32 GetAscensionActiveSpecialization(Player const* player)
 {
-    if (!player || !IsAscensionCustomClass(player))
+    if (!player || !IsCharacterAdvancementClass(player))
         return 0;
 
     if (uint32 const active = AscensionClassService::Instance().GetActiveSpecialization(player))

@@ -64,6 +64,7 @@ struct CoATalentBudget
 };
 
 extern std::vector<CoATalentEntry> CoATalentEntries;
+extern bool CoAStockClassesNative;
 extern std::vector<CoASelectableFreeEntry> CoASelectableFreeEntries;
 extern std::vector<CoAAutomaticDependency> CoAAutomaticDependencies;
 extern std::vector<CoASpecialization> CoASpecializations;

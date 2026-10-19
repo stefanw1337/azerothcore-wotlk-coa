@@ -41,9 +41,14 @@ Realm ReadRealm()
     }
     if (!realm.Live && !realm.Seasonal && !realm.League && !realm.Ptr && !realm.Development)
         realm.Live = true;
+    // CoA.ClassModel accepts one model or a space-separated list ("coa wcr").
     std::string const model = sConfigMgr->GetOption<std::string>("CoA.ClassModel", "coa");
-    realm.ConquestOfAzeroth = model == "coa";
-    realm.WarcraftReborn = model == "wcr";
+    for (std::string_view entry : Acore::Tokenize(model, ' ', false))
+    {
+        realm.ConquestOfAzeroth = realm.ConquestOfAzeroth || entry == "coa";
+        realm.WarcraftReborn = realm.WarcraftReborn || entry == "wcr";
+        realm.Classless = realm.Classless || entry == "hero";
+    }
     uint32 const maxLevel = sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL);
     realm.Ruleset = maxLevel <= 60 ? 0 : maxLevel <= 70 ? 1 : 2;
     return realm;
@@ -254,6 +259,9 @@ bool IsFreepickHero(Player const* player)
 
 bool IsRebornCharacter(Player const* player)
 {
+    // On "coa wcr" the stock classes use CoA Character Advancement, not free-pick Reborn.
+    if (CurrentRealm.ConquestOfAzeroth)
+        return false;
     uint8 const classId = player->getClass();
     return Reborn && classId >= CLASS_WARRIOR && classId <= CLASS_DRUID && classId != CLASS_HERO;
 }
@@ -472,7 +480,7 @@ public:
     void OnStartup() override
     {
         CurrentRealm = ReadRealm();
-        Classless = sConfigMgr->GetOption<std::string>("CoA.ClassModel", "coa") == "hero";
+        Classless = CurrentRealm.Classless;
         Reborn = CurrentRealm.WarcraftReborn;
         MysticAltars = (Classless || Reborn) &&
             !AscensionWildcard::PlaysWildcard(sConfigMgr->GetOption<std::string>("CoAChallenges.GameModes.Realm", ""));

@@ -558,7 +558,14 @@ bool Player::Create(ObjectGuid::LowType guidlow, CharacterCreateInfo* createInfo
         return false;
     }
 
-    SetMap(sMapMgr->CreateMap(info->mapId, this));
+    Map* map = sMapMgr->CreateMap(info->mapId, this);
+    if (!map)
+    {
+        LOG_ERROR("entities.player", "Player::Create: Account {} character '{}' race/class {}/{} has no map {} - refusing instead of aborting the world thread.",
+            GetSession()->GetAccountId(), m_name, createInfo->Race, createInfo->Class, info->mapId);
+        return false;
+    }
+    SetMap(map);
 
     uint8 powertype = uint8(LiveClassResourcePolicy::DefaultPowerForClass(createInfo->Class, cEntry->powerType));
 
