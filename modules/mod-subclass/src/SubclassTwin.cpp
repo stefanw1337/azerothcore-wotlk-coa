@@ -484,7 +484,7 @@ void BecomeGhost(Player* player, Creature* twin, bool ghost)
 bool FightsFromRange(Player const* player, Creature const* twin)
 {
     if (IsSplit(player))
-        return !twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID);
+        return !BrotherTanks(player) && (OtherHalfShoots(player) || !twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID));
     return RangedOf(player) != nullptr;
 }
 
