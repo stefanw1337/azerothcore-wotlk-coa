@@ -13,6 +13,7 @@ local UpdateLentRunes
 local incoming
 local pending = false
 local panel, tab, window
+local advancementTab
 local treeFrames = {}
 
 local function Send(message)
@@ -850,6 +851,7 @@ local function AttachToWindow()
             first, after = other, tabs[index + 1]
         end
     end
+    advancementTab = first
     tab = TabFromTemplate(first, parent) or CopyTab(first, parent)
     local gap = 4
     if after and after:GetLeft() and first:GetRight() then
@@ -940,9 +942,10 @@ local function ClassicCanvas(index)
     frame.art = frame:CreateTexture(nil, "BACKGROUND")
     frame.art:SetAllPoints(frame)
     frame.art:SetAlpha(0.8)
-    frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
-    frame.title:SetPoint("TOP", frame, "TOP", 0, -6)
-    frame.points = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    frame.title = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightHuge")
+    frame.title:SetPoint("TOP", frame, "TOP", 0, -10)
+    frame.title:SetShadowOffset(2, -2)
+    frame.points = frame:CreateFontString(nil, "OVERLAY", "GameFontGreenLarge")
     frame.points:SetPoint("TOP", frame.title, "BOTTOM", 0, -2)
     frame.buttons = {}
     frame.lines = {}
@@ -988,9 +991,9 @@ end
 
 local function RenderClassicTree(tabIndex, canvas)
     local name, _, spent, background = GetTalentTabInfo(tabIndex)
-    canvas.title:SetText(name or "")
-    canvas.points:SetText(string.format("%d point(s) spent", spent or 0))
-    local width, height = canvas:GetWidth(), canvas:GetHeight() - 50
+    canvas.title:SetText(string.upper(name or ""))
+    canvas.points:SetText(spent or 0)
+    local width, height = canvas:GetWidth(), canvas:GetHeight() - 64
     local art = background and CLASSIC_ART[string.lower(background)]
     if art and canvas.art:SetTexture(ART_FOLDER .. art) then
         local shown = math.min(ART_WIDTH, ART_HEIGHT * width / canvas:GetHeight())
@@ -1026,7 +1029,7 @@ local function RenderClassicTree(tabIndex, canvas)
         button.tabIndex, button.talentIndex = tabIndex, index
         button:ClearAllPoints()
         button:SetPoint("CENTER", canvas, "BOTTOMLEFT", px, py)
-        button.icon:SetTexture(icon)
+        SetPortraitToTexture(button.icon, icon)
         button.rank:SetText(rank .. "/" .. maxRank)
         button.icon:SetDesaturated(rank == 0 and not meets)
         if rank >= maxRank then
@@ -1124,17 +1127,6 @@ local function CreateBook()
     book.title = book:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     book.title:SetPoint("TOP", book, "TOP", 0, -16)
     book.title:SetText("Character Advancement")
-    local classic = CreateFrame("Button", nil, book, "UIPanelButtonTemplate")
-    classic:SetWidth(120)
-    classic:SetHeight(22)
-    classic:SetPoint("TOPLEFT", book, "TOPLEFT", 16, -12)
-    classic:SetText("Classic window")
-    classic:SetScript("OnClick", function()
-        book:Hide()
-        if blizzardToggleTalentFrame then
-            blizzardToggleTalentFrame()
-        end
-    end)
 
     ownPage = CreateFrame("Frame", nil, book)
     ownPage:SetPoint("TOPLEFT", book, "TOPLEFT", 12, -36)
@@ -1173,16 +1165,97 @@ local function ToggleBook()
     end
 end
 
-local function Attach()
-    if IsStandardClass() then
-        return true
+local function SetOwnShown(shown)
+    if not ownPage then
+        return
     end
-    return AttachToWindow()
+    if shown and not ownPage:IsShown() then
+        ownPage:Show()
+    elseif not shown and ownPage:IsShown() then
+        ownPage:Hide()
+    end
+end
+
+local function AdvancementTabActive()
+    if advancementTab and advancementTab.GetChecked then
+        return advancementTab:GetChecked() and true or false
+    end
+    return window and window.subclassOwnActive
+end
+
+local function AdoptOwnPage()
+    if not window or window == book or (ownPage and ownPage:GetParent() == window) then
+        return
+    end
+    for _, frame in ipairs(classicFrames) do
+        frame:Hide()
+    end
+    classicFrames = {}
+    ownPage = CreateFrame("Frame", "Ascension_SubclassOwnPage", window)
+    ownPage:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark", tile = true, tileSize = 32 })
+    ownPage:SetPoint("TOPLEFT", window, "TOPLEFT", 8, -24)
+    ownPage:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -8, 8)
+    ownPage:SetFrameLevel(window:GetFrameLevel() + 30)
+    ownPage:EnableMouse(true)
+    ownPage.points = ownPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    ownPage.points:SetPoint("BOTTOM", ownPage, "BOTTOM", 0, 10)
+    ownPage:SetScript("OnShow", RenderClassic)
+    ownPage:Hide()
+    local talentEvents = CreateFrame("Frame", nil, ownPage)
+    talentEvents:RegisterEvent("CHARACTER_POINTS_CHANGED")
+    talentEvents:RegisterEvent("PLAYER_TALENT_UPDATE")
+    talentEvents:SetScript("OnEvent", RenderClassic)
+    advancementTab:HookScript("OnClick", function() window.subclassOwnActive = true end)
+    window:HookScript("OnHide", function() window.subclassOwnActive = false end)
+    local watcher = CreateFrame("Frame", nil, window)
+    watcher:SetScript("OnUpdate", function(self, elapsed)
+        self.wait = (self.wait or 0) + elapsed
+        if self.wait < 0.1 then
+            return
+        end
+        self.wait = 0
+        SetOwnShown(IsStandardClass() and window:IsShown() and AdvancementTabActive() and not panel:IsShown())
+    end)
+end
+
+local function Attach()
+    if not AttachToWindow() then
+        return false
+    end
+    if IsStandardClass() then
+        AdoptOwnPage()
+    end
+    return true
+end
+
+local function OpenOwnPage()
+    if not (window and advancementTab and window ~= book) and not Attach() then
+        ToggleBook()
+        return
+    end
+    if window:IsShown() and ownPage and ownPage:IsShown() then
+        HideUIPanel(window)
+        if window:IsShown() then
+            window:Hide()
+        end
+        return
+    end
+    if not window:IsShown() then
+        ShowUIPanel(window)
+        if not window:IsShown() then
+            window:Show()
+        end
+    end
+    if panel then
+        panel:Hide()
+    end
+    advancementTab:Click()
+    window.subclassOwnActive = true
 end
 
 local function Toggle()
     if IsStandardClass() then
-        ToggleBook()
+        OpenOwnPage()
         return
     end
     if not panel then
@@ -1200,14 +1273,40 @@ local function Toggle()
     end
 end
 
-blizzardToggleTalentFrame = ToggleTalentFrame
-ToggleTalentFrame = function(...)
+local function OwnTalentToggle(...)
     if IsStandardClass() then
-        ToggleBook()
+        OpenOwnPage()
     elseif blizzardToggleTalentFrame then
         blizzardToggleTalentFrame(...)
     end
 end
+
+local classicTalentFrames = { "PlayerTalentFrame", "TalentFrame" }
+local talentRedirect = CreateFrame("Frame")
+talentRedirect:SetScript("OnUpdate", function(self, elapsed)
+    self.wait = (self.wait or 0) + elapsed
+    if self.wait < 0.1 then
+        return
+    end
+    self.wait = 0
+    if ToggleTalentFrame ~= OwnTalentToggle then
+        blizzardToggleTalentFrame = ToggleTalentFrame
+        ToggleTalentFrame = OwnTalentToggle
+    end
+    if not IsStandardClass() then
+        return
+    end
+    for _, name in ipairs(classicTalentFrames) do
+        local frame = _G[name]
+        if frame and frame:IsShown() and not frame.subclassAllowed then
+            HideUIPanel(frame)
+            if frame:IsShown() then
+                frame:Hide()
+            end
+            OpenOwnPage()
+        end
+    end
+end)
 
 local dressingTwin = false
 local twinRedressPending = false
