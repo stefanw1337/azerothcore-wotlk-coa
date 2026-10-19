@@ -195,6 +195,7 @@ std::unordered_map<ObjectGuid, ObjectGuid>& shieldBearers = *new std::unordered_
 constexpr std::array<uint32, 4> TankForms = { FORM_BEAR, FORM_DIREBEAR, FORM_DEFENSIVESTANCE, FORM_TEST_OF_STRENGTH };
 constexpr uint32 RighteousFury = 25780;
 constexpr uint32 SneakAlong = 1784;
+constexpr int32 TankThreatBonus = 40;
 constexpr uint32 AutoShotSpell = 75;
 constexpr uint32 ArrowProjectileDisplay = 3482;
 constexpr uint32 BulletProjectileDisplay = 3483;
@@ -284,7 +285,9 @@ bool BrotherTanks(Player const* player)
     if (!IsSplit(player))
         return false;
     if (LendsTankSpecialization(player))
-        return true;
+        for (AuraEffect const* threat : player->GetAuraEffectsByType(SPELL_AURA_MOD_THREAT))
+            if (threat->GetAmount() >= TankThreatBonus && IsBorrowedSpell(player, threat->GetId()))
+                return true;
     for (AuraEffect const* form : player->GetAuraEffectsByType(SPELL_AURA_MOD_SHAPESHIFT))
         if (std::find(TankForms.begin(), TankForms.end(), uint32(form->GetMiscValue())) != TankForms.end() &&
             IsBorrowedSpell(player, form->GetId()))
