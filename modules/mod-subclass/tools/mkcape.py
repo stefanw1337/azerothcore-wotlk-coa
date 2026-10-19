@@ -3,7 +3,7 @@ import numpy as np
 
 CAPE_GEOSETS = range(1501, 1511)
 SHOULDER_BONE = 25
-HANGING_BONE = 0
+HANGING_BONE = 1
 SWING = {
     'Walk': (6, 4, 2), 'Run': (18, 14, 4), 'RunLeft': (15, 12, 4), 'RunRight': (15, 12, 4),
     'Sprint': (26, 20, 5), 'JumpStart': (20, 16, 3), 'Jump': (28, 22, 4), 'Fall': (38, 26, 5),
