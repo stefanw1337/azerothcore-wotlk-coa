@@ -1,6 +1,7 @@
 local PREFIX = "SUBCLASS"
 local NODE = 34
 local LINE_TEXTURE = "Interface\\TaxiFrame\\UI-Taxi-Line"
+local STRATA_ABOVE = { BACKGROUND = "LOW", LOW = "MEDIUM", MEDIUM = "HIGH", HIGH = "DIALOG", DIALOG = "FULLSCREEN" }
 
 local state = { eligible = false, insights = 0, trees = {}, ranks = {}, classPoints = 0, specPoints = 0,
     resources = {}, powers = {} }
@@ -883,6 +884,7 @@ local function AttachToWindow()
     panel:SetPoint("TOPLEFT", window, "TOPLEFT", 8, -24)
     panel:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -8, 8)
     panel:SetFrameLevel(window:GetFrameLevel() + 40)
+    panel:SetFrameStrata(STRATA_ABOVE[window:GetFrameStrata()] or "HIGH")
     local first, after = tabs[1], tabs[2]
     for index, other in ipairs(tabs) do
         if TextOf(other) == "Character Advancement" then
@@ -930,6 +932,7 @@ local function IsStandardClass()
 end
 
 local CLASSIC_TIERS, CLASSIC_COLUMNS = 11, 4
+local TALENT_POINTS_PER_TIER = 5
 local ART_FOLDER = "Interface\\AddOns\\Ascension_Subclass\\Textures\\"
 local ART_WIDTH, ART_HEIGHT, ART_SIZE = 512, 360, 512
 local CLASSIC_ART = {
@@ -1061,12 +1064,23 @@ local function RenderClassicTree(tabIndex, canvas)
         button:SetPoint("CENTER", canvas, "BOTTOMLEFT", px, py)
         SetPortraitToTexture(button.icon, icon)
         button.rank:SetText(rank .. "/" .. maxRank)
-        button.icon:SetDesaturated(rank == 0 and not meets)
+        local reachable = meets and (spent or 0) >= (tier - 1) * TALENT_POINTS_PER_TIER
+        local available = reachable and rank < maxRank and FreeTalentPoints() > 0
+        button.icon:SetDesaturated(rank == 0 and not available)
+        button.icon:SetVertexColor(1, 1, 1)
+        if rank == 0 and not available then
+            button.icon:SetVertexColor(0.45, 0.45, 0.45)
+        end
+        button.rank:SetTextColor(available and 0 or 1, available and 1 or (rank > 0 and 0.82 or 0.5),
+            available and 0 or (rank > 0 and 0 or 0.5))
         if rank >= maxRank then
             button.border:SetVertexColor(1, 0.82, 0)
             button.border:Show()
-        elseif meets and FreeTalentPoints() > 0 then
+        elseif available then
             button.border:SetVertexColor(0, 1, 0)
+            button.border:Show()
+        elseif rank > 0 then
+            button.border:SetVertexColor(1, 0.82, 0)
             button.border:Show()
         else
             button.border:Hide()
@@ -1222,10 +1236,12 @@ local function AdoptOwnPage()
     end
     classicFrames = {}
     ownPage = CreateFrame("Frame", "Ascension_SubclassOwnPage", window)
-    ownPage:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background-Dark", tile = true, tileSize = 32 })
     ownPage:SetPoint("TOPLEFT", window, "TOPLEFT", 8, -24)
     ownPage:SetPoint("BOTTOMRIGHT", window, "BOTTOMRIGHT", -8, 8)
-    ownPage:SetFrameLevel(window:GetFrameLevel() + 30)
+    ownPage:SetFrameStrata(STRATA_ABOVE[window:GetFrameStrata()] or "HIGH")
+    local cover = ownPage:CreateTexture(nil, "BACKGROUND", nil, -8)
+    cover:SetAllPoints(ownPage)
+    cover:SetTexture(0.03, 0.03, 0.04, 1)
     ownPage:EnableMouse(true)
     ownPage.points = ownPage:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     ownPage.points:SetPoint("BOTTOM", ownPage, "BOTTOM", 0, 10)
