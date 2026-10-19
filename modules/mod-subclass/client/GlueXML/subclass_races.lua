@@ -36,7 +36,7 @@ if CHAR_CREATE_RACE_LORE then
 end
 
 COA_SUBCLASS_SMALL_RACES = { ["Two-Headed Ogre"] = 1.9 }
-COA_SUBCLASS_SELECT_SCALES = { ["Two-Headed Ogre"] = 1.35 }
+COA_SUBCLASS_SELECT_SCALES = { ["Two-Headed Ogre"] = 1.25 }
 do
 	local function SmallRaceScale()
 		if not (CharacterCreateFrame and CharacterCreateFrame:IsVisible()) then return end
@@ -93,7 +93,7 @@ do
 		if self.wait < 0.2 then return end
 		self.wait = 0
 		if not (CharacterSelect and CharacterSelect:IsShown() and CharacterSelect.selectedIndex) then
-			shownRace = nil
+			shownRace, applied = nil, nil
 			return
 		end
 		local ok, _, race = pcall(GetCharacterInfo, GetCharIDFromIndex and GetCharIDFromIndex(CharacterSelect.selectedIndex) or CharacterSelect.selectedIndex)
