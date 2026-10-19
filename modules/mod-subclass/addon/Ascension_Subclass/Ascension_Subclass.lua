@@ -933,6 +933,7 @@ end
 
 local CLASSIC_TIERS, CLASSIC_COLUMNS = 11, 4
 local TALENT_POINTS_PER_TIER = 5
+local CLASSIC_NODE = 37
 local ART_FOLDER = "Interface\\AddOns\\Ascension_Subclass\\Textures\\"
 local ART_WIDTH, ART_HEIGHT, ART_SIZE = 512, 360, 512
 local CLASSIC_ART = {
@@ -1048,18 +1049,30 @@ local function ClassicButton(canvas, index)
         return button
     end
     button = CreateFrame("Button", nil, canvas)
-    button:SetWidth(NODE)
-    button:SetHeight(NODE)
-    button.icon = button:CreateTexture(nil, "ARTWORK")
+    button:SetWidth(CLASSIC_NODE)
+    button:SetHeight(CLASSIC_NODE)
+    button.icon = button:CreateTexture(nil, "BORDER")
     button.icon:SetAllPoints(button)
+    button:SetNormalTexture("Interface\\Buttons\\UI-Quickslot2")
+    local frame = button:GetNormalTexture()
+    frame:ClearAllPoints()
+    frame:SetWidth(CLASSIC_NODE * 64 / 37)
+    frame:SetHeight(CLASSIC_NODE * 64 / 37)
+    frame:SetPoint("CENTER", button, "CENTER", 0, 0)
+    button:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
     button.border = button:CreateTexture(nil, "OVERLAY")
     button.border:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
     button.border:SetBlendMode("ADD")
-    button.border:SetWidth(NODE * 1.8)
-    button.border:SetHeight(NODE * 1.8)
+    button.border:SetWidth(CLASSIC_NODE * 1.7)
+    button.border:SetHeight(CLASSIC_NODE * 1.7)
     button.border:SetPoint("CENTER", button, "CENTER", 0, 0)
-    button.rank = button:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
-    button.rank:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 2, -2)
+    button.rankBorder = button:CreateTexture(nil, "OVERLAY")
+    button.rankBorder:SetTexture("Interface\\TalentFrame\\TalentFrame-RankBorder")
+    button.rankBorder:SetWidth(32)
+    button.rankBorder:SetHeight(32)
+    button.rankBorder:SetPoint("CENTER", button, "BOTTOMRIGHT", 0, 0)
+    button.rank = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    button.rank:SetPoint("CENTER", button.rankBorder, "CENTER", 0, 0)
     button:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetTalent(self.tabIndex, self.talentIndex)
@@ -1121,25 +1134,30 @@ local function RenderClassicTree(tabIndex, canvas)
         button.tabIndex, button.talentIndex = tabIndex, index
         button:ClearAllPoints()
         button:SetPoint("CENTER", canvas, "BOTTOMLEFT", px, py)
-        SetPortraitToTexture(button.icon, icon)
-        button.rank:SetText(rank .. "/" .. maxRank)
+        button.icon:SetTexture(icon)
         local reachable = meets and (spent or 0) >= (tier - 1) * TALENT_POINTS_PER_TIER
         local available = reachable and rank < maxRank and FreeTalentPoints() > 0
-        button.icon:SetDesaturated(rank == 0 and not available)
-        button.icon:SetVertexColor(1, 1, 1)
-        if rank == 0 and not available then
-            button.icon:SetVertexColor(0.45, 0.45, 0.45)
+        local dark = rank == 0 and not available
+        button.icon:SetDesaturated(dark)
+        button.icon:SetVertexColor(dark and 0.6 or 1, dark and 0.6 or 1, dark and 0.6 or 1)
+        button.rank:SetText(rank)
+        if dark then
+            button.rank:Hide()
+            button.rankBorder:Hide()
+        else
+            button.rank:Show()
+            button.rankBorder:Show()
         end
-        button.rank:SetTextColor(available and 0 or 1, available and 1 or (rank > 0 and 0.82 or 0.5),
-            available and 0 or (rank > 0 and 0 or 0.5))
         if rank >= maxRank then
-            button.border:SetVertexColor(1, 0.82, 0)
-            button.border:Show()
+            button.rank:SetTextColor(1, 0.82, 0)
         elseif available then
+            button.rank:SetTextColor(0.1, 1, 0.1)
+        else
+            button.rank:SetTextColor(1, 0.82, 0)
+        end
+        if available then
             button.border:SetVertexColor(0, 1, 0)
-            button.border:Show()
-        elseif rank > 0 then
-            button.border:SetVertexColor(1, 0.82, 0)
+            button.border:SetAlpha(0.6)
             button.border:Show()
         else
             button.border:Hide()
