@@ -12,6 +12,7 @@
 #include "AscensionSpecialization.h"
 #include "Chat.h"
 #include "ClientDBC.h"
+#include "CoASpellbook.h"
 #include "CommandScript.h"
 #include "Config.h"
 #include "DatabaseEnv.h"
@@ -1863,6 +1864,14 @@ void AddSC_mod_subclass()
 {
     new mod_subclass_standard_mains();
     PreviousTrainerFor = Trainer::SetClassTrainerFor(&TrainerWithSubclass);
+    CoASpellbook::SetExtraClasses([](Player const* player)
+    {
+        std::vector<std::pair<uint8, uint32>> classes;
+        Subclass::Choice const choice = ChoiceOf(player);
+        if (choice.Complete() && !SubclassResting(player))
+            classes.emplace_back(choice.SubClass, choice.SubSpec);
+        return classes;
+    });
     new mod_subclass_world();
     new mod_subclass_player();
     new item_subclass_relic(BookScriptName);
