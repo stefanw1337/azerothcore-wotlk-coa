@@ -37,7 +37,6 @@ using namespace Acore::ChatCommands;
 
 bool SubclassChosen(Player const* player);
 bool OtherHalfShoots(Player const* player);
-bool MainHalfShoots(Player const* player);
 bool BrotherOut(Player const* player);
 void RefreshSubclassResources(Player* player);
 bool IsBorrowedSpell(Player const* player, uint32 spellId);
@@ -67,7 +66,7 @@ constexpr uint32 CowboySpell = 9530106;
 constexpr uint32 HalfBrainSpell = 9530107;
 constexpr uint32 CowboyAura = 9530108;
 constexpr uint32 HalfBrainAura = 9530109;
-constexpr uint32 ReachAura = 9530110;
+constexpr uint32 NoMinimumRangeSpell = 9530110;
 constexpr uint32 TwinLinkedSpell = 9530111;
 constexpr uint32 ToleranceSpell = 9530112;
 constexpr uint8 ToleratedDrunk = 89;
@@ -1126,20 +1125,6 @@ bool OtherHalfAwake(Player const* player)
 
 bool BrotherOut(Player const* player);
 
-bool OnlyOtherHalfShoots(Player const* player)
-{
-    return OtherHalfAwake(player) && OtherHalfShoots(player) && !MainHalfShoots(player);
-}
-
-void UpdateReach(Player* player)
-{
-    bool const wanted = OnlyOtherHalfShoots(player);
-    if (wanted && !player->HasAura(ReachAura))
-        player->AddAura(ReachAura, player);
-    else if (!wanted && player->HasAura(ReachAura))
-        player->RemoveAurasDueToSpell(ReachAura);
-}
-
 void HandWeaponsToBrother(Player* player)
 {
     if (BrotherOut(player))
@@ -1161,7 +1146,6 @@ void UpdateSelfAura(Player* player)
 {
     if (!player->IsAlive())
         return;
-    UpdateReach(player);
     HandWeaponsToBrother(player);
     if (!OtherHalfAwake(player))
     {
@@ -1289,6 +1273,8 @@ void LearnRacials(Player* player)
         player->learnSpell(HalfBrainSpell, false);
     if (HasTwin(player) && !player->HasSpell(TwinLinkedSpell))
         player->learnSpell(TwinLinkedSpell, false);
+    if ((HasTwin(player) || HasSecondHead(player)) && !player->HasSpell(NoMinimumRangeSpell))
+        player->learnSpell(NoMinimumRangeSpell, false);
     if (player->getRace() == OgreRace && !player->HasSpell(ToleranceSpell))
         player->learnSpell(ToleranceSpell, false);
 }

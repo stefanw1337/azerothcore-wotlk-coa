@@ -1,8 +1,8 @@
 ---
 area: modules
-type: changed
+type: added
 audience: players
-title: A two-headed Ogre's ranged subclass can shoot at point-blank range
+title: Thin Humans and two-headed Ogres ignore the minimum range of ranged attacks
 ---
-When the other head's class shoots and yours does not, her shots no longer fail as too close, just like the Thin
-Human's brother.
+A new racial passive, "Minimum Range? No Thank You!", lets the second head or the brother shoot whatever stands in
+front of you.

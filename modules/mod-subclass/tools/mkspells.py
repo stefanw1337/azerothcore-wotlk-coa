@@ -6,7 +6,6 @@ import sys
 SRC, OUT, SQL = sys.argv[1], sys.argv[2], sys.argv[3]
 FIELDS, SIZE = 234, 936
 ATTR0_CANT_CANCEL = 0x80000000
-ATTR0_HIDDEN_CLIENTSIDE = 0x00000080
 ATTR3_DEATH_PERSISTENT = 0x00100000
 
 RACIAL, AURA, MODE, REACH, PASSIVE = "racial", "aura", "mode", "reach", "passive"
@@ -33,7 +32,9 @@ SPELLS = [
      "yourself always comes first. Requires your heads to disagree.", ""),
     (9530108, MODE, 113360, "Play Easy, Cowboy", "", "", "Your brother picks his own spells."),
     (9530109, MODE, 25225, "Two Heads, Half a Brain", "", "", "Your other head does what she likes."),
-    (9530110, REACH, 3609, "Brother's Reach", "", "", "Your brother shoots from where he stands."),
+    (9530110, REACH, 436, "Minimum Range? No Thank You!", "Racial Passive",
+     "Your ranged attacks have no minimum range. The second head, or your brother, shoots whatever stands in "
+     "front of you.", ""),
     (9530111, PASSIVE, 18227, "Twin-Linked", "Racial Passive",
      "You and your brother share one health and mana pool, and whatever befalls you befalls him too: "
      "stuns, fears and even sheep.", ""),
@@ -92,7 +93,7 @@ def build(spell_id, kind, icon, name, rank, description, tooltip):
         row[71] = 6
         row[95] = 4
     elif kind == REACH:
-        row[4] = ATTR0_CANT_CANCEL | ATTR0_HIDDEN_CLIENTSIDE
+        row[4] = ATTR0_PASSIVE
         row[7] = ATTR3_DEATH_PERSISTENT
         row[71] = 6
         row[95] = SPELL_AURA_ASCENSION_IGNORE_MIN_RANGE
