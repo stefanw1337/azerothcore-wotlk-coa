@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionCoATalentData.h"
+#include "AscensionFreepick.h"
 #include "ClientDBC.h"
 #include "DBCStores.h"
 #include "ItemTemplate.h"
@@ -17,6 +18,7 @@
 namespace AscensionCompatData
 {
 std::vector<CoATalentEntry> CoATalentEntries;
+bool CoAStockClassesNative = false;
 std::vector<CoASelectableFreeEntry> CoASelectableFreeEntries;
 std::vector<CoAAutomaticDependency> CoAAutomaticDependencies;
 std::vector<CoASpecialization> CoASpecializations;
@@ -152,6 +154,10 @@ bool LoadCoATalentData()
     CoASpecializations.clear();
     CoATalentBudgets.clear();
 
+    AscensionFreepick::Realm const classRealm = AscensionFreepick::ReadRealm();
+    bool const unified = classRealm.ConquestOfAzeroth && classRealm.WarcraftReborn;
+    CoAStockClassesNative = unified;
+
     ClientDBC classes, classTypes, tabTypes, specs, advancement, essence;
     if (!classes.Load(GetClientDBCPath("ChrClasses.dbc"), 56) ||
         !classTypes.Load(GetClientDBCPath("CharacterAdvancementClassTypes.dbc"), 5) ||
@@ -166,7 +172,8 @@ bool LoadCoATalentData()
         ClientDBC::Record record = essence.GetRecord(row);
         uint32 const key = record.GetUInt32(ESSENCE_KEY);
         uint32 const level = record.GetUInt32(ESSENCE_LEVEL);
-        if (key < 12 || key > 32 || !level || level > 255)
+        bool const stockKey = key >= 1 && key <= 11 && key != 10;
+        if ((key < 12 || key > 32) && !(stockKey && unified) || !level || level > 255)
             continue;
         if (record.GetUInt32(ESSENCE_FLAGS) || record.GetUInt32(ESSENCE_FLAGS + 1) ||
             record.GetUInt32(ESSENCE_FLAGS + 2) || record.GetUInt32(ESSENCE_FLAGS + 3))
@@ -220,13 +227,17 @@ bool LoadCoATalentData()
         ClientDBC::Record record = advancement.GetRecord(row);
         uint32 const entryId = record.GetUInt32(ADVANCEMENT_ID);
         auto classType = classTypeById.find(record.GetUInt32(ADVANCEMENT_CLASS_TYPE));
-        if (classType == classTypeById.end() ||
-            (!IsCoAClassType(classType->second) && !IsBorrowOnlyClassType(classType->second)))
+        if (classType == classTypeById.end())
+            continue;
+        bool const customType = IsCoAClassType(classType->second);
+        bool const stockType = IsBorrowOnlyClassType(classType->second);
+        if (!customType && !stockType)
+            continue;
+        if (advancement.GetRecordSize() >= 483 && (record.GetUInt32At(479) & 0x9))
             continue;
 
         uint32 const classId = classType->second.ClassId;
-        uint8 const catalogClassId = IsCoAClassType(classType->second) ? uint8(classId) :
-            CoABorrowOnlyClassOf(uint8(classId));
+        uint8 const catalogClassId = customType || unified ? uint8(classId) : CoABorrowOnlyClassOf(uint8(classId));
         uint32 const tab = record.GetUInt32(ADVANCEMENT_TAB);
         uint32 specId = 0;
         if (tab != SHARED_CLASS_TAB_ID)

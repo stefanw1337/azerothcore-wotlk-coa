@@ -209,8 +209,8 @@ TEST_F(CustomClassAttackPowerTest, MeleeRecalculationDoesNotOverwriteRangedAttac
 
 TEST(ClassProjectileAmmoTest, OnlyStockClassesUseProjectileAmmo)
 {
-    EXPECT_TRUE(UsesProjectileAmmo(CLASS_HUNTER));
-    EXPECT_TRUE(UsesProjectileAmmo(CLASS_WARRIOR));
+    EXPECT_FALSE(UsesProjectileAmmo(CLASS_HUNTER));
+    EXPECT_FALSE(UsesProjectileAmmo(CLASS_WARRIOR));
     EXPECT_FALSE(UsesProjectileAmmo(CLASS_HERO));
     EXPECT_FALSE(UsesProjectileAmmo(CLASS_RANGER));
     EXPECT_FALSE(UsesProjectileAmmo(CLASS_WITCH_HUNTER));

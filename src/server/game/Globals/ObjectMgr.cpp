@@ -4633,7 +4633,9 @@ void ObjectMgr::LoadPlayerInfo()
 
                 for (uint32 raceIndex = RACE_HUMAN; raceIndex < sRaceMgr->GetMaxRaces(); ++raceIndex)
                 {
-                    if (raceMask == 0 || ((1u << ((raceIndex - 1) & 31)) & raceMask))
+                    bool const stockRace = raceIndex >= RACE_HUMAN && raceIndex <= RACE_DRAENEI && raceIndex != 9;
+                    bool const customRaceClassSkill = !stockRace && raceMask != 0 && classMask != 0;
+                    if (raceMask == 0 || customRaceClassSkill || ((1u << ((raceIndex - 1) & 31)) & raceMask))
                     {
                         for (uint32 classIndex = CLASS_WARRIOR; classIndex < MAX_CLASSES; ++classIndex)
                         {
@@ -4722,6 +4724,8 @@ void ObjectMgr::LoadPlayerInfo()
                         if (PlayerInfo* info = racial.RaceId < sRaceMgr->GetMaxRaces() ? _playerInfo[racial.RaceId][classIndex] : nullptr)
                             for (uint32 spell : racial.Spells)
                             {
+                                if (!spell)
+                                    continue;
                                 info->customSpells.push_back(spell);
                                 ++count;
                             }

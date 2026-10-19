@@ -305,7 +305,8 @@ uint8 PlayableClassOf(uint8 catalogClassId)
 
 uint8 CatalogClassOf(uint8 classId)
 {
-    if (classId >= CLASS_WARRIOR && classId <= CLASS_DRUID && classId != CLASS_HERO)
+    if (classId >= CLASS_WARRIOR && classId <= CLASS_DRUID && classId != CLASS_HERO &&
+        !AscensionCompatData::CoAStockClassesNative)
         return AscensionCompatData::CoABorrowOnlyClassOf(classId);
     return classId;
 }

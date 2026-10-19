@@ -66,7 +66,7 @@ std::vector<std::uint32_t> SpecializationSlotRecord(SpecializationSlot const& sl
 
 bool ParseSpecializationSlot(std::vector<std::uint32_t> const& record, SpecializationSlot& slot)
 {
-    if (record.size() < 5 || record[0] != 1 || record[1] < 12 || record[1] > 32 ||
+    if (record.size() < 5 || record[0] != 1 || record[1] < 1 || record[1] > 32 || record[1] == 10 ||
         record[3] > (record.size() - 5) / 2)
         return false;
 
