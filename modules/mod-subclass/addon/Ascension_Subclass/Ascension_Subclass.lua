@@ -986,6 +986,62 @@ local function ClassicCanvas(index)
     return frame
 end
 
+local ADVANCEMENT_COST_LINES = { "^Cost:", "^Level:" }
+
+local function IsAdvancementCostLine(text)
+    for _, pattern in ipairs(ADVANCEMENT_COST_LINES) do
+        if text and string.find(text, pattern) then
+            return true
+        end
+    end
+    return false
+end
+
+local function WithoutAdvancementCosts(tooltip)
+    local name = tooltip:GetName()
+    local lines, dropped = {}, false
+    for index = 1, tooltip:NumLines() do
+        local left, right = _G[name .. "TextLeft" .. index], _G[name .. "TextRight" .. index]
+        local text = left and left:GetText()
+        if IsAdvancementCostLine(text) then
+            dropped = true
+        else
+            local shownRight = right and right:IsShown() and right:GetText()
+            lines[#lines + 1] = { text = text or " ", color = { left:GetTextColor() }, right = shownRight,
+                rightColor = right and { right:GetTextColor() } }
+        end
+    end
+    if not dropped then
+        return
+    end
+    while #lines > 0 and lines[#lines].text == " " and not lines[#lines].right do
+        lines[#lines] = nil
+    end
+    tooltip:ClearLines()
+    for index, line in ipairs(lines) do
+        if index == 1 and not line.right then
+            tooltip:SetText(line.text, unpack(line.color))
+        elseif line.right then
+            local r, g, b = unpack(line.color)
+            local rr, rg, rb = unpack(line.rightColor)
+            tooltip:AddDoubleLine(line.text, line.right, r, g, b, rr, rg, rb)
+        else
+            local r, g, b = unpack(line.color)
+            tooltip:AddLine(line.text, r, g, b, true)
+        end
+    end
+end
+
+local costStripper = CreateFrame("Frame")
+costStripper:Hide()
+costStripper:SetScript("OnUpdate", function(self)
+    self:Hide()
+    if GameTooltip:IsShown() and GameTooltip:GetOwner() == self.owner then
+        WithoutAdvancementCosts(GameTooltip)
+        GameTooltip:Show()
+    end
+end)
+
 local function ClassicButton(canvas, index)
     local button = canvas.buttons[index]
     if button then
@@ -1007,7 +1063,10 @@ local function ClassicButton(canvas, index)
     button:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetTalent(self.tabIndex, self.talentIndex)
+        WithoutAdvancementCosts(GameTooltip)
         GameTooltip:Show()
+        costStripper.owner = self
+        costStripper:Show()
     end)
     button:SetScript("OnLeave", function() GameTooltip:Hide() end)
     button:SetScript("OnClick", function(self) LearnTalent(self.tabIndex, self.talentIndex) end)
