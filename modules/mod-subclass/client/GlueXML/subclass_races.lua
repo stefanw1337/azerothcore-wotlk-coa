@@ -63,12 +63,6 @@ do
 			end)
 		end
 	end)
-	local old = SetCharacterRace
-	function SetCharacterRace(...)
-		local a, b, c, d, e = old(...)
-		pending = 0.7
-		return a, b, c, d, e
-	end
 	if SetFaceCustomizeCamera then
 		local setFace = SetFaceCustomizeCamera
 		function SetFaceCustomizeCamera(...)
