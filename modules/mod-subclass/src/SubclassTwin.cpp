@@ -1126,14 +1126,14 @@ bool OtherHalfAwake(Player const* player)
 
 bool BrotherOut(Player const* player);
 
-bool OnlyBrotherShoots(Player const* player)
+bool OnlyOtherHalfShoots(Player const* player)
 {
-    return BrotherOut(player) && OtherHalfShoots(player) && !MainHalfShoots(player);
+    return OtherHalfAwake(player) && OtherHalfShoots(player) && !MainHalfShoots(player);
 }
 
 void UpdateReach(Player* player)
 {
-    bool const wanted = OnlyBrotherShoots(player);
+    bool const wanted = OnlyOtherHalfShoots(player);
     if (wanted && !player->HasAura(ReachAura))
         player->AddAura(ReachAura, player);
     else if (!wanted && player->HasAura(ReachAura))
