@@ -1,8 +1,14 @@
-import struct, sys
+import json, math, struct, sys
 import numpy as np
 
 CAPE_GEOSETS = range(1501, 1511)
-CAPE_BONES = [25, 16, 9, 3, 1]
+SHOULDER_BONE = 25
+HANGING_BONE = 0
+SWING = {
+    'Walk': (6, 4, 2), 'Run': (18, 14, 4), 'RunLeft': (15, 12, 4), 'RunRight': (15, 12, 4),
+    'Sprint': (26, 20, 5), 'JumpStart': (20, 16, 3), 'Jump': (28, 22, 4), 'Fall': (38, 26, 5),
+    'JumpEnd': (12, 8, 2), 'JumpLandRun': (18, 14, 4), 'FlyRun': (28, 22, 5), 'SwimRun': (14, 10, 3),
+    'ReadyUnarmed': (2, 2, 1), 'Stand': (0, 0, 1)}
 COLUMNS, ROWS = 9, 14
 TOP, BOTTOM = 1.60, 0.42
 TEXTURE_CAPE = 2
@@ -30,13 +36,16 @@ def back_profile(m2, skin):
         return float(window[:, 0].min()) if len(window) else -0.1
     return back
 
-def bone_weights(z):
-    stops = [(1.50, {0: 255}), (1.38, {0: 128, 1: 127}), (1.30, {1: 128, 2: 127}),
-             (1.20, {3: 255}), (-9, {4: 255})]
-    for height, weights in stops:
-        if z >= height:
-            return weights
-    return {4: 255}
+def bone_weights(v):
+    if v <= 0.0:
+        return {0: 255}
+    if v < 0.15:
+        top = int(255 * v / 0.15)
+        return {0: 255 - top, 1: top} if top < 255 else {1: 255}
+    low = int(255 * min(1.0, max(0.0, (v - 0.35) / 0.4)))
+    if not low:
+        return {1: 255}
+    return {1: 255 - low, 2: low} if low < 255 else {2: 255}
 
 def smooth_back(back):
     heights = np.linspace(BOTTOM, TOP, 40)
@@ -58,14 +67,48 @@ def cape_mesh(back):
             side = (u - 0.5) * 2
             y = -side * half
             x = centre + 0.05 * side * side
-            vertices.append(((x, y, z), (u, v), bone_weights(z)))
+            vertices.append(((x, y, z), (u, v), bone_weights(v)))
     triangles = []
     for row in range(ROWS - 1):
         for column in range(COLUMNS - 1):
             a = row * COLUMNS + column
             b, c, d = a + 1, a + COLUMNS, a + COLUMNS + 1
             triangles += [a, c, b, b, c, d]
-    return vertices, triangles
+    top_pivot = (back(TOP) - 0.035, 0.0, TOP)
+    middle = TOP - 0.45 * (TOP - BOTTOM)
+    low_pivot = (back(middle) - 0.035 - 0.10 * 0.45 ** 1.6, 0.0, middle)
+    return vertices, triangles, top_pivot, low_pivot
+
+def compress(f):
+    v = int(round(f * 32767))
+    return v - 32768 if f >= 0 else v + 32767
+
+def swing_key(degrees):
+    half = math.radians(degrees) / 2
+    return struct.pack('<4h', compress(0.0), compress(math.sin(half)), compress(0.0), compress(math.cos(half)))
+
+def cape_bone(blob, m2, parent, pivot, part, names):
+    sequence_count, sequence_offset = arr(m2, 28)
+    times, values = bytearray(), bytearray()
+    for i in range(sequence_count):
+        animation, sub, length = struct.unpack_from('<HHI', m2, sequence_offset + i * 64)
+        lifted = SWING.get(names.get(animation, ''), (0, 0, 0))
+        angle, flutter = lifted[part], lifted[2] * (1 if part == 0 else 1.6)
+        if flutter and length > 1:
+            keys = [(0, angle), (length // 2, angle + flutter), (length, angle)]
+        else:
+            keys = [(0, angle)]
+        time_offset = blob.append(struct.pack('<%dI' % len(keys), *[k[0] for k in keys]), 4)
+        value_offset = blob.append(b''.join(swing_key(k[1]) for k in keys), 4)
+        times += struct.pack('<II', len(keys), time_offset)
+        values += struct.pack('<II', len(keys), value_offset)
+    empty = blob.append(struct.pack('<II', 0, 0) * sequence_count, 4)
+    time_table = blob.append(bytes(times), 4)
+    value_table = blob.append(bytes(values), 4)
+    still = struct.pack('<HhIIII', 0, -1, sequence_count, empty, sequence_count, empty)
+    turning = struct.pack('<HhIIII', 1, -1, sequence_count, time_table, sequence_count, value_table)
+    return (struct.pack('<iIhHI', -1, 0x200, parent, 0, 0) + still + turning + still +
+            struct.pack('<3f', *pivot))
 
 def normals(vertices, triangles):
     p = np.array([v[0] for v in vertices])
@@ -89,12 +132,20 @@ class Blob:
         self.data += payload
         return offset
 
-def graft(m2_path, skin_path, out_m2, out_skin):
+def graft(m2_path, skin_path, out_m2, out_skin, names_path):
     m2 = open(m2_path, 'rb').read()
     skin = open(skin_path, 'rb').read()
-    vertices, triangles = cape_mesh(back_profile(m2, skin))
+    vertices, triangles, top_pivot, low_pivot = cape_mesh(back_profile(m2, skin))
     vertex_normals = normals(vertices, triangles)
     blob = Blob(m2)
+    names = {int(k): v for k, v in json.load(open(names_path)).items()}
+    bone_count, bone_offset = arr(m2, 44)
+    cape_top, cape_low = bone_count, bone_count + 1
+    CAPE_BONES = [SHOULDER_BONE, cape_top, cape_low]
+    new_bones = (cape_bone(blob, m2, HANGING_BONE, top_pivot, 0, names) +
+                 cape_bone(blob, m2, cape_top, low_pivot, 1, names))
+    offset = blob.append(m2[bone_offset:bone_offset + bone_count * 88] + new_bones)
+    struct.pack_into('<II', blob.data, 44, bone_count + 2, offset)
 
     vertex_count, vertex_offset = arr(m2, 60)
     new_vertices = bytearray()
@@ -167,4 +218,4 @@ def graft(m2_path, skin_path, out_m2, out_skin):
     print('cape vertices', len(vertices), 'triangles', len(triangles) // 3, 'copies', len(CAPE_GEOSETS))
 
 if __name__ == '__main__':
-    graft(*sys.argv[1:5])
+    graft(*sys.argv[1:6])
