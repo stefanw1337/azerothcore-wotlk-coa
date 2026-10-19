@@ -1175,6 +1175,11 @@ bool OtherHalfShoots(Player const* player)
     return choice.Complete() && ClassShoots(choice.SubClass);
 }
 
+bool MainHalfShoots(Player const* player)
+{
+    return ClassShoots(player->getClass());
+}
+
 uint32 ClassFamily(uint8 classId)
 {
     switch (PlayableClassOf(classId))
