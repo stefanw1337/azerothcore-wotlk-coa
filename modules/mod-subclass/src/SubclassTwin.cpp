@@ -27,6 +27,7 @@
 #include "Vehicle.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <mutex>
@@ -39,6 +40,8 @@ bool OtherHalfShoots(Player const* player);
 bool MainHalfShoots(Player const* player);
 bool BrotherOut(Player const* player);
 void RefreshSubclassResources(Player* player);
+bool IsBorrowedSpell(Player const* player, uint32 spellId);
+void HandWeaponsToBrother(Player* player);
 
 namespace
 {
@@ -187,6 +190,9 @@ struct SwingPartner
 };
 
 std::unordered_map<ObjectGuid, SwingPartner>& swingPartners = *new std::unordered_map<ObjectGuid, SwingPartner>;
+std::unordered_map<ObjectGuid, ObjectGuid>& shieldBearers = *new std::unordered_map<ObjectGuid, ObjectGuid>;
+constexpr std::array<uint32, 4> TankForms = { FORM_BEAR, FORM_DIREBEAR, FORM_DEFENSIVESTANCE, FORM_TEST_OF_STRENGTH };
+constexpr uint32 RighteousFury = 25780;
 constexpr uint32 AutoShotSpell = 75;
 constexpr uint32 ArrowProjectileDisplay = 3482;
 constexpr uint32 BulletProjectileDisplay = 3483;
@@ -271,14 +277,39 @@ Item* OwnBow(Player const* player)
     return player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_RANGED);
 }
 
+bool BrotherTanks(Player const* player)
+{
+    if (!IsSplit(player))
+        return false;
+    for (AuraEffect const* form : player->GetAuraEffectsByType(SPELL_AURA_MOD_SHAPESHIFT))
+        if (std::find(TankForms.begin(), TankForms.end(), uint32(form->GetMiscValue())) != TankForms.end() &&
+            IsBorrowedSpell(player, form->GetId()))
+            return true;
+    return player->HasAura(RighteousFury) && IsBorrowedSpell(player, RighteousFury);
+}
+
+void LendWeapon(Player const* player, Wardrobe& wardrobe, std::size_t slot, uint8 equipmentSlot)
+{
+    if (!wardrobe.Items[slot])
+        if (Item const* item = player->GetItemByPos(INVENTORY_SLOT_BAG_0, equipmentSlot))
+            wardrobe.Items[slot] = item->GetEntry();
+}
+
 Wardrobe Dressed(Player const* player)
 {
     Wardrobe wardrobe = WardrobeOf(player);
     if (!IsSplit(player))
+    {
         wardrobe.Items = Worn(player).Items;
-    else if (!wardrobe.Items[Ranged] && OtherHalfShoots(player))
-        if (Item const* bow = OwnBow(player))
-            wardrobe.Items[Ranged] = bow->GetEntry();
+        return wardrobe;
+    }
+    if (OtherHalfShoots(player))
+        LendWeapon(player, wardrobe, Ranged, EQUIPMENT_SLOT_RANGED);
+    if (BrotherTanks(player))
+    {
+        LendWeapon(player, wardrobe, MainHand, EQUIPMENT_SLOT_MAINHAND);
+        LendWeapon(player, wardrobe, OffHand, EQUIPMENT_SLOT_OFFHAND);
+    }
     return wardrobe;
 }
 
@@ -806,6 +837,16 @@ void UpdateSwingPartner(Player* player, Creature* twin)
         swingPartners[player->GetGUID()] = partner;
 }
 
+void UpdateShieldBearer(Player* player, Creature* twin)
+{
+    bool const bears = BrotherOut(player) && BrotherTanks(player) && !twin->HasUnitFlag(UNIT_FLAG_STUNNED);
+    std::lock_guard<std::mutex> lock(twinMutex);
+    if (bears)
+        shieldBearers[player->GetGUID()] = twin->GetGUID();
+    else
+        shieldBearers.erase(player->GetGUID());
+}
+
 void Restyle(Player* player, bool split)
 {
     if (split)
@@ -873,6 +914,8 @@ void UpdateCarry(Player* player, uint32 diff)
     MirrorStun(player, twin);
     MirrorCurse(player, twin);
     UpdateCompanion(player, twin);
+    HandWeaponsToBrother(player);
+    UpdateShieldBearer(player, twin);
     if (twin->HasUnitFlag(UNIT_FLAG_STUNNED))
         return;
     MirrorStance(player, twin);
@@ -900,6 +943,7 @@ void DismissTwin(Player* player)
         looks.erase(guid);
         motions.erase(player->GetGUID().GetCounter());
         swingPartners.erase(player->GetGUID());
+        shieldBearers.erase(player->GetGUID());
     }
     DismissCompanion(player);
     if (Creature* twin = ObjectAccessor::GetCreature(*player, guid))
@@ -1072,13 +1116,18 @@ void UpdateReach(Player* player)
         player->RemoveAurasDueToSpell(ReachAura);
 }
 
-void HandBowToBrother(Player* player)
+void HandWeaponsToBrother(Player* player)
 {
     if (BrotherOut(player))
         if (Creature* twin = TwinOf(player))
-            if (uint32 const shown = Dressed(player).Items[Ranged];
-                twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID + 2) != shown)
-                twin->SetVirtualItem(2, shown);
+        {
+            Wardrobe const dressed = Dressed(player);
+            std::array<std::size_t, 3> const slots = { MainHand, OffHand, Ranged };
+            for (uint8 index = 0; index < slots.size(); ++index)
+                if (uint32 const shown = dressed.Items[slots[index]];
+                    twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID + index) != shown)
+                    twin->SetVirtualItem(index, shown);
+        }
     uint16 const field = PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_RANGED * 2;
     if (Item* bow = OwnBow(player); bow && !player->GetUInt32Value(field))
         player->SetVisibleItemSlot(EQUIPMENT_SLOT_RANGED, bow);
@@ -1089,7 +1138,7 @@ void UpdateSelfAura(Player* player)
     if (!player->IsAlive())
         return;
     UpdateReach(player);
-    HandBowToBrother(player);
+    HandWeaponsToBrother(player);
     if (!OtherHalfAwake(player))
     {
         player->RemoveAurasDueToSpell(CowboyAura);
@@ -1394,6 +1443,33 @@ bool ShareSwingWithBrother(WorldSession* session, WorldPacket const& packet)
     return false;
 }
 
+bool ShowHitsOnBrother(WorldSession* session, WorldPacket const& packet)
+{
+    if (resendingAsBrother || packet.GetOpcode() != SMSG_ATTACKERSTATEUPDATE)
+        return true;
+    WorldPacket reader(packet);
+    reader.rpos(0);
+    uint32 hitInfo = 0;
+    ObjectGuid attacker;
+    ObjectGuid target;
+    reader >> hitInfo >> attacker.ReadAsPacked() >> target.ReadAsPacked();
+    ObjectGuid bearer;
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        auto itr = shieldBearers.find(target);
+        if (itr == shieldBearers.end())
+            return true;
+        bearer = itr->second;
+    }
+    WorldPacket shown(SMSG_ATTACKERSTATEUPDATE, packet.size() + 8);
+    shown << hitInfo << attacker.WriteAsPacked() << bearer.WriteAsPacked();
+    shown.append(packet.contents() + reader.rpos(), packet.size() - reader.rpos());
+    resendingAsBrother = true;
+    session->SendPacket(&shown);
+    resendingAsBrother = false;
+    return false;
+}
+
 bool ShowCastOnBrother(WorldSession* session, WorldPacket const& packet)
 {
     if (resendingAsBrother || !castingAsBrother.Spell ||
@@ -1468,7 +1544,8 @@ public:
 
     bool CanPacketSend(WorldSession* session, WorldPacket const& packet) override
     {
-        return !session || (ShowCastOnBrother(session, packet) && ShareSwingWithBrother(session, packet));
+        return !session || (ShowCastOnBrother(session, packet) && ShareSwingWithBrother(session, packet) &&
+            ShowHitsOnBrother(session, packet));
     }
 
     bool CanPacketReceive(WorldSession* session, WorldPacket const& packet) override
