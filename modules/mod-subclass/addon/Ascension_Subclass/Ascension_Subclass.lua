@@ -644,6 +644,15 @@ local function FindAdvancementTabs()
     if #tabs < 2 then
         return nil
     end
+    local height = tabs[1]:GetHeight()
+    tabs = {}
+    for _, child in ipairs({ parent:GetChildren() }) do
+        local kind = child:GetObjectType()
+        local text = (kind == "Button" or kind == "CheckButton") and TextOf(child)
+        if text and text ~= "" and child ~= tab and math.abs(child:GetHeight() - height) < 2 then
+            tabs[#tabs + 1] = child
+        end
+    end
     table.sort(tabs, function(a, b) return (a:GetLeft() or 0) < (b:GetLeft() or 0) end)
     return tabs, parent
 end
@@ -803,10 +812,39 @@ local function CopyTab(source, parent)
     return copy
 end
 
-local function KeepTabsInRow(first, following, gap)
+local function TabsAfter(first, height)
+    local found = {}
+    for _, child in ipairs({ first:GetParent():GetChildren() }) do
+        local kind = child:GetObjectType()
+        local text = (kind == "Button" or kind == "CheckButton") and TextOf(child)
+        if text and text ~= "" and child ~= tab and child ~= first and math.abs(child:GetHeight() - height) < 2 then
+            if not child.subclassOrder then
+                local left, start = child:GetLeft(), first:GetLeft()
+                child.subclassOrder = (left and start and left < start) and -1 or (left or 1e6)
+            end
+            if child.subclassOrder >= 0 then
+                found[#found + 1] = child
+            end
+        end
+    end
+    table.sort(found, function(a, b) return a.subclassOrder < b.subclassOrder end)
+    return found
+end
+
+local function KeepTabsInRow(first, gap)
+    local height = first:GetHeight()
     local function Arrange()
         local previous = tab
-        for _, other in ipairs(following) do
+        for _, other in ipairs(TabsAfter(first, height)) do
+            if not other.subclassHooked then
+                other.subclassHooked = true
+                other:HookScript("OnClick", function()
+                    panel:Hide()
+                    if tab.SetChecked then
+                        tab:SetChecked(false)
+                    end
+                end)
+            end
             if other:IsShown() then
                 local left, right = other:GetLeft(), previous:GetRight()
                 if not left or not right or math.abs(left - right - gap) > 1 then
@@ -857,15 +895,7 @@ local function AttachToWindow()
     if after and after:GetLeft() and first:GetRight() then
         gap = math.max(after:GetLeft() - first:GetRight(), 2)
     end
-    local following = {}
-    local seen = false
-    for _, other in ipairs(tabs) do
-        if seen then
-            following[#following + 1] = other
-        end
-        seen = seen or other == first
-    end
-    KeepTabsInRow(first, following, gap)
+    KeepTabsInRow(first, gap)
     tab:SetScript("OnClick", function()
         for _, other in ipairs(tabs) do
             if other.SetChecked then
