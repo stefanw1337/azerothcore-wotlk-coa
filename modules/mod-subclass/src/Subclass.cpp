@@ -37,6 +37,7 @@
 #include "WorldScript.h"
 #include "WorldSession.h"
 #include <algorithm>
+#include <array>
 #include <mutex>
 #include <optional>
 #include <unordered_map>
@@ -45,6 +46,7 @@
 using namespace Acore::ChatCommands;
 
 void HandleTwinLook(Player* player, std::vector<std::string_view> const& words);
+void LearnStandardMainWeaponSkills(Player* player);
 std::string TwinWearing(Player const* player);
 std::string TwinState(Player const* player);
 std::string ToggleTwin(Player* player);
@@ -1386,6 +1388,7 @@ public:
     void OnPlayerLogin(Player* player) override
     {
         TrimChoice(player);
+        LearnStandardMainWeaponSkills(player);
         LendRunes(player);
         SyncBorrowedBaseSpells(player);
         RefreshPowerPools(player);
@@ -1807,6 +1810,22 @@ bool MayPlayStandardMain(uint8 race, uint8 gender)
 {
     std::lock_guard<std::mutex> lock(subclassMutex);
     return Subclass::StoryFor(stories, { race, gender, 0, 0 }) != nullptr;
+}
+
+constexpr std::array<uint8, 10> StandardRaces = { RACE_HUMAN, RACE_ORC, RACE_DWARF, RACE_NIGHTELF,
+    RACE_UNDEAD_PLAYER, RACE_TAUREN, RACE_GNOME, RACE_TROLL, RACE_BLOODELF, RACE_DRAENEI };
+
+void LearnStandardMainWeaponSkills(Player* player)
+{
+    if (!IsStandardMainClass(player->getClass()) || !MayPlayStandardMain(player->getRace(), player->getGender()))
+        return;
+    for (uint8 race : StandardRaces)
+        if (PlayerInfo const* info = sObjectMgr->GetPlayerInfo(race, player->getClass()))
+            for (PlayerCreateInfoSkill const& skill : info->skills)
+                if (SkillLineEntry const* line = sSkillLineStore.LookupEntry(skill.SkillId))
+                    if ((line->categoryId == SKILL_CATEGORY_WEAPON || line->categoryId == SKILL_CATEGORY_ARMOR) &&
+                        !player->HasSkill(skill.SkillId))
+                        player->LearnDefaultSkill(skill.SkillId, skill.Rank);
 }
 
 bool OpenStandardClassesAtCreation(WorldSession* session, WorldPacket const& packet)

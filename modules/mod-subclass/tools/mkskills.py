@@ -2,9 +2,10 @@
 import struct
 import sys
 
-RACES, BASE, OUT = sys.argv[1], sys.argv[2], sys.argv[3]
+RACES, BASE, OUT, SERVER_OUT = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 CLASS_CATEGORY = 7
 ALL_CLASSES = 0xFFFFFFFF
+LEARNED_WITH_SKILL = (1, 2)
 
 
 def load(path):
@@ -33,12 +34,20 @@ open(f"{OUT}/SkillRaceClassInfo.dbc", "wb").write(info)
 
 ability, count, fields, size = load(f"{RACES}/SkillLineAbility.dbc")
 assert (fields, size) == (14, 56)
-spells = 0
+server_ability = bytearray(ability)
+spells = kept = 0
 for index in range(count):
     offset = 20 + index * size
     skill = struct.unpack_from("<I", ability, offset + 4)[0]
     if skill in class_lines and struct.unpack_from("<I", ability, offset + 16)[0]:
         struct.pack_into("<I", ability, offset + 16, 0)
         spells += 1
+        if struct.unpack_from("<I", ability, offset + 36)[0] in LEARNED_WITH_SKILL:
+            kept += 1
+        else:
+            struct.pack_into("<I", server_ability, offset + 16, 0)
 open(f"{OUT}/SkillLineAbility.dbc", "wb").write(ability)
-print(f"class skill lines {len(class_lines)}, permission rows opened {opened}, spells opened {spells}")
+open(f"{SERVER_OUT}/SkillLineAbility.dbc", "wb").write(server_ability)
+open(f"{SERVER_OUT}/SkillRaceClassInfo.dbc", "wb").write(info)
+print(f"class skill lines {len(class_lines)}, permission rows opened {opened}, spells opened {spells}, "
+      f"kept for the server as learned with their skill {kept}")
