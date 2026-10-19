@@ -11,6 +11,7 @@
 #include "DBCStores.h"
 #include "AscensionSpecialization.h"
 #include "Chat.h"
+#include "ClientDBC.h"
 #include "CommandScript.h"
 #include "Config.h"
 #include "DatabaseEnv.h"
@@ -622,6 +623,22 @@ bool HandlesOwnPet(SpellInfo const* info)
 }
 
 std::unordered_set<uint32> runesLent;
+std::unordered_set<uint16> tankSpecializations;
+constexpr uint32 ChrSpecsFields = 29;
+constexpr uint32 ChrSpecsTankRole = 14;
+
+void LoadTankSpecializations()
+{
+    ClientDBC specs;
+    std::unordered_set<uint16> loaded;
+    if (specs.Load(GetClientDBCPath("ChrSpecs.dbc"), ChrSpecsFields))
+        for (uint32 row = 0; row < specs.GetRecordCount(); ++row)
+            if (ClientDBC::Record record = specs.GetRecord(row); record.GetUInt32(ChrSpecsTankRole))
+                loaded.insert(uint16(record.GetUInt32(0)));
+    LOG_INFO("module", "mod-subclass: {} tank specialization(s)", loaded.size());
+    std::lock_guard<std::mutex> lock(subclassMutex);
+    tankSpecializations = std::move(loaded);
+}
 thread_local bool raisingRunes = false;
 
 bool BorrowsDeathKnight(Player const* player)
@@ -1023,6 +1040,15 @@ void GrantBook(Player* player, uint32 bookItemId)
 }
 }
 
+bool LendsTankSpecialization(Player const* player)
+{
+    Subclass::Choice const choice = ChoiceOf(player);
+    if (!choice.Complete() || AscensionCompatData::IsCoABorrowOnlyClass(choice.SubClass))
+        return false;
+    std::lock_guard<std::mutex> lock(subclassMutex);
+    return tankSpecializations.contains(choice.SubSpec);
+}
+
 void RefreshSubclassResources(Player* player)
 {
     RefreshPowerPools(player);
@@ -1056,6 +1082,7 @@ public:
     {
         LoadPairs();
         LoadStories();
+        LoadTankSpecializations();
     }
 };
 
@@ -1695,6 +1722,7 @@ public:
     {
         LoadPairs();
         LoadStories();
+        LoadTankSpecializations();
         handler->SendSysMessage("Reloaded mod_subclass_pair and mod_subclass_story.");
         return true;
     }

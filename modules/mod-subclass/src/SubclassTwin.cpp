@@ -42,6 +42,7 @@ bool BrotherOut(Player const* player);
 void RefreshSubclassResources(Player* player);
 bool IsBorrowedSpell(Player const* player, uint32 spellId);
 void HandWeaponsToBrother(Player* player);
+bool LendsTankSpecialization(Player const* player);
 
 namespace
 {
@@ -282,6 +283,8 @@ bool BrotherTanks(Player const* player)
 {
     if (!IsSplit(player))
         return false;
+    if (LendsTankSpecialization(player))
+        return true;
     for (AuraEffect const* form : player->GetAuraEffectsByType(SPELL_AURA_MOD_SHAPESHIFT))
         if (std::find(TankForms.begin(), TankForms.end(), uint32(form->GetMiscValue())) != TankForms.end() &&
             IsBorrowedSpell(player, form->GetId()))
