@@ -48,6 +48,29 @@ do
 		end
 		return zoomIn[fileString]
 	end })
+	local function Near(a, b)
+		return a and b and math.abs(a[1] - b[1]) + math.abs(a[2] - b[2]) + math.abs(a[3] - b[3]) < 0.01
+	end
+	local customize = CreateFrame("Frame")
+	local since, base
+	customize:SetScript("OnUpdate", function(self, elapsed)
+		local k = SmallRaceScale()
+		local active = k and CharacterCreateFrame and CharacterCreateFrame:IsShown() and Enum and Enum.CharCreateSteps
+			and CharacterCreateFrame.state == Enum.CharCreateSteps.Customization
+			and C_CharacterCreate and C_CharacterCreate.GetCameraPosition
+		if not active then
+			since, base = nil, nil
+			return
+		end
+		since = (since or 0) + elapsed
+		if since < 0.4 then return end
+		local ok, x, y, z = pcall(C_CharacterCreate.GetCameraPosition)
+		if not ok or not x then return end
+		local now = { x, y, z }
+		if base and not Near(now, base) then return end
+		base = now
+		pcall(C_CharacterCreate.SetCameraPosition, x * k, y * k, z * (1 + (k - 1) * 0.6))
+	end)
 	local selectWatch = CreateFrame("Frame")
 	local shownRace, applied
 	selectWatch:SetScript("OnUpdate", function(self, elapsed)

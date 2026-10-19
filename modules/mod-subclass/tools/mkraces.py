@@ -27,7 +27,7 @@ class Race:
 
 THIN_HUMAN = Race(96, 32, "Thin Human", MALE)
 TWO_HEADED_OGRE = Race(85, 53, "Two-Headed Ogre", FEMALE, "Character\\Ogre\\Female\\TwoHeadedOgre.mdx", 977600, 901400,
-                       2.4, tuple(eye_texture_name(index) for index in range(len(EYE_SETS))))
+                       1.0, tuple(eye_texture_name(index) for index in range(len(EYE_SETS))))
 RACES = (THIN_HUMAN, TWO_HEADED_OGRE)
 
 CHR_DISPLAYS = (4, 5)
