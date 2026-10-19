@@ -123,6 +123,17 @@ do
 			return cycle(id, direction, ...)
 		end
 	end
+	for _, name in ipairs({ "CharacterCustomization_Left", "CharacterCustomization_Right" }) do
+		local original = _G[name]
+		if original then
+			_G[name] = function(id, ...)
+				if id == CUSTOMIZE_FACE and EyesInsteadOfFace() then
+					id = CHAR_CUSTOMIZE_HAIR_COLOR
+				end
+				return original(id, ...)
+			end
+		end
+	end
 	local labels = CreateFrame("Frame")
 	labels:SetScript("OnUpdate", function(self, elapsed)
 		self.wait = (self.wait or 0) + elapsed

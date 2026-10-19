@@ -2,7 +2,7 @@
 on the cyclops head. Every eyeball is drawn unlit so it glows a little and sits under a skin-coloured upper lid that
 drops over it to blink; the two heads blink out of step, and their irises glance around on their own.
 The eyeballs draw the character's hair texture, so CharSections hair colours choose the eyes: one atlas per eye set,
-stacked as the outer eye, the inner eye and the cyclops eye of that set."""
+stacked as the outer eye, the inner eye and the cyclops eye of that set, padded to a power-of-two height."""
 import math
 import struct
 import sys
@@ -77,7 +77,7 @@ EYE_SETS = (
                                                                   ("Green", "Blue", "Brown")))
 )
 HAIR_TEXTURE = 6
-CELLS = 3
+CELLS = 4
 TWO_EYED_HEAD, CYCLOPS_HEAD = 21, 20
 HEAD_LOOK = {TWO_EYED_HEAD: CALM, CYCLOPS_HEAD: STARE}
 EYES = [
@@ -189,7 +189,9 @@ def eye_texture_name(index):
 
 def eye_atlas(eye_set, path):
     looks = [HEAD_LOOK[head] for _, _, head in EYES]
-    image = np.vstack([eye_cell(look, COLOR[name]) for look, name in zip(looks, eye_set)])
+    cells = [eye_cell(look, COLOR[name]) for look, name in zip(looks, eye_set)]
+    cells += [cells[-1]] * (CELLS - len(cells))
+    image = np.vstack(cells)
     write_blp(Image.fromarray(np.clip(image, 0, 255).astype(np.uint8)), path)
 
 
