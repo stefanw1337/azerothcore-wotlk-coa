@@ -13152,6 +13152,14 @@ float Player::GetReputationPriceDiscount(FactionTemplateEntry const* factionTemp
     return discount;
 }
 
+bool Player::IsAnyClassOfMask(uint32 classMask, ClassContext context) const
+{
+    for (uint8 classId = CLASS_WARRIOR; classId < MAX_CLASSES; ++classId)
+        if ((classMask & (1u << (classId - 1))) && IsClass(Classes(classId), context))
+            return true;
+    return false;
+}
+
 bool Player::IsSpellFitByClassAndRace(uint32 spell_id) const
 {
     uint32 racemask  = getRaceMask();
@@ -13168,7 +13176,8 @@ bool Player::IsSpellFitByClassAndRace(uint32 spell_id) const
             continue;
 
         // skip wrong class skills
-        if (_spell_idx->second->ClassMask && (_spell_idx->second->ClassMask & classmask) == 0)
+        if (_spell_idx->second->ClassMask && (_spell_idx->second->ClassMask & classmask) == 0 &&
+            !IsAnyClassOfMask(_spell_idx->second->ClassMask, CLASS_CONTEXT_ABILITY))
             continue;
 
         // skip wrong class and race skill saved in SkillRaceClassInfo.dbc
