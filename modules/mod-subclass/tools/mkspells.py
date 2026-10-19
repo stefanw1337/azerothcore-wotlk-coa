@@ -37,6 +37,9 @@ SPELLS = [
     (9530111, PASSIVE, 18227, "Twin-Linked", "Racial Passive",
      "You and your brother share one health and mana pool, and whatever befalls you befalls him too: "
      "stuns, fears and even sheep.", ""),
+    (9530112, PASSIVE, 1513, "Tolerance", "Racial Passive",
+     "Ogres were weaned on Gordok grog. Drinks make you half as drunk, the haze wears off twice as fast, "
+     "and you never get past merely drunk.", ""),
 ]
 CASTER_AURA = {9530106: 9530102, 9530107: 9530105}
 
@@ -228,7 +231,7 @@ header = header[header.index("INSERT INTO"):header.index(") VALUES") + len(") VA
 ids = ", ".join(str(spell[0]) for spell in SPELLS)
 with open(SQL, "w") as out:
     out.write("-- mod-subclass: server rows for the second-self racials and auras "
-              "(the client gets the same rows in patch-ZZX).\n\n")
+              "(the client gets the same rows in patch-ZZZZ).\n\n")
     out.write(wrapped(ids.split(", "), "DELETE FROM `spell_dbc` WHERE `ID` IN (", ");") + "\n")
     out.write(header + "\n" + ",\n".join(values) + ";\n")
 print("wrote", [spell[0] for spell in SPELLS])

@@ -69,6 +69,8 @@ constexpr uint32 CowboyAura = 9530108;
 constexpr uint32 HalfBrainAura = 9530109;
 constexpr uint32 ReachAura = 9530110;
 constexpr uint32 TwinLinkedSpell = 9530111;
+constexpr uint32 ToleranceSpell = 9530112;
+constexpr uint8 ToleratedDrunk = 89;
 constexpr uint32 EasyTick = 600;
 constexpr uint32 ManualPause = 3000;
 constexpr float HealBelowPct = 60.0f;
@@ -1236,6 +1238,30 @@ void OneSipTooMany(Player* player)
     }
 }
 
+void HoldYourDrink(Player* player)
+{
+    if (player->getRace() != OgreRace)
+        return;
+    uint8 const drunk = player->GetDrunkValue();
+    uint8 before = 0;
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        before = sips[player->GetGUID().GetCounter()];
+    }
+    uint8 tolerated = drunk;
+    if (drunk > before)
+        tolerated = uint8(before + (drunk - before + 1) / 2);
+    else if (drunk < before)
+        tolerated = uint8(std::max(0, 2 * int32(drunk) - int32(before)));
+    tolerated = std::min(tolerated, ToleratedDrunk);
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        sips[player->GetGUID().GetCounter()] = tolerated;
+    }
+    if (tolerated != drunk)
+        player->SetDrunkValue(tolerated);
+}
+
 void TickSelfAura(Player* player, uint32 diff)
 {
     {
@@ -1248,6 +1274,7 @@ void TickSelfAura(Player* player, uint32 diff)
     }
     UpdateSelfAura(player);
     OneSipTooMany(player);
+    HoldYourDrink(player);
 }
 
 void LearnRacials(Player* player)
@@ -1262,6 +1289,8 @@ void LearnRacials(Player* player)
         player->learnSpell(HalfBrainSpell, false);
     if (HasTwin(player) && !player->HasSpell(TwinLinkedSpell))
         player->learnSpell(TwinLinkedSpell, false);
+    if (player->getRace() == OgreRace && !player->HasSpell(ToleranceSpell))
+        player->learnSpell(ToleranceSpell, false);
 }
 
 bool WaitingToReturn(Player const* player, bool returning)
