@@ -193,6 +193,7 @@ std::unordered_map<ObjectGuid, SwingPartner>& swingPartners = *new std::unordere
 std::unordered_map<ObjectGuid, ObjectGuid>& shieldBearers = *new std::unordered_map<ObjectGuid, ObjectGuid>;
 constexpr std::array<uint32, 4> TankForms = { FORM_BEAR, FORM_DIREBEAR, FORM_DEFENSIVESTANCE, FORM_TEST_OF_STRENGTH };
 constexpr uint32 RighteousFury = 25780;
+constexpr uint32 SneakAlong = 1784;
 constexpr uint32 AutoShotSpell = 75;
 constexpr uint32 ArrowProjectileDisplay = 3482;
 constexpr uint32 BulletProjectileDisplay = 3483;
@@ -486,8 +487,21 @@ float FollowDistanceFor(Player const* player, Creature const* twin)
     return player->IsInCombat() && FightsFromRange(player, twin) ? RangedStandoff : TwinDistance;
 }
 
+void MirrorStealth(Player* player, Creature* twin)
+{
+    bool const hidden = player->HasStealthAura();
+    if (hidden != twin->HasAura(SneakAlong))
+    {
+        if (hidden)
+            twin->AddAura(SneakAlong, twin);
+        else
+            twin->RemoveAurasDueToSpell(SneakAlong);
+    }
+}
+
 void MirrorStance(Player* player, Creature* twin)
 {
+    MirrorStealth(player, twin);
     if (!player->IsInCombat())
     {
         SheathState const drawn = DrawnLike(player);
