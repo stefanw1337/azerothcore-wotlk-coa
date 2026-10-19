@@ -7,8 +7,8 @@ HANGING_BONE = 1
 SWING = {
     'Walk': (6, 4, 2), 'Run': (18, 14, 4), 'RunLeft': (15, 12, 4), 'RunRight': (15, 12, 4),
     'Sprint': (26, 20, 5), 'JumpStart': (20, 16, 3), 'Jump': (28, 22, 4), 'Fall': (38, 26, 5),
-    'JumpEnd': (12, 8, 2), 'JumpLandRun': (18, 14, 4), 'FlyRun': (28, 22, 5), 'SwimRun': (14, 10, 3),
-    'ReadyUnarmed': (2, 2, 1), 'Stand': (0, 0, 1)}
+    'JumpEnd': (0, -2, 1), 'JumpLandRun': (18, 14, 4), 'FlyRun': (28, 22, 5), 'SwimRun': (14, 10, 3),
+    'ReadyUnarmed': (-2, -1, 1), 'Stand': (-3, -2, 1)}
 COLUMNS, ROWS = 9, 14
 TOP, BOTTOM = 1.60, 0.42
 TEXTURE_CAPE = 2
