@@ -84,8 +84,7 @@ def upper_lid(centre, radius, look):
             nx = math.cos(elevation) * math.cos(side)
             ny = math.cos(elevation) * math.sin(side)
             nz = math.sin(elevation)
-            position = (cx + nx * lid * look.depth, cy + ny * lid, cz + nz * lid * look.height)
-            vertices.append((position, (nx, ny, nz), SKIN_UV))
+            vertices.append(((cx + nx * lid, cy + ny * lid, cz + nz * lid), (nx, ny, nz), SKIN_UV))
     triangles = []
     for row in range(LID_ROWS):
         for column in range(LID_COLUMNS):
@@ -160,21 +159,36 @@ def lid_turn(degrees):
     return struct.pack("<4h", compress(0.0), compress(math.sin(half)), compress(0.0), compress(math.cos(half)))
 
 
-def blink_bone(blob, m2, parent, pivot, global_sequence, look):
+def track(blob, m2, global_sequence, times, values):
     sequence_count = arr(m2, 28)[0]
+    time_data = blob.append(struct.pack("<%dI" % len(times), *times), 4)
+    value_data = blob.append(b"".join(values), 4)
+    time_table = blob.append(struct.pack("<II", len(times), time_data) * sequence_count, 4)
+    value_table = blob.append(struct.pack("<II", len(values), value_data) * sequence_count, 4)
+    return struct.pack("<HhIIII", LINEAR, global_sequence, sequence_count, time_table, sequence_count, value_table)
+
+
+def still_track(blob, m2):
+    sequence_count = arr(m2, 28)[0]
+    empty = blob.append(struct.pack("<II", 0, 0) * sequence_count, 4)
+    return struct.pack("<HhIIII", 0, -1, sequence_count, empty, sequence_count, empty)
+
+
+def bone(parent, pivot, translation, rotation, scale):
+    return (struct.pack("<iIhHI", -1, TRANSFORMED_BONE, parent, 0, 0) + translation + rotation + scale +
+            struct.pack("<3f", *pivot))
+
+
+def lid_bones(blob, m2, head, shape_index, pivot, global_sequence, look):
+    still = still_track(blob, m2)
+    stretch = track(blob, m2, global_sequence, [0], [struct.pack("<3f", look.depth, 1.0, look.height)])
+    shape = bone(head, pivot, still, still, stretch)
     period = look.blink_period
     closed = look.lid_edge - LID_LOWEST
     times = [0, period - BLINK_CLOSE - BLINK_SHUT, period - BLINK_SHUT, period - BLINK_SHUT // 2, period]
     angles = [0.0, 0.0, closed, closed, 0.0]
-    time_data = blob.append(struct.pack("<%dI" % len(times), *times), 4)
-    value_data = blob.append(b"".join(lid_turn(a) for a in angles), 4)
-    time_table = blob.append(struct.pack("<II", len(times), time_data) * sequence_count, 4)
-    value_table = blob.append(struct.pack("<II", len(angles), value_data) * sequence_count, 4)
-    empty = blob.append(struct.pack("<II", 0, 0) * sequence_count, 4)
-    still = struct.pack("<HhIIII", 0, -1, sequence_count, empty, sequence_count, empty)
-    turning = struct.pack("<HhIIII", LINEAR, global_sequence, sequence_count, time_table, sequence_count, value_table)
-    return (struct.pack("<iIhHI", -1, TRANSFORMED_BONE, parent, 0, 0) + still + turning + still +
-            struct.pack("<3f", *pivot))
+    turning = track(blob, m2, global_sequence, times, [lid_turn(a) for a in angles])
+    return shape + bone(shape_index, pivot, still, turning, still)
 
 
 def append_array(blob, m2, header, size, payload, align=4):
@@ -216,7 +230,7 @@ def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
     bone_count = arr(m2, 44)[0]
     new_bones = b""
     for i, (centre, _, head, look) in enumerate(eyes):
-        new_bones += blink_bone(blob, m2, head, centre, first_global + heads.index(head), look)
+        new_bones += lid_bones(blob, m2, head, bone_count + 2 * i, centre, first_global + heads.index(head), look)
     append_array(blob, m2, 44, 88, new_bones, 16)
 
     texture_count = arr(m2, 80)[0]
@@ -230,7 +244,7 @@ def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
     eye_lookup = {head: first_lookup + i for i, head in enumerate(heads)}
     eye_material = append_array(blob, m2, 112, 4, struct.pack("<HH", UNLIT, 0))
 
-    bones_used = heads + [bone_count + i for i in range(len(eyes))]
+    bones_used = heads + [bone_count + 2 * i + 1 for i in range(len(eyes))]
     first_combo = append_array(blob, m2, 120, 2, struct.pack("<%dH" % len(bones_used), *bones_used))
     combo = {bone: first_combo + i for i, bone in enumerate(bones_used)}
 
@@ -240,7 +254,7 @@ def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
         meshes.append((vertices, outward(vertices, triangles, centre), head, centre, radius,
                        eye_lookup[head], eye_material))
         vertices, triangles = upper_lid(centre, radius, look)
-        meshes.append((vertices, outward(vertices, triangles, centre), bone_count + i, centre, radius * LID_SCALE,
+        meshes.append((vertices, outward(vertices, triangles, centre), bone_count + 2 * i + 1, centre, radius * LID_SCALE,
                        body_lookup, body_material))
 
     vertex_count = arr(m2, 60)[0]
