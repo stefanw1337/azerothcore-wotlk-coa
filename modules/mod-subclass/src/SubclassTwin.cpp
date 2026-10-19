@@ -48,8 +48,8 @@ bool LendsRangedSpecialization(Player const* player);
 namespace
 {
 constexpr uint32 TwinEntry = 9530030;
-constexpr uint8 TwinRace = 32;
-constexpr uint8 OgreRace = 53;
+constexpr uint8 TwinRace = 96;
+constexpr uint8 OgreRace = 85;
 constexpr uint32 BrotherSpell = 9530100;
 constexpr uint32 HeadsSpell = 9530101;
 constexpr uint32 TeamingUpAura = 9530102;
