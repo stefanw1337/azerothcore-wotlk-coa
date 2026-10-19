@@ -36,6 +36,7 @@ if CHAR_CREATE_RACE_LORE then
 end
 
 COA_SUBCLASS_SMALL_RACES = { ["Two-Headed Ogre"] = 1.9 }
+COA_SUBCLASS_SELECT_SCALES = { ["Two-Headed Ogre"] = 1.35 }
 do
 	local function SmallRaceScale()
 		if not (CharacterCreateFrame and CharacterCreateFrame:IsVisible()) then return end
@@ -99,7 +100,7 @@ do
 		race = ok and race or nil
 		if race == shownRace then return end
 		shownRace = race
-		local k = COA_SUBCLASS_SMALL_RACES[race or ""]
+		local k = COA_SUBCLASS_SELECT_SCALES[race or ""]
 		if CharacterSelect.SetCamDistanceScale then
 			pcall(CharacterSelect.SetCamDistanceScale, CharacterSelect, k or 1)
 		end
