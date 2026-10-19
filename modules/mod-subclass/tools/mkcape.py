@@ -6,7 +6,7 @@ SHOULDER_BONE = 25
 HANGING_BONE = 1
 SWING = {
     'Walk': (6, 4, 2), 'Run': (18, 14, 4), 'RunLeft': (15, 12, 4), 'RunRight': (15, 12, 4),
-    'Sprint': (26, 20, 5), 'JumpStart': (20, 16, 3), 'Jump': (28, 22, 4), 'Fall': (38, 26, 5),
+    'Sprint': (26, 20, 5), 'JumpStart': (20, 16, 3), 'Jump': (38, 28, 4), 'Fall': (58, 40, 6),
     'JumpEnd': (0, -2, 1), 'JumpLandRun': (18, 14, 4), 'FlyRun': (28, 22, 5), 'SwimRun': (14, 10, 3),
     'ReadyUnarmed': (-2, -1, 1), 'Stand': (-3, -2, 1)}
 COLUMNS, ROWS = 9, 14
