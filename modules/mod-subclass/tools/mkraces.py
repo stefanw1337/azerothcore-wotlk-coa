@@ -19,10 +19,12 @@ class Race:
     model_path: str = ""
     display_id: int = 0
     model_id: int = 0
+    camera_distance: float = 1.0
 
 
 THIN_HUMAN = Race(96, 32, "Thin Human", MALE)
-TWO_HEADED_OGRE = Race(85, 53, "Two-Headed Ogre", FEMALE, "Character\\Ogre\\Female\\TwoHeadedOgre.mdx", 977600, 901400)
+TWO_HEADED_OGRE = Race(85, 53, "Two-Headed Ogre", FEMALE, "Character\\Ogre\\Female\\TwoHeadedOgre.mdx", 977600, 901400,
+                       2.4)
 RACES = (THIN_HUMAN, TWO_HEADED_OGRE)
 
 CHR_DISPLAYS = (4, 5)
@@ -174,6 +176,34 @@ def clone_races(dbc, displays):
         dbc.rows = [row for row in dbc.rows if dbc.value(row, 0) != race.race_id] + [copy]
 
 
+CAMERA_DISTANCES = (1, 5)
+APPEARANCE_CAMERA = 4
+
+
+def push_cameras(cameras, appearances):
+    by_id = {cameras.value(row, 0): row for row in cameras.rows}
+    next_id = cameras.next_id()
+    for race in RACES:
+        if race.camera_distance == 1.0:
+            continue
+        made = {}
+        for row in appearances.rows:
+            if appearances.value(row, 1) != race.race_id:
+                continue
+            source = appearances.value(row, APPEARANCE_CAMERA)
+            if source not in made:
+                copy = bytearray(by_id[source])
+                cameras.set(copy, 0, next_id)
+                for field in CAMERA_DISTANCES:
+                    distance = struct.unpack_from("<f", copy, field * 4)[0] * race.camera_distance
+                    struct.pack_into("<f", copy, field * 4, distance)
+                cameras.rows.append(copy)
+                made[source] = next_id
+                next_id += 1
+            appearances.set(row, APPEARANCE_CAMERA, made[source])
+    return next_id
+
+
 def main(source, output):
     source, output = Path(source), Path(output)
     output.mkdir(parents=True, exist_ok=True)
@@ -195,6 +225,12 @@ def main(source, output):
             dbc = Dbc(source / table.file)
             print(table.file, clone_rows(dbc, table))
             dbc.save(output / table.file)
+    if (source / "UICameras.dbc").exists() and (output / "UICameraAppearanceChrRaces.dbc").exists():
+        cameras = Dbc(source / "UICameras.dbc")
+        appearances = Dbc(output / "UICameraAppearanceChrRaces.dbc")
+        print("UICameras.dbc up to", push_cameras(cameras, appearances))
+        cameras.save(output / "UICameras.dbc")
+        appearances.save(output / "UICameraAppearanceChrRaces.dbc")
     if (source / "CharStartOutfit.dbc").exists():
         dbc = Dbc(source / "CharStartOutfit.dbc")
         print("CharStartOutfit.dbc", clone_outfits(dbc))

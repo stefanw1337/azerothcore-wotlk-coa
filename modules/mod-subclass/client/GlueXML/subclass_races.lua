@@ -48,31 +48,6 @@ do
 		end
 		return zoomIn[fileString]
 	end })
-	local f = CreateFrame("Frame")
-	local pending
-	f:SetScript("OnUpdate", function(self, elapsed)
-		if not pending then return end
-		pending = pending - elapsed
-		if pending > 0 then return end
-		pending = nil
-		local k = SmallRaceScale()
-		if k and C_CharacterCreate and C_CharacterCreate.GetCameraPosition then
-			pcall(function()
-				local x, y, z = C_CharacterCreate.GetCameraPosition()
-				C_CharacterCreate.SetCameraPosition(x * k, y * k, z * (1 + (k - 1) * 0.6))
-			end)
-		end
-	end)
-	if SetFaceCustomizeCamera then
-		local setFace = SetFaceCustomizeCamera
-		function SetFaceCustomizeCamera(...)
-			local a, b, c = setFace(...)
-			if SmallRaceScale() then
-				pending = 0.35
-			end
-			return a, b, c
-		end
-	end
 	local selectWatch = CreateFrame("Frame")
 	local shownRace, applied
 	selectWatch:SetScript("OnUpdate", function(self, elapsed)

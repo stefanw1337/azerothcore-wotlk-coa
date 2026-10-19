@@ -24,6 +24,8 @@ class Look:
     blink_period: int
     gaze_period: int
     gaze: tuple
+    iris_inner: tuple
+    iris_outer: tuple
 
 
 CALM_GAZE = ((0, 0.0, 0.0), (1500, 0.0, 0.0), (1800, 0.13, 0.0), (2900, 0.13, 0.0), (3200, 0.0, 0.0),
@@ -32,8 +34,10 @@ CALM_GAZE = ((0, 0.0, 0.0), (1500, 0.0, 0.0), (1800, 0.13, 0.0), (2900, 0.13, 0.
 STARE_GAZE = ((0, 0.0, 0.0), (900, 0.0, 0.0), (1050, -0.16, 0.0), (1900, -0.16, 0.0), (2050, 0.16, 0.0),
               (3100, 0.16, 0.0), (3300, 0.0, 0.0), (4600, 0.0, 0.0), (4750, 0.05, -0.08), (5400, 0.05, -0.08),
               (5600, 0.0, 0.0), (7300, 0.0, 0.0))
-CALM = Look("OgreMagePCEye.blp", 0.62, 0.55, (176, 170, 160), 0.74, 22.0, 4100, 9900, CALM_GAZE)
-STARE = Look("OgreMagePCCyclopsEye.blp", 0.72, 0.3, (214, 222, 228), 0.62, 62.0, 5300, 7300, STARE_GAZE)
+CALM = Look("OgreMagePCEye.blp", 0.62, 0.55, (128, 120, 104), 0.74, 22.0, 4100, 9900, CALM_GAZE,
+            (132, 92, 48), (58, 36, 18))
+STARE = Look("OgreMagePCCyclopsEye.blp", 0.72, 0.3, (140, 134, 116), 0.62, 62.0, 5300, 7300, STARE_GAZE,
+             (150, 132, 62), (70, 62, 26))
 TWO_EYED_HEAD, CYCLOPS_HEAD = 21, 20
 HEAD_LOOK = {TWO_EYED_HEAD: CALM, CYCLOPS_HEAD: STARE}
 EYES = [
@@ -117,8 +121,8 @@ def eye_texture(look, path):
     size = TEXTURE_SIZE
     yy, xx = np.mgrid[0:size, 0:size].astype(np.float32)
     r = np.hypot(xx - size / 2 + 0.5, yy - size / 2 + 0.5) / (size / 2)
-    iris_outer = np.array([24, 64, 170], np.float32)
-    iris_inner = np.array([110, 190, 250], np.float32)
+    iris_outer = np.array(look.iris_outer, np.float32)
+    iris_inner = np.array(look.iris_inner, np.float32)
     image = np.zeros((size, size, 3), np.float32)
     image[:] = np.array(look.sclera, np.float32) * np.clip(1.15 - 0.45 * r, 0.55, 1.0)[..., None]
     iris = r < look.iris
@@ -126,8 +130,8 @@ def eye_texture(look, path):
     image[iris] = (iris_inner * (1 - t) + iris_outer * t)[iris]
     ring = (r > look.iris - 0.06) & (r < look.iris + 0.02)
     image[ring] = image[ring] * 0.45
-    image[r < look.iris * 0.36] = (8, 12, 30)
-    image[np.hypot(xx - size * 0.38, yy - size * 0.36) < size * 0.06] = (245, 250, 255)
+    image[r < look.iris * 0.36] = (10, 8, 6)
+    image[np.hypot(xx - size * 0.38, yy - size * 0.36) < size * 0.05] = (176, 170, 160)
     write_blp(Image.fromarray(np.clip(image, 0, 255).astype(np.uint8)), path)
 
 
