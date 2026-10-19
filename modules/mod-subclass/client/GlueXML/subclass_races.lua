@@ -36,7 +36,7 @@ if CHAR_CREATE_RACE_LORE then
 end
 
 COA_SUBCLASS_SMALL_RACES = { ["Two-Headed Ogre"] = 1.9 }
-COA_SUBCLASS_SELECT_SCALES = { ["Two-Headed Ogre"] = 1.25 }
+COA_SUBCLASS_SELECT_SCALES = { ["Two-Headed Ogre"] = 1.17 }
 do
 	local function SmallRaceScale()
 		if not (CharacterCreateFrame and CharacterCreateFrame:IsVisible()) then return end
