@@ -592,11 +592,20 @@ local ShowTwinPreview
 local twinState = { has = false, out = false, split = false }
 local ShowTwinState
 
+local function ColoredSubclass(subclass)
+    local token = string.upper((string.gsub(subclass, " ", "")))
+    local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[token]
+    if not color then
+        return "|cffffffff(" .. subclass .. ")|r"
+    end
+    return string.format("|cff%02x%02x%02x(%s)|r", color.r * 255, color.g * 255, color.b * 255, subclass)
+end
+
 local function SubclassedLevelLine()
     local text = CharacterLevelText and CharacterLevelText:GetText()
     local subclass = state and state.subclass
     if text and subclass and subclass ~= "" and not text:find("(" .. subclass .. ")", 1, true) then
-        CharacterLevelText:SetText(text .. " (" .. subclass .. ")")
+        CharacterLevelText:SetText(text .. " " .. ColoredSubclass(subclass))
     end
 end
 
@@ -904,7 +913,7 @@ sheetWatch:SetScript("OnUpdate", function(self, elapsed)
     local subclass = state and state.subclass
     local line = subclass and subclass ~= "" and LevelLineIn(frame)
     if line and not line:GetText():find("(" .. subclass .. ")", 1, true) then
-        line:SetText(line:GetText() .. " (" .. subclass .. ")")
+        line:SetText(line:GetText() .. " " .. ColoredSubclass(subclass))
     end
     if relicButton and relicState.eligible then
         local slot = ShownRangedSlot(frame)
