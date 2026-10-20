@@ -35,8 +35,14 @@ CORRECTIONS = {
 HELMET_CORRECTIONS = {}
 COVERAGE_SHORTFALL = 0.15
 CLIP_LIMIT = 0.02
-THUMB = 160
-MIN_HEAD_VERTICES = 20
+THUMB = 256
+THUMB_SPAN = 1.4
+THUMB_FRONT = (0.0, 0.25, -0.15)
+THUMB_SIDE = (0.0, 0.0, -0.15)
+FRAME_MARGIN = 2.0
+HEAD_MARGIN = 0.02
+BONE_SCALE_VALUES = 68
+NECK_DROP = 0.3
 SHEET_COLUMNS = 6
 
 
@@ -95,11 +101,18 @@ def pivots(m2):
     return np.array([struct.unpack_from("<3f", m2, offset + index * 88 + 76) for index in range(count)])
 
 
-def skinned_head(m2, mesh, point):
-    used = np.bincount(mesh.bones[np.unique(mesh.triangles)], minlength=arr(m2, 44)[0])
-    candidates = [bone for bone in range(len(used)) if used[bone] >= MIN_HEAD_VERTICES]
-    centres = pivots(m2)
-    return min(candidates, key=lambda bone: np.linalg.norm(centres[bone] - point))
+def resting_scale(m2, bone):
+    animations, offset = struct.unpack_from("<II", m2, arr(m2, 44)[1] + bone * 88 + BONE_SCALE_VALUES)
+    if not animations:
+        return 1.0
+    keys, values = struct.unpack_from("<II", m2, offset)
+    return np.array(struct.unpack_from("<3f", m2, values)) if keys else 1.0
+
+
+def seated(m2, bone, position, scale):
+    pivot = pivots(m2)[bone]
+    grown = resting_scale(m2, bone)
+    return pivot + grown * (position - pivot), grown * np.array(scale)
 
 
 def helmet_attachment(m2):
@@ -117,11 +130,11 @@ def placed(mesh, origin, scale=(1.0, 1.0, 1.0), shift=(0.0, 0.0, 0.0)):
                 mesh.triangles)
 
 
-VIEWS = {"front": (0, 1), "side": (1, 0)}
+VIEWS = {"front": (0, 1, 1.0), "side": (1, 0, -1.0)}
 
 
 def raster(layers, view, width, height, centre, span):
-    depth_axis, across_axis = VIEWS[view]
+    depth_axis, across_axis, facing = VIEWS[view]
     image = np.zeros((height, width, 3), np.float32)
     image[:] = (28, 28, 36)
     depth = np.full((height, width), -1e9)
@@ -132,11 +145,11 @@ def raster(layers, view, width, height, centre, span):
     for layer, (mesh, texture, tags) in enumerate(layers):
         tex_h, tex_w = texture.shape[:2]
         points = mesh.positions - centre
-        sx = width / 2 - points[:, across_axis] * scale * (1 if view == "front" else -1)
+        sx = width / 2 - points[:, across_axis] * scale
         sy = height / 2 - points[:, 2] * scale
         for triangle_index, triangle in enumerate(mesh.triangles):
             a, b, c = triangle
-            px, py, pd = sx[triangle], sy[triangle], points[triangle, depth_axis]
+            px, py, pd = sx[triangle], sy[triangle], points[triangle, depth_axis] * facing
             x0, x1 = int(max(0, math.floor(px.min()))), int(min(width - 1, math.ceil(px.max())))
             y0, y1 = int(max(0, math.floor(py.min()))), int(min(height - 1, math.ceil(py.max())))
             if x1 < x0 or y1 < y0:
@@ -168,21 +181,37 @@ def raster(layers, view, width, height, centre, span):
     return image, owner
 
 
-def head_tags(mesh, head_bones, tag_head, tag_other):
-    on_head = np.isin(mesh.bones, list(head_bones))
-    return np.where(on_head[mesh.triangles].all(axis=1), tag_head, tag_other)
+def head_region(mesh, head_bones, floor):
+    points = mesh.positions[np.isin(mesh.bones, list(head_bones))]
+    points = points[points[:, 2] >= floor]
+    low = np.percentile(points, 1, axis=0) - HEAD_MARGIN
+    high = np.percentile(points, 99, axis=0) + HEAD_MARGIN
+    inside = ((mesh.positions >= low) & (mesh.positions <= high)).all(axis=1)
+    return inside[mesh.triangles].all(axis=1)
+
+
+def head_only(mesh, region):
+    return Mesh(mesh.positions, mesh.normals, mesh.uvs, mesh.bones, mesh.triangles[region])
 
 
 HEAD_TAG, BODY_TAG, HELMET_TAG = 1, 2, 3
+COVERAGE_SIZE = 200
 
 
-def coverage(body, texture, helmet, helmet_texture, head_bones, view, centre, span):
-    bare = raster([(body, texture, head_tags(body, head_bones, HEAD_TAG, BODY_TAG))], view, 200, 200, centre, span)[1]
-    worn = raster([(body, texture, head_tags(body, head_bones, HEAD_TAG, BODY_TAG)),
-                   (helmet, helmet_texture, np.full(len(helmet.triangles), HELMET_TAG))],
-                  view, 200, 200, centre, span)[1]
-    head = bare == HEAD_TAG
-    return float(((worn == HELMET_TAG) & head).sum()) / max(1, int(head.sum()))
+def framing(head):
+    used = head.positions[np.unique(head.triangles)]
+    low, high = used.min(axis=0), used.max(axis=0)
+    return (low + high) / 2, float((high - low).max()) * FRAME_MARGIN
+
+
+def coverage(head, helmet, view, centre, span):
+    plain = np.full((8, 8, 3), 150, np.float32)
+    head_layer = (head, plain, np.full(len(head.triangles), HEAD_TAG))
+    bare = raster([head_layer], view, COVERAGE_SIZE, COVERAGE_SIZE, centre, span)[1]
+    worn = raster([head_layer, (helmet, plain, np.full(len(helmet.triangles), HELMET_TAG))],
+                  view, COVERAGE_SIZE, COVERAGE_SIZE, centre, span)[1]
+    silhouette = bare == HEAD_TAG
+    return float(((worn == HELMET_TAG) & silhouette).sum()) / max(1, int(silhouette.sum()))
 
 
 def clipping(helmet, body, head_bones):
@@ -255,16 +284,21 @@ def check(zip_path, ogre_m2, ogre_skin, ogre_texture, out):
     ogre = load_mesh(ogre_data, ogre_skin_data, {0})
     ogre_parents = bone_parents(ogre_data)
     head_bone, attach = helmet_attachment(ogre_data)
-    ogre_head = subtree(ogre_parents, {TWO_EYED_HEAD})
+    ogre_head = head_only(ogre, head_region(ogre, subtree(ogre_parents, {TWO_EYED_HEAD}),
+                                            pivots(ogre_data)[TWO_EYED_HEAD][2] - NECK_DROP))
     cyclops = subtree(ogre_parents, {CYCLOPS_HEAD})
     ogre_tex = np.array(Image.open(ogre_texture).convert("RGB")).astype(np.float32)
     orc_data = bundle.read(names[ORC_FEMALE + ".m2"])
     orc = load_mesh(orc_data, bundle.read(names[ORC_FEMALE + "00.skin"]), {0})
-    _, orc_attach = helmet_attachment(orc_data)
-    orc_head = subtree(bone_parents(orc_data), {skinned_head(orc_data, orc, orc_attach)})
-    grey = np.full((8, 8, 3), 170, np.float32)
+    orc_bone, orc_attach = helmet_attachment(orc_data)
+    orc_parents = bone_parents(orc_data)
+    orc_skull = orc_parents[orc_bone]
+    orc_head = head_only(orc, head_region(orc, subtree(orc_parents, {orc_skull}),
+                                          pivots(orc_data)[orc_skull][2] - NECK_DROP))
     ogre_attach = attach.copy()
-    ogre_attach[1] = struct.unpack_from("<f", ogre_data, arr(ogre_data, 44)[1] + head_bone * 88 + 80)[0]
+    ogre_attach[1] = pivots(ogre_data)[TWO_EYED_HEAD][1]
+    orc_centre, orc_span = framing(orc_head)
+    ogre_centre, ogre_span = framing(ogre_head)
     report, thumbs = [], []
     for key in sorted(names):
         if not key.startswith(HEAD) or not key.endswith(SOURCE_SUFFIX + ".m2"):
@@ -277,23 +311,23 @@ def check(zip_path, ogre_m2, ogre_skin, ogre_texture, out):
         fix = correction(stem, armor)
         helmet = load_mesh(bundle.read(names[key]), bundle.read(skin_name))
         texture = helmet_texture(bundle, names, textures.get(stem, ""))
-        on_orc = placed(helmet, orc_attach)
+        on_orc = placed(helmet, *seated(orc_data, orc_bone, orc_attach, (1.0, 1.0, 1.0)))
         scale = np.array(HELMET_SCALE) * np.array(fix["scale"])
-        shift = np.array(HELMET_SHIFT) + np.array(fix["shift"])
-        on_ogre = placed(helmet, ogre_attach, scale, shift)
-        orc_centre, ogre_centre = orc_attach - (0.1, 0, 0.15), ogre_attach + shift
+        seat = ogre_attach + np.array(HELMET_SHIFT) + np.array(fix["shift"])
+        origin, size = seated(ogre_data, head_bone, seat, scale)
+        on_ogre = placed(helmet, origin, size)
         row = {"model": stem, "armor": armor}
         for view in VIEWS:
-            row["orc_" + view] = coverage(orc, grey, on_orc, texture, orc_head, view, orc_centre, 0.9)
-            row["ogre_" + view] = coverage(ogre, ogre_tex, on_ogre, texture, ogre_head, view, ogre_centre, 1.1)
-        row["cyclops_clip"] = clipping(on_ogre, ogre, cyclops)
+            row["orc_" + view] = round(coverage(orc_head, on_orc, view, orc_centre, orc_span), 3)
+            row["ogre_" + view] = round(coverage(ogre_head, on_ogre, view, ogre_centre, ogre_span), 3)
+        row["cyclops_clip"] = round(clipping(on_ogre, ogre, cyclops), 3)
         row["flags"] = [view for view in VIEWS if row["ogre_" + view] < row["orc_" + view] - COVERAGE_SHORTFALL]
         if row["cyclops_clip"] > CLIP_LIMIT:
             row["flags"].append("cyclops")
         report.append(row)
         layers = [(ogre, ogre_tex, None), (on_ogre, texture, None)]
-        front = raster(layers, "front", THUMB, THUMB, ogre_attach + (0, 0.2, -0.1), 1.3)[0]
-        side = raster(layers, "side", THUMB, THUMB, ogre_attach + (0, 0, -0.1), 1.3)[0]
+        front = raster(layers, "front", THUMB, THUMB, ogre_attach + THUMB_FRONT, THUMB_SPAN)[0]
+        side = raster(layers, "side", THUMB, THUMB, ogre_attach + THUMB_SIDE, THUMB_SPAN)[0]
         thumbs.append((stem, armor, row["flags"], np.hstack([front, side])))
         print(stem, armor, row["flags"], flush=True)
     write_sheets(thumbs, out)
