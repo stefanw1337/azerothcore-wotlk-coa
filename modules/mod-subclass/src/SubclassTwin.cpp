@@ -1265,17 +1265,18 @@ void ShowGunInOtherHand(Player* player)
 
 constexpr float AlongShotRange = 35.0f;
 
-WorldPacket ProjectilePacket(ObjectGuid shooter, uint32 spellId, uint32 shotItem, ObjectGuid target)
+WorldPacket ProjectilePacket(ObjectGuid shooter, uint32 spellId, uint32 shotItem, ObjectGuid target, bool ammo = true)
 {
     ItemTemplate const* item = sObjectMgr->GetItemTemplate(shotItem);
     bool const gun = item && item->SubClass == ITEM_SUBCLASS_WEAPON_GUN;
     WorldPacket shot(SMSG_SPELL_GO, 64);
     shot << shooter.WriteAsPacked() << shooter.WriteAsPacked();
-    shot << uint8(0) << uint32(spellId) << uint32(CAST_FLAG_UNKNOWN_9 | CAST_FLAG_PROJECTILE);
+    shot << uint8(0) << uint32(spellId) << uint32(CAST_FLAG_UNKNOWN_9 | (ammo ? CAST_FLAG_PROJECTILE : 0));
     shot << uint32(GameTime::GetGameTimeMS().count());
     shot << uint8(1) << target << uint8(0);
     shot << uint32(TARGET_FLAG_UNIT) << target.WriteAsPacked();
-    shot << uint32(gun ? BulletProjectileDisplay : ArrowProjectileDisplay) << uint32(INVTYPE_AMMO);
+    if (ammo)
+        shot << uint32(gun ? BulletProjectileDisplay : ArrowProjectileDisplay) << uint32(INVTYPE_AMMO);
     return shot;
 }
 
@@ -1297,7 +1298,7 @@ void ShootAlong(Player* player)
         !player->IsWithinLOSInMap(victim))
         return;
     player->resetAttackTimer(RANGED_ATTACK);
-    WorldPacket shot = ProjectilePacket(player->GetGUID(), ReachAura, gun->GetEntry(), victim->GetGUID());
+    WorldPacket shot = ProjectilePacket(player->GetGUID(), ReachAura, gun->GetEntry(), victim->GetGUID(), false);
     player->SendMessageToSet(&shot, true);
     bool const critical = roll_chance_f(player->GetUnitCriticalChance(RANGED_ATTACK, victim));
     uint32 damage = Unit::CalcArmorReducedDamage(player, victim, player->CalculateDamage(RANGED_ATTACK, false, true),

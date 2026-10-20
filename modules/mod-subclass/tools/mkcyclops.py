@@ -94,7 +94,15 @@ class Ogre:
 
 def framed_like(m2, ogre):
     blob = Blob(m2)
-    cameras = blob.append(ogre.cameras, 16)
+    sequence_count = arr(m2, 28)[0]
+    empty = blob.append(struct.pack("<II", 0, 0) * max(sequence_count, 1), 4)
+    still = struct.pack("<HhIIII", 0, -1, sequence_count, empty, sequence_count, empty)
+    cameras_data = bytearray(ogre.cameras)
+    for index in range(ogre.camera_count):
+        for track in CAMERA_TRACKS:
+            start = index * CAMERA_SIZE + track
+            cameras_data[start:start + 20] = still
+    cameras = blob.append(bytes(cameras_data), 16)
     lookup = blob.append(ogre.lookup, 4)
     struct.pack_into("<II", blob.data, CAMERAS, ogre.camera_count, cameras)
     struct.pack_into("<II", blob.data, CAMERA_LOOKUP, ogre.lookup_count, lookup)

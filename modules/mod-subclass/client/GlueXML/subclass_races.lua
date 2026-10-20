@@ -174,3 +174,41 @@ do
 		end
 	end)
 end
+do
+	local REALM_ONLINE = "Realm is Online"
+	local SELECT_REALM = "Select Realm"
+	local function ShownText(region)
+		return region and region.IsVisible and region:IsVisible() and region.GetText and region:GetText()
+	end
+	local function FindShown(objectType, wanted)
+		if not EnumerateFrames then return end
+		local frame = EnumerateFrames()
+		while frame do
+			if frame:IsVisible() then
+				if objectType == "Button" and frame:GetObjectType() == "Button" and ShownText(frame) == wanted then
+					return frame
+				end
+				if objectType == "FontString" then
+					for _, region in ipairs({ frame:GetRegions() }) do
+						local text = region.GetObjectType and region:GetObjectType() == "FontString" and ShownText(region)
+						if text and string.find(text, wanted, 1, true) then
+							return region
+						end
+					end
+				end
+			end
+			frame = EnumerateFrames(frame)
+		end
+	end
+	local realmWatch = CreateFrame("Frame")
+	realmWatch:SetScript("OnUpdate", function(self, elapsed)
+		self.wait = (self.wait or 0) + elapsed
+		if self.wait < 0.5 or COA_SUBCLASS_REALM_ENTERED then return end
+		self.wait = 0
+		local button = FindShown("Button", SELECT_REALM)
+		if button and button:IsEnabled() and FindShown("FontString", REALM_ONLINE) then
+			COA_SUBCLASS_REALM_ENTERED = true
+			button:Click()
+		end
+	end)
+end
