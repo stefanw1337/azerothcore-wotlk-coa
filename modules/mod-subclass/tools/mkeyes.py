@@ -94,6 +94,8 @@ SORE_STRENGTH = 0.55
 HAIR_TEXTURE = 6
 ATTACHMENTS, ATTACHMENT_LOOKUP, ATTACHMENT_SIZE, ATTACHMENT_POSITION = 240, 248, 40, 8
 HELMET_ATTACHMENT = 11
+HELMET_SHIFT = (-0.22, 0.0, -0.24)
+HELMET_SCALE = 0.88
 BONE_PIVOT = 76
 CAMERAS, CAMERA_SIZE, CAMERA_POSITION, CAMERA_TARGET = 272, 100, 36, 68
 CHARACTER_CAMERA = 1
@@ -270,7 +272,7 @@ def still_track(blob, m2):
     return struct.pack("<HhIIII", 0, -1, sequence_count, empty, sequence_count, empty)
 
 
-def bone(parent, pivot, translation, rotation, scale):
+def bone_record(parent, pivot, translation, rotation, scale):
     return (struct.pack("<iIhHI", -1, TRANSFORMED_BONE, parent, 0, 0) + translation + rotation + scale +
             struct.pack("<3f", *pivot))
 
@@ -278,13 +280,13 @@ def bone(parent, pivot, translation, rotation, scale):
 def lid_bones(blob, m2, head, shape_index, pivot, global_sequence, look):
     still = still_track(blob, m2)
     stretch = track(blob, m2, global_sequence, [0], [struct.pack("<3f", look.depth, 1.0, look.height)])
-    shape = bone(head, pivot, still, still, stretch)
+    shape = bone_record(head, pivot, still, still, stretch)
     period = look.blink_period
     closed = look.lid_edge - LID_LOWEST
     times = [0, period - BLINK_CLOSE - BLINK_SHUT, period - BLINK_SHUT, period - BLINK_SHUT // 2, period]
     angles = [0.0, 0.0, closed, closed, 0.0]
     turning = track(blob, m2, global_sequence, times, [lid_turn(a) for a in angles])
-    return shape + bone(shape_index, pivot, still, turning, still)
+    return shape + bone_record(shape_index, pivot, still, turning, still)
 
 
 def append_array(blob, m2, header, size, payload, align=4):
@@ -323,18 +325,24 @@ def frame_closer(data):
         struct.pack_into("<3f", data, camera + CAMERA_TARGET, *(target + shift))
 
 
-def seat_helmet(data):
-    count, offset = arr(data, ATTACHMENTS)
-    lookup_count, lookup_offset = arr(data, ATTACHMENT_LOOKUP)
-    bone_offset = arr(data, 44)[1]
+def helmet_seat(m2):
+    count, offset = arr(m2, ATTACHMENTS)
+    bone_offset = arr(m2, 44)[1]
     for index in range(count):
         attachment = offset + index * ATTACHMENT_SIZE
-        attachment_id, bone = struct.unpack_from("<IH", data, attachment)
-        if attachment_id != HELMET_ATTACHMENT or attachment_id >= lookup_count:
-            continue
-        head_side = struct.unpack_from("<f", data, bone_offset + bone * 88 + BONE_PIVOT + 4)[0]
-        struct.pack_into("<f", data, attachment + ATTACHMENT_POSITION + 4, head_side)
-        struct.pack_into("<h", data, lookup_offset + attachment_id * 2, index)
+        attachment_id, head_bone = struct.unpack_from("<IH", m2, attachment)
+        if attachment_id == HELMET_ATTACHMENT:
+            position = np.array(struct.unpack_from("<3f", m2, attachment + ATTACHMENT_POSITION))
+            position[1] = struct.unpack_from("<f", m2, bone_offset + head_bone * 88 + BONE_PIVOT + 4)[0]
+            return index, head_bone, position + np.array(HELMET_SHIFT)
+    raise ValueError("no helmet attachment")
+
+
+def seat_helmet(data, index, helmet_bone, position):
+    attachment = arr(data, ATTACHMENTS)[1] + index * ATTACHMENT_SIZE
+    struct.pack_into("<H", data, attachment + 4, helmet_bone)
+    struct.pack_into("<3f", data, attachment + ATTACHMENT_POSITION, *position)
+    struct.pack_into("<h", data, arr(data, ATTACHMENT_LOOKUP)[1] + HELMET_ATTACHMENT * 2, index)
 
 
 def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
@@ -356,6 +364,10 @@ def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
     new_bones = b""
     for i, (centre, _, head, look) in enumerate(eyes):
         new_bones += lid_bones(blob, m2, head, bone_count + 2 * i, centre, first_global + heads.index(head), look)
+    helmet_index, head_bone, helmet_position = helmet_seat(m2)
+    helmet_bone = bone_count + 2 * len(eyes)
+    new_bones += bone_record(head_bone, helmet_position, still_track(blob, m2), still_track(blob, m2),
+                      track(blob, m2, first_global, [0], [struct.pack("<3f", *(HELMET_SCALE,) * 3)]))
     append_array(blob, m2, 44, 88, new_bones, 16)
 
     hair_texture = append_array(blob, m2, 80, 16, struct.pack("<IIII", HAIR_TEXTURE, 0, 1, blob.append(b"\0", 4)), 16)
@@ -431,7 +443,7 @@ def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
         offset = sk.append(bytes(payload), 4)
         struct.pack_into("<II", sk.data, header, len(payload) // size, offset)
     frame_closer(blob.data)
-    seat_helmet(blob.data)
+    seat_helmet(blob.data, helmet_index, helmet_bone, helmet_position)
     open(out_m2, "wb").write(blob.data)
     open(out_skin, "wb").write(sk.data)
     for index, eye_set in enumerate(EYE_SETS):
