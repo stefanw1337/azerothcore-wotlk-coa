@@ -2032,9 +2032,22 @@ local function LiftWindowCorner(page)
     page.corner = CreateFrame("Frame", nil, page)
     page.corner:SetAllPoints(window)
     page.corner:SetFrameLevel(page:GetFrameLevel() + 30)
+    page.cornerLevels = {}
+    page.cornerCopies = {}
+    local function LevelFor(source)
+        local owner = source:GetParent()
+        local depth = math.max(0, (owner and owner:GetFrameLevel() or 0) - window:GetFrameLevel())
+        if not page.cornerLevels[depth] then
+            local level = CreateFrame("Frame", nil, page.corner)
+            level:SetAllPoints(window)
+            level:SetFrameLevel(page.corner:GetFrameLevel() + depth)
+            page.cornerLevels[depth] = level
+        end
+        return page.cornerLevels[depth]
+    end
     local left, top = window:GetLeft(), window:GetTop()
     for _, source in ipairs(CornerTextures(window, page, {})) do
-        local copy = page.corner:CreateTexture(nil, source:GetDrawLayer())
+        local copy = LevelFor(source):CreateTexture(nil, source:GetDrawLayer())
         copy:SetTexture(source:GetTexture())
         copy:SetTexCoord(source:GetTexCoord())
         copy:SetVertexColor(source:GetVertexColor())
@@ -2042,6 +2055,11 @@ local function LiftWindowCorner(page)
         copy:SetWidth(source:GetWidth())
         copy:SetHeight(source:GetHeight())
         copy:SetPoint("TOPLEFT", window, "TOPLEFT", source:GetLeft() - left, source:GetTop() - top)
+        copy.subclassSource = string.format("%s %dx%d at %d,%d layer %s level %d %s",
+            source:GetName() or "unnamed", source:GetWidth(), source:GetHeight(), source:GetLeft() - left,
+            source:GetTop() - top, tostring(source:GetDrawLayer()),
+            source:GetParent() and source:GetParent():GetFrameLevel() or -1, tostring(source:GetTexture()))
+        table.insert(page.cornerCopies, copy)
         local width, height = source:GetWidth(), source:GetHeight()
         if math.abs(width - height) < PORTRAIT_SQUARENESS and width >= PORTRAIT_MIN and width <= PORTRAIT_MAX
             and (not page.portrait or width > page.portrait:GetWidth()) then
@@ -2917,6 +2935,12 @@ SlashCmdList.ASCENSIONSUBCLASS = function(message)
             sheet and tostring(LevelLineIn(sheet) and LevelLineIn(sheet):GetText()) or "-",
             sheet and (CornerPortrait(sheet) and "found" or "missing") or "-",
             MicroButtonPortrait and "found" or "missing"))
+    elseif message == "corner" then
+        for _, page in ipairs({ panel, ownPage }) do
+            for _, copy in ipairs(page and page.cornerCopies or {}) do
+                DEFAULT_CHAT_FRAME:AddMessage((copy == page.portrait and "PORTRAIT " or "") .. copy.subclassSource)
+            end
+        end
     elseif message == "casts" then
         Ascension_SubclassDump = Ascension_SubclassDump or {}
         Ascension_SubclassDump.debugCasts = not Ascension_SubclassDump.debugCasts
