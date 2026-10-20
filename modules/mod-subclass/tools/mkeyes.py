@@ -96,6 +96,7 @@ ATTACHMENTS, ATTACHMENT_LOOKUP, ATTACHMENT_SIZE, ATTACHMENT_POSITION = 240, 248,
 HELMET_ATTACHMENT = 11
 HELMET_SHIFT = (-0.11, 0.0, -0.17)
 HELMET_SCALE = (1.05, 1.08, 0.95)
+HELMET_TILT = 12.0
 BONE_PIVOT = 76
 CAMERAS, CAMERA_SIZE, CAMERA_POSITION, CAMERA_TARGET = 272, 100, 36, 68
 CHARACTER_CAMERA = 1
@@ -366,8 +367,9 @@ def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
         new_bones += lid_bones(blob, m2, head, bone_count + 2 * i, centre, first_global + heads.index(head), look)
     helmet_index, head_bone, helmet_position = helmet_seat(m2)
     helmet_bone = bone_count + 2 * len(eyes)
-    new_bones += bone_record(head_bone, helmet_position, still_track(blob, m2), still_track(blob, m2),
-                      track(blob, m2, first_global, [0], [struct.pack("<3f", *HELMET_SCALE)]))
+    new_bones += bone_record(head_bone, helmet_position, still_track(blob, m2),
+                             track(blob, m2, first_global, [0], [lid_turn(HELMET_TILT)]),
+                             track(blob, m2, first_global, [0], [struct.pack("<3f", *HELMET_SCALE)]))
     append_array(blob, m2, 44, 88, new_bones, 16)
 
     hair_texture = append_array(blob, m2, 80, 16, struct.pack("<IIII", HAIR_TEXTURE, 0, 1, blob.append(b"\0", 4)), 16)
