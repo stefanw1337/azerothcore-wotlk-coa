@@ -696,6 +696,73 @@ local function CreateRelicButton()
     ShowRelic()
 end
 
+local RANGED_SLOT_ID = 18
+
+local function VisibleRegions(frame, found, wanted)
+    for _, region in ipairs({ frame:GetRegions() }) do
+        if region:GetObjectType() == wanted and region:IsVisible() then
+            found[#found + 1] = region
+        end
+    end
+    for _, child in ipairs({ frame:GetChildren() }) do
+        if child:IsVisible() then
+            if wanted == "Button" and child:GetObjectType() == "Button" then
+                found[#found + 1] = child
+            end
+            VisibleRegions(child, found, wanted)
+        end
+    end
+    return found
+end
+
+local function ShownLevelLine()
+    local className = UnitClass("player")
+    for _, line in ipairs(VisibleRegions(CharacterFrame, {}, "FontString")) do
+        local text = line:GetText()
+        if text and className and text:find(className, 1, true) and text:find(LEVEL or "Level", 1, true) then
+            return line
+        end
+    end
+end
+
+local function ShownRangedSlot()
+    if CharacterRangedSlot and CharacterRangedSlot:IsVisible() then
+        return CharacterRangedSlot
+    end
+    for _, button in ipairs(VisibleRegions(CharacterFrame, {}, "Button")) do
+        if button ~= relicButton and button.GetID and button:GetID() == RANGED_SLOT_ID then
+            return button
+        end
+    end
+end
+
+local sheetWatch = CreateFrame("Frame")
+sheetWatch:SetScript("OnUpdate", function(self, elapsed)
+    self.wait = (self.wait or 0) + elapsed
+    if self.wait < 0.5 then
+        return
+    end
+    self.wait = 0
+    if not (CharacterFrame and CharacterFrame:IsVisible()) then
+        return
+    end
+    local subclass = state and state.subclass
+    local line = subclass and subclass ~= "" and ShownLevelLine()
+    if line and not line:GetText():find("(" .. subclass .. ")", 1, true) then
+        line:SetText(line:GetText() .. " (" .. subclass .. ")")
+    end
+    if relicButton and relicState.eligible then
+        local slot = ShownRangedSlot()
+        if slot and relicButton.anchor ~= slot then
+            relicButton:SetParent(slot:GetParent())
+            relicButton:ClearAllPoints()
+            relicButton:SetPoint("LEFT", slot, "RIGHT", 8, 0)
+            relicButton:SetFrameLevel(slot:GetFrameLevel() + 2)
+            relicButton.anchor = slot
+        end
+    end
+end)
+
 local function Receive(message)
     local command, rest = string.match(message, "^(%S+)%s?(.*)$")
     if command == "TWINSTATE" then
