@@ -23,14 +23,16 @@ class Race:
     model_id: int = 0
     camera_distance: float = 1.0
     eye_textures: tuple = ()
+    helmet_prefix: str = ""
 
 
 THIN_HUMAN = Race(96, 32, "Thin Human", MALE)
 TWO_HEADED_OGRE = Race(85, 53, "Two-Headed Ogre", FEMALE, "Character\\Ogre\\Female\\TwoHeadedOgre.mdx", 977600, 901400,
-                       1.0, tuple(eye_texture_name(index) for index in range(len(EYE_SETS))))
+                       1.0, tuple(eye_texture_name(index) for index in range(len(EYE_SETS))), "Tw")
 RACES = (THIN_HUMAN, TWO_HEADED_OGRE)
 
 CHR_DISPLAYS = (4, 5)
+CHR_PREFIX = 6
 CHR_NAMES = (14, 31, 48)
 CHR_FACIAL_HAIR = (65, 66)
 CHR_HAIR = 67
@@ -205,6 +207,8 @@ def clone_races(dbc, displays):
         name = dbc.text(race.name)
         for group in CHR_NAMES:
             dbc.set(copy, group, name)
+        if race.helmet_prefix:
+            dbc.set(copy, CHR_PREFIX, dbc.text(race.helmet_prefix))
         if race.eye_textures:
             dbc.set(copy, CHR_HAIR, dbc.text(EYES_CUSTOMIZATION))
             dbc.set(copy, CHR_FACIAL_HAIR[race.sex], dbc.text(NO_CUSTOMIZATION))

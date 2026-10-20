@@ -32,7 +32,14 @@ CORRECTIONS = {
     "plate": {"shift": (0.0, 0.0, 0.0), "scale": (1.0, 1.0, 1.0)},
     "misc": {"shift": (0.0, 0.0, 0.0), "scale": (1.0, 1.0, 1.0)},
 }
-HELMET_CORRECTIONS = {}
+HELMET_CORRECTIONS = {
+    "armor_diversuit_d_01_helm": {"shift": (0.0, -0.05, 0.0), "scale": (0.9, 0.9, 0.9)},
+    "helm_engi_c_01diver": {"shift": (0.0, -0.05, 0.0), "scale": (0.85, 0.85, 0.85)},
+    "helm_engi_c_02space": {"shift": (0.0, -0.1, 0.0), "scale": (0.85, 0.85, 0.85)},
+    "helm_mask_pumpkin": {"shift": (0.0, -0.05, 0.0), "scale": (0.9, 0.9, 0.9)},
+    "helm_robe_raidwarlock_e_01": {"shift": (0.0, -0.05, 0.0), "scale": (0.9, 0.9, 0.9)},
+    "helm_plate_raidwarrior_h_01": {"shift": (0.0, -0.05, 0.0), "scale": (0.85, 0.85, 0.85)},
+}
 COVERAGE_SHORTFALL = 0.15
 CLIP_LIMIT = 0.02
 THUMB = 256
@@ -312,10 +319,8 @@ def check(zip_path, ogre_m2, ogre_skin, ogre_texture, out):
         helmet = load_mesh(bundle.read(names[key]), bundle.read(skin_name))
         texture = helmet_texture(bundle, names, textures.get(stem, ""))
         on_orc = placed(helmet, *seated(orc_data, orc_bone, orc_attach, (1.0, 1.0, 1.0)))
-        scale = np.array(HELMET_SCALE) * np.array(fix["scale"])
-        seat = ogre_attach + np.array(HELMET_SHIFT) + np.array(fix["shift"])
-        origin, size = seated(ogre_data, head_bone, seat, scale)
-        on_ogre = placed(helmet, origin, size)
+        origin, size = seated(ogre_data, head_bone, ogre_attach + np.array(HELMET_SHIFT), HELMET_SCALE)
+        on_ogre = placed(placed(helmet, np.array(fix["shift"]), fix["scale"]), origin, size)
         row = {"model": stem, "armor": armor}
         for view in VIEWS:
             row["orc_" + view] = round(coverage(orc_head, on_orc, view, orc_centre, orc_span), 3)
@@ -376,7 +381,7 @@ def copy(zip_path, out):
     models, _ = armor_of_models(bundle)
     written = 0
     for key, name in sorted(names.items()):
-        if not key.startswith(HEAD) or SOURCE_SUFFIX not in Path(key).stem[-4:] + Path(key).suffix:
+        if not key.startswith(HEAD):
             continue
         stem = Path(key).stem
         if key.endswith(SOURCE_SUFFIX + ".m2"):
