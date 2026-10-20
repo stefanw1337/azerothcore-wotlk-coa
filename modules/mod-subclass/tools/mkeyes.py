@@ -342,11 +342,8 @@ def helmet_seat(m2):
     raise ValueError("no helmet attachment")
 
 
-def cyclops_helmet_seat(m2, head_bone, helmet_position):
-    head_pivot = np.array(struct.unpack_from("<3f", m2, arr(m2, 44)[1] + head_bone * 88 + BONE_PIVOT))
-    seat = head_pivot + ATTACHMENT_SCALE * (helmet_position - head_pivot)
-    seat[1] = -seat[1]
-    return seat
+def cyclops_helmet_seat(helmet_position):
+    return helmet_position * (1.0, -1.0, 1.0)
 
 
 def add_attachment(blob, m2, attachment_id, bone, position, global_sequence):
@@ -387,7 +384,7 @@ def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
     new_bones += bone_record(head_bone, helmet_position, still_track(blob, m2),
                              track(blob, m2, first_global, [0], [lid_turn(HELMET_TILT)]),
                              track(blob, m2, first_global, [0], [struct.pack("<3f", *HELMET_SCALE)]))
-    cyclops_seat = cyclops_helmet_seat(m2, head_bone, helmet_position)
+    cyclops_seat = cyclops_helmet_seat(helmet_position)
     new_bones += bone_record(CYCLOPS_HEAD, cyclops_seat, still_track(blob, m2), still_track(blob, m2),
                              still_track(blob, m2))
     append_array(blob, m2, 44, 88, new_bones, 16)
