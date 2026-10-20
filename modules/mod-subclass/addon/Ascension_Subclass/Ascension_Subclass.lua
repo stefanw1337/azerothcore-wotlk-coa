@@ -538,6 +538,24 @@ local ShowTwinPreview
 local twinState = { has = false, out = false, split = false }
 local ShowTwinState
 
+local function SubclassedLevelLine()
+    local text = CharacterLevelText and CharacterLevelText:GetText()
+    local subclass = state and state.subclass
+    if text and subclass and subclass ~= "" and not text:find("(" .. subclass .. ")", 1, true) then
+        CharacterLevelText:SetText(text .. " (" .. subclass .. ")")
+    end
+end
+
+local function ShowSubclassInLevelLine()
+    if PaperDollFrame_SetLevel and CharacterFrame and CharacterFrame:IsShown() then
+        PaperDollFrame_SetLevel()
+    end
+end
+
+if PaperDollFrame_SetLevel then
+    hooksecurefunc("PaperDollFrame_SetLevel", SubclassedLevelLine)
+end
+
 local function Receive(message)
     local command, rest = string.match(message, "^(%S+)%s?(.*)$")
     if command == "TWINSTATE" then
@@ -570,6 +588,8 @@ local function Receive(message)
         local eligible, _, insights = string.match(rest, "^(%d+) (%d+) (%d+)$")
         incoming = { eligible = eligible == "1", insights = tonumber(insights) or 0, trees = {}, ranks = {},
             classPoints = 0, specPoints = 0, resources = {}, powers = {}, runes = false }
+    elseif command == "SUBCLASS" and incoming then
+        incoming.subclass = rest
     elseif not incoming then
         return
     elseif command == "TREE" then
@@ -611,6 +631,7 @@ local function Receive(message)
         Render()
         UpdateResourceFrame()
         UpdateLentRunes()
+        ShowSubclassInLevelLine()
     end
 end
 

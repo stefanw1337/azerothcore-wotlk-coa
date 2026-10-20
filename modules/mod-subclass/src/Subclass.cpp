@@ -229,10 +229,24 @@ constexpr NamedSpecialization SpecializationNames[] =
     { 101, "Vizier" },
 };
 
+uint8 CatalogClassOf(uint8 classId);
+uint8 PlayableClassOf(uint8 catalogClassId);
+
+uint8 CatalogIdOf(NamedClass const& named)
+{
+    return AscensionCompatData::IsCoABorrowOnlyClass(named.Id) ? CatalogClassOf(PlayableClassOf(named.Id)) :
+        named.Id;
+}
+
+bool Names(NamedClass const& named, uint8 classId)
+{
+    return named.Id == classId || CatalogIdOf(named) == classId;
+}
+
 std::string ClassName(uint8 classId)
 {
     for (NamedClass const& named : Classes)
-        if (named.Id == classId)
+        if (Names(named, classId))
             return Acore::StringFormat("{}{}|r", named.Color, named.Name);
     return Acore::StringFormat("class {}", uint32(classId));
 }
@@ -240,7 +254,7 @@ std::string ClassName(uint8 classId)
 std::string PlainClassName(uint8 classId)
 {
     for (NamedClass const& named : Classes)
-        if (named.Id == classId)
+        if (Names(named, classId))
             return named.Name;
     return Acore::StringFormat("Class {}", uint32(classId));
 }
@@ -736,6 +750,8 @@ void SendSubclassState(Player* player)
     std::vector<Subclass::Tree> const open = OpenTreesOf(player);
     SendAddon(player, Acore::StringFormat("RESET {} {} {}", IsEligible(player) ? 1 : 0, open.size(),
         record.Insights));
+    if (Subclass::Choice const choice = ChoiceOf(player); choice.Complete())
+        SendAddon(player, Acore::StringFormat("SUBCLASS {}", PlainClassName(choice.SubClass)));
     for (std::size_t index = 0; index < open.size(); ++index)
     {
         Subclass::Tree const& tree = open[index];
@@ -1028,9 +1044,9 @@ void ShowClasses(Player* player, Creature* trainer)
     {
         std::lock_guard<std::mutex> lock(subclassMutex);
         for (NamedClass const& named : Classes)
-            if (OfferedAsSubclass(character.Class, named.Id) &&
-                Subclass::AllowsAnySpecializationOf(pairs, character, named.Id))
-                AddGossipItemFor(player, GOSSIP_ICON_TRAINER, ClassName(named.Id), SenderClass, named.Id);
+            if (uint8 const classId = CatalogIdOf(named); OfferedAsSubclass(character.Class, classId) &&
+                Subclass::AllowsAnySpecializationOf(pairs, character, classId) && !SpecsOf(classId).empty())
+                AddGossipItemFor(player, GOSSIP_ICON_TRAINER, ClassName(classId), SenderClass, classId);
     }
     SendGossipMenuFor(player, VoiceOf(player).ClassText, trainer->GetGUID());
 }
