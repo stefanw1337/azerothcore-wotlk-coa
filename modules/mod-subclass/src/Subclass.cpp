@@ -53,6 +53,8 @@ void EchoCyclopsHelmet(Player* player);
 std::string RelicState(Player* player);
 std::string HandleRelicMessage(Player* player, std::vector<std::string_view> const& words);
 std::string TwinState(Player const* player);
+std::string CyclopsModelState(Player const* player);
+std::string CyclopsPreview(uint32 itemId);
 std::string ToggleTwin(Player* player);
 bool SubclassResting(Player const* player);
 bool LonelyTwin(Player const* player);
@@ -841,6 +843,7 @@ void HandleAddonMessage(Player* player, std::string_view message)
         SendSubclassState(player);
         SendAddon(player, TwinState(player));
         SendAddon(player, RelicState(player));
+        SendAddon(player, CyclopsModelState(player));
         return;
     }
     if (message == "TWINTOGGLE")
@@ -867,6 +870,11 @@ void HandleAddonMessage(Player* player, std::string_view message)
     {
         EchoCyclopsHelmet(player);
         SendAddon(player, TwinWearing(player));
+    }
+    else if (words.size() == 2 && words[0] == "CYCLOPSPREVIEW")
+    {
+        if (Optional<uint32> itemId = Acore::StringTo<uint32>(words[1]))
+            SendAddon(player, CyclopsPreview(*itemId));
     }
     else if (words.size() == 3 && words[0] == "LEARN")
         if (Optional<uint32> entryId = Acore::StringTo<uint32>(words[1]))
@@ -1413,6 +1421,11 @@ public:
         LoadSpecializationRoles();
     }
 };
+
+void SendSubclassMessage(Player* player, std::string const& message)
+{
+    SendAddon(player, message);
+}
 
 bool SubclassChosen(Player const* player)
 {

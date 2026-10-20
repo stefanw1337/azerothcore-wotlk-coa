@@ -404,7 +404,7 @@ def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
     new_bones += bone_record(CYCLOPS_HEAD, cyclops_seat, still_track(blob, m2), still_track(blob, m2),
                              still_track(blob, m2))
     append_array(blob, m2, 44, 88, new_bones, 16)
-    add_attachment(blob, m2, CYCLOPS_HELMET_ATTACHMENT, helmet_bone + 1, cyclops_seat, first_global)
+    add_attachment(blob, m2, CYCLOPS_HELMET_ATTACHMENT, helmet_bone + 1, (0.0, 0.0, 0.0), first_global)
 
     hair_texture = append_array(blob, m2, 80, 16, struct.pack("<IIII", HAIR_TEXTURE, 0, 1, blob.append(b"\0", 4)), 16)
     eye_texture_lookup = append_array(blob, m2, 128, 2, struct.pack("<h", hair_texture))

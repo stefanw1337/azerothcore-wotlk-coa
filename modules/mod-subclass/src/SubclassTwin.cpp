@@ -48,6 +48,8 @@ bool LendsTankSpecialization(Player const* player);
 bool LendsRangedSpecialization(Player const* player);
 bool SubclassRaceEnabled(uint8 race);
 
+void SendSubclassMessage(Player* player, std::string const& message);
+
 namespace
 {
 constexpr uint32 TwinEntry = 9530030;
@@ -1182,13 +1184,27 @@ uint32 EndlessAmmoFor(Player const* player)
     }
 }
 
-void LoadEndlessAmmo(Player* player, bool wanted)
+bool HasUsableAmmo(Player* player)
 {
     uint32 const loaded = player->GetUInt32Value(PLAYER_AMMO_ID);
-    if (loaded && player->HasItemCount(loaded, 1))
+    ItemTemplate const* proto = loaded ? sObjectMgr->GetItemTemplate(loaded) : nullptr;
+    return proto && player->HasItemCount(loaded, 1) && player->CheckAmmoCompatibility(proto);
+}
+
+void LoadEndlessAmmo(Player* player, bool wanted)
+{
+    uint32 const ammo = wanted ? EndlessAmmoFor(player) : 0;
+    if (!ammo || HasUsableAmmo(player))
         return;
-    if (uint32 const ammo = wanted ? EndlessAmmoFor(player) : 0; ammo != loaded)
-        player->SetUInt32Value(PLAYER_AMMO_ID, ammo);
+    if (!player->HasItemCount(ammo, 1))
+    {
+        ItemPosCountVec destination;
+        if (player->CanStoreNewItem(NULL_BAG, NULL_SLOT, destination, ammo, 1) != EQUIP_ERR_OK)
+            return;
+        if (Item* item = player->StoreNewItem(destination, ammo, true))
+            player->SendNewItem(item, 1, true, false);
+    }
+    player->SetAmmo(ammo);
 }
 
 void UpdateReach(Player* player)
@@ -1276,35 +1292,65 @@ void UpdateSelfAura(Player* player)
     }
 }
 
-std::unordered_map<uint32, uint32> const& CyclopsHelmetAuras()
+struct CyclopsLook
 {
-    static std::unordered_map<uint32, uint32> const auras = []
+    uint32 SpellId = 0;
+    std::string Model;
+};
+
+std::unordered_map<uint32, CyclopsLook> const& CyclopsHelmetLooks()
+{
+    static std::unordered_map<uint32, CyclopsLook> const looks = []
     {
-        std::unordered_map<uint32, uint32> loaded;
-        if (QueryResult result = WorldDatabase.Query("SELECT `DisplayId`, `SpellId` FROM `mod_subclass_cyclops_helmet`"))
+        std::unordered_map<uint32, CyclopsLook> loaded;
+        bool const hasModel = bool(WorldDatabase.Query("SELECT 1 FROM information_schema.COLUMNS WHERE "
+            "TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mod_subclass_cyclops_helmet' AND COLUMN_NAME = 'Model'"));
+        if (QueryResult result = WorldDatabase.Query(hasModel ?
+                "SELECT `DisplayId`, `SpellId`, `Model` FROM `mod_subclass_cyclops_helmet`" :
+                "SELECT `DisplayId`, `SpellId`, '' FROM `mod_subclass_cyclops_helmet`"))
             do
             {
                 Field* fields = result->Fetch();
-                loaded[fields[0].Get<uint32>()] = fields[1].Get<uint32>();
+                loaded[fields[0].Get<uint32>()] = { fields[1].Get<uint32>(), fields[2].Get<std::string>() };
             } while (result->NextRow());
         LOG_INFO("module", "mod-subclass: {} helmet looks for the cyclops head", loaded.size());
         return loaded;
     }();
-    return auras;
+    return looks;
+}
+
+uint32 ShownCyclopsHelmetItem(Player const* player)
+{
+    if (!HasSecondHead(player))
+        return 0;
+    return Subclass::CyclopsHelmet(IsSplit(player), player->HasPlayerFlag(PLAYER_FLAGS_HIDE_HELM),
+        player->GetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_HEAD * 2),
+        WardrobeOf(player).Items[HeadSlot]);
+}
+
+CyclopsLook const* CyclopsLookOfItem(uint32 itemId)
+{
+    auto const& looks = CyclopsHelmetLooks();
+    auto const itr = itemId ? looks.find(DisplayOfItem(itemId)) : looks.end();
+    return itr == looks.end() ? nullptr : &itr->second;
 }
 
 uint32 WantedCyclopsHelmetAura(Player const* player)
 {
-    if (!HasSecondHead(player))
-        return 0;
-    uint32 const helmet = Subclass::CyclopsHelmet(IsSplit(player), player->HasPlayerFlag(PLAYER_FLAGS_HIDE_HELM),
-        player->GetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_HEAD * 2),
-        WardrobeOf(player).Items[HeadSlot]);
-    auto const& auras = CyclopsHelmetAuras();
-    auto const itr = auras.find(DisplayOfItem(helmet));
-    if (itr == auras.end() || !sSpellMgr->GetSpellInfo(itr->second))
-        return 0;
-    return itr->second;
+    CyclopsLook const* look = CyclopsLookOfItem(ShownCyclopsHelmetItem(player));
+    return look && sSpellMgr->GetSpellInfo(look->SpellId) ? look->SpellId : 0;
+}
+
+std::string CyclopsModelState(Player const* player)
+{
+    CyclopsLook const* look = HasSecondHead(player) ? CyclopsLookOfItem(ShownCyclopsHelmetItem(player)) : nullptr;
+    return "CYCLOPSMODEL " + (look && !look->Model.empty() ? look->Model : std::string("-"));
+}
+
+std::string CyclopsPreview(uint32 itemId)
+{
+    CyclopsLook const* look = CyclopsLookOfItem(itemId);
+    return Acore::StringFormat("CYCLOPSPREVIEW {} {}", itemId, look && !look->Model.empty() ? look->Model : "-");
 }
 
 void UpdateCyclopsHelmet(Player* player)
@@ -1318,8 +1364,11 @@ void UpdateCyclopsHelmet(Player* player)
             stale.push_back(spellId);
     for (uint32 spellId : stale)
         player->RemoveAurasDueToSpell(spellId);
+    bool const changed = !stale.empty() || (wanted && !player->HasAura(wanted));
     if (wanted && !player->HasAura(wanted))
         player->AddAura(wanted, player);
+    if (changed)
+        SendSubclassMessage(player, CyclopsModelState(player));
 }
 
 void ArriveLater(Player const* player, uint32 delay)

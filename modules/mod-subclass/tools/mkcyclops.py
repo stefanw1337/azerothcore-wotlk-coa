@@ -2,7 +2,8 @@
 texture (the texture baked in, the fit mirrored from the two-eyed head), plus the spell visual table rows that fasten
 it to the cyclops head's helmet attachment. Writes a JSON list of the auras for mkspells.py and the display mapping
 SQL for the server.
-    python mkcyclops.py <helmets.zip> <client DBC folder> <output root> <auras.json> <mapping.sql> [model:texture ...]
+    python mkcyclops.py <helmets.zip> <client DBC folder> <TwoHeadedOgre.m2> <output root> <auras.json> <mapping.sql>
+        [model:texture ...]
 Without model:texture pairs every helmet display found in ItemDisplayInfo.dbc is written."""
 import json
 import struct
@@ -13,7 +14,8 @@ from pathlib import Path, PureWindowsPath
 import numpy as np
 
 from mkcape import Blob, arr
-from mkeyes import ATTACHMENT_SCALE, CYCLOPS_HELMET_ATTACHMENT, HELMET_SCALE
+from mkeyes import (ATTACHMENT_LOOKUP, ATTACHMENT_SCALE, ATTACHMENT_SIZE, ATTACHMENTS, BONE_PIVOT, CAMERA_SIZE,
+                    CAMERAS, CYCLOPS_HELMET_ATTACHMENT, HELMET_SCALE)
 from mkhelmets import HEAD, SOURCE_SUFFIX, baked, correction, armor_of_models, dbc_text, entries, read_dbc
 
 FIRST_ID = 9531000
@@ -30,6 +32,10 @@ VISUAL_FIELDS = 32
 VISUAL_STATE_KIT = 4
 EFFECT_SCALES = (1.0, 1.0, 0.01, 1.0)
 VERTEX_SIZE = 48
+BONES, BONE_SIZE = 44, 88
+CAMERA_LOOKUP = 280
+CAMERA_TRACKS = (16, 48, 80)
+EMPTY_TRACK = struct.pack("<HhIIII", 0, -1, 0, 0, 0, 0)
 PAIRED_EYE_PIECES = {"helm_cloth_mawraid_d_01_eyes"}
 SINGLE_EYE_PIECES = {"helm_monocle_a_01"}
 
@@ -61,10 +67,38 @@ class Table:
             out.write(self.strings)
 
 
-def seated_on_cyclops(fix):
+def seated_on_cyclops(fix, seat):
     size = ATTACHMENT_SCALE * np.array(HELMET_SCALE)
     shift = np.array(fix["shift"]) * (1.0, -1.0, 1.0)
-    return {"shift": tuple(shift * size), "scale": tuple(np.array(fix["scale"]) * size)}
+    return {"shift": tuple(shift * size + seat), "scale": tuple(np.array(fix["scale"]) * size)}
+
+
+class Ogre:
+    def __init__(self, path):
+        data = Path(path).read_bytes()
+        count, offset = arr(data, ATTACHMENTS)
+        bone = next(struct.unpack_from("<IH", data, offset + i * ATTACHMENT_SIZE)[1] for i in range(count)
+                    if struct.unpack_from("<I", data, offset + i * ATTACHMENT_SIZE)[0] == CYCLOPS_HELMET_ATTACHMENT)
+        self.seat = np.array(struct.unpack_from("<3f", data, arr(data, BONES)[1] + bone * BONE_SIZE + BONE_PIVOT))
+        count, offset = arr(data, CAMERAS)
+        cameras = bytearray()
+        for index in range(count):
+            camera = bytearray(data[offset + index * CAMERA_SIZE:offset + (index + 1) * CAMERA_SIZE])
+            for track in CAMERA_TRACKS:
+                camera[track:track + 20] = EMPTY_TRACK
+            cameras += camera
+        self.cameras, self.camera_count = bytes(cameras), count
+        lookup_count, lookup_offset = arr(data, CAMERA_LOOKUP)
+        self.lookup, self.lookup_count = data[lookup_offset:lookup_offset + lookup_count * 2], lookup_count
+
+
+def framed_like(m2, ogre):
+    blob = Blob(m2)
+    cameras = blob.append(ogre.cameras, 16)
+    lookup = blob.append(ogre.lookup, 4)
+    struct.pack_into("<II", blob.data, CAMERAS, ogre.camera_count, cameras)
+    struct.pack_into("<II", blob.data, CAMERA_LOOKUP, ogre.lookup_count, lookup)
+    return bytes(blob.data)
 
 
 def one_eyed(m2, paired):
@@ -127,7 +161,8 @@ def visual_row(visual_id, kit_id):
     return struct.pack("<%dI" % VISUAL_FIELDS, *values)
 
 
-def main(zip_path, dbc_folder, root, auras_path, mapping_path, *wanted):
+def main(zip_path, dbc_folder, ogre_path, root, auras_path, mapping_path, *wanted):
+    ogre = Ogre(ogre_path)
     bundle = zipfile.ZipFile(zip_path)
     names = entries(bundle)
     models, _ = armor_of_models(bundle)
@@ -144,11 +179,11 @@ def main(zip_path, dbc_folder, root, auras_path, mapping_path, *wanted):
                                              PureWindowsPath(texture_path).stem)
         target = root / Path(*PureWindowsPath(model_path).parts)
         target.parent.mkdir(parents=True, exist_ok=True)
-        fix = seated_on_cyclops(correction(model, models.get(model, "misc")))
+        fix = seated_on_cyclops(correction(model, models.get(model, "misc")), ogre.seat)
         helmet = bundle.read(source)
         if model in PAIRED_EYE_PIECES | SINGLE_EYE_PIECES:
             helmet = one_eyed(helmet, model in PAIRED_EYE_PIECES)
-        target.write_bytes(textured(baked(helmet, fix), texture_path))
+        target.write_bytes(framed_like(textured(baked(helmet, fix), texture_path), ogre))
         target.with_name(target.stem + "00.skin").write_bytes(bundle.read(names[HEAD + model + SOURCE_SUFFIX +
                                                                               "00.skin"]))
         effect_table = tables["SpellVisualEffectName"]
@@ -159,7 +194,7 @@ def main(zip_path, dbc_folder, root, auras_path, mapping_path, *wanted):
                                        0, 0, 0, 0, 0, 0))
         visuals.append(visual_row(record_id, record_id))
         auras.append([record_id, record_id, "Cyclops Helmet"])
-        mapping += [(display, record_id) for display in shown_by]
+        mapping += [(display, record_id, model_path) for display in shown_by]
     for name, rows in (("SpellVisualEffectName", effects), ("SpellVisualKit", kits),
                        ("SpellVisualKitModelAttach", attachments), ("SpellVisual", visuals)):
         tables[name].replace(FIRST_ID, rows)
@@ -169,12 +204,14 @@ def main(zip_path, dbc_folder, root, auras_path, mapping_path, *wanted):
         out.write("-- mod-subclass: which aura shows a helmet display on the Two-Headed Ogre's cyclops head.\n\n")
         out.write("DROP TABLE IF EXISTS `mod_subclass_cyclops_helmet`;\n")
         out.write("CREATE TABLE `mod_subclass_cyclops_helmet` (\n    `DisplayId` INT UNSIGNED NOT NULL,\n"
-                  "    `SpellId` INT UNSIGNED NOT NULL,\n    PRIMARY KEY (`DisplayId`)\n) ENGINE=InnoDB "
+                  "    `SpellId` INT UNSIGNED NOT NULL,\n    `Model` VARCHAR(160) NOT NULL DEFAULT '',\n"
+                  "    PRIMARY KEY (`DisplayId`)\n) ENGINE=InnoDB "
                   "DEFAULT CHARSET=utf8mb4;\n")
         for start in range(0, len(mapping), 500):
             chunk = mapping[start:start + 500]
-            out.write("INSERT INTO `mod_subclass_cyclops_helmet` (`DisplayId`, `SpellId`) VALUES\n")
-            out.write(",\n".join("(%d, %d)" % pair for pair in chunk) + ";\n")
+            out.write("INSERT INTO `mod_subclass_cyclops_helmet` (`DisplayId`, `SpellId`, `Model`) VALUES\n")
+            out.write(",\n".join("(%d, %d, '%s')" % (display, spell, model.replace("\\", "\\\\"))
+                                  for display, spell, model in chunk) + ";\n")
     print(len(pairs), "cyclops helmets,", len(mapping), "displays")
 
 

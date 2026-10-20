@@ -848,6 +848,63 @@ local function ShowMicroPortrait()
     end
 end
 
+local CYCLOPS_CAMERA = 1
+local cyclops = { model = nil, previews = {}, asked = {} }
+
+local function CyclopsCamera()
+    return Ascension_SubclassDump and Ascension_SubclassDump.cyclopsCamera or CYCLOPS_CAMERA
+end
+
+local function FollowHost(overlay)
+    local host = overlay.host
+    overlay:SetFacing(host:GetFacing())
+    overlay:SetPosition(host:GetPosition())
+    if host.GetModelScale then
+        overlay:SetModelScale(host:GetModelScale())
+    end
+end
+
+local function ShowCyclopsHelmetOn(host, path)
+    if not host then
+        return
+    end
+    local overlay = host.cyclopsOverlay
+    if not path then
+        if overlay then
+            overlay:Hide()
+        end
+        return
+    end
+    if not overlay then
+        overlay = CreateFrame("Model", nil, host)
+        overlay:SetAllPoints(host)
+        overlay:EnableMouse(false)
+        overlay.host = host
+        overlay:SetScript("OnUpdate", FollowHost)
+        host.cyclopsOverlay = overlay
+    end
+    overlay:SetFrameLevel(host:GetFrameLevel() + 1)
+    if overlay.path ~= path or overlay.camera ~= CyclopsCamera() then
+        overlay:SetModel(path)
+        overlay:SetCamera(CyclopsCamera())
+        overlay.path, overlay.camera = path, CyclopsCamera()
+    end
+    FollowHost(overlay)
+    overlay:Show()
+end
+
+local function CyclopsPreviewOf(itemId)
+    if not itemId or itemId == 0 then
+        return nil
+    end
+    local path = cyclops.previews[itemId]
+    if path == nil and not cyclops.asked[itemId] then
+        cyclops.asked[itemId] = true
+        Send("CYCLOPSPREVIEW " .. itemId)
+    end
+    return path or nil
+end
+
 local SHEET_FIT = { zoom = 0.8, right = 0.45, up = -0.47 }
 
 local function SheetFit()
@@ -911,6 +968,9 @@ sheetWatch:SetScript("OnUpdate", function(self, elapsed)
     end
     ShowPlayerPortrait(CornerPortrait(frame))
     FitSheetModel(frame)
+    if (UnitRace("player")) == "Two-Headed Ogre" then
+        ShowCyclopsHelmetOn(SheetModel(frame), cyclops.model)
+    end
     local subclass = state and state.subclass
     local line = subclass and subclass ~= "" and LevelLineIn(frame)
     if line and not line:GetText():find("(" .. subclass .. ")", 1, true) then
@@ -941,6 +1001,20 @@ local function Receive(message)
         twinState = { has = has == "1", out = out == "1", split = split == "1" }
         if ShowTwinState then
             ShowTwinState()
+        end
+        return
+    end
+    if command == "CYCLOPSMODEL" then
+        cyclops.model = rest ~= "-" and rest ~= "" and rest or nil
+        return
+    end
+    if command == "CYCLOPSPREVIEW" then
+        local itemId, path = string.match(rest, "^(%d+) (.+)$")
+        if itemId then
+            cyclops.previews[tonumber(itemId)] = path ~= "-" and path or false
+            if ShowTwinPreview then
+                ShowTwinPreview()
+            end
         end
         return
     end
@@ -2088,6 +2162,18 @@ local function DressTwin(model)
         model:TryOn(itemId)
     end
     model.subclassDressing = false
+    if DressesCyclops() then
+        local pendingHead = C_Appearance and C_Appearance.GetPendingAppearance and C_Appearance.GetPendingAppearance(1)
+        local head
+        if pendingHead and pendingHead ~= 0 then
+            local _, itemId = C_Appearance.GetAppearanceDisplayInfo(pendingHead)
+            head = itemId
+        elseif pendingHead ~= 0 and not stripped[1] then
+            head = twinOutfit[1]
+        end
+        ShowCyclopsHelmetOn(model, head and CyclopsPreviewOf(head) or (not head and pendingHead ~= 0 and cyclops.model)
+            or nil)
+    end
 end
 
 local function WatchPreviewModel(model)
@@ -2124,6 +2210,9 @@ local function ShowOwnPreview()
     end
     for _, model in ipairs(FindPreviewModels(wardrobeFrame)) do
         model:Dress()
+        if DressesCyclops() then
+            ShowCyclopsHelmetOn(model, cyclops.model)
+        end
     end
 end
 
@@ -2509,6 +2598,11 @@ SlashCmdList.ASCENSIONSUBCLASS = function(message)
             sheet and tostring(LevelLineIn(sheet) and LevelLineIn(sheet):GetText()) or "-",
             sheet and (CornerPortrait(sheet) and "found" or "missing") or "-",
             MicroButtonPortrait and "found" or "missing"))
+    elseif message:find("^cam") then
+        Ascension_SubclassDump = Ascension_SubclassDump or {}
+        Ascension_SubclassDump.cyclopsCamera = tonumber(message:match("^cam%s+(%d+)")) or nil
+        DEFAULT_CHAT_FRAME:AddMessage("Subclass: cyclops helmet overlay uses camera " .. CyclopsCamera()
+            .. " (/subclass cam <0-1>), model " .. tostring(cyclops.model))
     elseif message:find("^sheet") then
         local zoom, right, up = message:match("^sheet%s+(%S+)%s+(%S+)%s+(%S+)$")
         Ascension_SubclassDump = Ascension_SubclassDump or {}
