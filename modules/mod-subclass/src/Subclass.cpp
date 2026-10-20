@@ -1207,17 +1207,44 @@ uint32 LearnStandardKit(Player* player, uint8 playableClass)
 }
 
 constexpr uint32 BookCopyOffset = 1100000;
+constexpr uint32 BookTrainerId = 900100;
 
-uint32 DropBorrowedBookCopies(Player* player)
+std::unordered_set<uint32> const& BookCopies()
 {
-    std::vector<uint32> copies;
+    static std::unordered_set<uint32> const copies = []
+    {
+        std::unordered_set<uint32> loaded;
+        auto const& trainers = sObjectMgr->GetTrainers();
+        if (auto itr = trainers.find(BookTrainerId); itr != trainers.end())
+            for (Trainer::Spell const& spell : itr->second.GetSpells())
+                if (spell.SpellId > BookCopyOffset)
+                    loaded.insert(spell.SpellId);
+        return loaded;
+    }();
+    return copies;
+}
+
+uint32 BookCopyOf(uint32 spellId)
+{
+    return spellId && spellId < BookCopyOffset && BookCopies().contains(spellId + BookCopyOffset) ?
+        spellId + BookCopyOffset : 0;
+}
+
+uint32 PreferBorrowedBookCopies(Player* player)
+{
+    std::vector<uint32> stock;
     for (auto const& [spellId, known] : player->GetSpellMap())
-        if (known->State != PLAYERSPELL_REMOVED && spellId > BookCopyOffset &&
-            player->HasSpell(spellId - BookCopyOffset) && IsBorrowedSpell(player, spellId - BookCopyOffset))
-            copies.push_back(spellId);
-    for (uint32 spellId : copies)
-        player->removeSpell(spellId, SPEC_MASK_ALL, false);
-    return copies.size();
+        if (known->State != PLAYERSPELL_REMOVED && BookCopyOf(spellId) && IsBorrowedSpell(player, spellId))
+            stock.push_back(spellId);
+    for (uint32 spellId : stock)
+    {
+        uint32 const copy = BookCopyOf(spellId);
+        if (!player->HasSpell(copy) && sSpellMgr->GetSpellInfo(copy))
+            player->learnSpell(copy, false);
+        if (player->HasSpell(copy))
+            player->removeSpell(spellId, SPEC_MASK_ALL, false);
+    }
+    return stock.size();
 }
 
 uint32 SyncBorrowedBaseSpells(Player* player)
@@ -1229,7 +1256,7 @@ uint32 SyncBorrowedBaseSpells(Player* player)
     if (IsStandardCatalogClass(subClass))
     {
         uint32 const learned = LearnStandardKit(player, PlayableClassOf(subClass));
-        DropBorrowedBookCopies(player);
+        PreferBorrowedBookCopies(player);
         return learned;
     }
     LearnCoAWeapons(player, subClass);
@@ -2264,6 +2291,9 @@ Trainer::Trainer* TrainerWithSubclass(Trainer::Trainer const& trainer, Player co
         if (std::none_of(spells.begin(), spells.end(),
                 [&spell](Trainer::Spell const& known) { return known.SpellId == spell.SpellId; }))
             spells.push_back(spell);
+    for (Trainer::Spell& spell : spells)
+        if (uint32 const copy = BookCopyOf(spell.SpellId); copy && player->HasSpell(copy))
+            spell.SpellId = copy;
     thread_local std::optional<Trainer::Trainer> merged;
     merged.emplace(own.WithSpells(std::move(spells)));
     return &*merged;
