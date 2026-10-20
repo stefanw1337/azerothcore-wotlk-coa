@@ -99,6 +99,7 @@ HELMET_SCALE = (0.95, 1.08, 0.95)
 HELMET_TILT = 0.0
 CYCLOPS_HELMET_ATTACHMENT = 25
 ATTACHMENT_SCALE = 1.9
+ANIMATED = b"\x01"
 BONE_PIVOT = 76
 CAMERAS, CAMERA_SIZE, CAMERA_POSITION, CAMERA_TARGET = 272, 100, 36, 68
 CHARACTER_CAMERA = 1
@@ -348,11 +349,10 @@ def cyclops_helmet_seat(m2, head_bone, helmet_position):
     return seat
 
 
-def add_attachment(blob, m2, attachment_id, bone, position):
-    template = bytearray(m2[arr(m2, ATTACHMENTS)[1]:arr(m2, ATTACHMENTS)[1] + ATTACHMENT_SIZE])
-    struct.pack_into("<IH", template, 0, attachment_id, bone)
-    struct.pack_into("<3f", template, ATTACHMENT_POSITION, *position)
-    index = append_array(blob, m2, ATTACHMENTS, ATTACHMENT_SIZE, bytes(template))
+def add_attachment(blob, m2, attachment_id, bone, position, global_sequence):
+    record = struct.pack("<IHH3f", attachment_id, bone, 0, *position)
+    record += track(blob, m2, global_sequence, [0], [ANIMATED])
+    index = append_array(blob, m2, ATTACHMENTS, ATTACHMENT_SIZE, record)
     struct.pack_into("<h", blob.data, arr(blob.data, ATTACHMENT_LOOKUP)[1] + attachment_id * 2, index)
 
 
@@ -392,7 +392,7 @@ def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
                              track(blob, m2, first_global, [0],
                                    [struct.pack("<3f", *(ATTACHMENT_SCALE * np.array(HELMET_SCALE)))]))
     append_array(blob, m2, 44, 88, new_bones, 16)
-    add_attachment(blob, m2, CYCLOPS_HELMET_ATTACHMENT, helmet_bone + 1, cyclops_seat)
+    add_attachment(blob, m2, CYCLOPS_HELMET_ATTACHMENT, helmet_bone + 1, cyclops_seat, first_global)
 
     hair_texture = append_array(blob, m2, 80, 16, struct.pack("<IIII", HAIR_TEXTURE, 0, 1, blob.append(b"\0", 4)), 16)
     eye_texture_lookup = append_array(blob, m2, 128, 2, struct.pack("<h", hair_texture))
