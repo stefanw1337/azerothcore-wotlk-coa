@@ -1055,11 +1055,15 @@ function Stances.StanceButton(index)
         button:SetScript("PostClick", function(self) self:SetChecked(self.active) end)
         button:RegisterForDrag("LeftButton")
         button:SetScript("OnDragStart", function()
-            if IsAltKeyDown() and not InCombatLockdown() then
+            if IsAltKeyDown() and not InCombatLockdown() and not Stances.btBar then
                 Stances.bar:StartMoving()
             end
         end)
-        button:SetScript("OnDragStop", function() Stances.bar:GetScript("OnDragStop")(Stances.bar) end)
+        button:SetScript("OnDragStop", function()
+            if not Stances.btBar then
+                Stances.bar:GetScript("OnDragStop")(Stances.bar)
+            end
+        end)
     end
     return button
 end
@@ -1110,6 +1114,10 @@ function Stances.BuildStanceBar()
             button.spellId, button.spellName = nil, nil
         end
     end
+    if Stances.btBar then
+        Stances.LendToBartender(shown)
+        return
+    end
     Stances.bar:SetWidth(math.max(1, shown * (Stances.size + Stances.gap)))
     if not Stances.placed then
         Stances.PlaceStanceBar()
@@ -1119,6 +1127,58 @@ function Stances.BuildStanceBar()
         Stances.bar:Show()
     else
         Stances.bar:Hide()
+    end
+end
+
+local function ClearSetPoint(button, ...)
+    button:ClearAllPoints()
+    button:SetPoint(...)
+end
+
+function Stances.LendToBartender(shown)
+    local bar = Stances.btBar
+    bar.buttons = {}
+    for index = 1, shown do
+        local button = _G["Ascension_SubclassStanceButton" .. index]
+        button:SetParent(bar)
+        button.ClearSetPoint = ClearSetPoint
+        bar.buttons[index] = button
+    end
+    Stances.bar:Hide()
+    bar:UpdateButtonLayout()
+end
+
+if Bartender4 and Bartender4.ButtonBar and Bartender4.NewModule then
+    local module = Bartender4:NewModule("SubclassStances")
+    local defaults = { profile = Bartender4:Merge({ enabled = true, visibility = { possess = false } },
+        Bartender4.ButtonBar.defaults) }
+    function module:OnInitialize()
+        self.db = Bartender4.db:RegisterNamespace("SubclassStances", defaults)
+        self:SetEnabledState(self.db.profile.enabled)
+    end
+    function module:OnEnable()
+        if not self.bar then
+            self.bar = Bartender4.ButtonBar:Create("SubclassStances", self.db.profile, "Subclass Stances")
+            self.bar.button_width, self.bar.button_height = Stances.size, Stances.size
+        end
+        self.bar:Enable()
+        self:ApplyConfig()
+    end
+    function module:ApplyConfig()
+        self.bar:ApplyConfig(self.db.profile)
+        if not self.db.profile.position.x then
+            self.bar:ClearSetPoint("CENTER", 0, -160)
+            self.bar:SavePosition()
+        end
+        Stances.btBar = self.bar
+        Stances.BuildStanceBar()
+    end
+    function module:OnDisable()
+        if self.bar then
+            self.bar:Disable()
+        end
+        Stances.btBar = nil
+        Stances.BuildStanceBar()
     end
 end
 
