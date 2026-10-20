@@ -1215,17 +1215,16 @@ bool OtherHeadShoots(Player* player)
 void ShowGunInOtherHand(Player* player)
 {
     uint16 const offHand = PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_OFFHAND * 2;
-    Item* gun = OwnBow(player);
-    if (!gun)
+    if (player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND))
         return;
+    Item* gun = OwnBow(player);
     uint32 const shownGun = player->GetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_RANGED * 2);
-    uint32 const look = shownGun ? shownGun : gun->GetEntry();
-    bool const wanted = OtherHeadShoots(player) && player->GetSheath() == SHEATH_STATE_MELEE &&
-        !player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
+    uint32 const look = !gun ? 0 : shownGun ? shownGun : gun->GetEntry();
+    bool const wanted = gun && OtherHeadShoots(player) && player->GetSheath() == SHEATH_STATE_MELEE;
     uint32 const shown = player->GetUInt32Value(offHand);
     if (wanted && shown != look)
         player->SetUInt32Value(offHand, look);
-    else if (!wanted && shown && !player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND))
+    else if (!wanted && shown)
         player->SetUInt32Value(offHand, 0);
 }
 
