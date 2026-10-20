@@ -56,9 +56,12 @@ INSERT INTO `creature_model_info` (`DisplayID`, `BoundingRadius`, `CombatReach`,
 SELECT 977600, `BoundingRadius`, `CombatReach`, 1, 0
 FROM `creature_model_info` WHERE `DisplayID` = 977468;
 
-DELETE FROM `mod_subclass_pair` WHERE `race` IN (85, 96);
-UPDATE `mod_subclass_pair` SET `race` = 85 WHERE `race` = 53 AND `gender_mask` = 2;
-UPDATE `mod_subclass_pair` SET `race` = 96 WHERE `race` = 32 AND `gender_mask` = 1;
+DELETE FROM `mod_subclass_pair` WHERE `race` IN (85, 96) OR (`race` = 53 AND `gender_mask` = 2) OR
+    (`race` = 32 AND `gender_mask` = 1);
+INSERT INTO `mod_subclass_pair` (`race`, `gender_mask`, `main_class`, `sub_class`, `sub_spec`, `enabled`, `comment`)
+VALUES
+(85, 2, 0, 0, 0, 1, 'Two-Headed Ogre (female): adds another class tree and spec'),
+(96, 1, 0, 0, 0, 1, 'Thin Twins (male Thin Humans): the second twin adds another class tree and spec');
 DELETE FROM `mod_subclass_story` WHERE `race` IN (85, 96);
 UPDATE `mod_subclass_story` SET `race` = 85 WHERE `race` = 53 AND `gender_mask` = 2;
 UPDATE `mod_subclass_story` SET `race` = 96 WHERE `race` = 32 AND `gender_mask` = 1;
