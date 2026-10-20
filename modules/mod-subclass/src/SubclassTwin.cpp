@@ -72,6 +72,8 @@ constexpr uint32 CowboyAura = 9530108;
 constexpr uint32 HalfBrainAura = 9530109;
 constexpr uint32 ReachAura = 9530110;
 constexpr uint32 EndlessAmmoAura = 46699;
+constexpr uint32 EndlessArrow = 2512;
+constexpr uint32 EndlessShot = 2516;
 constexpr uint32 TwinLinkedSpell = 9530111;
 constexpr uint32 ToleranceSpell = 9530112;
 constexpr uint32 HandMeDownsSpell = 9530113;
@@ -1149,6 +1151,32 @@ bool OnlyOtherHalfShoots(Player const* player)
     return OtherHalfAwake(player) && OtherHalfShoots(player) && !MainHalfShoots(player);
 }
 
+uint32 EndlessAmmoFor(Player const* player)
+{
+    Item const* ranged = OwnBow(player);
+    if (!ranged)
+        return 0;
+    switch (ranged->GetTemplate()->SubClass)
+    {
+        case ITEM_SUBCLASS_WEAPON_BOW:
+        case ITEM_SUBCLASS_WEAPON_CROSSBOW:
+            return EndlessArrow;
+        case ITEM_SUBCLASS_WEAPON_GUN:
+            return EndlessShot;
+        default:
+            return 0;
+    }
+}
+
+void LoadEndlessAmmo(Player* player, bool wanted)
+{
+    uint32 const loaded = player->GetUInt32Value(PLAYER_AMMO_ID);
+    if (loaded && player->HasItemCount(loaded, 1))
+        return;
+    if (uint32 const ammo = wanted ? EndlessAmmoFor(player) : 0; ammo != loaded)
+        player->SetUInt32Value(PLAYER_AMMO_ID, ammo);
+}
+
 void UpdateReach(Player* player)
 {
     bool const wanted = OnlyOtherHalfShoots(player);
@@ -1159,6 +1187,7 @@ void UpdateReach(Player* player)
         else if (!wanted && player->HasAura(aura))
             player->RemoveAurasDueToSpell(aura);
     }
+    LoadEndlessAmmo(player, wanted);
 }
 
 void HandWeaponsToBrother(Player* player)

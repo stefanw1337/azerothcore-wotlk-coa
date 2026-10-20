@@ -658,16 +658,19 @@ local function ShowRelic()
     local icon = relicState.entry > 0 and (GetItemIcon and GetItemIcon(relicState.entry)
         or select(10, GetItemInfo(relicState.entry)))
     relicButton.icon:SetTexture(icon or RELIC_EMPTY)
-    relicButton:Show()
+    if relicButton.anchor then
+        relicButton:Show()
+    else
+        relicButton:Hide()
+    end
 end
 
 local function CreateRelicButton()
-    if relicButton or not CharacterRangedSlot then
+    if relicButton then
         return
     end
-    relicButton = CreateFrame("Button", "Ascension_SubclassRelicSlot", CharacterRangedSlot:GetParent(),
-        "ItemButtonTemplate")
-    relicButton:SetPoint("LEFT", CharacterRangedSlot, "RIGHT", 8, 0)
+    relicButton = CreateFrame("Button", "Ascension_SubclassRelicSlot", UIParent, "ItemButtonTemplate")
+    relicButton:Hide()
     relicButton.icon = _G["Ascension_SubclassRelicSlotIconTexture"]
     relicButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     relicButton:RegisterForDrag("LeftButton")
@@ -706,7 +709,8 @@ local function VisibleRegions(frame, found, wanted)
     end
     for _, child in ipairs({ frame:GetChildren() }) do
         if child:IsVisible() then
-            if wanted == "Button" and child:GetObjectType() == "Button" then
+            if (wanted == "Button" and child:GetObjectType() == "Button") or (wanted == "PlayerModel"
+                and (child:GetObjectType() == "PlayerModel" or child:GetObjectType() == "DressUpModel")) then
                 found[#found + 1] = child
             end
             VisibleRegions(child, found, wanted)
@@ -715,51 +719,192 @@ local function VisibleRegions(frame, found, wanted)
     return found
 end
 
-local function ShownLevelLine()
+local SHEET_MIN_SIZE = 300
+local SLOT_MIN, SLOT_MAX = 30, 48
+local CORNER_PORTRAIT_REACH = 90
+local sheet
+
+local function LevelLineIn(frame)
     local className = UnitClass("player")
-    for _, line in ipairs(VisibleRegions(CharacterFrame, {}, "FontString")) do
+    for _, line in ipairs(VisibleRegions(frame, {}, "FontString")) do
         local text = line:GetText()
-        if text and className and text:find(className, 1, true) and text:find(LEVEL or "Level", 1, true) then
+        if text and className and text:find(className, 1, true) and text:find(LEVEL or "Level", 1, true)
+            and text:find("%d") then
             return line
         end
     end
 end
 
-local function ShownRangedSlot()
+local function LargeTopFrame(frame)
+    local parent = frame:GetParent()
+    return frame:IsVisible() and (not parent or parent == UIParent) and frame ~= panel
+        and (frame:GetWidth() or 0) >= SHEET_MIN_SIZE and (frame:GetHeight() or 0) >= SHEET_MIN_SIZE
+end
+
+local function FindSheet()
+    if sheet and sheet:IsVisible() then
+        return sheet
+    end
+    sheet = nil
+    if CharacterFrame and CharacterFrame:IsVisible() and LevelLineIn(CharacterFrame) then
+        sheet = CharacterFrame
+        return sheet
+    end
+    local frame = EnumerateFrames()
+    while frame do
+        if LargeTopFrame(frame) and LevelLineIn(frame) then
+            sheet = frame
+            return sheet
+        end
+        frame = EnumerateFrames(frame)
+    end
+end
+
+local function SlotSized(button)
+    local width, height = button:GetWidth() or 0, button:GetHeight() or 0
+    return width >= SLOT_MIN and width <= SLOT_MAX and math.abs(width - height) < 4
+end
+
+local function ShownRangedSlot(frame)
     if CharacterRangedSlot and CharacterRangedSlot:IsVisible() then
         return CharacterRangedSlot
     end
-    for _, button in ipairs(VisibleRegions(CharacterFrame, {}, "Button")) do
-        if button ~= relicButton and button.GetID and button:GetID() == RANGED_SLOT_ID then
+    local buttons = VisibleRegions(frame, {}, "Button")
+    for _, button in ipairs(buttons) do
+        local name = button:GetName()
+        if button ~= relicButton and name and name:find("Ranged") then
             return button
         end
+    end
+    for _, button in ipairs(buttons) do
+        if button ~= relicButton and button.GetID and button:GetID() == RANGED_SLOT_ID and SlotSized(button) then
+            return button
+        end
+    end
+    local lowest
+    for _, button in ipairs(buttons) do
+        if button ~= relicButton and SlotSized(button) and button:GetBottom() and (not lowest
+            or button:GetBottom() < lowest:GetBottom() - 2
+            or (math.abs(button:GetBottom() - lowest:GetBottom()) <= 2 and button:GetLeft() > lowest:GetLeft())) then
+            lowest = button
+        end
+    end
+    return lowest
+end
+
+local function CornerPortrait(frame)
+    local left, top = frame:GetLeft(), frame:GetTop()
+    if not left then
+        return
+    end
+    local best
+    for _, region in ipairs(VisibleRegions(frame, {}, "Texture")) do
+        local width, height = region:GetWidth() or 0, region:GetHeight() or 0
+        if region:GetLeft() and region:GetLeft() < left + CORNER_PORTRAIT_REACH
+            and region:GetTop() > top - CORNER_PORTRAIT_REACH and math.abs(width - height) < PORTRAIT_SQUARENESS
+            and width >= PORTRAIT_MIN and width <= PORTRAIT_MAX and (not best or width > best:GetWidth()) then
+            best = region
+        end
+    end
+    return best
+end
+
+local function ShowPlayerPortrait(texture)
+    if not texture or texture.subclassPortrait == texture:GetTexture() then
+        return
+    end
+    SetPortraitTexture(texture, "player")
+    texture:SetTexCoord(0, 1, 0, 1)
+    texture.subclassPortrait = texture:GetTexture()
+end
+
+local function ShowMicroPortrait()
+    if MicroButtonPortrait then
+        MicroButtonPortrait:Show()
+        MicroButtonPortrait.subclassPortrait = nil
+        ShowPlayerPortrait(MicroButtonPortrait)
+    end
+end
+
+local SHEET_FIT = { zoom = 0.8, right = 0.45, up = -0.47 }
+
+local function SheetFit()
+    local saved = Ascension_SubclassDump and Ascension_SubclassDump.sheetFit
+    return saved or SHEET_FIT
+end
+
+local function SheetModel(frame)
+    local best, bestArea
+    for _, child in ipairs(VisibleRegions(frame, {}, "PlayerModel")) do
+        local area = (child:GetWidth() or 0) * (child:GetHeight() or 0)
+        if not best or area > bestArea then
+            best, bestArea = child, area
+        end
+    end
+    return best
+end
+
+local function FitSheetModel(frame)
+    if (UnitRace("player")) ~= "Two-Headed Ogre" then
+        return
+    end
+    local model = SheetModel(frame)
+    if not model then
+        return
+    end
+    local fit = SheetFit()
+    local x, y, z = model:GetPosition()
+    if math.abs(x - fit.zoom) > 0.001 or math.abs(y - fit.right) > 0.001 or math.abs(z - fit.up) > 0.001 then
+        model:SetPosition(fit.zoom, fit.right, fit.up)
     end
 end
 
 local sheetWatch = CreateFrame("Frame")
+sheetWatch:RegisterEvent("PLAYER_ENTERING_WORLD")
+sheetWatch:RegisterEvent("UNIT_PORTRAIT_UPDATE")
+sheetWatch:RegisterEvent("UNIT_MODEL_CHANGED")
+sheetWatch:SetScript("OnEvent", function(_, _, unit)
+    if not unit or unit == "player" then
+        ShowMicroPortrait()
+        if sheet then
+            local portrait = CornerPortrait(sheet)
+            if portrait then
+                portrait.subclassPortrait = nil
+            end
+        end
+    end
+end)
 sheetWatch:SetScript("OnUpdate", function(self, elapsed)
     self.wait = (self.wait or 0) + elapsed
     if self.wait < 0.5 then
         return
     end
     self.wait = 0
-    if not (CharacterFrame and CharacterFrame:IsVisible()) then
+    if MicroButtonPortrait and not MicroButtonPortrait:IsShown() then
+        ShowMicroPortrait()
+    end
+    local frame = FindSheet()
+    if not frame then
         return
     end
+    ShowPlayerPortrait(CornerPortrait(frame))
+    FitSheetModel(frame)
     local subclass = state and state.subclass
-    local line = subclass and subclass ~= "" and ShownLevelLine()
+    local line = subclass and subclass ~= "" and LevelLineIn(frame)
     if line and not line:GetText():find("(" .. subclass .. ")", 1, true) then
         line:SetText(line:GetText() .. " (" .. subclass .. ")")
     end
     if relicButton and relicState.eligible then
-        local slot = ShownRangedSlot()
+        local slot = ShownRangedSlot(frame)
         if slot and relicButton.anchor ~= slot then
             relicButton:SetParent(slot:GetParent())
             relicButton:ClearAllPoints()
             relicButton:SetPoint("LEFT", slot, "RIGHT", 8, 0)
+            relicButton:SetFrameStrata(slot:GetFrameStrata())
             relicButton:SetFrameLevel(slot:GetFrameLevel() + 2)
             relicButton.anchor = slot
         end
+        relicButton:Show()
     end
 end)
 
@@ -1902,6 +2047,7 @@ end
 
 local function DressTwin(model)
     local pending, stripped = PendingTwinItems()
+    model.subclassDressing = true
     if DressesCyclops() then
         model:Dress()
     else
@@ -1915,6 +2061,7 @@ local function DressTwin(model)
     for _, itemId in ipairs(pending) do
         model:TryOn(itemId)
     end
+    model.subclassDressing = false
 end
 
 local function WatchPreviewModel(model)
@@ -1922,7 +2069,7 @@ local function WatchPreviewModel(model)
         return
     end
     local function Redress()
-        if dressingTwin then
+        if dressingTwin and not model.subclassDressing then
             twinRedressPending = true
         end
     end
@@ -2327,10 +2474,27 @@ SlashCmdList.ASCENSIONSUBCLASS = function(message)
         DEFAULT_CHAT_FRAME:AddMessage("Ascension Subclass: hover the nodes you want me to see, then /reload.")
     elseif message == "state" then
         DEFAULT_CHAT_FRAME:AddMessage(string.format(
-            "Subclass: %s, relic allowed %s, relic %d, relic slot %s, ranged slot %s, level line %s",
+            "Subclass: %s, relic allowed %s, relic %d, relic slot %s, window %s, ranged slot %s, level line %s, "
+            .. "corner portrait %s, micro portrait %s",
             tostring(state.subclass), tostring(relicState.eligible), relicState.entry or 0,
             relicButton and (relicButton:IsShown() and "shown" or "hidden") or "missing",
-            CharacterRangedSlot and "found" or "missing", CharacterLevelText and tostring(CharacterLevelText:GetText()) or "missing"))
+            sheet and (sheet:GetName() or "unnamed") or "not found",
+            sheet and (ShownRangedSlot(sheet) and (ShownRangedSlot(sheet):GetName() or "unnamed") or "missing") or "-",
+            sheet and tostring(LevelLineIn(sheet) and LevelLineIn(sheet):GetText()) or "-",
+            sheet and (CornerPortrait(sheet) and "found" or "missing") or "-",
+            MicroButtonPortrait and "found" or "missing"))
+    elseif message:find("^sheet") then
+        local zoom, right, up = message:match("^sheet%s+(%S+)%s+(%S+)%s+(%S+)$")
+        Ascension_SubclassDump = Ascension_SubclassDump or {}
+        if zoom then
+            Ascension_SubclassDump.sheetFit = { zoom = tonumber(zoom) or 0, right = tonumber(right) or 0,
+                up = tonumber(up) or 0 }
+        elseif message == "sheet reset" then
+            Ascension_SubclassDump.sheetFit = nil
+        end
+        local fit = SheetFit()
+        DEFAULT_CHAT_FRAME:AddMessage(string.format("Subclass: character window model zoom %.2f, right %.2f, up %.2f "
+            .. "(/subclass sheet <zoom> <right> <up>, /subclass sheet reset)", fit.zoom, fit.right, fit.up))
     elseif message == "icons" then
         ShowIcons()
     elseif message == "applytwin" then
