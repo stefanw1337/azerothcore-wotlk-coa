@@ -87,14 +87,14 @@ do
 		pcall(C_CharacterCreate.SetCameraPosition, x * k, y * k, z * (1 + (k - 1) * 0.6))
 	end)
 	local selectWatch = CreateFrame("Frame")
-	local placed, seen, steady, unscaled
+	local placed, seen, steady, unscaled, cleared
 	selectWatch:SetScript("OnUpdate", function(self, elapsed)
 		self.wait = (self.wait or 0) + elapsed
 		if self.wait < 0.2 then return end
 		self.wait = 0
 		if not (CharacterSelect and CharacterSelect:IsShown() and CharacterSelect.selectedIndex
 			and C_CharacterCreate and C_CharacterCreate.GetCameraPosition) then
-			seen, steady, unscaled = nil, 0, nil
+			seen, steady, unscaled, cleared = nil, 0, nil, nil
 			return
 		end
 		if not unscaled and CharacterSelect.SetCamDistanceScale then
@@ -103,25 +103,29 @@ do
 		unscaled = true
 		local ok, _, race = pcall(GetCharacterInfo, GetCharIDFromIndex and GetCharIDFromIndex(CharacterSelect.selectedIndex) or CharacterSelect.selectedIndex)
 		local k = ok and COA_SUBCLASS_SELECT_SCALES[race or ""]
+		if not k then
+			if placed and C_CharacterCreate.ResetCameraPosition then
+				pcall(C_CharacterCreate.ResetCameraPosition)
+			end
+			placed = nil
+			return
+		end
+		if not placed and not cleared and C_CharacterCreate.ResetCameraPosition then
+			pcall(C_CharacterCreate.ResetCameraPosition)
+			cleared, seen, steady = true, nil, 0
+			return
+		end
 		local got, x, y, z = pcall(C_CharacterCreate.GetCameraPosition)
 		if not got or not x then return end
 		local now = { x, y, z }
 		if placed and Near(now, placed.target) then
-			if not k then
-				pcall(C_CharacterCreate.SetCameraPosition, placed.base[1], placed.base[2], placed.base[3])
-				placed = nil
-			end
-			return
-		end
-		if not k then
-			placed = nil
 			return
 		end
 		steady = Near(now, seen) and (steady or 0) + 1 or 0
 		seen = now
 		if steady < 1 then return end
 		local target = { x * k, y * k, z * (1 + (k - 1) * 0.6) }
-		placed = { base = now, target = target }
+		placed = { target = target }
 		pcall(C_CharacterCreate.SetCameraPosition, target[1], target[2], target[3])
 	end)
 end
