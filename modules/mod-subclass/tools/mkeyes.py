@@ -104,6 +104,9 @@ ANIMATED = b"\x01"
 BONE_PIVOT = 76
 CAMERAS, CAMERA_SIZE, CAMERA_POSITION, CAMERA_TARGET = 272, 100, 36, 68
 CHARACTER_CAMERA = 1
+PORTRAIT_CAMERA = 0
+PORTRAIT_TARGET = (0.25, 0.0, 2.62)
+PORTRAIT_DISTANCE = 1.7
 CHARACTER_CAMERA_PULL = 0.72
 CHARACTER_CAMERA_SHIFT = (0.0, -0.08, 0.63)
 CELLS = 4
@@ -316,7 +319,19 @@ def body_drawing(m2, skin):
     raise ValueError("no body batch")
 
 
+def frame_portrait(data):
+    count, offset = arr(data, CAMERAS)
+    for index in range(count):
+        camera = offset + index * CAMERA_SIZE
+        if struct.unpack_from("<I", data, camera)[0] != PORTRAIT_CAMERA:
+            continue
+        target = np.array(PORTRAIT_TARGET)
+        struct.pack_into("<3f", data, camera + CAMERA_TARGET, *target)
+        struct.pack_into("<3f", data, camera + CAMERA_POSITION, *(target + (PORTRAIT_DISTANCE, 0.0, 0.0)))
+
+
 def frame_closer(data):
+    frame_portrait(data)
     count, offset = arr(data, CAMERAS)
     for index in range(count):
         camera = offset + index * CAMERA_SIZE
