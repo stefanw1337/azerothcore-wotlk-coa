@@ -82,7 +82,7 @@ constexpr uint32 FirstCyclopsHelmet = 9531000;
 constexpr uint32 LastCyclopsHelmet = 9539999;
 constexpr std::size_t HeadSlot = 0;
 constexpr uint32 HeadCategory = 1;
-constexpr char const* CyclopsEchoRefusal = "Your heads still share one helmet. The cyclops picks her own once "
+constexpr char const* CyclopsEchoRefusal = "Your heads still share one helmet. Your left head picks her own once "
     "your heads have each chosen their way.";
 constexpr uint32 ManualPause = 3000;
 constexpr float HealBelowPct = 60.0f;
@@ -1436,7 +1436,7 @@ void ChooseCyclopsHelmet(Player* player, uint32 helmet, std::string_view done)
 
 void EchoCyclopsHelmet(Player* player)
 {
-    ChooseCyclopsHelmet(player, 0, "Your cyclops head wears the same helmet as you again.");
+    ChooseCyclopsHelmet(player, 0, "Your left head wears the same helmet as the right head again.");
 }
 
 void DressCyclops(Player* player, std::vector<std::string_view> const& words)
@@ -1452,8 +1452,8 @@ void DressCyclops(Player* player, std::vector<std::string_view> const& words)
         if (!category || *category != HeadCategory || !itemId || (*itemId && !DisplayOfItem(*itemId)))
             continue;
         if (*itemId)
-            return ChooseCyclopsHelmet(player, *itemId, "Your cyclops head tries on her new helmet.");
-        return ChooseCyclopsHelmet(player, Subclass::BareCyclopsHead, "Your cyclops head goes bare-headed.");
+            return ChooseCyclopsHelmet(player, *itemId, "Your left head tries on her new helmet.");
+        return ChooseCyclopsHelmet(player, Subclass::BareCyclopsHead, "Your left head goes bare-headed.");
     }
 }
 

@@ -1736,9 +1736,9 @@ end
 
 local function ShowCyclopsMenu(anchor)
     local entries = {
-        { text = "Your cyclops head", isTitle = true, notCheckable = true },
+        { text = "Your left head", isTitle = true, notCheckable = true },
         { text = "Bare head", notCheckable = true, func = function() TakeOffTwin({ 1 }) end },
-        { text = "Same helmet as me", notCheckable = true, func = function() Send("CYCLOPSECHO") end },
+        { text = "Same helmet as the right head", notCheckable = true, func = function() Send("CYCLOPSECHO") end },
     }
     twinUndressMenu = twinUndressMenu or CreateFrame("Frame", "Ascension_SubclassTwinUndressMenu", UIParent,
         "UIDropDownMenuTemplate")
@@ -1769,8 +1769,9 @@ local function ShowUndressMenu(anchor)
 end
 
 local function ShowDressing()
-    local other = DressesCyclops() and "Dressing: Cyclops head" or "Dressing: Your twin"
-    twinButton:SetText(dressingTwin and other or "Dressing: You")
+    local other = DressesCyclops() and "Dressing: Left head" or "Dressing: Your twin"
+    local own = DressesCyclops() and "Dressing: Right head" or "Dressing: You"
+    twinButton:SetText(dressingTwin and other or own)
     if twinUndressButton then
         if dressingTwin then
             twinUndressButton:Show()
@@ -1823,7 +1824,7 @@ local function AttachTwinButton()
         else
             ShowOwnPreview()
         end
-        local other = DressesCyclops() and "|cffffd100Wardrobe:|r Apply now puts the helmet on your cyclops head."
+        local other = DressesCyclops() and "|cffffd100Wardrobe:|r Apply now puts the helmet on your left head."
             or "|cffffd100Wardrobe:|r Apply now dresses your twin."
         DEFAULT_CHAT_FRAME:AddMessage(dressingTwin and other or "|cffffd100Wardrobe:|r Apply now dresses you.")
     end)
@@ -1831,8 +1832,8 @@ local function AttachTwinButton()
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
         GameTooltip:SetText("Who the Wardrobe dresses", 1, 1, 1)
         GameTooltip:AddLine(DressesCyclops()
-            and "Switch to your cyclops head, pick a helmet and apply it as usual. She wears it without needing "
-            .. "the item. The preview shows it on your other head."
+            and "Switch to your left head, pick a helmet and apply it as usual. She wears it without needing "
+            .. "the item. The preview shows it on your right head."
             or "Switch to your twin, pick his look and apply it as usual. "
             .. "He wears it without needing the items.", nil, nil, nil, true)
         GameTooltip:Show()
