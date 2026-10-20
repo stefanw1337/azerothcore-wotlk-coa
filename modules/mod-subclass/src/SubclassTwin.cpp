@@ -8,6 +8,7 @@
 #include "DatabaseEnv.h"
 #include "GameTime.h"
 #include "Log.h"
+#include "LootMgr.h"
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
@@ -70,6 +71,9 @@ constexpr uint32 HalfBrainAura = 9530109;
 constexpr uint32 ReachAura = 9530110;
 constexpr uint32 TwinLinkedSpell = 9530111;
 constexpr uint32 ToleranceSpell = 9530112;
+constexpr uint32 HandMeDownsSpell = 9530113;
+constexpr uint32 HandMeDownsPercent = 10;
+constexpr uint32 HandMeDownsTreasurePercent = 25;
 constexpr uint8 ToleratedDrunk = 89;
 constexpr uint32 EasyTick = 600;
 constexpr uint32 ManualPause = 3000;
@@ -1291,6 +1295,8 @@ void LearnRacials(Player* player)
         player->learnSpell(TwinLinkedSpell, false);
     if (player->getRace() == OgreRace && !player->HasSpell(ToleranceSpell))
         player->learnSpell(ToleranceSpell, false);
+    if (player->getRace() == TwinRace && !player->HasSpell(HandMeDownsSpell))
+        player->learnSpell(HandMeDownsSpell, false);
 }
 
 bool WaitingToReturn(Player const* player, bool returning)
@@ -2037,8 +2043,25 @@ class spell_subclass_second_self : public SpellScript
     }
 };
 
+class mod_subclass_hand_me_downs : public PlayerScript
+{
+public:
+    mod_subclass_hand_me_downs() : PlayerScript("mod_subclass_hand_me_downs", { PLAYERHOOK_ON_BEFORE_LOOT_MONEY }) { }
+
+    void OnPlayerBeforeLootMoney(Player* player, Loot* loot) override
+    {
+        if (!loot || !loot->gold || !player->HasSpell(HandMeDownsSpell))
+            return;
+        ObjectGuid const source = player->GetLootGUID();
+        bool const treasure = source.IsGameObject() || source.IsItem();
+        uint32 const percent = treasure ? HandMeDownsTreasurePercent : HandMeDownsPercent;
+        loot->gold += std::max<uint32>(1, loot->gold * percent / 100);
+    }
+};
+
 void AddSC_mod_subclass_twin()
 {
+    new mod_subclass_hand_me_downs();
     RegisterSpellScript(spell_subclass_second_self);
     RegisterSpellScript(spell_subclass_easy);
     new mod_subclass_twin_packets();

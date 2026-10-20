@@ -40,6 +40,9 @@ SPELLS = [
     (9530112, PASSIVE, 1513, "Tolerance", "Racial Passive",
      "Ogres were weaned on Gordok grog. Drinks make you half as drunk, the haze wears off twice as fast, "
      "and you never get past merely drunk.", ""),
+    (9530113, PASSIVE, 2364, "Hand-Me-Downs", "Racial Passive",
+     "Growing up sharing everything with a brother taught you to check every pocket twice. You find 10% more "
+     "gold, and 25% more in chests, lockboxes and other treasures.", ""),
 ]
 CASTER_AURA = {9530106: 9530102, 9530107: 9530105}
 
