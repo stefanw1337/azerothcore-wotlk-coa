@@ -245,6 +245,7 @@ local function Position(entry)
 end
 
 local function RenderTree(tree, canvas)
+    ShowTreeArt(tree, canvas)
     canvas.title:SetText(tree.title or "")
     local ae, te = SpentIn(tree)
     canvas.points:SetText(string.format("%d point(s) spent", ae + te))
@@ -389,11 +390,67 @@ local function Render()
     end
 end
 
+local STANDARD_TREE_ART = {
+    ["Warrior:Arms"] = "bg-warrior-arms", ["Warrior:Fury"] = "bg-warrior-fury",
+    ["Warrior:Protection"] = "bg-warrior-protection", ["Paladin:Holy"] = "bg-paladin-holy",
+    ["Paladin:Protection"] = "bg-paladin-protection", ["Paladin:Retribution"] = "bg-paladin-retribution",
+    ["Hunter:Beast Mastery"] = "bg-hunter-beastmaster", ["Hunter:Marksmanship"] = "bg-hunter-marksman",
+    ["Hunter:Survival"] = "bg-hunter-survival", ["Rogue:Assassination"] = "bg-rogue-assassination",
+    ["Rogue:Combat"] = "bg-rogue-combat", ["Rogue:Subtlety"] = "bg-rogue-subtlety",
+    ["Priest:Discipline"] = "bg-priest-discipline", ["Priest:Holy"] = "bg-priest-holy",
+    ["Priest:Shadow"] = "bg-priest-shadow", ["Death Knight:Blood"] = "bg-deathknight-blood",
+    ["Death Knight:Frost"] = "bg-deathknight-frost", ["Death Knight:Unholy"] = "bg-deathknight-unholy",
+    ["Shaman:Elemental"] = "bg-shaman-elemental", ["Shaman:Enhancement"] = "bg-shaman-enhancement",
+    ["Shaman:Restoration"] = "bg-shaman-restoration", ["Mage:Arcane"] = "bg-mage-arcane",
+    ["Mage:Fire"] = "bg-mage-fire", ["Mage:Frost"] = "bg-mage-frost", ["Warlock:Affliction"] = "bg-warlock-affliction",
+    ["Warlock:Demonology"] = "bg-warlock-demonology", ["Warlock:Destruction"] = "bg-warlock-destruction",
+    ["Druid:Balance"] = "bg-druid-balance", ["Druid:Feral"] = "bg-druid-cat", ["Druid:Feral Combat"] = "bg-druid-cat",
+    ["Druid:Restoration"] = "bg-druid-restoration",
+}
+local STANDARD_CLASS_NAMES = { Warrior = true, Paladin = true, Hunter = true, Rogue = true, Priest = true,
+    ["Death Knight"] = true, Shaman = true, Mage = true, Warlock = true, Druid = true }
+local TREE_ART_FOLDER = "Interface\\AddOns\\Ascension_Subclass\\Textures\\"
+local TREE_ART_WIDTH, TREE_ART_HEIGHT, TREE_ART_SIZE = 512, 360, 512
+
+local function StandardTree(tree)
+    return tree.className and STANDARD_CLASS_NAMES[tree.className]
+end
+
+local function ShowTreeArt(tree, canvas)
+    if not canvas.art then
+        canvas.art = canvas:CreateTexture(nil, "BACKGROUND")
+        canvas.art:SetAllPoints(canvas)
+        canvas.art:SetAlpha(0.8)
+    end
+    local art = tree.className and STANDARD_TREE_ART[tree.className .. ":" .. (tree.title or "")]
+    if art and canvas.art:SetTexture(TREE_ART_FOLDER .. art) then
+        local width, height = canvas:GetWidth(), canvas:GetHeight()
+        local shown = math.min(TREE_ART_WIDTH, TREE_ART_HEIGHT * width / height)
+        local left = (TREE_ART_WIDTH - shown) / 2
+        canvas.art:SetTexCoord(left / TREE_ART_SIZE, (left + shown) / TREE_ART_SIZE, 0, TREE_ART_HEIGHT / TREE_ART_SIZE)
+        canvas.art:Show()
+    else
+        canvas.art:Hide()
+    end
+end
+
 local function BuildTrees()
     for _, tree in ipairs(state.trees) do
         tree.nodes = {}
         tree.abilities = {}
+        local candidates = {}
         for _, id in ipairs(tree.ids) do
+            candidates[#candidates + 1] = id
+        end
+        for _, id in ipairs(tree.abilityIds or {}) do
+            local entry = Entry(id)
+            if StandardTree(tree) and entry then
+                tree.abilities[#tree.abilities + 1] = { id = id, entry = entry, ability = true }
+            else
+                candidates[#candidates + 1] = id
+            end
+        end
+        for _, id in ipairs(candidates) do
             local entry = Entry(id)
             if entry and entry.PositionX and entry.PositionY then
                 tree.nodes[#tree.nodes + 1] = { id = id, entry = entry }
@@ -595,6 +652,21 @@ local function Receive(message)
     elseif command == "TREE" then
         local index, spec, title = string.match(rest, "^(%d+) (%d+) (.*)$")
         incoming.trees[tonumber(index)] = { spec = tonumber(spec), title = title, ids = {} }
+    elseif command == "ART" then
+        local index, className = string.match(rest, "^(%d+) (.*)$")
+        local tree = incoming.trees[tonumber(index)]
+        if tree then
+            tree.className = className
+        end
+    elseif command == "ABIL" then
+        local index, list = string.match(rest, "^(%d+) (.*)$")
+        local tree = incoming.trees[tonumber(index)]
+        if tree then
+            tree.abilityIds = tree.abilityIds or {}
+            for _, id in ipairs(Split(list, ",")) do
+                tree.abilityIds[#tree.abilityIds + 1] = tonumber(id)
+            end
+        end
     elseif command == "IDS" then
         local index, list = string.match(rest, "^(%d+) (.*)$")
         local tree = incoming.trees[tonumber(index)]
@@ -700,6 +772,10 @@ local function CreatePanel(parent)
         insets = { left = 11, right = 12, top = 12, bottom = 11 },
     })
     panel:EnableMouse(true)
+    panel.fill = panel:CreateTexture(nil, "BACKGROUND")
+    panel.fill:SetPoint("TOPLEFT", panel, "TOPLEFT", 11, -12)
+    panel.fill:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -12, 11)
+    panel.fill:SetTexture(0.03, 0.03, 0.04, 1)
     panel.header = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     panel.header:SetPoint("TOP", panel, "TOP", 0, -16)
     panel.header:SetText(Naming().tab)
@@ -920,6 +996,9 @@ local function AttachToWindow()
     end
     KeepTabsInRow(first, gap)
     tab:SetScript("OnClick", function()
+        if advancementTab and advancementTab:IsVisible() then
+            advancementTab:Click()
+        end
         for _, other in ipairs(tabs) do
             if other.SetChecked then
                 other:SetChecked(false)

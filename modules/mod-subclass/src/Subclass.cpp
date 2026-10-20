@@ -757,12 +757,15 @@ void SendSubclassState(Player* player)
         Subclass::Tree const& tree = open[index];
         SendAddon(player, Acore::StringFormat("TREE {} {} {}", index + 1, tree.SpecId,
             tree.SpecId ? SpecializationName(tree.SpecId) : PlainClassName(tree.ClassId)));
+        SendAddon(player, Acore::StringFormat("ART {} {}", index + 1, PlainClassName(tree.ClassId)));
         std::vector<std::string> ids;
+        std::vector<std::string> abilities;
         for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
             if (entry.ClassId == tree.ClassId && entry.SpecId == tree.SpecId &&
                 (entry.AECost || entry.TECost || entry.SpellCount))
-                ids.push_back(std::to_string(entry.EntryId));
+                (entry.Talent ? ids : abilities).push_back(std::to_string(entry.EntryId));
         SendAddonList(player, Acore::StringFormat("IDS {}", index + 1), ids);
+        SendAddonList(player, Acore::StringFormat("ABIL {}", index + 1), abilities);
     }
     std::vector<std::string> ranks;
     for (AscensionCoATalentState::KnownEntry const& known : GetAscensionKnownTalentEntries(player))
