@@ -181,7 +181,10 @@ struct Brain
     uint32 Tick = 0;
     uint32 Pause = 0;
     bool Busy = false;
+    std::unordered_map<uint32, uint32> RefusedUntil;
 };
+
+constexpr uint32 RefusedSpellRest = 15000;
 
 std::unordered_map<uint32, Brain>& brains = *new std::unordered_map<uint32, Brain>;
 
@@ -2120,6 +2123,12 @@ void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid)
     LOG_INFO("module", "The other half of {} casts {} ({}) at {}: result {}, {} cast packet(s) shown on the twin",
         player->GetName(), info->SpellName[0], spellId, target->GetName(), uint32(result), castingAsBrother.Shown);
     SendSubclassMessage(player, Acore::StringFormat("OTHERCAST {} {}", spellId, uint32(result)));
+    if (result != SPELL_CAST_OK)
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        brains[player->GetGUID().GetCounter()].RefusedUntil[spellId] = GameTime::GetGameTimeMS().count() +
+            RefusedSpellRest;
+    }
     castingAsBrother = {};
 }
 
@@ -2187,6 +2196,14 @@ bool OrderBrother(Player* player, uint32 spellId, Unit* target)
     return true;
 }
 
+bool RecentlyRefused(Player const* player, uint32 spellId)
+{
+    std::lock_guard<std::mutex> lock(twinMutex);
+    auto const& refused = brains[player->GetGUID().GetCounter()].RefusedUntil;
+    auto const itr = refused.find(spellId);
+    return itr != refused.end() && itr->second > GameTime::GetGameTimeMS().count();
+}
+
 std::pair<uint32, Unit*> PickSpell(Player* player)
 {
     Unit* foe = TwinTarget(player);
@@ -2196,7 +2213,7 @@ std::pair<uint32, Unit*> PickSpell(Player* player)
     for (uint32 spellId : KnownBorrowedActives(player))
     {
         SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
-        if (!info || !Affordable(player, info))
+        if (!info || !Affordable(player, info) || RecentlyRefused(player, spellId))
             continue;
         bool const heals = info->HasEffect(SPELL_EFFECT_HEAL) || info->HasAura(SPELL_AURA_PERIODIC_HEAL);
         if (heals)
