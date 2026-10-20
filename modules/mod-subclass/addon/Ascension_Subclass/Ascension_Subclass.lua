@@ -622,6 +622,7 @@ end
 local relicState = { eligible = false, entry = 0 }
 local relicButton
 local RELIC_EMPTY = "Interface\\Paperdoll\\UI-PaperDoll-Slot-Relic"
+local RANGED_EMPTY = "Interface\\Paperdoll\\UI-PaperDoll-Slot-Ranged"
 
 local function ServerSlotOf(bag, slot)
     if bag == 0 then
@@ -926,6 +927,10 @@ sheetWatch:SetScript("OnUpdate", function(self, elapsed)
             relicButton.anchor = slot
         end
         relicButton:Show()
+        local icon = slot and (slot.icon or (slot:GetName() and _G[slot:GetName() .. "IconTexture"]))
+        if icon and not GetInventoryItemTexture("player", RANGED_SLOT_ID) and icon:GetTexture() ~= RANGED_EMPTY then
+            icon:SetTexture(RANGED_EMPTY)
+        end
     end
 end)
 
