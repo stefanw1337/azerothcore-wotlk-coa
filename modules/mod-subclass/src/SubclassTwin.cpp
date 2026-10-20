@@ -49,6 +49,7 @@ bool LendsRangedSpecialization(Player const* player);
 bool SubclassRaceEnabled(uint8 race);
 
 void SendSubclassMessage(Player* player, std::string const& message);
+uint32 StowBorrowedGear(Player* player);
 
 namespace
 {
@@ -1329,6 +1330,7 @@ void UpdateSelfAura(Player* player)
     if (!player->IsAlive())
         return;
     UpdateReach(player);
+    StowBorrowedGear(player);
     ShowGunInOtherHand(player);
     HandWeaponsToBrother(player);
     if (!OtherHalfAwake(player))

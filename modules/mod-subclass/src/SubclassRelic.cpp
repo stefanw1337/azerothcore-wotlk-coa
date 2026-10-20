@@ -16,6 +16,7 @@
 #include <vector>
 
 bool SubclassChosen(Player const* player);
+bool SubclassResting(Player const* player);
 
 namespace
 {
@@ -48,7 +49,7 @@ bool UsesRelics(Player const* player)
 
 bool MayHoldRelic(Player const* player)
 {
-    return UsesRelics(player) && SubclassChosen(player);
+    return UsesRelics(player) && SubclassChosen(player) && !SubclassResting(player);
 }
 
 HeldRelic RelicOf(Player const* player)

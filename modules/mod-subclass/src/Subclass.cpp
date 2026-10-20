@@ -20,6 +20,7 @@
 #include "Log.h"
 #include "ObjectMgr.h"
 #include "Pet.h"
+#include "Mail.h"
 #include "Player.h"
 #include "PlayerScript.h"
 #include "Random.h"
@@ -1507,6 +1508,46 @@ void SendSubclassMessage(Player* player, std::string const& message)
     SendAddon(player, message);
 }
 
+bool NeedsBorrowedSkill(Player const* player, ItemTemplate const* proto)
+{
+    uint32 const skill = proto ? proto->GetSkill() : 0;
+    return skill && !ClassWields(player->getClass(), player->getRace(), skill);
+}
+
+uint32 StowBorrowedGear(Player* player)
+{
+    if (!SubclassResting(player))
+        return 0;
+    uint32 stowed = 0;
+    for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
+    {
+        Item* item = player->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
+        if (!item || !NeedsBorrowedSkill(player, item->GetTemplate()))
+            continue;
+        ItemPosCountVec destination;
+        if (player->CanStoreItem(NULL_BAG, NULL_SLOT, destination, item, false) == EQUIP_ERR_OK)
+        {
+            player->RemoveItem(INVENTORY_SLOT_BAG_0, slot, true);
+            player->StoreItem(destination, item, true);
+        }
+        else
+        {
+            player->MoveItemFromInventory(INVENTORY_SLOT_BAG_0, slot, true);
+            CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+            item->DeleteFromInventoryDB(trans);
+            item->SaveToDB(trans);
+            MailDraft("Put away while your heads agree", "Your bags were full, so this came by mail.").AddItem(item)
+                .SendMailTo(trans, player, MailSender(player, MAIL_STATIONERY_GM), MAIL_CHECK_MASK_COPIED);
+            CharacterDatabase.CommitTransaction(trans);
+        }
+        ++stowed;
+    }
+    if (stowed)
+        ChatHandler(player->GetSession()).PSendSysMessage("Your heads agree: {} piece(s) of the other head's gear "
+            "put away.", stowed);
+    return stowed;
+}
+
 bool SubclassChosen(Player const* player)
 {
     return RecordOf(player).Choice.Complete();
@@ -1744,8 +1785,17 @@ public:
     mod_subclass_player() : PlayerScript("mod_subclass_player", { PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_LOGOUT,
         PLAYERHOOK_ON_DELETE, PLAYERHOOK_ON_LEVEL_CHANGED, PLAYERHOOK_ON_GOSSIP_SELECT,
         PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT, PLAYERHOOK_ON_PLAYER_IS_CLASS,
-        PLAYERHOOK_ON_PLAYER_HAS_ACTIVE_POWER_TYPE, PLAYERHOOK_ON_LEARN_SPELL })
+        PLAYERHOOK_ON_PLAYER_HAS_ACTIVE_POWER_TYPE, PLAYERHOOK_ON_LEARN_SPELL, PLAYERHOOK_CAN_EQUIP_ITEM })
     {
+    }
+
+    bool OnPlayerCanEquipItem(Player* player, uint8 /*slot*/, uint16& /*dest*/, Item* item, bool /*swap*/,
+        bool notLoading) override
+    {
+        if (!notLoading || !item || !SubclassResting(player) || !NeedsBorrowedSkill(player, item->GetTemplate()))
+            return true;
+        ChatHandler(player->GetSession()).SendSysMessage("Your heads agree right now; that belongs to the other one.");
+        return false;
     }
 
     void OnPlayerLearnSpell(Player* player, uint32 spellId) override
