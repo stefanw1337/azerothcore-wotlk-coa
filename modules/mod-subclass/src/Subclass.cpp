@@ -873,6 +873,8 @@ bool OwnClassGrants(Player const* player, uint32 spellId)
         });
 }
 
+std::vector<uint16> ClassSkillLinesOf(std::vector<uint32> const& spells);
+
 std::vector<uint32> TaughtBy(Trainer::Trainer const* trainer)
 {
     std::vector<uint32> taught;
@@ -892,6 +894,10 @@ std::vector<uint32> TaughtBy(Trainer::Trainer const* trainer)
 uint32 ForgetStandardKit(Player* player, uint8 playableClass)
 {
     std::vector<uint32> const own = TaughtBy(ClassTrainerOf(player->getClass()));
+    std::vector<uint16> const ownLines = ClassSkillLinesOf(own);
+    for (uint16 skill : ClassSkillLinesOf(TaughtBy(ClassTrainerOf(playableClass))))
+        if (player->HasSkill(skill) && std::find(ownLines.begin(), ownLines.end(), skill) == ownLines.end())
+            player->SetSkill(skill, 0, 0, 0);
     uint32 removed = 0;
     for (uint32 spellId : TaughtBy(ClassTrainerOf(playableClass)))
         if (player->HasSpell(spellId) && std::find(own.begin(), own.end(), spellId) == own.end())
@@ -967,8 +973,30 @@ void RefreshPowerPools(Player* player)
 
 constexpr uint32 KitPasses = 8;
 
+std::vector<uint16> ClassSkillLinesOf(std::vector<uint32> const& spells)
+{
+    std::vector<uint16> lines;
+    for (uint32 spellId : spells)
+    {
+        SkillLineAbilityMapBounds const bounds = sSpellMgr->GetSkillLineAbilityMapBounds(spellId);
+        for (auto itr = bounds.first; itr != bounds.second; ++itr)
+            if (uint16 const skill = uint16(itr->second->SkillLine); IsClassSkillLine(skill) &&
+                std::find(lines.begin(), lines.end(), skill) == lines.end())
+                lines.push_back(skill);
+    }
+    return lines;
+}
+
+void LearnStandardSkillLines(Player* player, uint8 playableClass)
+{
+    for (uint16 skill : ClassSkillLinesOf(TaughtBy(ClassTrainerOf(playableClass))))
+        if (!player->HasSkill(skill))
+            player->SetSkill(skill, 0, 1, 1);
+}
+
 uint32 LearnStandardKit(Player* player, uint8 playableClass)
 {
+    LearnStandardSkillLines(player, playableClass);
     Trainer::Trainer const* trainer = ClassTrainerOf(playableClass);
     if (!trainer)
         return 0;
