@@ -1053,6 +1053,13 @@ function Stances.StanceButton(index)
         end)
         button:SetScript("OnLeave", function() GameTooltip:Hide() end)
         button:SetScript("PostClick", function(self) self:SetChecked(self.active) end)
+        button:RegisterForDrag("LeftButton")
+        button:SetScript("OnDragStart", function()
+            if IsAltKeyDown() and not InCombatLockdown() then
+                Stances.bar:StartMoving()
+            end
+        end)
+        button:SetScript("OnDragStop", function() Stances.bar:GetScript("OnDragStop")(Stances.bar) end)
     end
     return button
 end
@@ -1104,7 +1111,10 @@ function Stances.BuildStanceBar()
         end
     end
     Stances.bar:SetWidth(math.max(1, shown * (Stances.size + Stances.gap)))
-    Stances.PlaceStanceBar()
+    if not Stances.placed then
+        Stances.PlaceStanceBar()
+        Stances.placed = true
+    end
     if shown > 0 then
         Stances.bar:Show()
     else
@@ -2780,6 +2790,7 @@ SlashCmdList.ASCENSIONSUBCLASS = function(message)
     elseif message == "stancebar reset" then
         Ascension_SubclassDump = Ascension_SubclassDump or {}
         Ascension_SubclassDump.stanceBarPoint = nil
+        Stances.placed = false
         Stances.BuildStanceBar()
     elseif message:find("^cam") then
         Ascension_SubclassDump = Ascension_SubclassDump or {}
