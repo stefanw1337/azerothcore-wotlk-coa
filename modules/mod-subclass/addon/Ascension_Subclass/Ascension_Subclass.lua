@@ -249,7 +249,10 @@ local function Line(canvas, index)
     return line
 end
 
-local function Position(entry)
+local function Position(entry, grid)
+    if grid then
+        return entry.Column or 0, entry.Row or 0
+    end
     local x, y = entry.PositionX or 0, entry.PositionY or 0
     if x == 0 and y == 0 then
         x, y = entry.Column or 0, entry.Row or 0
@@ -301,14 +304,29 @@ local function ShowTreeArt(tree, canvas)
     end
 end
 
+local function UsesGrid(tree)
+    local placed, gridded = false, true
+    for _, node in ipairs(tree.nodes) do
+        local entry = node.entry
+        if (entry.PositionX or 0) ~= 0 or (entry.PositionY or 0) ~= 0 then
+            placed = true
+        end
+        if entry.Column == nil or entry.Row == nil then
+            gridded = false
+        end
+    end
+    return gridded and (not placed or tree.className and STANDARD_CLASS_NAMES[tree.className] ~= nil)
+end
+
 local function RenderTree(tree, canvas)
     ShowTreeArt(tree, canvas)
     canvas.title:SetText(tree.title or "")
     local ae, te = SpentIn(tree)
     canvas.points:SetText(string.format("%d point(s) spent", ae + te))
+    local grid = UsesGrid(tree)
     local minX, maxX, minY, maxY
     for _, node in ipairs(tree.nodes) do
-        local x, y = Position(node.entry)
+        local x, y = Position(node.entry, grid)
         minX, maxX = math.min(minX or x, x), math.max(maxX or x, x)
         minY, maxY = math.min(minY or y, y), math.max(maxY or y, y)
     end
@@ -319,7 +337,7 @@ local function RenderTree(tree, canvas)
     local spanX, spanY = (maxX or 0) - (minX or 0), (maxY or 0) - (minY or 0)
     local centers = {}
     for index, node in ipairs(tree.nodes) do
-        local x, y = Position(node.entry)
+        local x, y = Position(node.entry, grid)
         local px = NODE + (spanX > 0 and (x - minX) / spanX * width or width / 2)
         local py = strip + NODE + (spanY > 0 and (maxY - y) / spanY * height or height / 2)
         centers[node.id] = { px, py }
