@@ -908,10 +908,15 @@ uint32 ForgetStandardKit(Player* player, uint8 playableClass)
     return removed;
 }
 
+void ForgetStandardWeapons(Player* player, uint8 playableClass);
+
 uint32 ForgetBorrowedBaseSpells(Player* player, uint8 subClass)
 {
     if (IsStandardCatalogClass(subClass))
+    {
+        ForgetStandardWeapons(player, PlayableClassOf(subClass));
         return ForgetStandardKit(player, PlayableClassOf(subClass));
+    }
     uint32 removed = 0;
     for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)
         if (spell.ClassId == subClass && player->HasSpell(spell.SpellId) && !OwnClassGrants(player, spell.SpellId))
@@ -994,9 +999,56 @@ void LearnStandardSkillLines(Player* player, uint8 playableClass)
             player->SetSkill(skill, 0, 1, 1);
 }
 
+constexpr std::array<uint8, 10> ProficiencyRaces = { RACE_HUMAN, RACE_ORC, RACE_DWARF, RACE_NIGHTELF,
+    RACE_UNDEAD_PLAYER, RACE_TAUREN, RACE_GNOME, RACE_TROLL, RACE_BLOODELF, RACE_DRAENEI };
+
+bool ClassWields(uint8 playableClass, uint8 race, uint32 skill)
+{
+    if (GetSkillRaceClassInfo(skill, race, playableClass))
+        return true;
+    return std::any_of(ProficiencyRaces.begin(), ProficiencyRaces.end(), [playableClass, skill](uint8 other)
+    {
+        return GetSkillRaceClassInfo(skill, other, playableClass) != nullptr;
+    });
+}
+
+std::vector<std::pair<uint32, uint32>> GearProficiencies()
+{
+    std::vector<std::pair<uint32, uint32>> found;
+    for (SkillLineAbilityEntry const* ability : sSkillLineAbilityStore)
+    {
+        SkillLineEntry const* line = ability ? sSkillLineStore.LookupEntry(ability->SkillLine) : nullptr;
+        bool const gear = line && (line->categoryId == SKILL_CATEGORY_WEAPON ||
+            line->categoryId == SKILL_CATEGORY_ARMOR);
+        SpellInfo const* spell = gear ? sSpellMgr->GetSpellInfo(ability->Spell) : nullptr;
+        if (spell && (spell->HasEffect(SPELL_EFFECT_WEAPON) || spell->HasEffect(SPELL_EFFECT_PROFICIENCY)))
+            found.emplace_back(ability->SkillLine, ability->Spell);
+    }
+    return found;
+}
+
+void LearnStandardWeapons(Player* player, uint8 playableClass)
+{
+    for (auto const& [skill, spellId] : GearProficiencies())
+        if (!player->HasSpell(spellId) && ClassWields(playableClass, player->getRace(), skill))
+            player->learnSpell(spellId, false);
+}
+
+void ForgetStandardWeapons(Player* player, uint8 playableClass)
+{
+    for (auto const& [skill, spellId] : GearProficiencies())
+        if (player->HasSpell(spellId) && ClassWields(playableClass, player->getRace(), skill) &&
+            !ClassWields(player->getClass(), player->getRace(), skill))
+        {
+            player->removeSpell(spellId, SPEC_MASK_ALL, false);
+            player->SetSkill(uint16(skill), 0, 0, 0);
+        }
+}
+
 uint32 LearnStandardKit(Player* player, uint8 playableClass)
 {
     LearnStandardSkillLines(player, playableClass);
+    LearnStandardWeapons(player, playableClass);
     Trainer::Trainer const* trainer = ClassTrainerOf(playableClass);
     if (!trainer)
         return 0;
