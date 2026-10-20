@@ -1200,12 +1200,38 @@ if Bartender4 and Bartender4.ButtonBar and Bartender4.NewModule then
         self.db = Bartender4.db:RegisterNamespace("SubclassStances", defaults)
         self:SetEnabledState(self.db.profile.enabled)
     end
+    function module:SetupOptions()
+        if not self.options then
+            local prototype = Bartender4.ButtonBar.prototype
+            self.optionobject = prototype:GetOptionObject()
+            self.optionobject.table.general.args.rows.max = 10
+            local enabled = {
+                type = "toggle",
+                order = 1,
+                name = "Enabled",
+                desc = "Show the subclass's stances, aspects, auras and presences on their own bar",
+                get = function() return self.db.profile.enabled end,
+                set = "ToggleModule",
+                handler = self,
+            }
+            self.optionobject:AddElement("general", "enabled", enabled)
+            self.disabledoptions = { general = { type = "group", name = "General Settings", cmdInline = true,
+                order = 1, args = { enabled = enabled } } }
+            self.options = { order = 31, type = "group", name = "Subclass Stance Bar",
+                desc = "Configure the subclass stance bar", childGroups = "tab" }
+            Bartender4:RegisterBarOptions("SubclassStances", self.options)
+        end
+        self.options.args = self:IsEnabled() and self.optionobject.table or self.disabledoptions
+    end
     function module:OnEnable()
         if not self.bar then
-            self.bar = Bartender4.ButtonBar:Create("SubclassStances", self.db.profile, "Subclass Stances")
+            self.bar = Bartender4.ButtonBar:Create("SubclassStances", self.db.profile, "Subclass Stance Bar")
             self.bar.button_width, self.bar.button_height = Stances.size, Stances.size
         end
         self.bar:Enable()
+        if self.ToggleOptions then
+            self:ToggleOptions()
+        end
         self:ApplyConfig()
     end
     function module:ApplyConfig()
@@ -1220,6 +1246,9 @@ if Bartender4 and Bartender4.ButtonBar and Bartender4.NewModule then
     function module:OnDisable()
         if self.bar then
             self.bar:Disable()
+        end
+        if self.ToggleOptions then
+            self:ToggleOptions()
         end
         Stances.btBar = nil
         Stances.BuildStanceBar()
