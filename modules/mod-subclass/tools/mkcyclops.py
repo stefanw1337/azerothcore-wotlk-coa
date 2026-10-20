@@ -30,7 +30,8 @@ VISUAL_FIELDS = 32
 VISUAL_STATE_KIT = 4
 EFFECT_SCALES = (1.0, 1.0, 0.01, 1.0)
 VERTEX_SIZE = 48
-EYE_PIECES = {"helm_cloth_mawraid_d_01_eyes"}
+PAIRED_EYE_PIECES = {"helm_cloth_mawraid_d_01_eyes"}
+SINGLE_EYE_PIECES = {"helm_monocle_a_01"}
 
 
 class Table:
@@ -66,11 +67,12 @@ def seated_on_cyclops(fix):
     return {"shift": tuple(shift * size), "scale": tuple(np.array(fix["scale"]) * size)}
 
 
-def one_eyed(m2):
+def one_eyed(m2, paired):
     data = bytearray(m2)
     count, offset = arr(data, 60)
     positions = np.array([struct.unpack_from("<3f", data, offset + i * VERTEX_SIZE) for i in range(count)])
-    for side in (positions[:, 1] < 0, positions[:, 1] > 0):
+    sides = (positions[:, 1] < 0, positions[:, 1] > 0) if paired else (np.ones(count, bool),)
+    for side in sides:
         if side.any():
             positions[side, 1] -= positions[side, 1].mean()
     for index, position in enumerate(positions):
@@ -144,8 +146,8 @@ def main(zip_path, dbc_folder, root, auras_path, mapping_path, *wanted):
         target.parent.mkdir(parents=True, exist_ok=True)
         fix = seated_on_cyclops(correction(model, models.get(model, "misc")))
         helmet = bundle.read(source)
-        if model in EYE_PIECES:
-            helmet = one_eyed(helmet)
+        if model in PAIRED_EYE_PIECES | SINGLE_EYE_PIECES:
+            helmet = one_eyed(helmet, model in PAIRED_EYE_PIECES)
         target.write_bytes(textured(baked(helmet, fix), texture_path))
         target.with_name(target.stem + "00.skin").write_bytes(bundle.read(names[HEAD + model + SOURCE_SUFFIX +
                                                                               "00.skin"]))
