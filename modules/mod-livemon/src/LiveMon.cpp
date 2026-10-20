@@ -261,8 +261,8 @@ std::string SpellsJson(std::map<uint32, uint64> const& spells)
         SpellInfo const* info = sSpellMgr->GetSpellInfo(sorted[index].first);
         std::string const name = sorted[index].first ? (info && info->SpellName[0] ? info->SpellName[0] : "?") :
             "Melee";
-        out += Acore::StringFormat("{}{{\"id\":{},\"name\":\"{}\",\"amount\":{}}}", index ? "," : "",
-            sorted[index].first, Escaped(name), sorted[index].second);
+        out += Acore::StringFormat("{}{{\"id\":{},\"name\":\"{}\",\"icon\":{},\"amount\":{}}}", index ? "," : "",
+            sorted[index].first, Escaped(name), info ? info->SpellIconID : 0, sorted[index].second);
     }
     return out + "]";
 }

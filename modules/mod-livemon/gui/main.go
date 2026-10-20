@@ -2,11 +2,9 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"embed"
 	"flag"
 	"fmt"
-	"image/png"
 	"io"
 	"io/fs"
 	"log"
@@ -15,23 +13,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
+	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
 //go:embed web
 var web embed.FS
-
-var trollFaces = []string{
-	"Interface\\Icons\\Achievement_Character_Troll_Male.blp",
-	"Interface\\Icons\\Achievement_Character_Troll_Female.blp",
-	"Interface\\CharacterFrame\\TemporaryPortrait-Male-Troll.blp",
-}
-
-var baseArchives = []string{"common.MPQ", "common-2.MPQ", "expansion.MPQ", "lichking.MPQ", "patch.MPQ",
-	"patch-2.MPQ", "patch-3.MPQ"}
 
 type settings struct {
 	Server    string
@@ -74,64 +62,6 @@ func findWowFolder(start string) string {
 			return ""
 		}
 	}
-}
-
-func archivesOf(wow string) []string {
-	data := filepath.Join(wow, "Data")
-	var paths []string
-	for _, name := range baseArchives {
-		paths = append(paths, filepath.Join(data, name))
-	}
-	if entries, err := os.ReadDir(data); err == nil {
-		var patches []string
-		for _, entry := range entries {
-			name := entry.Name()
-			lower := strings.ToLower(name)
-			if strings.HasPrefix(lower, "patch-") && strings.HasSuffix(lower, ".mpq") &&
-				lower != "patch-2.mpq" && lower != "patch-3.mpq" {
-				patches = append(patches, name)
-			}
-		}
-		sort.Slice(patches, func(i, j int) bool { return strings.ToLower(patches[i]) < strings.ToLower(patches[j]) })
-		for _, name := range patches {
-			paths = append(paths, filepath.Join(data, name))
-		}
-	}
-	for i, j := 0, len(paths)-1; i < j; i, j = i+1, j-1 {
-		paths[i], paths[j] = paths[j], paths[i]
-	}
-	return paths
-}
-
-func trollFace(wow string) ([]byte, error) {
-	if wow == "" {
-		return nil, fmt.Errorf("no WoW folder found")
-	}
-	for _, path := range archivesOf(wow) {
-		a, err := openArchive(path)
-		if err != nil {
-			continue
-		}
-		for _, wanted := range trollFaces {
-			data, err := a.read(wanted)
-			if err != nil {
-				continue
-			}
-			img, err := decodeBLP(data)
-			if err != nil {
-				continue
-			}
-			a.file.Close()
-			var out bytes.Buffer
-			if err := png.Encode(&out, img); err != nil {
-				return nil, err
-			}
-			log.Printf("troll face: %s from %s", wanted, filepath.Base(path))
-			return out.Bytes(), nil
-		}
-		a.file.Close()
-	}
-	return nil, fmt.Errorf("no troll face in %s", wow)
 }
 
 func browserCandidates(configured string) []string {
@@ -180,25 +110,38 @@ func main() {
 		*wow = findWowFolder(home)
 	}
 
-	var faceOnce sync.Once
-	var face []byte
+	game := newLibrary(*wow)
 	pages, _ := fs.Sub(web, "web")
 	client := &http.Client{Timeout: 5 * time.Second}
 	mux := http.NewServeMux()
 	mux.Handle("/", http.FileServer(http.FS(pages)))
-	mux.HandleFunc("/troll.png", func(w http.ResponseWriter, r *http.Request) {
-		faceOnce.Do(func() {
-			var err error
-			if face, err = trollFace(*wow); err != nil {
-				log.Print(err)
-			}
-		})
-		if face == nil {
+	sendPNG := func(w http.ResponseWriter, r *http.Request, data []byte, err error) {
+		if err != nil {
 			http.NotFound(w, r)
 			return
 		}
 		w.Header().Set("Content-Type", "image/png")
-		w.Write(face)
+		w.Header().Set("Cache-Control", "max-age=86400")
+		w.Write(data)
+	}
+	mux.HandleFunc("/wow/texture", func(w http.ResponseWriter, r *http.Request) {
+		data, err := game.texture(r.URL.Query().Get("path"))
+		sendPNG(w, r, data, err)
+	})
+	mux.HandleFunc("/wow/spellicon", func(w http.ResponseWriter, r *http.Request) {
+		id, _ := strconv.ParseUint(r.URL.Query().Get("id"), 10, 32)
+		data, err := game.spellIcon(uint32(id))
+		sendPNG(w, r, data, err)
+	})
+	mux.HandleFunc("/wow/font", func(w http.ResponseWriter, r *http.Request) {
+		data, err := game.read(r.URL.Query().Get("path"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "font/ttf")
+		w.Header().Set("Cache-Control", "max-age=86400")
+		w.Write(data)
 	})
 	mux.HandleFunc("/feed/", func(w http.ResponseWriter, r *http.Request) {
 		target := *server + strings.TrimPrefix(r.URL.Path, "/feed") + "?" + r.URL.RawQuery

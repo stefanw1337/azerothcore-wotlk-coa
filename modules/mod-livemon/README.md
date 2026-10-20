@@ -26,6 +26,12 @@ combos and compares a subclassed combo's damage with the same main class without
 
     cd gui && GOOS=windows GOARCH=amd64 go build -ldflags "-H windowsgui -s -w" -o LiveMon.exe .
 
+The window is styled after the WoW interface. With a client folder set it uses the client's own fonts, status bar
+and background textures and shows each ability's spell icon (read from the MPQs at runtime; nothing is shipped).
+The troll portrait and the exe icon are local files that are not in the repository: put a transparent portrait in
+`web/troll.png` and `web/troll-icon.png`, an icon in `livemon.ico`, then run
+`x86_64-w64-mingw32-windres -O coff livemon.rc -o rsrc_windows_amd64.syso` before building.
+
 `LiveMon.exe` opens in its own Edge (or Chrome) window. Its troll face is read from the WoW client's own MPQ archives
 (set `WowFolder` in `livemon.ini` next to the exe, or place the exe inside the client folder); no game art ships
 with the module. `livemon.ini` can also set `Server` (default `http://127.0.0.1:8089`) and `Browser`.
