@@ -737,7 +737,8 @@ end
 
 local function LargeTopFrame(frame)
     local parent = frame:GetParent()
-    return frame:IsVisible() and (not parent or parent == UIParent) and frame ~= panel
+    return frame ~= UIParent and frame ~= WorldFrame and frame:IsVisible() and (not parent or parent == UIParent)
+        and frame ~= panel
         and (frame:GetWidth() or 0) >= SHEET_MIN_SIZE and (frame:GetHeight() or 0) >= SHEET_MIN_SIZE
 end
 
@@ -746,6 +747,12 @@ local function FindSheet()
         return sheet
     end
     sheet = nil
+    for _, known in ipairs({ AscensionCharacterFrame, CharacterFrame }) do
+        if known and known:IsVisible() and LevelLineIn(known) then
+            sheet = known
+            return sheet
+        end
+    end
     if CharacterFrame and CharacterFrame:IsVisible() and LevelLineIn(CharacterFrame) then
         sheet = CharacterFrame
         return sheet
@@ -766,8 +773,10 @@ local function SlotSized(button)
 end
 
 local function ShownRangedSlot(frame)
-    if CharacterRangedSlot and CharacterRangedSlot:IsVisible() then
-        return CharacterRangedSlot
+    for _, known in ipairs({ AscensionCharacterRangedSlot, CharacterRangedSlot }) do
+        if known and known:IsVisible() then
+            return known
+        end
     end
     local buttons = VisibleRegions(frame, {}, "Button")
     for _, button in ipairs(buttons) do
@@ -783,7 +792,7 @@ local function ShownRangedSlot(frame)
     end
     local lowest
     for _, button in ipairs(buttons) do
-        if button ~= relicButton and SlotSized(button) and button:GetBottom() and (not lowest
+        if button ~= relicButton and SlotSized(button) and button:GetBottom() and button:GetLeft() and (not lowest
             or button:GetBottom() < lowest:GetBottom() - 2
             or (math.abs(button:GetBottom() - lowest:GetBottom()) <= 2 and button:GetLeft() > lowest:GetLeft())) then
             lowest = button
@@ -793,14 +802,17 @@ local function ShownRangedSlot(frame)
 end
 
 local function CornerPortrait(frame)
+    if frame == AscensionCharacterFrame and AscensionCharacterFramePortrait then
+        return AscensionCharacterFramePortrait
+    end
     local left, top = frame:GetLeft(), frame:GetTop()
-    if not left then
+    if not left or not top then
         return
     end
     local best
     for _, region in ipairs(VisibleRegions(frame, {}, "Texture")) do
         local width, height = region:GetWidth() or 0, region:GetHeight() or 0
-        if region:GetLeft() and region:GetLeft() < left + CORNER_PORTRAIT_REACH
+        if region:GetLeft() and region:GetTop() and region:GetLeft() < left + CORNER_PORTRAIT_REACH
             and region:GetTop() > top - CORNER_PORTRAIT_REACH and math.abs(width - height) < PORTRAIT_SQUARENESS
             and width >= PORTRAIT_MIN and width <= PORTRAIT_MAX and (not best or width > best:GetWidth()) then
             best = region
