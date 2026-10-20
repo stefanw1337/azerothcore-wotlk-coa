@@ -92,9 +92,13 @@ SORE = (150, 42, 36)
 SORE_FROM = 0.42
 SORE_STRENGTH = 0.55
 HAIR_TEXTURE = 6
+ATTACHMENTS, ATTACHMENT_LOOKUP, ATTACHMENT_SIZE, ATTACHMENT_POSITION = 240, 248, 40, 8
+HELMET_ATTACHMENT = 11
+BONE_PIVOT = 76
 CAMERAS, CAMERA_SIZE, CAMERA_POSITION, CAMERA_TARGET = 272, 100, 36, 68
 CHARACTER_CAMERA = 1
 CHARACTER_CAMERA_PULL = 0.72
+CHARACTER_CAMERA_SHIFT = (0.0, -0.32, 0.48)
 CELLS = 4
 TWO_EYED_HEAD, CYCLOPS_HEAD = 21, 20
 HEAD_LOOK = {TWO_EYED_HEAD: CALM, CYCLOPS_HEAD: STARE}
@@ -313,7 +317,24 @@ def frame_closer(data):
             continue
         position = np.array(struct.unpack_from("<3f", data, camera + CAMERA_POSITION))
         target = np.array(struct.unpack_from("<3f", data, camera + CAMERA_TARGET))
-        struct.pack_into("<3f", data, camera + CAMERA_POSITION, *(target + (position - target) * CHARACTER_CAMERA_PULL))
+        shift = np.array(CHARACTER_CAMERA_SHIFT)
+        struct.pack_into("<3f", data, camera + CAMERA_POSITION,
+                         *(target + (position - target) * CHARACTER_CAMERA_PULL + shift))
+        struct.pack_into("<3f", data, camera + CAMERA_TARGET, *(target + shift))
+
+
+def seat_helmet(data):
+    count, offset = arr(data, ATTACHMENTS)
+    lookup_count, lookup_offset = arr(data, ATTACHMENT_LOOKUP)
+    bone_offset = arr(data, 44)[1]
+    for index in range(count):
+        attachment = offset + index * ATTACHMENT_SIZE
+        attachment_id, bone = struct.unpack_from("<IH", data, attachment)
+        if attachment_id != HELMET_ATTACHMENT or attachment_id >= lookup_count:
+            continue
+        head_side = struct.unpack_from("<f", data, bone_offset + bone * 88 + BONE_PIVOT + 4)[0]
+        struct.pack_into("<f", data, attachment + ATTACHMENT_POSITION + 4, head_side)
+        struct.pack_into("<h", data, lookup_offset + attachment_id * 2, index)
 
 
 def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
@@ -410,6 +431,7 @@ def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
         offset = sk.append(bytes(payload), 4)
         struct.pack_into("<II", sk.data, header, len(payload) // size, offset)
     frame_closer(blob.data)
+    seat_helmet(blob.data)
     open(out_m2, "wb").write(blob.data)
     open(out_skin, "wb").write(sk.data)
     for index, eye_set in enumerate(EYE_SETS):
