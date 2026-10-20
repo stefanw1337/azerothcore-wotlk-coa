@@ -1179,8 +1179,10 @@ public:
         loaded.BookItemId = sConfigMgr->GetOption<uint32>("Subclass.BookItemId", 9530010);
         loaded.BookDropChance = sConfigMgr->GetOption<float>("Subclass.BookDropChance", 5.0f);
         loaded.StandardClasses = sConfigMgr->GetOption<bool>("Subclass.StandardClasses", false);
+        std::string const classModel = sConfigMgr->GetOption<std::string>("CoA.ClassModel", "coa");
+        std::vector<std::string_view> const models = Acore::Tokenize(classModel, ' ', false);
         loaded.StandardMains = sConfigMgr->GetOption<bool>("Subclass.StandardMains", false) &&
-            sConfigMgr->GetOption<std::string>("CoA.ClassModel", "coa") == "coa";
+            std::find(models.begin(), models.end(), "coa") != models.end();
         auto kinds = [](char const* name)
         {
             return Subclass::ClassKinds(std::min<uint32>(sConfigMgr->GetOption<uint32>(name, 0), 2));
