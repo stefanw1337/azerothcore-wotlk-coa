@@ -1,15 +1,21 @@
 """Write the subclass racials and second-self auras into Spell.dbc and the matching spell_dbc SQL, and lift the
-ranged dead zone from shots so a brother standing back can take them (reads Spell.dbc and SpellRange.dbc from SRC)."""
+ranged dead zone from shots so a brother standing back can take them (reads Spell.dbc and SpellRange.dbc from SRC).
+    python mkspells.py <SRC> <OUT> <SQL> [<visual auras JSON> <visual auras SQL>]"""
+import json
 import struct
 import sys
 
 SRC, OUT, SQL = sys.argv[1], sys.argv[2], sys.argv[3]
+VISUAL_AURAS = json.load(open(sys.argv[4])) if len(sys.argv) > 5 else []
+VISUAL_SQL = sys.argv[5] if len(sys.argv) > 5 else None
 FIELDS, SIZE = 234, 936
 ATTR0_CANT_CANCEL = 0x80000000
 ATTR0_HIDDEN_CLIENTSIDE = 0x00000080
 ATTR3_DEATH_PERSISTENT = 0x00100000
 
-RACIAL, AURA, MODE, REACH, PASSIVE = "racial", "aura", "mode", "reach", "passive"
+RACIAL, AURA, MODE, REACH, PASSIVE, VISUAL = "racial", "aura", "mode", "reach", "passive", "visual"
+SPELL_VISUAL = 131
+VISUAL_ICON = 1
 ATTR0_PASSIVE = 0x00000040
 SPELL_AURA_ASCENSION_IGNORE_MIN_RANGE = 312
 IGNORE_MIN_RANGE_RANGED_ABILITIES = 10
@@ -51,6 +57,8 @@ magic, count, fields, size, string_size = struct.unpack_from("<4s4I", data)
 assert (fields, size) == (FIELDS, SIZE)
 records = bytearray(data[20:20 + count * size])
 strings = bytearray(data[20 + count * size:])
+VISUALS = {spell_id: visual for spell_id, visual, _ in VISUAL_AURAS}
+SPELLS += [(spell_id, VISUAL, VISUAL_ICON, name, "", "", "") for spell_id, _, name in VISUAL_AURAS]
 ours = {spell[0] for spell in SPELLS}
 kept = [records[i * size:(i + 1) * size] for i in range(count)
         if struct.unpack_from("<I", records, i * size)[0] not in ours]
@@ -94,6 +102,12 @@ def build(spell_id, kind, icon, name, rank, description, tooltip):
         row[4] = ATTR0_PASSIVE
         row[71] = 6
         row[95] = 4
+    elif kind == VISUAL:
+        row[4] = ATTR0_CANT_CANCEL | ATTR0_HIDDEN_CLIENTSIDE
+        row[7] = ATTR3_DEATH_PERSISTENT
+        row[71] = 6
+        row[95] = 4
+        row[SPELL_VISUAL] = VISUALS[spell_id]
     elif kind == REACH:
         row[4] = ATTR0_CANT_CANCEL | ATTR0_HIDDEN_CLIENTSIDE
         row[7] = ATTR3_DEATH_PERSISTENT
@@ -231,10 +245,23 @@ with open(f"{OUT}/Spell.dbc", "wb") as out:
     out.write(strings)
 header = open(SQL).read()
 header = header[header.index("INSERT INTO"):header.index(") VALUES") + len(") VALUES")]
-ids = ", ".join(str(spell[0]) for spell in SPELLS)
-with open(SQL, "w") as out:
-    out.write("-- mod-subclass: server rows for the second-self racials and auras "
-              "(the client gets the same rows in patch-ZZZZ).\n\n")
-    out.write(wrapped(ids.split(", "), "DELETE FROM `spell_dbc` WHERE `ID` IN (", ");") + "\n")
-    out.write(header + "\n" + ",\n".join(values) + ";\n")
-print("wrote", [spell[0] for spell in SPELLS])
+
+
+def write_sql(path, spells, rows_sql, comment):
+    ids = ", ".join(str(spell[0]) for spell in spells)
+    with open(path, "w") as out:
+        out.write(comment)
+        out.write(wrapped(ids.split(", "), "DELETE FROM `spell_dbc` WHERE `ID` IN (", ");") + "\n")
+        for start in range(0, len(rows_sql), 200):
+            out.write(header + "\n" + ",\n".join(rows_sql[start:start + 200]) + ";\n")
+
+
+own = [index for index, spell in enumerate(SPELLS) if spell[1] != VISUAL]
+visual = [index for index, spell in enumerate(SPELLS) if spell[1] == VISUAL]
+write_sql(SQL, [SPELLS[i] for i in own], [values[i] for i in own],
+          "-- mod-subclass: server rows for the second-self racials and auras "
+          "(the client gets the same rows in patch-ZZZZ).\n\n")
+if VISUAL_SQL:
+    write_sql(VISUAL_SQL, [SPELLS[i] for i in visual], [values[i] for i in visual],
+              "-- mod-subclass: hidden auras that show a helmet on the Two-Headed Ogre's cyclops head.\n\n")
+print("wrote", len(SPELLS), "spells")

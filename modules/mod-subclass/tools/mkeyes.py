@@ -97,6 +97,8 @@ HELMET_ATTACHMENT = 11
 HELMET_SHIFT = (-0.1, 0.0, -0.17)
 HELMET_SCALE = (0.95, 1.08, 0.95)
 HELMET_TILT = 0.0
+CYCLOPS_HELMET_ATTACHMENT = 25
+ATTACHMENT_SCALE = 1.9
 BONE_PIVOT = 76
 CAMERAS, CAMERA_SIZE, CAMERA_POSITION, CAMERA_TARGET = 272, 100, 36, 68
 CHARACTER_CAMERA = 1
@@ -339,6 +341,21 @@ def helmet_seat(m2):
     raise ValueError("no helmet attachment")
 
 
+def cyclops_helmet_seat(m2, head_bone, helmet_position):
+    head_pivot = np.array(struct.unpack_from("<3f", m2, arr(m2, 44)[1] + head_bone * 88 + BONE_PIVOT))
+    seat = head_pivot + ATTACHMENT_SCALE * (helmet_position - head_pivot)
+    seat[1] = -seat[1]
+    return seat
+
+
+def add_attachment(blob, m2, attachment_id, bone, position):
+    template = bytearray(m2[arr(m2, ATTACHMENTS)[1]:arr(m2, ATTACHMENTS)[1] + ATTACHMENT_SIZE])
+    struct.pack_into("<IH", template, 0, attachment_id, bone)
+    struct.pack_into("<3f", template, ATTACHMENT_POSITION, *position)
+    index = append_array(blob, m2, ATTACHMENTS, ATTACHMENT_SIZE, bytes(template))
+    struct.pack_into("<h", blob.data, arr(blob.data, ATTACHMENT_LOOKUP)[1] + attachment_id * 2, index)
+
+
 def seat_helmet(data, index, helmet_bone, position):
     attachment = arr(data, ATTACHMENTS)[1] + index * ATTACHMENT_SIZE
     struct.pack_into("<H", data, attachment + 4, helmet_bone)
@@ -370,7 +387,12 @@ def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
     new_bones += bone_record(head_bone, helmet_position, still_track(blob, m2),
                              track(blob, m2, first_global, [0], [lid_turn(HELMET_TILT)]),
                              track(blob, m2, first_global, [0], [struct.pack("<3f", *HELMET_SCALE)]))
+    cyclops_seat = cyclops_helmet_seat(m2, head_bone, helmet_position)
+    new_bones += bone_record(CYCLOPS_HEAD, cyclops_seat, still_track(blob, m2), still_track(blob, m2),
+                             track(blob, m2, first_global, [0],
+                                   [struct.pack("<3f", *(ATTACHMENT_SCALE * np.array(HELMET_SCALE)))]))
     append_array(blob, m2, 44, 88, new_bones, 16)
+    add_attachment(blob, m2, CYCLOPS_HELMET_ATTACHMENT, helmet_bone + 1, cyclops_seat)
 
     hair_texture = append_array(blob, m2, 80, 16, struct.pack("<IIII", HAIR_TEXTURE, 0, 1, blob.append(b"\0", 4)), 16)
     eye_texture_lookup = append_array(blob, m2, 128, 2, struct.pack("<h", hair_texture))
