@@ -2216,6 +2216,12 @@ SlashCmdList.ASCENSIONSUBCLASS = function(message)
         Ascension_SubclassDump.watching = true
         Ascension_SubclassDump.hovered = {}
         DEFAULT_CHAT_FRAME:AddMessage("Ascension Subclass: hover the nodes you want me to see, then /reload.")
+    elseif message == "state" then
+        DEFAULT_CHAT_FRAME:AddMessage(string.format(
+            "Subclass: %s, relic allowed %s, relic %d, relic slot %s, ranged slot %s, level line %s",
+            tostring(state.subclass), tostring(relicState.eligible), relicState.entry or 0,
+            relicButton and (relicButton:IsShown() and "shown" or "hidden") or "missing",
+            CharacterRangedSlot and "found" or "missing", CharacterLevelText and tostring(CharacterLevelText:GetText()) or "missing"))
     elseif message == "icons" then
         ShowIcons()
     elseif message == "applytwin" then
