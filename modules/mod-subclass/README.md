@@ -54,11 +54,12 @@ him:
 
 | Command | Effect |
 |---|---|
-| `.twin` | Calls the twin out, or sends him away. |
-| `.twin wear <slot> <item>` | Shows an item's appearance on one slot (head, shoulders, shirt, chest, waist, legs, feet, wrists, hands, back, tabard). |
-| `.twin strip [slot]` | Takes off one slot, or everything. |
-| `.twin copy` | Copies your own visible outfit. |
-| `.twin info` | Shows what he wears. |
+| `.subclass twin` | Calls the twin out, or sends him away. |
+| `.subclass twin wear <slot> <item>` | Shows an item's appearance on one slot (head, shoulders, shirt, chest, waist, legs, feet, wrists, hands, back, tabard). |
+| `.subclass twin strip [slot]` | Takes off one slot, or everything. |
+| `.subclass twin copy` | Copies your own visible outfit. |
+| `.subclass twin info` | Shows what he wears. |
+| `.subclass brain` | Lists every spell the other head or brother knows and why she or he would or would not cast it now. |
 
 He travels with his brother: after a second of running he hops onto his back (piggyback) and stays there when his
 brother stops; when mounted he sits right behind him on any mount; he jumps off to fight, swim or fly beside him. Both seats are

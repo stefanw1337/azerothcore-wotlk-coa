@@ -1962,14 +1962,14 @@ public:
     }
 };
 
-class mod_subclass_twin_commands : public CommandScript
+std::vector<std::string> ExplainBrain(Player* player);
+
+class TwinCommands
 {
 public:
-    mod_subclass_twin_commands() : CommandScript("mod_subclass_twin_commands") { }
-
-    ChatCommandTable GetCommands() const override
+    static ChatCommandTable Table()
     {
-        static ChatCommandTable twinCommands =
+        return
         {
             { "", HandleToggle, SEC_GAMEMASTER, Console::No },
             { "wear", HandleWear, SEC_GAMEMASTER, Console::No },
@@ -1977,8 +1977,6 @@ public:
             { "copy", HandleCopy, SEC_GAMEMASTER, Console::No },
             { "info", HandleInfo, SEC_GAMEMASTER, Console::No }
         };
-        static ChatCommandTable commands = { { "twin", twinCommands } };
-        return commands;
     }
 
     static bool RefuseWithoutTwin(ChatHandler* handler)
@@ -2620,9 +2618,11 @@ bool ReachesFoe(Player* player, SpellInfo const* info, Unit* foe)
     return IsShot(info) ? BrotherReaches(player, info, foe) : Reaches(player, info, foe);
 }
 
-void ConsiderHeal(Player* player, SpellInfo const* info, std::vector<Unit*> const& friends, Pick& best)
+std::string_view ConsiderHeal(Player* player, SpellInfo const* info, std::vector<Unit*> const& friends, Pick& best)
 {
     std::vector<Unit*> const helped = Helped(player, info, friends);
+    if (helped.empty())
+        return "nobody to heal in reach";
     bool const around = WhomItHelps(info) == Helps::Around;
     std::size_t worth = 0;
     Pick pick;
@@ -2641,99 +2641,168 @@ void ConsiderHeal(Player* player, SpellInfo const* info, std::vector<Unit*> cons
                 pick.Weight))
             pick = candidate;
     }
-    if (pick.SpellId && (!around || worth >= std::min<std::size_t>(2, helped.size())))
-        Consider(best, pick);
+    if (!pick.SpellId || (around && worth < std::min<std::size_t>(2, helped.size())))
+        return "nobody hurt enough";
+    Consider(best, pick);
+    return {};
 }
 
-void ConsiderShield(Player* player, SpellInfo const* info, std::vector<Unit*> const& friends, Pick& best)
+std::string_view ConsiderShield(Player* player, SpellInfo const* info, std::vector<Unit*> const& friends, Pick& best)
 {
+    bool considered = false;
     for (Unit* unit : Helped(player, info, friends))
         if (!unit->getAttackers().empty() && !AlreadyGiven(unit, info, player->GetGUID()) &&
             HealthPct(unit) < Subclass::AlmostFullHealthPct)
+        {
             Consider(best, { info->Id, unit, TierHelp, HealthPct(unit), 0 });
+            considered = true;
+        }
+    return considered ? std::string_view() : "nobody hurt and attacked";
 }
 
-void ConsiderCleanse(Player* player, SpellInfo const* info, std::vector<Unit*> const& friends, Pick& best)
+std::string_view ConsiderCleanse(Player* player, SpellInfo const* info, std::vector<Unit*> const& friends,
+    Pick& best)
 {
     uint32 const mask = DispelMaskOf(info);
+    bool considered = false;
     for (Unit* unit : Helped(player, info, friends))
         if (HasDispellable(unit, mask, true))
+        {
             Consider(best, { info->Id, unit, TierHelp, HealthPct(unit), 0 });
+            considered = true;
+        }
+    return considered ? std::string_view() : "nothing to dispel";
 }
 
-void ConsiderSpell(Player* player, SpellInfo const* info, Unit* foe, std::vector<Unit*> const& friends, Pick& best)
+std::string_view ConsiderSpell(Player* player, SpellInfo const* info, Unit* foe, std::vector<Unit*> const& friends,
+    Pick& best)
 {
     uint32 const recovery = LongestRecovery(info);
     switch (UseOf(info))
     {
         case Use::Interrupt:
-            if (foe && Casting(foe) && ReachesFoe(player, info, foe))
-                Consider(best, { info->Id, foe, TierInterrupt, 100.0f, recovery });
-            break;
+            if (!foe || !Casting(foe))
+                return "interrupt: target not casting";
+            if (!ReachesFoe(player, info, foe))
+                return "interrupt: out of reach";
+            Consider(best, { info->Id, foe, TierInterrupt, 100.0f, recovery });
+            return {};
         case Use::Taunt:
-            if (foe && Subclass::TauntNeeded(Tanking(player), foe->GetVictim() == player, FoeOnAFriend(player, foe)) &&
-                ReachesFoe(player, info, foe))
-                Consider(best, { info->Id, foe, TierTaunt, 100.0f, recovery });
-            break;
+            if (!foe || !Subclass::TauntNeeded(Tanking(player), foe->GetVictim() == player,
+                    FoeOnAFriend(player, foe)))
+                return "taunt: not needed";
+            if (!ReachesFoe(player, info, foe))
+                return "taunt: out of reach";
+            Consider(best, { info->Id, foe, TierTaunt, 100.0f, recovery });
+            return {};
         case Use::Heal:
-            ConsiderHeal(player, info, friends, best);
-            break;
+            return ConsiderHeal(player, info, friends, best);
         case Use::Shield:
-            ConsiderShield(player, info, friends, best);
-            break;
+            return ConsiderShield(player, info, friends, best);
         case Use::Cleanse:
-            ConsiderCleanse(player, info, friends, best);
-            break;
+            return ConsiderCleanse(player, info, friends, best);
         case Use::Purge:
-            if (foe && HasDispellable(foe, DispelMaskOf(info), false) && ReachesFoe(player, info, foe))
-                Consider(best, { info->Id, foe, TierAttack, 100.0f, recovery });
-            break;
+            if (!foe || !HasDispellable(foe, DispelMaskOf(info), false))
+                return "purge: nothing to remove";
+            if (!ReachesFoe(player, info, foe))
+                return "purge: out of reach";
+            Consider(best, { info->Id, foe, TierAttack, 100.0f, recovery });
+            return {};
         case Use::Defend:
-            if (HealthPct(player) < Subclass::LowHealthPct && !player->getAttackers().empty() &&
-                !AlreadyGiven(player, info, player->GetGUID()))
-                Consider(best, { info->Id, player, TierEmergency, HealthPct(player), recovery });
-            break;
+            if (HealthPct(player) >= Subclass::LowHealthPct || player->getAttackers().empty())
+                return "defend: not in danger";
+            if (AlreadyGiven(player, info, player->GetGUID()))
+                return "defend: already up";
+            Consider(best, { info->Id, player, TierEmergency, HealthPct(player), recovery });
+            return {};
         case Use::Attack:
-            if (foe && ReachesFoe(player, info, foe) && !(info->HasEffect(SPELL_EFFECT_APPLY_AURA) &&
-                    AlreadyGiven(foe, info, player->GetGUID())))
-                Consider(best, { info->Id, foe, TierAttack, 100.0f, recovery });
-            break;
+            if (!foe)
+                return "attack: no target";
+            if (!ReachesFoe(player, info, foe))
+                return "attack: out of reach";
+            if (info->HasEffect(SPELL_EFFECT_APPLY_AURA) && AlreadyGiven(foe, info, player->GetGUID()))
+                return "attack: already on the target";
+            Consider(best, { info->Id, foe, TierAttack, 100.0f, recovery });
+            return {};
         case Use::Energize:
-            if (info->PowerType != POWER_MANA && player->GetPowerPct(player->getPowerType()) < LowPowerPct)
-                Consider(best, { info->Id, player, TierEnergize, 100.0f, recovery });
-            break;
+            if (info->PowerType == POWER_MANA || player->GetPowerPct(player->getPowerType()) >= LowPowerPct)
+                return "energize: power not low";
+            Consider(best, { info->Id, player, TierEnergize, 100.0f, recovery });
+            return {};
         case Use::Cooldown:
-            if (WorthTheBigCooldown(foe) && !AlreadyGiven(player, info, player->GetGUID()))
-                Consider(best, { info->Id, player, TierCooldown, 100.0f, recovery });
-            break;
+            if (!WorthTheBigCooldown(foe))
+                return "big cooldown: saved for elites";
+            if (AlreadyGiven(player, info, player->GetGUID()))
+                return "big cooldown: already up";
+            Consider(best, { info->Id, player, TierCooldown, 100.0f, recovery });
+            return {};
         case Use::Buff:
         {
             Unit* const buffed = WhomItHelps(info) == Helps::Pet ? static_cast<Unit*>(player->GetPet()) : player;
-            if (buffed && !AlreadyGiven(buffed, info, player->GetGUID()))
-                Consider(best, { info->Id, player, TierBuff, 100.0f, recovery });
-            break;
+            if (!buffed || AlreadyGiven(buffed, info, player->GetGUID()))
+                return "buff: already up";
+            Consider(best, { info->Id, player, TierBuff, 100.0f, recovery });
+            return {};
         }
         case Use::Never:
             break;
     }
+    return "never on her own";
+}
+
+std::string_view Verdict(Player* player, SpellInfo const* info, Unit* foe, std::vector<Unit*> const& friends,
+    bool emergency, Pick& best)
+{
+    if (player->HasSpellCooldown(info->Id))
+        return "on cooldown";
+    if (!Affordable(player, info))
+        return "can't afford";
+    if (RecentlyRefused(player, info->Id))
+        return "refused a moment ago";
+    if (!LeavesManaForTheMain(player, info, emergency))
+        return "keeps mana for you";
+    return ConsiderSpell(player, info, foe, friends, best);
+}
+
+bool SomeoneCritical(std::vector<Unit*> const& friends)
+{
+    return std::any_of(friends.begin(), friends.end(),
+        [](Unit* unit) { return HealthPct(unit) < Subclass::CriticalHealthPct; });
 }
 
 std::pair<uint32, Unit*> PickSpell(Player* player)
 {
     Unit* foe = TwinTarget(player);
     std::vector<Unit*> const friends = Friends(player);
-    bool const emergency = std::any_of(friends.begin(), friends.end(),
-        [](Unit* unit) { return HealthPct(unit) < Subclass::CriticalHealthPct; });
+    bool const emergency = SomeoneCritical(friends);
     Pick best;
     for (uint32 spellId : KnownBorrowedActives(player))
-    {
-        SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
-        if (!info || !Affordable(player, info) || RecentlyRefused(player, spellId) ||
-            !LeavesManaForTheMain(player, info, emergency))
-            continue;
-        ConsiderSpell(player, info, foe, friends, best);
-    }
+        if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId))
+            Verdict(player, info, foe, friends, emergency, best);
     return { best.SpellId, best.Target };
+}
+
+std::vector<std::string> ExplainBrain(Player* player)
+{
+    uint32 const easyAura = HasTwin(player) ? CowboyAura : HalfBrainAura;
+    Unit* foe = TwinTarget(player);
+    std::vector<Unit*> const friends = Friends(player);
+    bool const emergency = SomeoneCritical(friends);
+    std::vector<std::string> lines;
+    lines.push_back(Acore::StringFormat("Let loose: {}. Awake: {}. In a fight: {}. Target: {}. Mana: {:.0f}%.",
+        player->HasAura(easyAura) ? "yes" : "no", OtherHalfAwake(player) ? "yes" : "no",
+        InAFight(player) ? "yes" : "no", foe ? foe->GetName() : "none", player->GetPowerPct(POWER_MANA)));
+    Pick best;
+    for (uint32 spellId : KnownBorrowedActives(player))
+        if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId))
+        {
+            std::string_view const verdict = Verdict(player, info, foe, friends, emergency, best);
+            lines.push_back(Acore::StringFormat("{} ({}): {}", info->SpellName[0], spellId,
+                verdict.empty() ? std::string_view("could cast") : verdict));
+        }
+    SpellInfo const* chosen = best.SpellId ? sSpellMgr->GetSpellInfo(best.SpellId) : nullptr;
+    lines.push_back(Acore::StringFormat("She would cast: {}.", chosen ? chosen->SpellName[0] : "nothing"));
+    return lines;
 }
 
 void PlayEasy(Player* player, uint32 diff)
@@ -2836,5 +2905,16 @@ void AddSC_mod_subclass_twin()
     new mod_subclass_twin_packets();
     new mod_subclass_twin_creatures();
     new mod_subclass_twin_player();
-    new mod_subclass_twin_commands();
+}
+
+ChatCommandTable SubclassTwinCommandTable()
+{
+    return TwinCommands::Table();
+}
+
+bool HandleSubclassBrain(ChatHandler* handler)
+{
+    for (std::string const& line : ExplainBrain(handler->GetSession()->GetPlayer()))
+        handler->SendSysMessage(line);
+    return true;
 }
