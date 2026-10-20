@@ -1276,8 +1276,16 @@ WorldPacket ProjectilePacket(ObjectGuid shooter, uint32 spellId, uint32 shotItem
     return shot;
 }
 
+void DrawForTheFight(Player* player)
+{
+    if (HasSecondHead(player) && player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) && player->GetVictim() &&
+        player->GetSheath() != SHEATH_STATE_MELEE)
+        player->SetSheath(SHEATH_STATE_MELEE);
+}
+
 void ShootAlong(Player* player)
 {
+    DrawForTheFight(player);
     Unit* victim = player->GetVictim();
     Item* gun = OwnBow(player);
     if (!gun || !OtherHeadShoots(player) || !victim || !player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) ||
