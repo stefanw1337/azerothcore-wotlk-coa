@@ -13160,6 +13160,15 @@ bool Player::IsAnyClassOfMask(uint32 classMask, ClassContext context) const
     return false;
 }
 
+bool Player::LendsSkillLine(uint32 skillLine) const
+{
+    for (uint8 classId = CLASS_WARRIOR; classId < MAX_CLASSES; ++classId)
+        if (classId != getClass() && IsClass(Classes(classId), CLASS_CONTEXT_ABILITY) &&
+            GetSkillRaceClassInfo(skillLine, getRace(), classId))
+            return true;
+    return false;
+}
+
 bool Player::IsSpellFitByClassAndRace(uint32 spell_id) const
 {
     uint32 racemask  = getRaceMask();
@@ -13180,8 +13189,9 @@ bool Player::IsSpellFitByClassAndRace(uint32 spell_id) const
             !IsAnyClassOfMask(_spell_idx->second->ClassMask, CLASS_CONTEXT_ABILITY))
             continue;
 
-        // skip wrong class and race skill saved in SkillRaceClassInfo.dbc
-        if (!GetSkillRaceClassInfo(_spell_idx->second->SkillLine, getRace(), getClass()))
+        // skip wrong class and race skill saved in SkillRaceClassInfo.dbc; a module may lend another class's skills
+        if (!GetSkillRaceClassInfo(_spell_idx->second->SkillLine, getRace(), getClass()) &&
+            !LendsSkillLine(_spell_idx->second->SkillLine))
             continue;
 
         return true;

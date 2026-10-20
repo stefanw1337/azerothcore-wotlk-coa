@@ -145,7 +145,20 @@ local function NodeEnter(button)
     if (entry.RequiredLevel or 0) > UnitLevel("player") then
         GameTooltip:AddLine(string.format("Requires level %d", entry.RequiredLevel), 1, 0.3, 0.3)
     elseif Locked(button.tree, node) then
-        GameTooltip:AddLine("Locked: spend more points in this tree or learn the talents above it.", 1, 0.3, 0.3, true)
+        local ae, te = SpentIn(button.tree)
+        if (entry.RequiredTabTEInvestment or 0) > te or (entry.RequiredTabAEInvestment or 0) > ae then
+            GameTooltip:AddLine(string.format("Locked: needs %d point(s) spent in this tree (%d now).",
+                math.max(entry.RequiredTabTEInvestment or 0, entry.RequiredTabAEInvestment or 0), ae + te), 1, 0.3, 0.3,
+                true)
+        end
+        for _, required in ipairs(entry.RequiredIDs or {}) do
+            if RankOf(required) == 0 then
+                local needed = C_CharacterAdvancement and C_CharacterAdvancement.GetEntryByInternalID
+                    and C_CharacterAdvancement.GetEntryByInternalID(required)
+                GameTooltip:AddLine(string.format("Locked: needs %s first (entry %d).",
+                    needed and needed.Name or "another talent", required), 1, 0.3, 0.3, true)
+            end
+        end
     end
     if GrantedByLevel(entry) then
         GameTooltip:AddLine(string.format("Learned automatically at level %d", math.max(entry.RequiredLevel or 0, 1)),

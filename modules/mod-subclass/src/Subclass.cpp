@@ -63,6 +63,7 @@ bool OffersStandardMains();
 bool SubclassRaceEnabled(uint8 race);
 bool IsStandardMainClass(uint8 classId);
 Trainer::Trainer const* ClassTrainerOf(uint8 classId);
+bool IsBorrowedSpell(Player const* player, uint32 spellId);
 
 namespace
 {
@@ -1183,6 +1184,20 @@ uint32 LearnStandardKit(Player* player, uint8 playableClass)
     return learned;
 }
 
+constexpr uint32 BookCopyOffset = 1100000;
+
+uint32 DropBorrowedBookCopies(Player* player)
+{
+    std::vector<uint32> copies;
+    for (auto const& [spellId, known] : player->GetSpellMap())
+        if (known->State != PLAYERSPELL_REMOVED && spellId > BookCopyOffset &&
+            player->HasSpell(spellId - BookCopyOffset) && IsBorrowedSpell(player, spellId - BookCopyOffset))
+            copies.push_back(spellId);
+    for (uint32 spellId : copies)
+        player->removeSpell(spellId, SPEC_MASK_ALL, false);
+    return copies.size();
+}
+
 uint32 SyncBorrowedBaseSpells(Player* player)
 {
     if (OpenTreesOf(player).empty())
@@ -1190,7 +1205,11 @@ uint32 SyncBorrowedBaseSpells(Player* player)
     uint8 const subClass = ChoiceOf(player).SubClass;
     SyncBorrowedSkillLines(player, subClass);
     if (IsStandardCatalogClass(subClass))
-        return LearnStandardKit(player, PlayableClassOf(subClass));
+    {
+        uint32 const learned = LearnStandardKit(player, PlayableClassOf(subClass));
+        DropBorrowedBookCopies(player);
+        return learned;
+    }
     LearnCoAWeapons(player, subClass);
     uint32 learned = 0;
     for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)

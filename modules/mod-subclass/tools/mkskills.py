@@ -1,4 +1,5 @@
-"""Open every class skill line to every class, so borrowed subclass spells get their own spellbook tab."""
+"""Open every class skill line to every class in the client, so borrowed subclass spells get their own spellbook
+tab. The server keeps the original tables and lends skill lines through the player's subclass instead."""
 import struct
 import sys
 
@@ -24,6 +25,7 @@ for index in range(line_count):
 
 info, count, fields, size = load(f"{RACES}/SkillRaceClassInfo.dbc")
 assert (fields, size) == (8, 32)
+server_info = bytes(info)
 opened = 0
 for index in range(count):
     offset = 20 + index * size
@@ -55,5 +57,5 @@ ability = ability[:20 + count * size] + added + strings
 struct.pack_into("<I", ability, 4, count + len(added) // size)
 open(f"{OUT}/SkillLineAbility.dbc", "wb").write(ability)
 open(f"{SERVER_OUT}/SkillLineAbility.dbc", "wb").write(server_ability)
-open(f"{SERVER_OUT}/SkillRaceClassInfo.dbc", "wb").write(info)
+open(f"{SERVER_OUT}/SkillRaceClassInfo.dbc", "wb").write(server_info)
 print(f"class skill lines {len(class_lines)}, permission rows opened {opened}, spells opened for the client {spells}")
