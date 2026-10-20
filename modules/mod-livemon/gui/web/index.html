@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LiveMon</title>
+<style>
+:root {
+  --bg: #0f1114; --panel: #171a1f; --panel2: #1e2229; --line: #2a2f38; --text: #e6e8eb; --muted: #8b93a1;
+  --accent: #5fbf6a; --warn: #e0a84a; --bad: #e0605a; --bar: #4a8fd8; --heal: #5fbf6a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 13px/1.4 "Segoe UI", system-ui, sans-serif; }
+header { display: flex; align-items: center; gap: 14px; padding: 10px 18px; background: var(--panel);
+  border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; }
+header img, header .face { width: 46px; height: 46px; border-radius: 50%; border: 2px solid #3a7d44;
+  background: #2b4d2f; object-fit: cover; }
+header h1 { margin: 0; font-size: 20px; letter-spacing: .5px; }
+header h1 small { display: block; font-size: 11px; color: var(--muted); font-weight: 400; letter-spacing: 0; }
+.status { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); }
+.dot.on { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.spacer { flex: 1; }
+select, button { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 5px;
+  padding: 4px 8px; font: inherit; }
+main { padding: 14px 18px; display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr) 360px; }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px;
+  min-width: 0; }
+section h2 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted);
+  display: flex; align-items: center; gap: 8px; }
+.wide { grid-column: 1 / -1; }
+.tiles { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+.tile { background: var(--panel2); border-radius: 6px; padding: 9px 11px; }
+.tile b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+.tile span { color: var(--muted); font-size: 11px; }
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { padding: 5px 7px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; font-size: 11px; cursor: pointer; user-select: none; position: sticky; }
+th:hover { color: var(--text); }
+th.sorted::after { content: " \25BE"; }
+th.sorted.asc::after { content: " \25B4"; }
+td.l, th.l { text-align: left; }
+tr.pick { cursor: pointer; }
+tr.pick:hover td { background: var(--panel2); }
+tr.selected td { background: #233042; }
+tr.offline td { color: var(--muted); }
+.hp { width: 70px; height: 7px; background: #33181a; border-radius: 4px; overflow: hidden; display: inline-block; }
+.hp i { display: block; height: 100%; background: var(--accent); }
+.fight { color: var(--bad); font-weight: 700; }
+.bars div { display: grid; grid-template-columns: var(--label, 130px) 1fr 70px; gap: 8px; align-items: center; margin: 3px 0; }
+.bars em { font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bars s { display: block; height: 10px; border-radius: 3px; background: var(--bar); text-decoration: none; min-width: 2px; }
+.bars s.heal { background: var(--heal); }
+.bars b { text-align: right; font-weight: 500; font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.up { color: var(--accent); }
+.down { color: var(--bad); }
+canvas { width: 100%; height: 90px; display: block; }
+.empty { color: var(--muted); padding: 18px 0; text-align: center; }
+@media (max-width: 1000px) { main { grid-template-columns: 1fr; } .tiles { grid-template-columns: repeat(3, 1fr); } }
+</style>
+</head>
+<body>
+<header>
+  <img id="face" src="troll.png" alt="" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'face'}))">
+  <h1>LiveMon<small>Live statistics from your worldserver</small></h1>
+  <div class="status"><span class="dot" id="dot"></span><span id="status">Connecting…</span></div>
+  <div class="spacer"></div>
+  <label class="muted">History <select id="window">
+    <option value="15">15 minutes</option><option value="60" selected>1 hour</option>
+    <option value="1440">24 hours</option><option value="10080">7 days</option><option value="525600">All</option>
+  </select></label>
+  <label class="muted">Group by <select id="group">
+    <option value="combo">Race · spec · class · subclass</option><option value="pair">Class + subclass</option>
+    <option value="class">Main class</option><option value="race">Race</option>
+  </select></label>
+</header>
+<main>
+  <section class="wide"><div class="tiles" id="tiles"></div></section>
+  <section>
+    <h2>Characters <span class="muted" style="text-transform:none;letter-spacing:0">this server session</span></h2>
+    <div class="scroll"><table id="live"></table></div>
+  </section>
+  <section>
+    <h2 id="detailTitle">Pick a character</h2>
+    <canvas id="spark" width="660" height="180"></canvas>
+    <p class="muted" id="sparkLabel" style="margin:8px 0 10px">Damage per second, last 2 minutes</p>
+    <div class="bars" id="spells"></div>
+    <div class="bars" id="heals" style="margin-top:10px"></div>
+  </section>
+  <section class="wide">
+    <h2>Combos <span class="muted" style="text-transform:none;letter-spacing:0" id="historyNote"></span></h2>
+    <div class="scroll"><table id="combos"></table></div>
+  </section>
+  <section class="wide">
+    <h2>Damage per second in combat</h2>
+    <div class="bars" id="comboBars" style="--label: 320px"></div>
+  </section>
+</main>
+<script>
+const CLASS_COLORS = { 1: "#c79c6e", 2: "#f58cba", 3: "#abd473", 4: "#fff569", 5: "#ffffff", 6: "#c41f3b",
+  7: "#0070de", 8: "#69ccf0", 9: "#9482c9", 11: "#ff7d0a" };
+const SPECS = { 1: ["Arms", "Fury", "Protection"], 2: ["Holy", "Protection", "Retribution"],
+  3: ["Beast Mastery", "Marksmanship", "Survival"], 4: ["Assassination", "Combat", "Subtlety"],
+  5: ["Discipline", "Holy", "Shadow"], 6: ["Blood", "Frost", "Unholy"], 7: ["Elemental", "Enhancement", "Restoration"],
+  8: ["Arcane", "Fire", "Frost"], 9: ["Affliction", "Demonology", "Destruction"], 11: ["Balance", "Feral", "Restoration"] };
+const specOf = (classId, tree) => (SPECS[classId] || [])[tree] || "Tree " + (Number(tree) + 1);
+const state = { live: null, history: null, previous: {}, rates: {}, samples: {}, selected: null,
+  liveSort: { key: "dpsNow", asc: false }, comboSort: { key: "dps", asc: false } };
+const $ = id => document.getElementById(id);
+const fmt = n => n >= 1e9 ? (n / 1e9).toFixed(2) + "B" : n >= 1e6 ? (n / 1e6).toFixed(2) + "M" :
+  n >= 1e4 ? (n / 1e3).toFixed(1) + "k" : Math.round(n).toLocaleString();
+const secs = ms => (ms / 1000).toFixed(ms < 60000 ? 1 : 0) + "s";
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const classCell = (name, id, sub) => `<span style="color:${CLASS_COLORS[id] || "#c9ced6"}">${esc(name)}</span>` +
+  (sub ? ` <span class="muted">(${esc(sub)})</span>` : "");
+const perSec = (value, ms) => ms > 0 ? value / (ms / 1000) : 0;
+
+function sortRows(rows, sort) {
+  return rows.sort((a, b) => {
+    const x = a[sort.key], y = b[sort.key];
+    const order = typeof x === "string" ? String(x).localeCompare(y) : (x || 0) - (y || 0);
+    return sort.asc ? order : -order;
+  });
+}
+
+function renderTable(table, columns, rows, sort, onPick, rowClass) {
+  const head = "<tr>" + columns.map(c => `<th data-key="${c.key}" class="${c.left ? "l " : ""}${sort.key === c.key ?
+    "sorted" + (sort.asc ? " asc" : "") : ""}">${c.label}</th>`).join("") + "</tr>";
+  const body = rows.map(r => `<tr class="${onPick ? "pick " : ""}${rowClass ? rowClass(r) : ""}" data-id="${r.id ?? ""}">` +
+    columns.map(c => `<td class="${c.left ? "l" : ""}">${c.show ? c.show(r) : esc(r[c.key] ?? "")}</td>`).join("") +
+    "</tr>").join("");
+  table.innerHTML = head + (body || `<tr><td class="empty" colspan="${columns.length}">Nothing yet</td></tr>`);
+  table.querySelectorAll("th").forEach(th => th.onclick = () => {
+    sort.asc = sort.key === th.dataset.key ? !sort.asc : false;
+    sort.key = th.dataset.key;
+    render();
+  });
+  if (onPick) table.querySelectorAll("tr.pick").forEach(tr => tr.onclick = () => onPick(tr.dataset.id));
+}
+
+const liveColumns = [
+  { key: "name", label: "Name", left: true, show: r => (r.inCombat ? '<span class="fight">⚔</span> ' : "") + esc(r.name) },
+  { key: "race", label: "Race", left: true },
+  { key: "class", label: "Class", left: true, show: r => classCell(r.class, r.classId, r.subclass) },
+  { key: "spec", label: "Spec", left: true },
+  { key: "level", label: "Lvl" },
+  { key: "hpPct", label: "Health", show: r => `<span class="hp"><i style="width:${r.hpPct}%"></i></span>` },
+  { key: "dpsNow", label: "DPS now", show: r => fmt(r.dpsNow) },
+  { key: "dps", label: "DPS", show: r => fmt(r.dps) },
+  { key: "hps", label: "HPS", show: r => fmt(r.hps) },
+  { key: "dtps", label: "Taken/s", show: r => fmt(r.dtps) },
+  { key: "damage", label: "Damage", show: r => fmt(r.damage) },
+  { key: "healing", label: "Healing", show: r => fmt(r.healing) },
+  { key: "controlGivenMs", label: "CC given", show: r => secs(r.controlGivenMs) },
+  { key: "controlTakenMs", label: "CC taken", show: r => secs(r.controlTakenMs) },
+  { key: "kills", label: "Kills" },
+  { key: "deaths", label: "Deaths" },
+  { key: "combatMs", label: "In combat", show: r => secs(r.combatMs) },
+  { key: "movedYards", label: "Moved yd", show: r => fmt(r.movedYards) },
+];
+
+function liveRows() {
+  if (!state.live) return [];
+  return state.live.characters.map(c => {
+    const s = c.session;
+    return { id: String(c.guid), name: c.name, race: c.race, class: c.class, classId: c.classId,
+      subclass: c.subclass, spec: specOf(c.classId, c.tree), level: c.level, online: c.online, inCombat: c.inCombat,
+      hpPct: c.maxHealth ? Math.round(100 * c.health / c.maxHealth) : 0, dpsNow: state.rates[c.guid] || 0,
+      dps: perSec(s.damage, s.combatMs), hps: perSec(s.healing, s.combatMs), dtps: perSec(s.damageTaken, s.combatMs),
+      ...s, raw: c };
+  });
+}
+
+function renderTiles(rows) {
+  const online = rows.filter(r => r.online);
+  const sum = key => rows.reduce((t, r) => t + (r[key] || 0), 0);
+  const tiles = [
+    ["Online", online.length], ["In combat", online.filter(r => r.inCombat).length],
+    ["Damage now /s", fmt(online.reduce((t, r) => t + r.dpsNow, 0))], ["Subclassed", rows.filter(r => r.subclass).length],
+    ["Crowd control", secs(sum("controlGivenMs"))], ["Deaths", sum("deaths")],
+  ];
+  $("tiles").innerHTML = tiles.map(([label, value]) => `<div class="tile"><b>${value}</b><span>${label}</span></div>`).join("");
+}
+
+function renderBars(target, list, healing, title) {
+  if (!list || !list.length) { target.innerHTML = ""; return; }
+  const top = list[0].amount || 1;
+  target.innerHTML = `<p class="muted" style="margin:0 0 4px">${title}</p>` + list.map(s =>
+    `<div><em title="${esc(s.name)} (${s.id})">${esc(s.name)}</em><s class="${healing ? "heal" : ""}" style="width:${
+      100 * s.amount / top}%"></s><b>${fmt(s.amount)}</b></div>`).join("");
+}
+
+function renderSpark() {
+  const canvas = $("spark"), ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const data = state.samples[state.selected] || [];
+  if (data.length < 2) return;
+  const top = Math.max(1, ...data);
+  ctx.strokeStyle = "#2a2f38";
+  ctx.beginPath(); ctx.moveTo(0, canvas.height - 1); ctx.lineTo(canvas.width, canvas.height - 1); ctx.stroke();
+  ctx.strokeStyle = "#4a8fd8"; ctx.lineWidth = 3; ctx.beginPath();
+  data.forEach((v, i) => {
+    const x = canvas.width * i / 119, y = canvas.height - 6 - (canvas.height - 16) * v / top;
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  });
+  ctx.stroke();
+  ctx.fillStyle = "#8b93a1"; ctx.font = "22px Segoe UI";
+  ctx.fillText(fmt(top) + " peak", canvas.width - ctx.measureText(fmt(top) + " peak").width - 8, 26);
+}
+
+function renderDetail() {
+  const c = state.live && state.live.characters.find(x => String(x.guid) === state.selected);
+  if (!c) { $("detailTitle").textContent = "Pick a character"; return; }
+  $("detailTitle").innerHTML = esc(c.name) + " · " + classCell(c.class, c.classId, c.subclass);
+  renderSpark();
+  renderBars($("spells"), c.spells, false, "Damage by ability (before armor and resistances)");
+  renderBars($("heals"), c.heals, true, "Healing by ability");
+}
+
+const groupKeys = {
+  combo: r => `${r.race} · ${specOf(r.classId, r.tree)} ${r.class}${r.subclass ? " + " + r.subclass : ""}`,
+  pair: r => `${r.class}${r.subclass ? " + " + r.subclass : ""}`,
+  class: r => r.class,
+  race: r => r.race,
+};
+
+function comboRows() {
+  if (!state.history || !state.history.combos) return [];
+  const groups = {}, classDps = {};
+  for (const r of state.history.combos) {
+    const key = groupKeys[$("group").value](r);
+    const g = groups[key] ||= { id: key, name: key, class: r.class, subclass: $("group").value === "race" ? "" : r.subclass,
+      characters: 0, damage: 0, healing: 0, damageTaken: 0, controlGivenMs: 0, controlTakenMs: 0, deaths: 0, kills: 0,
+      combatMs: 0, movedYards: 0, levelSum: 0 };
+    for (const k of ["characters", "damage", "healing", "damageTaken", "controlGivenMs", "controlTakenMs", "deaths",
+      "kills", "combatMs", "movedYards"]) g[k] += Number(r[k]) || 0;
+    g.levelSum += (Number(r.level) || 0) * (Number(r.characters) || 0);
+    if (!r.subclass) {
+      const base = classDps[r.class] ||= { damage: 0, combatMs: 0 };
+      base.damage += Number(r.damage) || 0; base.combatMs += Number(r.combatMs) || 0;
+    }
+  }
+  const rows = Object.values(groups);
+  const total = rows.reduce((t, g) => t + g.characters, 0) || 1;
+  for (const g of rows) {
+    g.share = 100 * g.characters / total;
+    g.dps = perSec(g.damage, g.combatMs); g.hps = perSec(g.healing, g.combatMs); g.dtps = perSec(g.damageTaken, g.combatMs);
+    g.ccPerMin = g.combatMs ? g.controlGivenMs / 1000 / (g.combatMs / 60000) : 0;
+    g.deathsPerHour = g.combatMs ? g.deaths / (g.combatMs / 3600000) : 0;
+    g.yardsPerMin = g.combatMs ? g.movedYards / (g.combatMs / 60000) : 0;
+    g.level = g.characters ? g.levelSum / g.characters : 0;
+    const base = classDps[g.class], baseDps = base ? perSec(base.damage, base.combatMs) : 0;
+    g.vsClass = $("group").value !== "race" && g.subclass && baseDps ? 100 * (g.dps / baseDps - 1) : null;
+  }
+  return rows;
+}
+
+const comboColumns = [
+  { key: "name", label: "Combo", left: true },
+  { key: "characters", label: "Characters" },
+  { key: "share", label: "Popularity", show: r => r.share.toFixed(1) + "%" },
+  { key: "level", label: "Avg lvl", show: r => r.level.toFixed(0) },
+  { key: "dps", label: "DPS", show: r => fmt(r.dps) },
+  { key: "vsClass", label: "vs main class", show: r => r.vsClass === null ? '<span class="muted">–</span>' :
+    `<span class="${r.vsClass >= 0 ? "up" : "down"}">${r.vsClass >= 0 ? "+" : ""}${r.vsClass.toFixed(1)}%</span>` },
+  { key: "hps", label: "HPS", show: r => fmt(r.hps) },
+  { key: "dtps", label: "Taken/s", show: r => fmt(r.dtps) },
+  { key: "ccPerMin", label: "CC s/min", show: r => r.ccPerMin.toFixed(1) },
+  { key: "deathsPerHour", label: "Deaths/h", show: r => r.deathsPerHour.toFixed(1) },
+  { key: "kills", label: "Kills" },
+  { key: "yardsPerMin", label: "Yards/min", show: r => fmt(r.yardsPerMin) },
+  { key: "combatMs", label: "Combat time", show: r => secs(r.combatMs) },
+];
+
+function render() {
+  const rows = sortRows(liveRows(), state.liveSort);
+  renderTiles(rows);
+  renderTable($("live"), liveColumns, rows, state.liveSort, id => { state.selected = id; render(); },
+    r => (r.online ? "" : "offline ") + (r.id === state.selected ? "selected" : ""));
+  renderDetail();
+  const combos = sortRows(comboRows(), state.comboSort);
+  renderTable($("combos"), comboColumns, combos, state.comboSort);
+  const byDps = [...combos].sort((a, b) => b.dps - a.dps).slice(0, 25).map(g => ({ id: g.id, name: g.name, amount: g.dps }));
+  renderBars($("comboBars"), byDps, false, "Top 25, total damage divided by time in combat");
+}
+
+async function pollLive() {
+  try {
+    const live = await (await fetch("feed/live", { cache: "no-store" })).json();
+    if (live.offline) throw new Error("offline");
+    const now = live.serverTimeMs;
+    for (const c of live.characters) {
+      const before = state.previous[c.guid];
+      if (before && now > before.at) {
+        const rate = Math.max(0, (c.session.damage - before.damage) / ((now - before.at) / 1000));
+        state.rates[c.guid] = (state.rates[c.guid] || 0) * 0.5 + rate * 0.5;
+      }
+      state.previous[c.guid] = { at: now, damage: c.session.damage };
+      const list = state.samples[c.guid] ||= [];
+      list.push(state.rates[c.guid] || 0);
+      if (list.length > 120) list.shift();
+    }
+    state.live = live;
+    if (!state.selected && live.characters.length) state.selected = String(live.characters[0].guid);
+    $("dot").className = "dot on";
+    const up = live.uptimeSeconds;
+    $("status").textContent = `Live · up ${Math.floor(up / 3600)}h ${Math.floor(up % 3600 / 60)}m`;
+  } catch (e) {
+    $("dot").className = "dot";
+    $("status").textContent = "Worldserver not reachable (is mod-livemon enabled?)";
+  }
+  render();
+}
+
+async function pollHistory() {
+  try {
+    const minutes = $("window").value;
+    const history = await (await fetch("feed/history?minutes=" + minutes, { cache: "no-store" })).json();
+    if (!history.offline) state.history = history;
+    $("historyNote").textContent = "from the livemon_minute table, " + $("window").selectedOptions[0].text.toLowerCase();
+  } catch (e) { }
+  render();
+}
+
+$("window").onchange = pollHistory;
+$("group").onchange = render;
+pollLive(); pollHistory();
+setInterval(pollLive, 1000);
+setInterval(pollHistory, 15000);
+</script>
+</body>
+</html>
