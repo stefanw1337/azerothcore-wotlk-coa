@@ -5,6 +5,8 @@ import sys
 RACES, BASE, OUT, SERVER_OUT = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 CLASS_CATEGORY = 7
 ALL_CLASSES = 0xFFFFFFFF
+BEAST_MASTERY = 50
+SPELLBOOK_TABS = {1578935: BEAST_MASTERY, 1578936: BEAST_MASTERY, 1578938: BEAST_MASTERY}
 
 
 def load(path):
@@ -41,6 +43,16 @@ for index in range(count):
     if skill in class_lines and struct.unpack_from("<I", ability, offset + 16)[0]:
         struct.pack_into("<I", ability, offset + 16, 0)
         spells += 1
+listed = {struct.unpack_from("<I", ability, 20 + index * size + 8)[0] for index in range(count)}
+next_id = max(struct.unpack_from("<I", ability, 20 + index * size)[0] for index in range(count)) + 1
+added = b""
+for spell, skill in sorted(SPELLBOOK_TABS.items()):
+    if spell not in listed:
+        added += struct.pack("<14I", next_id, skill, spell, *([0] * 11))
+        next_id += 1
+strings = ability[20 + count * size:]
+ability = ability[:20 + count * size] + added + strings
+struct.pack_into("<I", ability, 4, count + len(added) // size)
 open(f"{OUT}/SkillLineAbility.dbc", "wb").write(ability)
 open(f"{SERVER_OUT}/SkillLineAbility.dbc", "wb").write(server_ability)
 open(f"{SERVER_OUT}/SkillRaceClassInfo.dbc", "wb").write(info)

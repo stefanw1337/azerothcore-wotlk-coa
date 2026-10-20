@@ -1260,13 +1260,42 @@ void ShowGunInOtherHand(Player* player)
         player->SetUInt32Value(offHand, 0);
 }
 
+constexpr float AlongShotRange = 35.0f;
+
+WorldPacket ProjectilePacket(ObjectGuid shooter, uint32 spellId, uint32 shotItem, ObjectGuid target)
+{
+    ItemTemplate const* item = sObjectMgr->GetItemTemplate(shotItem);
+    bool const gun = item && item->SubClass == ITEM_SUBCLASS_WEAPON_GUN;
+    WorldPacket shot(SMSG_SPELL_GO, 64);
+    shot << shooter.WriteAsPacked() << shooter.WriteAsPacked();
+    shot << uint8(0) << uint32(spellId) << uint32(CAST_FLAG_UNKNOWN_9 | CAST_FLAG_PROJECTILE);
+    shot << uint32(GameTime::GetGameTimeMS().count());
+    shot << uint8(1) << target << uint8(0);
+    shot << uint32(TARGET_FLAG_UNIT) << target.WriteAsPacked();
+    shot << uint32(gun ? BulletProjectileDisplay : ArrowProjectileDisplay) << uint32(INVTYPE_AMMO);
+    return shot;
+}
+
 void ShootAlong(Player* player)
 {
     Unit* victim = player->GetVictim();
-    if (!OtherHeadShoots(player) || !victim || !player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) ||
-        !player->IsValidAttackTarget(victim) || player->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL))
+    Item* gun = OwnBow(player);
+    if (!gun || !OtherHeadShoots(player) || !victim || !player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) ||
+        !player->IsValidAttackTarget(victim) || player->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) ||
+        !player->isAttackReady(RANGED_ATTACK) || !player->IsWithinDistInMap(victim, AlongShotRange) ||
+        !player->IsWithinLOSInMap(victim))
         return;
-    player->CastSpell(victim, AutoShotSpell, false);
+    player->resetAttackTimer(RANGED_ATTACK);
+    WorldPacket shot = ProjectilePacket(player->GetGUID(), ReachAura, gun->GetEntry(), victim->GetGUID());
+    player->SendMessageToSet(&shot, true);
+    bool const critical = roll_chance_f(player->GetUnitCriticalChance(RANGED_ATTACK, victim));
+    uint32 damage = Unit::CalcArmorReducedDamage(player, victim, player->CalculateDamage(RANGED_ATTACK, false, true),
+        nullptr, 0, RANGED_ATTACK);
+    if (critical)
+        damage *= 2;
+    if (SpellInfo const* autoShot = sSpellMgr->GetSpellInfo(AutoShotSpell))
+        player->SendSpellNonMeleeDamageLog(victim, autoShot, damage, SPELL_SCHOOL_MASK_NORMAL, 0, 0, true, 0, critical);
+    Unit::DealDamage(player, victim, damage, nullptr, DIRECT_DAMAGE, SPELL_SCHOOL_MASK_NORMAL, nullptr, true);
 }
 
 void UpdateSelfAura(Player* player)
@@ -1275,7 +1304,6 @@ void UpdateSelfAura(Player* player)
         return;
     UpdateReach(player);
     ShowGunInOtherHand(player);
-    ShootAlong(player);
     HandWeaponsToBrother(player);
     if (!OtherHalfAwake(player))
     {
@@ -1457,6 +1485,8 @@ void HoldYourDrink(Player* player)
 
 void TickSelfAura(Player* player, uint32 diff)
 {
+    if (player->IsAlive())
+        ShootAlong(player);
     {
         std::lock_guard<std::mutex> lock(twinMutex);
         uint32& elapsed = auraTicks[player->GetGUID().GetCounter()];
@@ -1639,16 +1669,7 @@ WorldPacket TwinSwingPacket(SwingPartner const& partner, ObjectGuid target, uint
 
 WorldPacket TwinShotPacket(SwingPartner const& partner, ObjectGuid target)
 {
-    ItemTemplate const* item = sObjectMgr->GetItemTemplate(partner.ShotItem);
-    bool const gun = item && item->SubClass == ITEM_SUBCLASS_WEAPON_GUN;
-    WorldPacket shot(SMSG_SPELL_GO, 64);
-    shot << partner.Twin.WriteAsPacked() << partner.Twin.WriteAsPacked();
-    shot << uint8(0) << uint32(AutoShotSpell) << uint32(CAST_FLAG_UNKNOWN_9 | CAST_FLAG_PROJECTILE);
-    shot << uint32(GameTime::GetGameTimeMS().count());
-    shot << uint8(1) << target << uint8(0);
-    shot << uint32(TARGET_FLAG_UNIT) << target.WriteAsPacked();
-    shot << uint32(gun ? BulletProjectileDisplay : ArrowProjectileDisplay) << uint32(INVTYPE_AMMO);
-    return shot;
+    return ProjectilePacket(partner.Twin, AutoShotSpell, partner.ShotItem, target);
 }
 
 WorldPacket TwinShotDamagePacket(SwingPartner const& partner, ObjectGuid target, uint32 hitInfo, uint32 school,
@@ -2090,6 +2111,7 @@ void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid)
         TRIGGERED_DONT_REPORT_CAST_ERROR));
     LOG_INFO("module", "The other half of {} casts {} ({}) at {}: result {}, {} cast packet(s) shown on the twin",
         player->GetName(), info->SpellName[0], spellId, target->GetName(), uint32(result), castingAsBrother.Shown);
+    SendSubclassMessage(player, Acore::StringFormat("OTHERCAST {} {}", spellId, uint32(result)));
     castingAsBrother = {};
 }
 

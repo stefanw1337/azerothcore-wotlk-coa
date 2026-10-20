@@ -994,6 +994,156 @@ sheetWatch:SetScript("OnUpdate", function(self, elapsed)
     end
 end)
 
+
+local Stances = { size = 30, gap = 8, spells = {}, pending = false }
+
+function Stances.StanceBarAnchor()
+    local last
+    for index = 1, 10 do
+        local button = _G["ShapeshiftButton" .. index]
+        if button and button:IsVisible() then
+            last = button
+        end
+    end
+    return last
+end
+
+function Stances.PlaceStanceBar()
+    local saved = Ascension_SubclassDump and Ascension_SubclassDump.stanceBarPoint
+    Stances.bar:ClearAllPoints()
+    if saved then
+        Stances.bar:SetPoint(saved[1], UIParent, saved[2], saved[3], saved[4])
+        return
+    end
+    local anchor = Stances.StanceBarAnchor()
+    if anchor then
+        Stances.bar:SetPoint("LEFT", anchor, "RIGHT", Stances.gap * 2, 0)
+    elseif ShapeshiftBarFrame then
+        Stances.bar:SetPoint("BOTTOMLEFT", ShapeshiftBarFrame, "BOTTOMLEFT", 0, 0)
+    else
+        Stances.bar:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 120)
+    end
+end
+
+function Stances.StanceButton(index)
+    local name = "Ascension_SubclassStanceButton" .. index
+    local button = _G[name] or CreateFrame("CheckButton", name, Stances.bar, "SecureActionButtonTemplate")
+    if not button.icon then
+        button:SetWidth(Stances.size)
+        button:SetHeight(Stances.size)
+        button:RegisterForClicks("AnyUp")
+        button.icon = button:CreateTexture(nil, "BACKGROUND")
+        button.icon:SetAllPoints(button)
+        button:SetNormalTexture("Interface\\Buttons\\UI-Quickslot2")
+        local normal = button:GetNormalTexture()
+        normal:ClearAllPoints()
+        normal:SetPoint("CENTER", button, "CENTER", 0, 0)
+        normal:SetWidth(Stances.size * 1.8)
+        normal:SetHeight(Stances.size * 1.8)
+        button:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+        button:SetCheckedTexture("Interface\\Buttons\\CheckButtonHilight", "ADD")
+        button.cooldown = CreateFrame("Cooldown", name .. "Cooldown", button, "CooldownFrameTemplate")
+        button.cooldown:SetAllPoints(button)
+        button:SetScript("OnEnter", function(self)
+            if self.spellId then
+                GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                GameTooltip:SetHyperlink("spell:" .. self.spellId)
+                GameTooltip:Show()
+            end
+        end)
+        button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        button:SetScript("PostClick", function(self) self:SetChecked(self.active) end)
+    end
+    return button
+end
+
+function Stances.BuildStanceBar()
+    if InCombatLockdown() then
+        Stances.pending = true
+        return
+    end
+    Stances.pending = false
+    if not Stances.bar then
+        Stances.bar = CreateFrame("Frame", "Ascension_SubclassStanceBar", UIParent)
+        Stances.bar:SetHeight(Stances.size)
+        Stances.bar:SetMovable(true)
+        Stances.bar:EnableMouse(true)
+        Stances.bar:RegisterForDrag("LeftButton")
+        Stances.bar:SetScript("OnDragStart", function(self)
+            if IsAltKeyDown() then
+                self:StartMoving()
+            end
+        end)
+        Stances.bar:SetScript("OnDragStop", function(self)
+            self:StopMovingOrSizing()
+            local point, _, relative, x, y = self:GetPoint()
+            Ascension_SubclassDump = Ascension_SubclassDump or {}
+            Ascension_SubclassDump.stanceBarPoint = { point, relative, x, y }
+        end)
+    end
+    local shown = 0
+    for index, spellId in ipairs(Stances.spells) do
+        local name, _, icon = GetSpellInfo(spellId)
+        if name then
+            shown = shown + 1
+            local button = Stances.StanceButton(shown)
+            button:SetAttribute("type", "spell")
+            button:SetAttribute("spell", name)
+            button.spellId, button.spellName = spellId, name
+            button.icon:SetTexture(icon)
+            button:ClearAllPoints()
+            button:SetPoint("LEFT", Stances.bar, "LEFT", (shown - 1) * (Stances.size + Stances.gap), 0)
+            button:Show()
+        end
+    end
+    for index = shown + 1, 20 do
+        local button = _G["Ascension_SubclassStanceButton" .. index]
+        if button then
+            button:Hide()
+            button.spellId, button.spellName = nil, nil
+        end
+    end
+    Stances.bar:SetWidth(math.max(1, shown * (Stances.size + Stances.gap)))
+    Stances.PlaceStanceBar()
+    if shown > 0 then
+        Stances.bar:Show()
+    else
+        Stances.bar:Hide()
+    end
+end
+
+Stances.watch = CreateFrame("Frame")
+Stances.watch:RegisterEvent("PLAYER_REGEN_ENABLED")
+Stances.watch:RegisterEvent("UPDATE_SHAPESHIFT_FORMS")
+Stances.watch:SetScript("OnEvent", function(_, event)
+    if Stances.pending or (event == "UPDATE_SHAPESHIFT_FORMS" and Stances.bar and not InCombatLockdown()) then
+        Stances.BuildStanceBar()
+    end
+end)
+Stances.watch:SetScript("OnUpdate", function(self, elapsed)
+    self.wait = (self.wait or 0) + elapsed
+    if self.wait < 0.25 or not (Stances.bar and Stances.bar:IsShown()) then
+        return
+    end
+    self.wait = 0
+    for index = 1, 20 do
+        local button = _G["Ascension_SubclassStanceButton" .. index]
+        if not button or not button:IsShown() or not button.spellName then
+            break
+        end
+        button.active = UnitBuff("player", button.spellName) ~= nil
+        button:SetChecked(button.active)
+        local start, duration, enabled = GetSpellCooldown(button.spellName)
+        if start and duration and duration > 1.5 and enabled == 1 then
+            button.cooldown:SetCooldown(start, duration)
+        end
+        button.icon:SetVertexColor(1, 1, 1)
+        if not IsUsableSpell(button.spellName) then
+            button.icon:SetVertexColor(0.4, 0.4, 0.4)
+        end
+    end
+end)
+
 local function Receive(message)
     local command, rest = string.match(message, "^(%S+)%s?(.*)$")
     if command == "TWINSTATE" then
@@ -1002,6 +1152,30 @@ local function Receive(message)
         if ShowTwinState then
             ShowTwinState()
         end
+        return
+    end
+    if command == "OTHERCAST" then
+        local spellId, result = string.match(rest, "^(%d+) (%d+)$")
+        local name = spellId and GetSpellInfo(tonumber(spellId))
+        local who = (UnitRace("player")) == "Two-Headed Ogre" and "Other head" or "Brother"
+        if name and result == "0" then
+            local line = who .. ": " .. name
+            if CombatText_AddMessage and SHOW_COMBAT_TEXT == "1" then
+                CombatText_AddMessage(line, CombatText_StandardScroll, 0.8, 0.6, 1)
+            else
+                UIErrorsFrame:AddMessage(line, 0.8, 0.6, 1)
+            end
+        elseif name and Ascension_SubclassDump and Ascension_SubclassDump.debugCasts then
+            DEFAULT_CHAT_FRAME:AddMessage(string.format("%s could not cast %s (result %s)", who, name, result))
+        end
+        return
+    end
+    if command == "STANCES" then
+        Stances.spells = {}
+        for spellId in string.gmatch(rest, "%d+") do
+            Stances.spells[#Stances.spells + 1] = tonumber(spellId)
+        end
+        Stances.BuildStanceBar()
         return
     end
     if command == "CYCLOPSMODEL" then
@@ -2598,6 +2772,15 @@ SlashCmdList.ASCENSIONSUBCLASS = function(message)
             sheet and tostring(LevelLineIn(sheet) and LevelLineIn(sheet):GetText()) or "-",
             sheet and (CornerPortrait(sheet) and "found" or "missing") or "-",
             MicroButtonPortrait and "found" or "missing"))
+    elseif message == "casts" then
+        Ascension_SubclassDump = Ascension_SubclassDump or {}
+        Ascension_SubclassDump.debugCasts = not Ascension_SubclassDump.debugCasts
+        DEFAULT_CHAT_FRAME:AddMessage("Subclass: failed casts of the other half are "
+            .. (Ascension_SubclassDump.debugCasts and "shown" or "hidden") .. ".")
+    elseif message == "stancebar reset" then
+        Ascension_SubclassDump = Ascension_SubclassDump or {}
+        Ascension_SubclassDump.stanceBarPoint = nil
+        Stances.BuildStanceBar()
     elseif message:find("^cam") then
         Ascension_SubclassDump = Ascension_SubclassDump or {}
         Ascension_SubclassDump.cyclopsCamera = tonumber(message:match("^cam%s+(%d+)")) or nil

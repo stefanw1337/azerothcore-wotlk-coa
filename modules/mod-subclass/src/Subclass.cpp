@@ -747,6 +747,60 @@ Powers StandardClassPower(uint8 catalogClassId)
     }
 }
 
+bool StanceLike(SpellInfo const* info)
+{
+    if (!info || info->IsPassive())
+        return false;
+    SpellSpecificType const specific = info->GetSpellSpecific();
+    return specific == SPELL_SPECIFIC_AURA || specific == SPELL_SPECIFIC_ASPECT ||
+        specific == SPELL_SPECIFIC_PRESENCE || info->HasAura(SPELL_AURA_MOD_SHAPESHIFT);
+}
+
+uint32 SpellFamilyOfClass(uint8 classId)
+{
+    ChrClassesEntry const* entry = sChrClassesStore.LookupEntry(classId);
+    return entry ? entry->spellfamily : 0;
+}
+
+bool BorrowedFrom(SpellInfo const* info, uint8 subClass, uint32 ownFamily)
+{
+    uint32 const family = SpellFamilyOfClass(PlayableClassOf(subClass));
+    if (family && info->SpellFamilyName == family && family != ownFamily)
+        return true;
+    uint32 const firstRank = info->GetFirstRankSpell()->Id;
+    return std::any_of(AscensionCompatData::ClassSpells.begin(), AscensionCompatData::ClassSpells.end(),
+        [subClass, firstRank](AscensionCompatData::ClassSpell const& spell)
+        {
+            SpellInfo const* granted = sSpellMgr->GetSpellInfo(spell.SpellId);
+            return spell.ClassId == subClass && granted && granted->GetFirstRankSpell()->Id == firstRank;
+        });
+}
+
+std::string BorrowedStances(Player const* player)
+{
+    Subclass::Choice const choice = ChoiceOf(player);
+    std::vector<std::pair<uint32, uint32>> stances;
+    if (choice.Complete() && !OpenTreesOf(player).empty())
+    {
+        uint32 const ownFamily = SpellFamilyOfClass(player->getClass());
+        for (auto const& [spellId, spell] : player->GetSpellMap())
+        {
+            SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+            if (spell->State == PLAYERSPELL_REMOVED || !spell->Active || !StanceLike(info) ||
+                !BorrowedFrom(info, choice.SubClass, ownFamily))
+                continue;
+            if (SpellInfo const* next = info->GetNextRankSpell(); next && player->HasSpell(next->Id))
+                continue;
+            stances.emplace_back(info->GetFirstRankSpell()->Id, spellId);
+        }
+    }
+    std::sort(stances.begin(), stances.end());
+    std::string out = "STANCES";
+    for (auto const& stance : stances)
+        out += " " + std::to_string(stance.second);
+    return out;
+}
+
 void SendSubclassState(Player* player)
 {
     if (!player || !player->IsInWorld())
@@ -758,6 +812,7 @@ void SendSubclassState(Player* player)
     if (Subclass::Choice const choice = ChoiceOf(player); choice.Complete())
         SendAddon(player, Acore::StringFormat("SUBCLASS {}", PlainClassName(choice.SubClass)));
     SendAddon(player, RelicState(player));
+    SendAddon(player, BorrowedStances(player));
     for (std::size_t index = 0; index < open.size(); ++index)
     {
         Subclass::Tree const& tree = open[index];
@@ -1664,8 +1719,14 @@ public:
     mod_subclass_player() : PlayerScript("mod_subclass_player", { PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_LOGOUT,
         PLAYERHOOK_ON_DELETE, PLAYERHOOK_ON_LEVEL_CHANGED, PLAYERHOOK_ON_GOSSIP_SELECT,
         PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT, PLAYERHOOK_ON_PLAYER_IS_CLASS,
-        PLAYERHOOK_ON_PLAYER_HAS_ACTIVE_POWER_TYPE })
+        PLAYERHOOK_ON_PLAYER_HAS_ACTIVE_POWER_TYPE, PLAYERHOOK_ON_LEARN_SPELL })
     {
+    }
+
+    void OnPlayerLearnSpell(Player* player, uint32 spellId) override
+    {
+        if (player->IsInWorld() && StanceLike(sSpellMgr->GetSpellInfo(spellId)))
+            SendAddon(player, BorrowedStances(player));
     }
 
     bool OnPlayerHasActivePowerType(Player const* player, Powers power) override
