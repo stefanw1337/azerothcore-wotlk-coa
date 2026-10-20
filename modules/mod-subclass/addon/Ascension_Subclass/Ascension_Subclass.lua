@@ -1372,6 +1372,8 @@ local function RenderClassicTree(tabIndex, canvas)
 end
 
 local CORNER_REACH = 110
+local PORTRAIT_SQUARENESS, PORTRAIT_MIN, PORTRAIT_MAX = 4, 40, 90
+local CLASS_CIRCLES = "Interface\\TargetingFrame\\UI-Classes-Circles"
 
 local function CornerTextures(frame, page, found)
     local left, top = window:GetLeft(), window:GetTop()
@@ -1409,8 +1411,45 @@ local function LiftWindowCorner(page)
         copy:SetWidth(source:GetWidth())
         copy:SetHeight(source:GetHeight())
         copy:SetPoint("TOPLEFT", window, "TOPLEFT", source:GetLeft() - left, source:GetTop() - top)
+        local width, height = source:GetWidth(), source:GetHeight()
+        if math.abs(width - height) < PORTRAIT_SQUARENESS and width >= PORTRAIT_MIN and width <= PORTRAIT_MAX
+            and (not page.portrait or width > page.portrait:GetWidth()) then
+            page.portrait = copy
+        end
+    end
+    if page.portrait then
+        page.portraitTexture = page.portrait:GetTexture()
+        page.portraitCoords = { page.portrait:GetTexCoord() }
     end
 end
+
+local function ShowSubclassPortrait(page)
+    local portrait = page and page.portrait
+    if not portrait then
+        return
+    end
+    local token = state.subclass and string.upper(string.gsub(state.subclass, " ", ""))
+    local coords = token and CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[token]
+    if coords then
+        portrait:SetTexture(CLASS_CIRCLES)
+        portrait:SetTexCoord(unpack(coords))
+    else
+        portrait:SetTexture(page.portraitTexture)
+        portrait:SetTexCoord(unpack(page.portraitCoords))
+    end
+end
+
+local portraitWatch = CreateFrame("Frame")
+portraitWatch:SetScript("OnUpdate", function(self, elapsed)
+    self.wait = (self.wait or 0) + elapsed
+    if self.wait < 0.5 then
+        return
+    end
+    self.wait = 0
+    if panel and panel:IsShown() then
+        ShowSubclassPortrait(panel)
+    end
+end)
 
 local function RenderClassic()
     if not ownPage or not ownPage:IsShown() then
@@ -1579,7 +1618,10 @@ local function Attach()
     end
     if not panel.cornerHooked then
         panel.cornerHooked = true
-        panel:HookScript("OnShow", function() LiftWindowCorner(panel) end)
+        panel:HookScript("OnShow", function()
+            LiftWindowCorner(panel)
+            ShowSubclassPortrait(panel)
+        end)
     end
     if IsStandardClass() then
         AdoptOwnPage()
