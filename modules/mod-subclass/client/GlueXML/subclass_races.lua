@@ -87,21 +87,22 @@ do
 		pcall(C_CharacterCreate.SetCameraPosition, x * k, y * k, z * (1 + (k - 1) * 0.6))
 	end)
 	local selectWatch = CreateFrame("Frame")
-	local placed, seen, steady
+	local placed, seen, steady, unscaled
 	selectWatch:SetScript("OnUpdate", function(self, elapsed)
 		self.wait = (self.wait or 0) + elapsed
 		if self.wait < 0.2 then return end
 		self.wait = 0
 		if not (CharacterSelect and CharacterSelect:IsShown() and CharacterSelect.selectedIndex
 			and C_CharacterCreate and C_CharacterCreate.GetCameraPosition) then
-			placed, seen, steady = nil, nil, 0
+			seen, steady, unscaled = nil, 0, nil
 			return
 		end
-		local ok, _, race = pcall(GetCharacterInfo, GetCharIDFromIndex and GetCharIDFromIndex(CharacterSelect.selectedIndex) or CharacterSelect.selectedIndex)
-		local k = ok and COA_SUBCLASS_SELECT_SCALES[race or ""]
-		if CharacterSelect.SetCamDistanceScale then
+		if not unscaled and CharacterSelect.SetCamDistanceScale then
 			pcall(CharacterSelect.SetCamDistanceScale, CharacterSelect, 1)
 		end
+		unscaled = true
+		local ok, _, race = pcall(GetCharacterInfo, GetCharIDFromIndex and GetCharIDFromIndex(CharacterSelect.selectedIndex) or CharacterSelect.selectedIndex)
+		local k = ok and COA_SUBCLASS_SELECT_SCALES[race or ""]
 		local got, x, y, z = pcall(C_CharacterCreate.GetCameraPosition)
 		if not got or not x then return end
 		local now = { x, y, z }
