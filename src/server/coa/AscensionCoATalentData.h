@@ -19,6 +19,8 @@ constexpr bool IsCoABorrowOnlyClass(std::uint8_t catalogClassId)
     return catalogClassId > CoABorrowOnlyClassBase;
 }
 
+constexpr std::size_t CoATalentMaxRanks = 5;
+
 struct CoATalentEntry
 {
     std::uint32_t EntryId;
@@ -28,7 +30,7 @@ struct CoATalentEntry
     std::uint8_t AECost;
     std::uint8_t TECost;
     std::uint8_t RequiredLevel;
-    std::array<std::uint32_t, 3> SpellIds;
+    std::array<std::uint32_t, CoATalentMaxRanks> SpellIds;
     bool Talent = false;
     bool FreeUnlearn = false;
     std::array<std::uint32_t, 3> RequiredEntryIds{};

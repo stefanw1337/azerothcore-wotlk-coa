@@ -1159,6 +1159,27 @@ void ForgetCoAWeapons(Player* player, uint8 subClass)
         }
 }
 
+uint32 DropUnwieldedGearSkills(Player* player)
+{
+    Subclass::Choice const choice = ChoiceOf(player);
+    uint8 const subClass = choice.Complete() ? choice.SubClass : 0;
+    uint32 dropped = 0;
+    for (auto const& [skill, spellId] : GearProficiencies())
+    {
+        if (!player->HasSpell(spellId) || ClassWields(player->getClass(), player->getRace(), skill))
+            continue;
+        bool const borrowed = subClass && (IsStandardCatalogClass(subClass) ?
+            ClassWields(PlayableClassOf(subClass), player->getRace(), skill) : CoAClassWields(subClass, skill));
+        if (borrowed)
+            continue;
+        player->removeSpell(spellId, SPEC_MASK_ALL, false);
+        if (player->HasSkill(uint16(skill)))
+            player->SetSkill(uint16(skill), 0, 0, 0);
+        ++dropped;
+    }
+    return dropped;
+}
+
 uint32 LearnStandardKit(Player* player, uint8 playableClass)
 {
     LearnStandardSkillLines(player, playableClass);
@@ -1841,6 +1862,8 @@ public:
         LearnStandardMainWeaponSkills(player);
         LendRunes(player);
         SyncBorrowedBaseSpells(player);
+        if (SubclassRaceEnabled(player->getRace()))
+            DropUnwieldedGearSkills(player);
         RefreshPowerPools(player);
         SchedulePrompt(player, 5s);
     }

@@ -2858,11 +2858,11 @@ public:
         if (fists == entries.end() || fists->EntryId != 4062 ||
             fists->ClassId != CLASS_SPIRIT_MAGE || fists->SpecId != 61 ||
             fists->SpellCount != 1 || fists->AECost || fists->TECost || fists->RequiredLevel != 10 ||
-            fists->SpellIds != std::array<uint32, 3>{92153, 0, 0} ||
+            fists->SpellIds != decltype(fists->SpellIds){92153} ||
             zenith == entries.end() || zenith->EntryId != 29521 ||
             zenith->ClassId != CLASS_SPIRIT_MAGE || zenith->SpecId ||
             zenith->SpellCount != 1 || zenith->AECost != 1 || zenith->TECost || zenith->RequiredLevel ||
-            zenith->SpellIds != std::array<uint32, 3>{712325, 0, 0})
+            zenith->SpellIds != decltype(zenith->SpellIds){712325})
             return;
 
         auto const& dependencies = AscensionCompatData::CoAAutomaticDependencies;

@@ -276,7 +276,7 @@ bool LoadCoATalentData()
 
         if (tooManyRanks)
         {
-            LOG_ERROR("coa", "Skipped CoA talent entry {} with more than 3 ranks", entryId);
+            LOG_ERROR("coa", "Skipped CoA talent entry {} with more than {} ranks", entryId, CoATalentMaxRanks);
             continue;
         }
 
