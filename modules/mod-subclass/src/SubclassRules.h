@@ -6,6 +6,7 @@
 #define MOD_SUBCLASS_RULES_H
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -50,6 +51,18 @@ struct Tree
     bool operator==(Tree const&) const = default;
 };
 
+enum class ClassKinds : std::uint8_t
+{
+    All = 0,
+    Standard = 1,
+    CoA = 2
+};
+
+inline bool KindAllows(ClassKinds kinds, bool standard)
+{
+    return kinds == ClassKinds::All || (kinds == ClassKinds::Standard) == standard;
+}
+
 struct Settings
 {
     bool Enabled = true;
@@ -60,7 +73,16 @@ struct Settings
     float BookDropChance = 5.0f;
     bool StandardClasses = false;
     bool StandardMains = false;
+    ClassKinds Mains = ClassKinds::All;
+    ClassKinds SubClasses = ClassKinds::All;
+    std::uint8_t StandardTrees = 3;
+    std::uint8_t CoATrees = 1;
+    bool ThinHuman = true;
+    bool TwoHeadedOgre = true;
 };
+
+constexpr std::uint8_t ThinHumanRace = 96;
+constexpr std::uint8_t TwoHeadedOgreRace = 85;
 
 inline bool GenderMatches(std::uint8_t genderMask, std::uint8_t gender)
 {
@@ -97,27 +119,42 @@ inline bool AllowsChoice(std::vector<Pair> const& pairs, Character const& charac
         (choice.SecondSpec != choice.SubSpec && AllowsSubclass(pairs, character, choice.SubClass, choice.SecondSpec)));
 }
 
+inline bool LendsAllSpecializations(std::size_t specCount, std::uint8_t treeCount)
+{
+    return specCount && treeCount >= specCount;
+}
+
 inline std::vector<Tree> BorrowedTrees(Choice const& choice, bool hasClassTree,
-    std::vector<std::uint16_t> const& classSpecs = {})
+    std::vector<std::uint16_t> const& classSpecs = {}, std::uint8_t treeCount = 0)
 {
     if (!choice.Complete())
         return {};
-    if (hasClassTree)
-        return { { choice.SubClass, 0 }, { choice.SubClass, choice.SubSpec } };
     std::vector<Tree> trees;
-    for (std::uint16_t spec : classSpecs)
-        trees.push_back({ choice.SubClass, spec });
+    if (hasClassTree)
+        trees.push_back({ choice.SubClass, 0 });
+    std::uint8_t const wanted = treeCount ? treeCount : (hasClassTree ? 1 : 0xFF);
+    if (!hasClassTree && classSpecs.empty())
+        return {};
+    if (LendsAllSpecializations(classSpecs.size(), wanted))
+    {
+        for (std::uint16_t spec : classSpecs)
+            trees.push_back({ choice.SubClass, spec });
+        return trees;
+    }
+    trees.push_back({ choice.SubClass, choice.SubSpec });
+    if (wanted >= 2 && choice.SecondSpec && choice.SecondSpec != choice.SubSpec)
+        trees.push_back({ choice.SubClass, choice.SecondSpec });
     return trees;
 }
 
 inline std::vector<Tree> OpenTrees(Settings const& settings, std::vector<Pair> const& pairs,
     Character const& character, Choice const& choice, bool hasClassTree,
-    std::vector<std::uint16_t> const& classSpecs = {})
+    std::vector<std::uint16_t> const& classSpecs = {}, std::uint8_t treeCount = 0)
 {
     if (!settings.Enabled || character.Level < settings.MinLevel || !choice.Complete() ||
         !AllowsChoice(pairs, character, choice))
         return {};
-    return BorrowedTrees(choice, hasClassTree, classSpecs);
+    return BorrowedTrees(choice, hasClassTree, classSpecs, treeCount);
 }
 
 inline std::uint32_t BonusPoints(Settings const& settings, std::uint32_t points)

@@ -67,3 +67,42 @@ Subclass.StandardClasses = 0
 #                 1 - also standard classes for those races
 
 Subclass.StandardMains = 0
+
+#    Subclass.ThinHuman.Enable
+#    Subclass.TwoHeadedOgre.Enable
+#        Turn one of the two subclass races off entirely. New characters of that race are refused,
+#        and existing ones lose the brother or second head; a subclass they had is removed at their
+#        next login.
+#        Default: 1 - enabled
+#                 0 - disabled
+
+Subclass.ThinHuman.Enable = 1
+Subclass.TwoHeadedOgre.Enable = 1
+
+#    Subclass.MainClasses
+#        Which main classes may take a subclass. A character whose main class is no longer allowed
+#        loses its subclass at the next login.
+#        Default: 0 - every class (CoA classes, and standard classes when Subclass.StandardMains = 1)
+#                 1 - standard classes only (Warrior ... Druid)
+#                 2 - CoA classes only
+
+Subclass.MainClasses = 0
+
+#    Subclass.SubClasses
+#        Which classes a trainer offers as the subclass. Subclass.StandardClasses still decides
+#        whether CoA mains see standard classes.
+#        Default: 0 - every allowed class
+#                 1 - standard classes only
+#                 2 - CoA classes only
+
+Subclass.SubClasses = 0
+
+#    Subclass.StandardTrees
+#    Subclass.CoATrees
+#        How many specialization trees a borrowed standard class or CoA class lends (1-5). When the
+#        number reaches the class's specialization count, all of them are lent; 2 lets the player pick
+#        two at the trainer. A CoA class always lends its class tree as well.
+#        Default: StandardTrees 3 (all), CoATrees 1
+
+Subclass.StandardTrees = 3
+Subclass.CoATrees = 1

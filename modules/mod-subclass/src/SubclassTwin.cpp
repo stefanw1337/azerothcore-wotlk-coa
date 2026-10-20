@@ -45,6 +45,7 @@ bool IsBorrowedSpell(Player const* player, uint32 spellId);
 void HandWeaponsToBrother(Player* player);
 bool LendsTankSpecialization(Player const* player);
 bool LendsRangedSpecialization(Player const* player);
+bool SubclassRaceEnabled(uint8 race);
 
 namespace
 {
@@ -1020,7 +1021,7 @@ void SummonTwin(Player* player)
 
 bool HasTwin(Player const* player)
 {
-    return player->getRace() == TwinRace && player->getGender() == GENDER_MALE;
+    return player->getRace() == TwinRace && player->getGender() == GENDER_MALE && SubclassRaceEnabled(TwinRace);
 }
 
 void RefreshTwin(Player* player)
@@ -1096,7 +1097,7 @@ bool SubclassChosen(Player const* player);
 
 bool HasSecondHead(Player const* player)
 {
-    return player->getRace() == OgreRace && player->getGender() == GENDER_FEMALE;
+    return player->getRace() == OgreRace && player->getGender() == GENDER_FEMALE && SubclassRaceEnabled(OgreRace);
 }
 
 bool LonelyTwin(Player const* player)
@@ -1293,9 +1294,9 @@ void LearnRacials(Player* player)
         player->learnSpell(HalfBrainSpell, false);
     if (HasTwin(player) && !player->HasSpell(TwinLinkedSpell))
         player->learnSpell(TwinLinkedSpell, false);
-    if (player->getRace() == OgreRace && !player->HasSpell(ToleranceSpell))
+    if (player->getRace() == OgreRace && SubclassRaceEnabled(OgreRace) && !player->HasSpell(ToleranceSpell))
         player->learnSpell(ToleranceSpell, false);
-    if (player->getRace() == TwinRace && !player->HasSpell(HandMeDownsSpell))
+    if (player->getRace() == TwinRace && SubclassRaceEnabled(TwinRace) && !player->HasSpell(HandMeDownsSpell))
         player->learnSpell(HandMeDownsSpell, false);
 }
 

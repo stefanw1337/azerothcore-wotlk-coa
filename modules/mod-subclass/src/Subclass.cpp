@@ -38,6 +38,7 @@
 #include "WorldSession.h"
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <mutex>
 #include <optional>
 #include <unordered_map>
@@ -54,6 +55,7 @@ bool SubclassResting(Player const* player);
 bool LonelyTwin(Player const* player);
 bool OrderBrother(Player* player, uint32 spellId, Unit* target);
 bool OffersStandardMains();
+bool SubclassRaceEnabled(uint8 race);
 bool IsStandardMainClass(uint8 classId);
 
 namespace
@@ -66,6 +68,7 @@ constexpr uint32 SenderPrompt = 9530010;
 constexpr uint32 SenderTrainer = 9530011;
 constexpr uint32 SenderClass = 9530012;
 constexpr uint32 SenderSpec = 9530013;
+constexpr uint32 SenderSecondSpec = 9530014;
 constexpr uint32 ActionAccept = 1;
 constexpr uint32 ActionLater = 2;
 constexpr char const* BookScriptName = "item_subclass_book_of_origins";
@@ -257,6 +260,8 @@ struct Record
 
 std::mutex& subclassMutex = *new std::mutex;
 Subclass::Settings settings;
+std::atomic<bool> thinHumanEnabled{ true };
+std::atomic<bool> twoHeadedOgreEnabled{ true };
 std::vector<Subclass::Pair> pairs;
 std::unordered_map<uint32, Record>& records = *new std::unordered_map<uint32, Record>;
 
@@ -366,9 +371,25 @@ std::vector<uint16> SpecsOf(uint8 classId)
     return specs;
 }
 
+bool IsStandardCatalogClass(uint8 catalogClassId)
+{
+    return !IsAscensionCustomClassId(PlayableClassOf(catalogClassId));
+}
+
+uint8 TreesFor(uint8 catalogClassId)
+{
+    return IsStandardCatalogClass(catalogClassId) ? settings.StandardTrees : settings.CoATrees;
+}
+
+bool LendsAllOf(uint8 catalogClassId)
+{
+    return Subclass::LendsAllSpecializations(SpecsOf(catalogClassId).size(), TreesFor(catalogClassId));
+}
+
 std::vector<Subclass::Tree> BorrowedTreesOf(Subclass::Choice const& choice)
 {
-    return Subclass::BorrowedTrees(choice, HasClassTree(choice.SubClass), SpecsOf(choice.SubClass));
+    return Subclass::BorrowedTrees(choice, HasClassTree(choice.SubClass), SpecsOf(choice.SubClass),
+        TreesFor(choice.SubClass));
 }
 
 bool StoryTableExists()
@@ -513,12 +534,15 @@ void StoreRecord(Player const* player, Record const& record)
 
 bool MainMaySubclass(uint8 classId)
 {
-    return IsAscensionCustomClassId(classId) || (IsStandardMainClass(classId) && OffersStandardMains());
+    bool const standard = !IsAscensionCustomClassId(classId);
+    if (!Subclass::KindAllows(CurrentSettings().Mains, standard))
+        return false;
+    return !standard || (IsStandardMainClass(classId) && OffersStandardMains());
 }
 
 bool IsEligible(Player const* player)
 {
-    if (!MainMaySubclass(player->getClass()))
+    if (!MainMaySubclass(player->getClass()) || !SubclassRaceEnabled(player->getRace()))
         return false;
     std::lock_guard<std::mutex> lock(subclassMutex);
     return Subclass::IsEligible(pairs, CharacterOf(player));
@@ -526,12 +550,13 @@ bool IsEligible(Player const* player)
 
 std::vector<Subclass::Tree> OpenTreesOf(Player const* player)
 {
-    if (!MainMaySubclass(player->getClass()))
+    if (!MainMaySubclass(player->getClass()) || !SubclassRaceEnabled(player->getRace()))
         return {};
     Subclass::Choice const choice = ChoiceOf(player);
     bool const hasClassTree = HasClassTree(choice.SubClass);
     std::lock_guard<std::mutex> lock(subclassMutex);
-    return Subclass::OpenTrees(settings, pairs, CharacterOf(player), choice, hasClassTree, SpecsOf(choice.SubClass));
+    return Subclass::OpenTrees(settings, pairs, CharacterOf(player), choice, hasClassTree, SpecsOf(choice.SubClass),
+        TreesFor(choice.SubClass));
 }
 
 uint32 ForgetBorrowedTrees(Player* player, Subclass::Choice const& choice)
@@ -932,10 +957,11 @@ std::string Describe(Subclass::Choice const& choice)
 {
     if (choice.Empty())
         return "none";
-    if (!HasClassTree(choice.SubClass))
-        return Acore::StringFormat("{} (all specializations)", ClassName(choice.SubClass));
-    return Acore::StringFormat("{} (class tree and {})", ClassName(choice.SubClass),
-        SpecializationName(choice.SubSpec));
+    std::string trees;
+    for (Subclass::Tree const& tree : BorrowedTreesOf(choice))
+        trees += (trees.empty() ? "" : ", ") + (tree.SpecId ? SpecializationName(tree.SpecId) :
+            std::string("class tree"));
+    return Acore::StringFormat("{} ({})", ClassName(choice.SubClass), trees.empty() ? "no trees" : trees);
 }
 
 bool OffersQuest(Player const* player)
@@ -981,7 +1007,8 @@ void AcceptQuest(Player* player)
 
 bool OfferedAsSubclass(uint8 mainClass, uint8 catalogClassId)
 {
-    if (PlayableClassOf(catalogClassId) == mainClass)
+    if (PlayableClassOf(catalogClassId) == mainClass ||
+        !Subclass::KindAllows(settings.SubClasses, IsStandardCatalogClass(catalogClassId)))
         return false;
     if (!IsAscensionCustomClassId(mainClass))
         return !IsAscensionCustomClassId(PlayableClassOf(catalogClassId));
@@ -1007,7 +1034,8 @@ void AddSpecializationItems(Player* player, uint8 classId)
     Subclass::Character const character = CharacterOf(player);
     std::string const relic = RelicName(SettingsOf(player).BookItemId);
     std::lock_guard<std::mutex> lock(subclassMutex);
-    bool const lendsAll = !HasClassTree(classId);
+    bool const lendsAll = LendsAllOf(classId);
+    bool const picksTwo = !lendsAll && TreesFor(classId) >= 2;
     for (Subclass::Tree const& specialization : CatalogSpecializations())
     {
         if (specialization.ClassId != classId ||
@@ -1015,12 +1043,45 @@ void AddSpecializationItems(Player* player, uint8 classId)
             continue;
         std::string const text = lendsAll ? Acore::StringFormat("{}: all specializations", ClassName(classId)) :
             Acore::StringFormat("{}: {}", ClassName(classId), SpecializationName(specialization.SpecId));
-        player->PlayerTalkClass->GetGossipMenu().AddMenuItem(-1, GOSSIP_ICON_TRAINER, text, SenderSpec,
-            specialization.SpecId, Acore::StringFormat("Spend one insight of the {} on {}? Talents from an "
-            "earlier choice are removed.", relic, text), 0);
+        if (picksTwo)
+            AddGossipItemFor(player, GOSSIP_ICON_TRAINER, text, SenderSpec, specialization.SpecId);
+        else
+            player->PlayerTalkClass->GetGossipMenu().AddMenuItem(-1, GOSSIP_ICON_TRAINER, text, SenderSpec,
+                specialization.SpecId, Acore::StringFormat("Spend one insight of the {} on {}? Talents from an "
+                "earlier choice are removed.", relic, text), 0);
         if (lendsAll)
             return;
     }
+}
+
+bool WantsSecondSpecialization(uint16 specId)
+{
+    uint8 const classId = ClassOfSpecialization(specId);
+    std::lock_guard<std::mutex> lock(subclassMutex);
+    return !LendsAllOf(classId) && TreesFor(classId) >= 2;
+}
+
+void ShowSecondSpecializations(Player* player, Creature* trainer, uint16 firstSpecId)
+{
+    ClearGossipMenuFor(player);
+    uint8 const classId = ClassOfSpecialization(firstSpecId);
+    Subclass::Character const character = CharacterOf(player);
+    std::string const relic = RelicName(SettingsOf(player).BookItemId);
+    {
+        std::lock_guard<std::mutex> lock(subclassMutex);
+        for (Subclass::Tree const& specialization : CatalogSpecializations())
+        {
+            if (specialization.ClassId != classId || specialization.SpecId == firstSpecId ||
+                !Subclass::AllowsSubclass(pairs, character, classId, specialization.SpecId))
+                continue;
+            std::string const text = Acore::StringFormat("{}: {} and {}", ClassName(classId),
+                SpecializationName(firstSpecId), SpecializationName(specialization.SpecId));
+            player->PlayerTalkClass->GetGossipMenu().AddMenuItem(-1, GOSSIP_ICON_TRAINER, text, SenderSecondSpec,
+                (uint32(firstSpecId) << 16) | specialization.SpecId, Acore::StringFormat("Spend one insight of the "
+                "{} on {}? Talents from an earlier choice are removed.", relic, text), 0);
+        }
+    }
+    SendGossipMenuFor(player, VoiceOf(player).SpecText, trainer->GetGUID());
 }
 
 void ShowSpecializations(Player* player, Creature* trainer, uint8 classId)
@@ -1042,6 +1103,7 @@ void ChooseAtTrainer(Player* player, uint16 specId, uint16 secondSpecId)
     {
         std::lock_guard<std::mutex> lock(subclassMutex);
         allowed = OfferedAsSubclass(player->getClass(), classId) &&
+            (!secondSpecId || TreesFor(classId) >= 2) &&
             Subclass::AllowsChoice(pairs, CharacterOf(player), wanted) &&
             !BorrowedTreesOf(wanted).empty() && player->GetLevel() >= settings.MinLevel;
     }
@@ -1113,6 +1175,22 @@ public:
         loaded.StandardClasses = sConfigMgr->GetOption<bool>("Subclass.StandardClasses", false);
         loaded.StandardMains = sConfigMgr->GetOption<bool>("Subclass.StandardMains", false) &&
             sConfigMgr->GetOption<std::string>("CoA.ClassModel", "coa") == "coa";
+        auto kinds = [](char const* name)
+        {
+            return Subclass::ClassKinds(std::min<uint32>(sConfigMgr->GetOption<uint32>(name, 0), 2));
+        };
+        auto trees = [](char const* name, uint32 fallback)
+        {
+            return uint8(std::clamp<uint32>(sConfigMgr->GetOption<uint32>(name, fallback), 1, 5));
+        };
+        loaded.Mains = kinds("Subclass.MainClasses");
+        loaded.SubClasses = kinds("Subclass.SubClasses");
+        loaded.StandardTrees = trees("Subclass.StandardTrees", 3);
+        loaded.CoATrees = trees("Subclass.CoATrees", 1);
+        loaded.ThinHuman = sConfigMgr->GetOption<bool>("Subclass.ThinHuman.Enable", true);
+        loaded.TwoHeadedOgre = sConfigMgr->GetOption<bool>("Subclass.TwoHeadedOgre.Enable", true);
+        thinHumanEnabled = loaded.ThinHuman;
+        twoHeadedOgreEnabled = loaded.TwoHeadedOgre;
         std::lock_guard<std::mutex> lock(subclassMutex);
         settings = loaded;
     }
@@ -1464,7 +1542,8 @@ private:
 
         Subclass::Character const character = CharacterOf(player);
         Subclass::Choice kept;
-        if (MainMaySubclass(character.Class) && IsSpecializationOf(choice.SubClass, choice.SubSpec))
+        if (MainMaySubclass(character.Class) && SubclassRaceEnabled(character.Race) &&
+            IsSpecializationOf(choice.SubClass, choice.SubSpec))
         {
             std::lock_guard<std::mutex> lock(subclassMutex);
             kept = Subclass::Trimmed(pairs, character, choice);
@@ -1541,7 +1620,13 @@ public:
                 ShowSpecializations(player, creature, uint8(action));
                 return true;
             case SenderSpec:
-                ChooseAtTrainer(player, uint16(action), 0);
+                if (WantsSecondSpecialization(uint16(action)))
+                    ShowSecondSpecializations(player, creature, uint16(action));
+                else
+                    ChooseAtTrainer(player, uint16(action), 0);
+                return true;
+            case SenderSecondSpec:
+                ChooseAtTrainer(player, uint16(action >> 16), uint16(action & 0xFFFF));
                 return true;
             default:
                 return false;
@@ -1807,6 +1892,15 @@ constexpr std::size_t ConquestOfAzerothFlag = 6;
 constexpr std::size_t WarcraftRebornFlag = 7;
 thread_local bool resendingRealmInfo = false;
 
+bool SubclassRaceEnabled(uint8 race)
+{
+    if (race == Subclass::ThinHumanRace)
+        return thinHumanEnabled;
+    if (race == Subclass::TwoHeadedOgreRace)
+        return twoHeadedOgreEnabled;
+    return true;
+}
+
 bool OffersStandardMains()
 {
     std::lock_guard<std::mutex> lock(subclassMutex);
@@ -1858,7 +1952,7 @@ bool OpenStandardClassesAtCreation(WorldSession* session, WorldPacket const& pac
 
 bool AllowsCreation(WorldSession* session, WorldPacket const& packet)
 {
-    if (packet.GetOpcode() != CMSG_CHAR_CREATE || !OffersStandardMains())
+    if (packet.GetOpcode() != CMSG_CHAR_CREATE)
         return true;
     WorldPacket reader(packet);
     reader.rpos(0);
@@ -1867,10 +1961,13 @@ bool AllowsCreation(WorldSession* session, WorldPacket const& packet)
     uint8 classId = 0;
     uint8 gender = 0;
     reader >> name >> race >> classId >> gender;
-    if (!IsStandardMainClass(classId) || MayPlayStandardMain(race, gender))
+    ResponseCodes refusalCode = CHAR_CREATE_RESTRICTED_RACECLASS;
+    if (!SubclassRaceEnabled(race))
+        refusalCode = CHAR_CREATE_DISABLED;
+    else if (!OffersStandardMains() || !IsStandardMainClass(classId) || MayPlayStandardMain(race, gender))
         return true;
     WorldPacket refusal(SMSG_CHAR_CREATE, 1);
-    refusal << uint8(CHAR_CREATE_RESTRICTED_RACECLASS);
+    refusal << uint8(refusalCode);
     session->SendPacket(&refusal);
     return false;
 }

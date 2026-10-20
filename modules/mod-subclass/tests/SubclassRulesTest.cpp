@@ -153,3 +153,29 @@ TEST(Subclass, EachRaceFollowsItsOwnStory)
     EXPECT_EQ(WithStory(settings, { stories[1] }, FemaleOgreBarbarian).QuestId, settings.QuestId);
     EXPECT_EQ(WithStory(settings, { stories[1] }, { 32, 1, 12, 20 }).BookItemId, settings.BookItemId);
 }
+
+TEST(Subclass, TheTreeCountLimitsTheBorrowedSpecializations)
+{
+    std::vector<std::uint16_t> const mageSpecs = { 86, 87, 88 };
+    std::vector<Tree> const fire = { { 108, 86 } };
+    std::vector<Tree> const fireFrost = { { 108, 86 }, { 108, 88 } };
+    std::vector<Tree> const all = { { 108, 86 }, { 108, 87 }, { 108, 88 } };
+    EXPECT_EQ(BorrowedTrees({ 108, 86, 88 }, false, mageSpecs, 1), fire);
+    EXPECT_EQ(BorrowedTrees({ 108, 86, 88 }, false, mageSpecs, 2), fireFrost);
+    EXPECT_EQ(BorrowedTrees({ 108, 86 }, false, mageSpecs, 2), fire);
+    EXPECT_EQ(BorrowedTrees({ 108, 86 }, false, mageSpecs, 3), all);
+    std::vector<std::uint16_t> const necromancerSpecs = { 34, 35, 36 };
+    std::vector<Tree> const classAndTwo = { { 23, 0 }, { 23, 34 }, { 23, 36 } };
+    EXPECT_EQ(BorrowedTrees({ 23, 34, 36 }, true, necromancerSpecs, 2), classAndTwo);
+    EXPECT_EQ(BorrowedTrees({ 23, 34 }, true, necromancerSpecs, 1), (std::vector<Tree>{ { 23, 0 }, { 23, 34 } }));
+}
+
+TEST(Subclass, ClassKindsFilterMainsAndSubclasses)
+{
+    EXPECT_TRUE(KindAllows(ClassKinds::All, true));
+    EXPECT_TRUE(KindAllows(ClassKinds::All, false));
+    EXPECT_TRUE(KindAllows(ClassKinds::Standard, true));
+    EXPECT_FALSE(KindAllows(ClassKinds::Standard, false));
+    EXPECT_FALSE(KindAllows(ClassKinds::CoA, true));
+    EXPECT_TRUE(KindAllows(ClassKinds::CoA, false));
+}
