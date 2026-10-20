@@ -1203,7 +1203,8 @@ Stances.watch:SetScript("OnEvent", function(_, event)
 end)
 Stances.watch:SetScript("OnUpdate", function(self, elapsed)
     self.wait = (self.wait or 0) + elapsed
-    if self.wait < 0.25 or not (Stances.bar and Stances.bar:IsShown()) then
+    local bar = Stances.btBar or Stances.bar
+    if self.wait < 0.25 or not (bar and bar:IsShown()) then
         return
     end
     self.wait = 0
