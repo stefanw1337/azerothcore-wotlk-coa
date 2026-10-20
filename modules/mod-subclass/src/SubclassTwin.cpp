@@ -1280,9 +1280,23 @@ WorldPacket ProjectilePacket(ObjectGuid shooter, uint32 spellId, uint32 shotItem
     return shot;
 }
 
+void MeleeUpClose(Player* player)
+{
+    Spell* repeating = player->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL);
+    Unit* victim = repeating ? repeating->m_targets.GetUnitTarget() : nullptr;
+    if (!repeating || repeating->m_spellInfo->Id != AutoShotSpell || !victim || !OtherHeadShoots(player) ||
+        !player->IsWithinMeleeRange(victim))
+        return;
+    player->InterruptSpell(CURRENT_AUTOREPEAT_SPELL);
+    player->Attack(victim, true);
+}
+
 void DrawForTheFight(Player* player)
 {
-    if (HasSecondHead(player) && player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) && player->GetVictim() &&
+    if (!HasSecondHead(player))
+        return;
+    MeleeUpClose(player);
+    if (player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) && player->GetVictim() &&
         player->GetSheath() != SHEATH_STATE_MELEE)
         player->SetSheath(SHEATH_STATE_MELEE);
 }
@@ -2197,6 +2211,51 @@ bool OrderBrother(Player* player, uint32 spellId, Unit* target)
     return true;
 }
 
+bool HurtsOrHinders(SpellInfo const* info)
+{
+    for (SpellEffectInfo const& effect : info->GetEffects())
+    {
+        switch (effect.Effect)
+        {
+            case SPELL_EFFECT_SCHOOL_DAMAGE:
+            case SPELL_EFFECT_WEAPON_DAMAGE:
+            case SPELL_EFFECT_WEAPON_DAMAGE_NOSCHOOL:
+            case SPELL_EFFECT_NORMALIZED_WEAPON_DMG:
+            case SPELL_EFFECT_WEAPON_PERCENT_DAMAGE:
+            case SPELL_EFFECT_HEALTH_LEECH:
+            case SPELL_EFFECT_POWER_BURN:
+            case SPELL_EFFECT_POWER_DRAIN:
+            case SPELL_EFFECT_TRANS_DOOR:
+                return true;
+            case SPELL_EFFECT_APPLY_AURA:
+            case SPELL_EFFECT_PERSISTENT_AREA_AURA:
+                switch (effect.ApplyAuraName)
+                {
+                    case SPELL_AURA_PERIODIC_DAMAGE:
+                    case SPELL_AURA_PERIODIC_DAMAGE_PERCENT:
+                    case SPELL_AURA_PERIODIC_LEECH:
+                    case SPELL_AURA_PERIODIC_TRIGGER_SPELL:
+                    case SPELL_AURA_MOD_STUN:
+                    case SPELL_AURA_MOD_ROOT:
+                    case SPELL_AURA_MOD_DECREASE_SPEED:
+                    case SPELL_AURA_MOD_CONFUSE:
+                    case SPELL_AURA_MOD_FEAR:
+                    case SPELL_AURA_MOD_SILENCE:
+                    case SPELL_AURA_MOD_PACIFY_SILENCE:
+                    case SPELL_AURA_MOD_DAMAGE_PERCENT_TAKEN:
+                    case SPELL_AURA_MOD_RESISTANCE:
+                        return true;
+                    default:
+                        break;
+                }
+                break;
+            default:
+                break;
+        }
+    }
+    return false;
+}
+
 bool RecentlyRefused(Player const* player, uint32 spellId)
 {
     std::lock_guard<std::mutex> lock(twinMutex);
@@ -2230,7 +2289,7 @@ std::pair<uint32, Unit*> PickSpell(Player* player)
                 buff = spellId;
             continue;
         }
-        if (!foe)
+        if (!foe || !HurtsOrHinders(info))
             continue;
         float const range = info->GetMaxRange(false, player);
         bool const reaches = IsShot(info) ? BrotherReaches(player, info, foe) :
