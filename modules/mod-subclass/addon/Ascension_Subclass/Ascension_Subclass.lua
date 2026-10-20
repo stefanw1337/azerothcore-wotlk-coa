@@ -1187,14 +1187,15 @@ local function CornerTextures(frame, page, found)
     local left, top = window:GetLeft(), window:GetTop()
     local pageLeft, pageTop = page:GetLeft(), page:GetTop()
     for _, region in ipairs({ frame:GetRegions() }) do
-        if region:GetObjectType() == "Texture" and region:IsShown() and region:GetTexture()
+        if region:GetObjectType() == "Texture" and region:IsVisible() and region:GetTexture()
             and region:GetLeft() and region:GetRight() < left + CORNER_REACH and region:GetBottom() > top - CORNER_REACH
             and (region:GetLeft() < pageLeft or region:GetTop() > pageTop) then
             table.insert(found, region)
         end
     end
     for _, child in ipairs({ frame:GetChildren() }) do
-        if child ~= page and child ~= panel and child ~= ownPage and child:IsShown() then
+        if child ~= page and child ~= panel and child ~= ownPage and child:IsVisible()
+            and child:GetObjectType() ~= "Button" and child:GetObjectType() ~= "CheckButton" then
             CornerTextures(child, page, found)
         end
     end
