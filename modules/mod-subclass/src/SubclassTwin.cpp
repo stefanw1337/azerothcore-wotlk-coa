@@ -18,6 +18,7 @@
 #include "PlayerScript.h"
 #include "Random.h"
 #include "StringConvert.h"
+#include "SubclassRules.h"
 #include "ServerScript.h"
 #include "SpellScript.h"
 #include "SpellScriptLoader.h"
@@ -77,6 +78,12 @@ constexpr uint32 HandMeDownsPercent = 10;
 constexpr uint32 HandMeDownsTreasurePercent = 25;
 constexpr uint8 ToleratedDrunk = 89;
 constexpr uint32 EasyTick = 600;
+constexpr uint32 FirstCyclopsHelmet = 9531000;
+constexpr uint32 LastCyclopsHelmet = 9539999;
+constexpr std::size_t HeadSlot = 0;
+constexpr uint32 HeadCategory = 1;
+constexpr char const* CyclopsEchoRefusal = "Your heads still share one helmet. The cyclops picks her own once "
+    "your heads have each chosen their way.";
 constexpr uint32 ManualPause = 3000;
 constexpr float HealBelowPct = 60.0f;
 constexpr int32 LastingBuff = 10000;
@@ -1074,9 +1081,14 @@ std::string SlotList()
 }
 }
 
+uint32 ShownCyclopsHelmet(Player const* player);
+bool HasSecondHead(Player const* player);
+
 std::string TwinWearing(Player const* player)
 {
     std::string reply = "TWINWEAR";
+    if (HasSecondHead(player))
+        return reply + Acore::StringFormat(" {}", ShownCyclopsHelmet(player));
     if (!HasTwin(player))
         return reply;
     Wardrobe const wardrobe = Dressed(player);
@@ -1183,6 +1195,52 @@ void UpdateSelfAura(Player* player)
     }
 }
 
+std::unordered_map<uint32, uint32> const& CyclopsHelmetAuras()
+{
+    static std::unordered_map<uint32, uint32> const auras = []
+    {
+        std::unordered_map<uint32, uint32> loaded;
+        if (QueryResult result = WorldDatabase.Query("SELECT `DisplayId`, `SpellId` FROM `mod_subclass_cyclops_helmet`"))
+            do
+            {
+                Field* fields = result->Fetch();
+                loaded[fields[0].Get<uint32>()] = fields[1].Get<uint32>();
+            } while (result->NextRow());
+        LOG_INFO("module", "mod-subclass: {} helmet looks for the cyclops head", loaded.size());
+        return loaded;
+    }();
+    return auras;
+}
+
+uint32 WantedCyclopsHelmetAura(Player const* player)
+{
+    if (!HasSecondHead(player))
+        return 0;
+    uint32 const helmet = Subclass::CyclopsHelmet(IsSplit(player), player->HasPlayerFlag(PLAYER_FLAGS_HIDE_HELM),
+        player->GetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_HEAD * 2),
+        WardrobeOf(player).Items[HeadSlot]);
+    auto const& auras = CyclopsHelmetAuras();
+    auto const itr = auras.find(DisplayOfItem(helmet));
+    if (itr == auras.end() || !sSpellMgr->GetSpellInfo(itr->second))
+        return 0;
+    return itr->second;
+}
+
+void UpdateCyclopsHelmet(Player* player)
+{
+    if (!player->IsAlive())
+        return;
+    uint32 const wanted = WantedCyclopsHelmetAura(player);
+    std::vector<uint32> stale;
+    for (auto const& [spellId, application] : player->GetAppliedAuras())
+        if (spellId >= FirstCyclopsHelmet && spellId <= LastCyclopsHelmet && spellId != wanted)
+            stale.push_back(spellId);
+    for (uint32 spellId : stale)
+        player->RemoveAurasDueToSpell(spellId);
+    if (wanted && !player->HasAura(wanted))
+        player->AddAura(wanted, player);
+}
+
 void ArriveLater(Player const* player, uint32 delay)
 {
     std::lock_guard<std::mutex> lock(twinMutex);
@@ -1278,6 +1336,7 @@ void TickSelfAura(Player* player, uint32 diff)
         elapsed = 0;
     }
     UpdateSelfAura(player);
+    UpdateCyclopsHelmet(player);
     OneSipTooMany(player);
     HoldYourDrink(player);
 }
@@ -1354,8 +1413,54 @@ std::string ToggleTwin(Player* player)
     return wardrobe.Enabled ? "Your brother comes running." : "Your brother goes home.";
 }
 
+uint32 ShownCyclopsHelmet(Player const* player)
+{
+    return Subclass::CyclopsHelmet(IsSplit(player), player->HasPlayerFlag(PLAYER_FLAGS_HIDE_HELM),
+        player->GetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_HEAD * 2),
+        WardrobeOf(player).Items[HeadSlot]);
+}
+
+void ChooseCyclopsHelmet(Player* player, uint32 helmet, std::string_view done)
+{
+    if (!IsSplit(player))
+    {
+        ChatHandler(player->GetSession()).SendSysMessage(CyclopsEchoRefusal);
+        return;
+    }
+    Wardrobe wardrobe = WardrobeOf(player);
+    wardrobe.Items[HeadSlot] = helmet;
+    StoreWardrobe(player, wardrobe);
+    UpdateCyclopsHelmet(player);
+    ChatHandler(player->GetSession()).SendSysMessage(done);
+}
+
+void EchoCyclopsHelmet(Player* player)
+{
+    ChooseCyclopsHelmet(player, 0, "Your cyclops head wears the same helmet as you again.");
+}
+
+void DressCyclops(Player* player, std::vector<std::string_view> const& words)
+{
+    for (std::size_t index = 1; index < words.size(); ++index)
+    {
+        std::string_view const pair = words[index];
+        std::size_t const colon = pair.find(':');
+        if (colon == std::string_view::npos)
+            continue;
+        Optional<uint32> const category = Acore::StringTo<uint32>(pair.substr(0, colon));
+        Optional<uint32> const itemId = Acore::StringTo<uint32>(pair.substr(colon + 1));
+        if (!category || *category != HeadCategory || !itemId || (*itemId && !DisplayOfItem(*itemId)))
+            continue;
+        if (*itemId)
+            return ChooseCyclopsHelmet(player, *itemId, "Your cyclops head tries on her new helmet.");
+        return ChooseCyclopsHelmet(player, Subclass::BareCyclopsHead, "Your cyclops head goes bare-headed.");
+    }
+}
+
 void HandleTwinLook(Player* player, std::vector<std::string_view> const& words)
 {
+    if (HasSecondHead(player))
+        return DressCyclops(player, words);
     constexpr std::array<int, 15> SlotOfCategory = { -1, 0, 1, 9, 3, 10, 2, 7, 8, 4, 5, 6, int(Ranged),
         int(MainHand), int(OffHand) };
     if (!HasTwin(player))

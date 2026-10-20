@@ -226,6 +226,16 @@ inline void AddBonusPoints(Settings const& settings, bool borrowsClassTree, std:
     specializationPoints += specializationBonus;
 }
 
+constexpr std::uint32_t BareCyclopsHead = 1;
+
+inline std::uint32_t CyclopsHelmet(bool ownWardrobe, bool helmHidden, std::uint32_t wornHelmet,
+    std::uint32_t chosenHelmet)
+{
+    if (ownWardrobe && chosenHelmet)
+        return chosenHelmet == BareCyclopsHead ? 0 : chosenHelmet;
+    return helmHidden ? 0 : wornHelmet;
+}
+
 inline Choice Trimmed(std::vector<Pair> const& pairs, Character const& character, Choice const& choice)
 {
     if (!choice.Complete() || !AllowsChoice(pairs, character, choice))

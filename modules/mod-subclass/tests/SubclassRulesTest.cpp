@@ -179,3 +179,14 @@ TEST(Subclass, ClassKindsFilterMainsAndSubclasses)
     EXPECT_FALSE(KindAllows(ClassKinds::CoA, true));
     EXPECT_TRUE(KindAllows(ClassKinds::CoA, false));
 }
+
+TEST(Subclass, TheCyclopsEchoesTheHelmetUntilSheChoosesHerOwn)
+{
+    EXPECT_EQ(CyclopsHelmet(false, false, 12640, 0), 12640u);
+    EXPECT_EQ(CyclopsHelmet(false, false, 12640, 16955), 12640u);
+    EXPECT_EQ(CyclopsHelmet(false, true, 12640, 16955), 0u);
+    EXPECT_EQ(CyclopsHelmet(true, false, 12640, 0), 12640u);
+    EXPECT_EQ(CyclopsHelmet(true, true, 12640, 0), 0u);
+    EXPECT_EQ(CyclopsHelmet(true, true, 12640, 16955), 16955u);
+    EXPECT_EQ(CyclopsHelmet(true, false, 12640, BareCyclopsHead), 0u);
+}

@@ -1479,6 +1479,10 @@ end)
 
 local dressingTwin = false
 local twinRedressPending = false
+
+local function DressesCyclops()
+    return (UnitRace("player")) == "Two-Headed Ogre"
+end
 local twinButton
 
 local TWIN_SLOT_OF_CATEGORY = { 1, 2, 10, 4, 11, 3, 8, 9, 5, 6, 7, 14, 12, 13 }
@@ -1599,7 +1603,11 @@ end
 
 local function DressTwin(model)
     local pending, stripped = PendingTwinItems()
-    model:Undress()
+    if DressesCyclops() then
+        model:Dress()
+    else
+        model:Undress()
+    end
     for slot, itemId in ipairs(twinOutfit) do
         if itemId > 0 and not stripped[slot] then
             model:TryOn(itemId)
@@ -1726,7 +1734,21 @@ local function TakeOffTwin(slots)
     end
 end
 
+local function ShowCyclopsMenu(anchor)
+    local entries = {
+        { text = "Your cyclops head", isTitle = true, notCheckable = true },
+        { text = "Bare head", notCheckable = true, func = function() TakeOffTwin({ 1 }) end },
+        { text = "Same helmet as me", notCheckable = true, func = function() Send("CYCLOPSECHO") end },
+    }
+    twinUndressMenu = twinUndressMenu or CreateFrame("Frame", "Ascension_SubclassTwinUndressMenu", UIParent,
+        "UIDropDownMenuTemplate")
+    EasyMenu(entries, twinUndressMenu, anchor, 0, 0, "MENU")
+end
+
 local function ShowUndressMenu(anchor)
+    if DressesCyclops() then
+        return ShowCyclopsMenu(anchor)
+    end
     local entries = { { text = "Take off your twin's", isTitle = true, notCheckable = true } }
     local worn = {}
     for slot, name in ipairs(TWIN_SLOT_NAMES) do
@@ -1747,7 +1769,8 @@ local function ShowUndressMenu(anchor)
 end
 
 local function ShowDressing()
-    twinButton:SetText(dressingTwin and "Dressing: Your twin" or "Dressing: You")
+    local other = DressesCyclops() and "Dressing: Cyclops head" or "Dressing: Your twin"
+    twinButton:SetText(dressingTwin and other or "Dressing: You")
     if twinUndressButton then
         if dressingTwin then
             twinUndressButton:Show()
@@ -1768,7 +1791,7 @@ local function AttachTwinButton()
         return true
     end
     local _, race = UnitRace("player")
-    if race ~= "ThinHuman" then
+    if race ~= "ThinHuman" and not DressesCyclops() then
         return true
     end
     local anchor = FindButton("Disable Transmog") or FindButton("Disable Spell Visuals")
@@ -1800,14 +1823,17 @@ local function AttachTwinButton()
         else
             ShowOwnPreview()
         end
-        DEFAULT_CHAT_FRAME:AddMessage(dressingTwin
-            and "|cffffd100Wardrobe:|r Apply now dresses your twin."
-            or "|cffffd100Wardrobe:|r Apply now dresses you.")
+        local other = DressesCyclops() and "|cffffd100Wardrobe:|r Apply now puts the helmet on your cyclops head."
+            or "|cffffd100Wardrobe:|r Apply now dresses your twin."
+        DEFAULT_CHAT_FRAME:AddMessage(dressingTwin and other or "|cffffd100Wardrobe:|r Apply now dresses you.")
     end)
     twinButton:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
         GameTooltip:SetText("Who the Wardrobe dresses", 1, 1, 1)
-        GameTooltip:AddLine("Switch to your twin, pick his look and apply it as usual. "
+        GameTooltip:AddLine(DressesCyclops()
+            and "Switch to your cyclops head, pick a helmet and apply it as usual. She wears it without needing "
+            .. "the item. The preview shows it on your other head."
+            or "Switch to your twin, pick his look and apply it as usual. "
             .. "He wears it without needing the items.", nil, nil, nil, true)
         GameTooltip:Show()
     end)
@@ -1819,7 +1845,7 @@ local function AttachTwinButton()
     twinUndressButton:SetPoint("LEFT", twinButton, "RIGHT", 4, 0)
     twinUndressButton:SetFrameStrata(anchor:GetFrameStrata())
     twinUndressButton:SetFrameLevel(anchor:GetFrameLevel() + 20)
-    twinUndressButton:SetText("Take off")
+    twinUndressButton:SetText(DressesCyclops() and "Helmet" or "Take off")
     twinUndressButton:SetScript("OnClick", function(self) ShowUndressMenu(self) end)
     anchor:GetParent():HookScript("OnHide", function()
         dressingTwin = false
