@@ -29,6 +29,8 @@ KIT_CHARACTER_PROCS = range(17, 21)
 VISUAL_FIELDS = 32
 VISUAL_STATE_KIT = 4
 EFFECT_SCALES = (1.0, 1.0, 0.01, 1.0)
+VERTEX_SIZE = 48
+EYE_PIECES = {"helm_cloth_mawraid_d_01_eyes"}
 
 
 class Table:
@@ -62,6 +64,18 @@ def seated_on_cyclops(fix):
     size = ATTACHMENT_SCALE * np.array(HELMET_SCALE)
     shift = np.array(fix["shift"]) * (1.0, -1.0, 1.0)
     return {"shift": tuple(shift * size), "scale": tuple(np.array(fix["scale"]) * size)}
+
+
+def one_eyed(m2):
+    data = bytearray(m2)
+    count, offset = arr(data, 60)
+    positions = np.array([struct.unpack_from("<3f", data, offset + i * VERTEX_SIZE) for i in range(count)])
+    for side in (positions[:, 1] < 0, positions[:, 1] > 0):
+        if side.any():
+            positions[side, 1] -= positions[side, 1].mean()
+    for index, position in enumerate(positions):
+        struct.pack_into("<3f", data, offset + index * VERTEX_SIZE, *position)
+    return bytes(data)
 
 
 def textured(m2, texture_path):
@@ -129,7 +143,10 @@ def main(zip_path, dbc_folder, root, auras_path, mapping_path, *wanted):
         target = root / Path(*PureWindowsPath(model_path).parts)
         target.parent.mkdir(parents=True, exist_ok=True)
         fix = seated_on_cyclops(correction(model, models.get(model, "misc")))
-        target.write_bytes(textured(baked(bundle.read(source), fix), texture_path))
+        helmet = bundle.read(source)
+        if model in EYE_PIECES:
+            helmet = one_eyed(helmet)
+        target.write_bytes(textured(baked(helmet, fix), texture_path))
         target.with_name(target.stem + "00.skin").write_bytes(bundle.read(names[HEAD + model + SOURCE_SUFFIX +
                                                                               "00.skin"]))
         effect_table = tables["SpellVisualEffectName"]
