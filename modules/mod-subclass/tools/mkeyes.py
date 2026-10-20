@@ -389,8 +389,7 @@ def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
                              track(blob, m2, first_global, [0], [struct.pack("<3f", *HELMET_SCALE)]))
     cyclops_seat = cyclops_helmet_seat(m2, head_bone, helmet_position)
     new_bones += bone_record(CYCLOPS_HEAD, cyclops_seat, still_track(blob, m2), still_track(blob, m2),
-                             track(blob, m2, first_global, [0],
-                                   [struct.pack("<3f", *(ATTACHMENT_SCALE * np.array(HELMET_SCALE)))]))
+                             still_track(blob, m2))
     append_array(blob, m2, 44, 88, new_bones, 16)
     add_attachment(blob, m2, CYCLOPS_HELMET_ATTACHMENT, helmet_bone + 1, cyclops_seat, first_global)
 

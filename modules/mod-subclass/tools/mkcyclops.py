@@ -10,8 +10,10 @@ import sys
 import zipfile
 from pathlib import Path, PureWindowsPath
 
+import numpy as np
+
 from mkcape import Blob, arr
-from mkeyes import CYCLOPS_HELMET_ATTACHMENT
+from mkeyes import ATTACHMENT_SCALE, CYCLOPS_HELMET_ATTACHMENT, HELMET_SCALE
 from mkhelmets import HEAD, SOURCE_SUFFIX, baked, correction, armor_of_models, dbc_text, entries, read_dbc
 
 FIRST_ID = 9531000
@@ -56,9 +58,10 @@ class Table:
             out.write(self.strings)
 
 
-def mirrored(fix):
-    shift = fix["shift"]
-    return {"shift": (shift[0], -shift[1], shift[2]), "scale": fix["scale"]}
+def seated_on_cyclops(fix):
+    size = ATTACHMENT_SCALE * np.array(HELMET_SCALE)
+    shift = np.array(fix["shift"]) * (1.0, -1.0, 1.0)
+    return {"shift": tuple(shift * size), "scale": tuple(np.array(fix["scale"]) * size)}
 
 
 def textured(m2, texture_path):
@@ -125,7 +128,7 @@ def main(zip_path, dbc_folder, root, auras_path, mapping_path, *wanted):
                                              PureWindowsPath(texture_path).stem)
         target = root / Path(*PureWindowsPath(model_path).parts)
         target.parent.mkdir(parents=True, exist_ok=True)
-        fix = mirrored(correction(model, models.get(model, "misc")))
+        fix = seated_on_cyclops(correction(model, models.get(model, "misc")))
         target.write_bytes(textured(baked(bundle.read(source), fix), texture_path))
         target.with_name(target.stem + "00.skin").write_bytes(bundle.read(names[HEAD + model + SOURCE_SUFFIX +
                                                                               "00.skin"]))
