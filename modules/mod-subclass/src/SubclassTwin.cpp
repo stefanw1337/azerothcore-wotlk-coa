@@ -295,7 +295,21 @@ Wardrobe Worn(Player const* player)
 
 Item* OwnBow(Player const* player)
 {
-    return player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_RANGED);
+    Item* ranged = player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_RANGED);
+    return ranged && ranged->GetTemplate()->Class == ITEM_CLASS_WEAPON ? ranged : nullptr;
+}
+
+bool HeldInHand(Item const* ranged)
+{
+    switch (ranged->GetTemplate()->SubClass)
+    {
+        case ITEM_SUBCLASS_WEAPON_BOW:
+        case ITEM_SUBCLASS_WEAPON_GUN:
+        case ITEM_SUBCLASS_WEAPON_CROSSBOW:
+            return true;
+        default:
+            return false;
+    }
 }
 
 bool BrotherTanks(Player const* player)
@@ -1218,6 +1232,8 @@ void ShowGunInOtherHand(Player* player)
     if (player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND))
         return;
     Item* gun = OwnBow(player);
+    if (gun && !HeldInHand(gun))
+        gun = nullptr;
     uint32 const shownGun = player->GetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_RANGED * 2);
     uint32 const look = !gun ? 0 : shownGun ? shownGun : gun->GetEntry();
     bool const wanted = gun && OtherHeadShoots(player) && player->GetSheath() == SHEATH_STATE_MELEE;
