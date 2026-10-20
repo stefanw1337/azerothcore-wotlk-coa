@@ -919,6 +919,7 @@ uint32 ForgetStandardKit(Player* player, uint8 playableClass)
 }
 
 void ForgetStandardWeapons(Player* player, uint8 playableClass);
+void ForgetCoAWeapons(Player* player, uint8 subClass);
 
 uint32 ForgetBorrowedBaseSpells(Player* player, uint8 subClass)
 {
@@ -927,6 +928,7 @@ uint32 ForgetBorrowedBaseSpells(Player* player, uint8 subClass)
         ForgetStandardWeapons(player, PlayableClassOf(subClass));
         return ForgetStandardKit(player, PlayableClassOf(subClass));
     }
+    ForgetCoAWeapons(player, subClass);
     uint32 removed = 0;
     for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)
         if (spell.ClassId == subClass && player->HasSpell(spell.SpellId) && !OwnClassGrants(player, spell.SpellId))
@@ -1055,6 +1057,37 @@ void ForgetStandardWeapons(Player* player, uint8 playableClass)
         }
 }
 
+bool CoAClassWields(uint8 subClass, uint32 skill)
+{
+    return std::any_of(AscensionLiveBaseline::Skills.begin(), AscensionLiveBaseline::Skills.end(),
+        [subClass, skill](AscensionLiveBaseline::Skill const& baseline)
+        {
+            return baseline.ClassId == subClass && baseline.SkillId == skill;
+        });
+}
+
+void LearnCoAWeapons(Player* player, uint8 subClass)
+{
+    if (IsAscensionCustomClassId(player->getClass()))
+        return;
+    for (auto const& [skill, spellId] : GearProficiencies())
+        if (!player->HasSpell(spellId) && CoAClassWields(subClass, skill))
+            player->learnSpell(spellId, false);
+}
+
+void ForgetCoAWeapons(Player* player, uint8 subClass)
+{
+    if (IsAscensionCustomClassId(player->getClass()))
+        return;
+    for (auto const& [skill, spellId] : GearProficiencies())
+        if (player->HasSpell(spellId) && CoAClassWields(subClass, skill) &&
+            !ClassWields(player->getClass(), player->getRace(), skill))
+        {
+            player->removeSpell(spellId, SPEC_MASK_ALL, false);
+            player->SetSkill(uint16(skill), 0, 0, 0);
+        }
+}
+
 uint32 LearnStandardKit(Player* player, uint8 playableClass)
 {
     LearnStandardSkillLines(player, playableClass);
@@ -1089,6 +1122,7 @@ uint32 SyncBorrowedBaseSpells(Player* player)
     SyncBorrowedSkillLines(player, subClass);
     if (IsStandardCatalogClass(subClass))
         return LearnStandardKit(player, PlayableClassOf(subClass));
+    LearnCoAWeapons(player, subClass);
     uint32 learned = 0;
     for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)
         if (spell.ClassId == subClass && spell.RequiredLevel <= player->GetLevel() &&
@@ -1186,7 +1220,7 @@ bool OfferedAsSubclass(uint8 mainClass, uint8 catalogClassId)
         !Subclass::KindAllows(settings.SubClasses, IsStandardCatalogClass(catalogClassId)))
         return false;
     if (!IsAscensionCustomClassId(mainClass))
-        return !IsAscensionCustomClassId(PlayableClassOf(catalogClassId));
+        return true;
     return settings.StandardClasses || !AscensionCompatData::IsCoABorrowOnlyClass(catalogClassId);
 }
 
@@ -2215,8 +2249,16 @@ void AddSC_mod_subclass()
         {
             return !tree.SpecId;
         });
+        uint8 const subClass = open.front().ClassId;
         std::lock_guard<std::mutex> lock(subclassMutex);
-        if (!IsAscensionCustomClassId(player->getClass()))
+        uint32 lentClassPoints = 0;
+        uint32 lentSpecializationPoints = 0;
+        if (!IsAscensionCustomClassId(player->getClass()) && IsAscensionCustomClassId(subClass) &&
+            AscensionCompatData::GetCoATalentBudget(subClass, player->GetLevel(), lentClassPoints,
+                lentSpecializationPoints))
+            Subclass::AddLentClassPoints(settings, borrowsClassTree, Subclass::SpecializationTreeCount(open),
+                lentClassPoints, lentSpecializationPoints, classPoints, specializationPoints);
+        else if (!IsAscensionCustomClassId(player->getClass()))
             specializationPoints += Subclass::BonusPoints(settings, player->CalculateTalentsPoints());
         else
             Subclass::AddBonusPoints(settings, borrowsClassTree, classPoints, specializationPoints);

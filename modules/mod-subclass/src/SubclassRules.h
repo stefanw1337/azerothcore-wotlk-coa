@@ -226,6 +226,21 @@ inline void AddBonusPoints(Settings const& settings, bool borrowsClassTree, std:
     specializationPoints += specializationBonus;
 }
 
+inline std::uint32_t SpecializationTreeCount(std::vector<Tree> const& trees)
+{
+    return std::uint32_t(std::count_if(trees.begin(), trees.end(), [](Tree const& tree) { return tree.SpecId != 0; }));
+}
+
+inline void AddLentClassPoints(Settings const& settings, bool borrowsClassTree, std::uint32_t specializationTrees,
+    std::uint32_t lentClassPoints, std::uint32_t lentSpecializationPoints, std::uint32_t& classPoints,
+    std::uint32_t& specializationPoints)
+{
+    if (borrowsClassTree)
+        classPoints += BonusPoints(settings, lentClassPoints);
+    specializationPoints += BonusPoints(settings, std::uint32_t(std::min<std::uint64_t>(
+        std::uint64_t(lentSpecializationPoints) * specializationTrees, UINT32_MAX)));
+}
+
 constexpr std::uint32_t BareCyclopsHead = 1;
 
 inline std::uint32_t CyclopsHelmet(bool ownWardrobe, bool helmHidden, std::uint32_t wornHelmet,

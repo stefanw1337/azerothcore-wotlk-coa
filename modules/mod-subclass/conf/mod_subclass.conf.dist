@@ -90,7 +90,9 @@ Subclass.MainClasses = 0
 
 #    Subclass.SubClasses
 #        Which classes a trainer offers as the subclass. Subclass.StandardClasses still decides
-#        whether CoA mains see standard classes.
+#        whether CoA mains see standard classes. Standard mains are offered the other standard classes
+#        and the CoA classes; a borrowed CoA class brings its class tree, basic kit, weapons and the
+#        CoA class's own talent budget for its level.
 #        Default: 0 - every allowed class
 #                 1 - standard classes only
 #                 2 - CoA classes only

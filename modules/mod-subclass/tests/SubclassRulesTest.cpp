@@ -190,3 +190,22 @@ TEST(Subclass, TheCyclopsEchoesTheHelmetUntilSheChoosesHerOwn)
     EXPECT_EQ(CyclopsHelmet(true, true, 12640, 16955), 16955u);
     EXPECT_EQ(CyclopsHelmet(true, false, 12640, BareCyclopsHead), 0u);
 }
+
+TEST(Subclass, AStandardMainBorrowsTheCoAClassBudgetForTheLentTrees)
+{
+    Subclass::Settings settings;
+    std::vector<Subclass::Tree> const trees = { { 12, 0 }, { 12, 4001 } };
+    std::uint32_t classPoints = 0;
+    std::uint32_t specializationPoints = 0;
+    Subclass::AddLentClassPoints(settings, true, Subclass::SpecializationTreeCount(trees), 36, 35, classPoints,
+        specializationPoints);
+    EXPECT_EQ(classPoints, 36u);
+    EXPECT_EQ(specializationPoints, 35u);
+
+    settings.BorrowedPointsPercent = 50;
+    classPoints = 0;
+    specializationPoints = 0;
+    Subclass::AddLentClassPoints(settings, false, 2, 36, 35, classPoints, specializationPoints);
+    EXPECT_EQ(classPoints, 0u);
+    EXPECT_EQ(specializationPoints, 35u);
+}
