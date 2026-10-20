@@ -795,6 +795,12 @@ std::string BorrowedStances(Player const* player)
         }
     }
     std::sort(stances.begin(), stances.end());
+    stances.erase(std::unique(stances.begin(), stances.end(), [](auto const& a, auto const& b)
+    {
+        SpellInfo const* first = sSpellMgr->GetSpellInfo(a.second);
+        SpellInfo const* second = sSpellMgr->GetSpellInfo(b.second);
+        return first && second && std::string_view(first->SpellName[0]) == second->SpellName[0];
+    }), stances.end());
     std::string out = "STANCES";
     for (auto const& stance : stances)
         out += " " + std::to_string(stance.second);

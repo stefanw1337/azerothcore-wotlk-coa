@@ -1104,14 +1104,16 @@ function Stances.BuildStanceBar()
         end)
     end
     local shown = 0
+    local named = {}
     for index, spellId in ipairs(Stances.spells) do
         local name, _, icon = GetSpellInfo(spellId)
-        if name then
+        if name and not named[name] then
+            named[name] = true
             shown = shown + 1
             local button = Stances.StanceButton(shown)
             button:SetAttribute("type", "spell")
             button:SetAttribute("spell", name)
-            button.spellId, button.spellName = spellId, name
+            button.spellId, button.spellName, button.spellIcon = spellId, name, icon
             button.icon:SetTexture(icon)
             button:ClearAllPoints()
             button:SetPoint("LEFT", Stances.bar, "LEFT", (shown - 1) * (Stances.size + Stances.gap), 0)
@@ -1215,6 +1217,7 @@ Stances.watch:SetScript("OnUpdate", function(self, elapsed)
         end
         button.active = UnitBuff("player", button.spellName) ~= nil
         button:SetChecked(button.active)
+        button.icon:SetTexture(button.active and "Interface\\Icons\\Spell_Nature_WispSplode" or button.spellIcon)
         local start, duration, enabled = GetSpellCooldown(button.spellName)
         if start and duration and duration > 1.5 and enabled == 1 then
             button.cooldown:SetCooldown(start, duration)
