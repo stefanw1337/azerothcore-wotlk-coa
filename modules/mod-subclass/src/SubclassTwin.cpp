@@ -71,6 +71,7 @@ constexpr uint32 HalfBrainSpell = 9530107;
 constexpr uint32 CowboyAura = 9530108;
 constexpr uint32 HalfBrainAura = 9530109;
 constexpr uint32 ReachAura = 9530110;
+constexpr uint32 EndlessAmmoAura = 46699;
 constexpr uint32 TwinLinkedSpell = 9530111;
 constexpr uint32 ToleranceSpell = 9530112;
 constexpr uint32 HandMeDownsSpell = 9530113;
@@ -1151,10 +1152,13 @@ bool OnlyOtherHalfShoots(Player const* player)
 void UpdateReach(Player* player)
 {
     bool const wanted = OnlyOtherHalfShoots(player);
-    if (wanted && !player->HasAura(ReachAura))
-        player->AddAura(ReachAura, player);
-    else if (!wanted && player->HasAura(ReachAura))
-        player->RemoveAurasDueToSpell(ReachAura);
+    for (uint32 aura : { ReachAura, EndlessAmmoAura })
+    {
+        if (wanted && !player->HasAura(aura) && sSpellMgr->GetSpellInfo(aura))
+            player->AddAura(aura, player);
+        else if (!wanted && player->HasAura(aura))
+            player->RemoveAurasDueToSpell(aura);
+    }
 }
 
 void HandWeaponsToBrother(Player* player)
@@ -1174,11 +1178,44 @@ void HandWeaponsToBrother(Player* player)
         player->SetVisibleItemSlot(EQUIPMENT_SLOT_RANGED, bow);
 }
 
+bool OtherHeadShoots(Player* player)
+{
+    return HasSecondHead(player) && OnlyOtherHalfShoots(player) && OwnBow(player);
+}
+
+void ShowGunInOtherHand(Player* player)
+{
+    uint16 const offHand = PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_OFFHAND * 2;
+    Item* gun = OwnBow(player);
+    if (!gun)
+        return;
+    uint32 const shownGun = player->GetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_RANGED * 2);
+    uint32 const look = shownGun ? shownGun : gun->GetEntry();
+    bool const wanted = OtherHeadShoots(player) && player->GetSheath() == SHEATH_STATE_MELEE &&
+        !player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
+    uint32 const shown = player->GetUInt32Value(offHand);
+    if (wanted && shown != look)
+        player->SetUInt32Value(offHand, look);
+    else if (!wanted && shown && !player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND))
+        player->SetUInt32Value(offHand, 0);
+}
+
+void ShootAlong(Player* player)
+{
+    Unit* victim = player->GetVictim();
+    if (!OtherHeadShoots(player) || !victim || !player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) ||
+        !player->IsValidAttackTarget(victim) || player->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL))
+        return;
+    player->CastSpell(victim, AutoShotSpell, false);
+}
+
 void UpdateSelfAura(Player* player)
 {
     if (!player->IsAlive())
         return;
     UpdateReach(player);
+    ShowGunInOtherHand(player);
+    ShootAlong(player);
     HandWeaponsToBrother(player);
     if (!OtherHalfAwake(player))
     {
