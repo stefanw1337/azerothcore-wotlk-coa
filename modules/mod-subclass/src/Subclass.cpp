@@ -58,6 +58,7 @@ bool OrderBrother(Player* player, uint32 spellId, Unit* target);
 bool OffersStandardMains();
 bool SubclassRaceEnabled(uint8 race);
 bool IsStandardMainClass(uint8 classId);
+Trainer::Trainer const* ClassTrainerOf(uint8 classId);
 
 namespace
 {
@@ -872,8 +873,39 @@ bool OwnClassGrants(Player const* player, uint32 spellId)
         });
 }
 
+std::vector<uint32> TaughtBy(Trainer::Trainer const* trainer)
+{
+    std::vector<uint32> taught;
+    if (!trainer)
+        return taught;
+    for (Trainer::Spell const& spell : trainer->GetSpells())
+    {
+        taught.push_back(spell.SpellId);
+        if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spell.SpellId))
+            for (SpellEffectInfo const& effect : info->GetEffects())
+                if (effect.IsEffect(SPELL_EFFECT_LEARN_SPELL) && effect.TriggerSpell)
+                    taught.push_back(effect.TriggerSpell);
+    }
+    return taught;
+}
+
+uint32 ForgetStandardKit(Player* player, uint8 playableClass)
+{
+    std::vector<uint32> const own = TaughtBy(ClassTrainerOf(player->getClass()));
+    uint32 removed = 0;
+    for (uint32 spellId : TaughtBy(ClassTrainerOf(playableClass)))
+        if (player->HasSpell(spellId) && std::find(own.begin(), own.end(), spellId) == own.end())
+        {
+            player->removeSpell(spellId, SPEC_MASK_ALL, false);
+            ++removed;
+        }
+    return removed;
+}
+
 uint32 ForgetBorrowedBaseSpells(Player* player, uint8 subClass)
 {
+    if (IsStandardCatalogClass(subClass))
+        return ForgetStandardKit(player, PlayableClassOf(subClass));
     uint32 removed = 0;
     for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)
         if (spell.ClassId == subClass && player->HasSpell(spell.SpellId) && !OwnClassGrants(player, spell.SpellId))
@@ -933,12 +965,40 @@ void RefreshPowerPools(Player* player)
         player->UpdateMaxPower(power);
 }
 
+constexpr uint32 KitPasses = 8;
+
+uint32 LearnStandardKit(Player* player, uint8 playableClass)
+{
+    Trainer::Trainer const* trainer = ClassTrainerOf(playableClass);
+    if (!trainer)
+        return 0;
+    uint32 learned = 0;
+    for (uint32 pass = 0; pass < KitPasses; ++pass)
+    {
+        uint32 const before = learned;
+        for (Trainer::Spell const& spell : trainer->GetSpells())
+            if (trainer->CanTeachSpell(player, &spell))
+            {
+                if (spell.IsCastable())
+                    player->CastSpell(player, spell.SpellId, true);
+                else
+                    player->learnSpell(spell.SpellId, false);
+                ++learned;
+            }
+        if (learned == before)
+            break;
+    }
+    return learned;
+}
+
 uint32 SyncBorrowedBaseSpells(Player* player)
 {
     if (OpenTreesOf(player).empty())
         return 0;
     uint8 const subClass = ChoiceOf(player).SubClass;
     SyncBorrowedSkillLines(player, subClass);
+    if (IsStandardCatalogClass(subClass))
+        return LearnStandardKit(player, PlayableClassOf(subClass));
     uint32 learned = 0;
     for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)
         if (spell.ClassId == subClass && spell.RequiredLevel <= player->GetLevel() &&

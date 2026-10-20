@@ -442,11 +442,8 @@ local function BuildTrees()
         for _, id in ipairs(tree.ids) do
             candidates[#candidates + 1] = id
         end
-        for _, id in ipairs(tree.abilityIds or {}) do
-            local entry = Entry(id)
-            if StandardTree(tree) and entry then
-                tree.abilities[#tree.abilities + 1] = { id = id, entry = entry, ability = true }
-            else
+        if not StandardTree(tree) then
+            for _, id in ipairs(tree.abilityIds or {}) do
                 candidates[#candidates + 1] = id
             end
         end
