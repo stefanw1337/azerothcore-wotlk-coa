@@ -7,6 +7,7 @@
 #include "CommandScript.h"
 #include "DatabaseEnv.h"
 #include "GameTime.h"
+#include "Group.h"
 #include "Log.h"
 #include "LootMgr.h"
 #include "MotionMaster.h"
@@ -91,7 +92,6 @@ constexpr uint32 HeadCategory = 1;
 constexpr char const* CyclopsEchoRefusal = "Your heads still share one helmet. Your left head picks her own once "
     "your heads have each chosen their way.";
 constexpr uint32 ManualPause = 3000;
-constexpr float HealBelowPct = 60.0f;
 constexpr int32 LastingBuff = 10000;
 constexpr uint32 TwinQuest = 9530020;
 constexpr char const* EchoRefusal = "Your brother still wears whatever you wear. He will want his own clothes "
@@ -2213,43 +2213,301 @@ bool OrderBrother(Player* player, uint32 spellId, Unit* target)
     return true;
 }
 
+bool HasAnyAura(SpellInfo const* info, std::initializer_list<AuraType> types)
+{
+    return std::any_of(types.begin(), types.end(), [info](AuraType type) { return info->HasAura(type); });
+}
+
+bool HasAnyEffect(SpellInfo const* info, std::initializer_list<SpellEffects> effects)
+{
+    return std::any_of(effects.begin(), effects.end(), [info](SpellEffects effect) { return info->HasEffect(effect); });
+}
+
 bool HurtsOrHinders(SpellInfo const* info)
+{
+    return HasAnyEffect(info, { SPELL_EFFECT_SCHOOL_DAMAGE, SPELL_EFFECT_WEAPON_DAMAGE,
+        SPELL_EFFECT_WEAPON_DAMAGE_NOSCHOOL, SPELL_EFFECT_NORMALIZED_WEAPON_DMG, SPELL_EFFECT_WEAPON_PERCENT_DAMAGE,
+        SPELL_EFFECT_HEALTH_LEECH, SPELL_EFFECT_POWER_BURN, SPELL_EFFECT_POWER_DRAIN, SPELL_EFFECT_TRANS_DOOR }) ||
+        HasAnyAura(info, { SPELL_AURA_PERIODIC_DAMAGE, SPELL_AURA_PERIODIC_DAMAGE_PERCENT, SPELL_AURA_PERIODIC_LEECH,
+        SPELL_AURA_PERIODIC_TRIGGER_SPELL, SPELL_AURA_MOD_STUN, SPELL_AURA_MOD_ROOT, SPELL_AURA_MOD_DECREASE_SPEED,
+        SPELL_AURA_MOD_DAMAGE_PERCENT_TAKEN, SPELL_AURA_MOD_RESISTANCE });
+}
+
+bool BreaksOnDamageOrSendsAway(SpellInfo const* info)
+{
+    return (info->AuraInterruptFlags & (AURA_INTERRUPT_FLAG_TAKE_DAMAGE | AURA_INTERRUPT_FLAG_DIRECT_DAMAGE)) ||
+        HasAnyAura(info, { SPELL_AURA_MOD_CONFUSE, SPELL_AURA_MOD_FEAR });
+}
+
+bool UsesReagents(SpellInfo const* info)
+{
+    return std::any_of(info->Reagent.begin(), info->Reagent.end(), [](int32 reagent) { return reagent > 0; });
+}
+
+uint32 LongestRecovery(SpellInfo const* info)
+{
+    return std::max(info->RecoveryTime, info->CategoryRecoveryTime);
+}
+
+constexpr uint32 BigCooldown = 60000;
+constexpr int32 ShortSummon = 60000;
+
+bool SummonsAShortHelper(SpellInfo const* info)
+{
+    int32 const duration = info->GetMaxDuration();
+    return duration > 0 && duration <= ShortSummon && LongestRecovery(info) >= BigCooldown;
+}
+
+bool NeverAlone(SpellInfo const* info)
+{
+    if (info->IsChanneled() || UsesReagents(info) || info->PowerType == POWER_HEALTH)
+        return true;
+    switch (info->GetSpellSpecific())
+    {
+        case SPELL_SPECIFIC_ASPECT:
+        case SPELL_SPECIFIC_AURA:
+        case SPELL_SPECIFIC_PRESENCE:
+        case SPELL_SPECIFIC_TRACKER:
+        case SPELL_SPECIFIC_FOOD:
+        case SPELL_SPECIFIC_DRINK:
+        case SPELL_SPECIFIC_FOOD_AND_DRINK:
+            return true;
+        default:
+            break;
+    }
+    if (HasAnyAura(info, { SPELL_AURA_BIND_SIGHT, SPELL_AURA_FAR_SIGHT, SPELL_AURA_MOD_POSSESS,
+            SPELL_AURA_MOD_POSSESS_PET, SPELL_AURA_TRACK_CREATURES, SPELL_AURA_TRACK_RESOURCES,
+            SPELL_AURA_TRACK_STEALTHED, SPELL_AURA_MOD_STEALTH_DETECT, SPELL_AURA_MOD_SHAPESHIFT,
+            SPELL_AURA_MOD_INVISIBILITY_DETECT, SPELL_AURA_MOD_STEALTH, SPELL_AURA_MOD_INVISIBILITY,
+            SPELL_AURA_FEIGN_DEATH, SPELL_AURA_MOD_INCREASE_SPEED, SPELL_AURA_MOD_SPEED_ALWAYS,
+            SPELL_AURA_MOD_INCREASE_MOUNTED_SPEED, SPELL_AURA_MOUNTED, SPELL_AURA_FLY, SPELL_AURA_WATER_BREATHING,
+            SPELL_AURA_WATER_WALK, SPELL_AURA_FEATHER_FALL, SPELL_AURA_HOVER, SPELL_AURA_MOD_THREAT,
+            SPELL_AURA_MOD_TOTAL_THREAT, SPELL_AURA_MANA_SHIELD, SPELL_AURA_TRANSFORM, SPELL_AURA_CONTROL_VEHICLE,
+            SPELL_AURA_COMPREHEND_LANGUAGE }))
+        return true;
+    if (info->IsPositive() && HasAnyAura(info, { SPELL_AURA_MOD_STUN, SPELL_AURA_MOD_PACIFY,
+            SPELL_AURA_MOD_PACIFY_SILENCE }))
+        return true;
+    if (info->HasEffect(SPELL_EFFECT_SUMMON) && !SummonsAShortHelper(info))
+        return true;
+    return HasAnyEffect(info, { SPELL_EFFECT_LEAP, SPELL_EFFECT_LEAP_BACK, SPELL_EFFECT_CHARGE,
+        SPELL_EFFECT_CHARGE_DEST, SPELL_EFFECT_JUMP, SPELL_EFFECT_JUMP_DEST, SPELL_EFFECT_TELEPORT_UNITS,
+        SPELL_EFFECT_TELEPORT_UNITS_FACE_CASTER, SPELL_EFFECT_TAMECREATURE, SPELL_EFFECT_RESURRECT_PET,
+        SPELL_EFFECT_SUMMON_PET, SPELL_EFFECT_DISMISS_PET, SPELL_EFFECT_FEED_PET, SPELL_EFFECT_CREATE_ITEM,
+        SPELL_EFFECT_CREATE_ITEM_2, SPELL_EFFECT_CREATE_RANDOM_ITEM, SPELL_EFFECT_ENCHANT_ITEM,
+        SPELL_EFFECT_ENCHANT_ITEM_TEMPORARY, SPELL_EFFECT_ENCHANT_ITEM_PRISMATIC, SPELL_EFFECT_ENCHANT_HELD_ITEM,
+        SPELL_EFFECT_RESURRECT, SPELL_EFFECT_RESURRECT_NEW, SPELL_EFFECT_SELF_RESURRECT,
+        SPELL_EFFECT_SUMMON_OBJECT_WILD, SPELL_EFFECT_SUMMON_PLAYER, SPELL_EFFECT_OPEN_LOCK, SPELL_EFFECT_SKINNING,
+        SPELL_EFFECT_PICKPOCKET, SPELL_EFFECT_DISTRACT, SPELL_EFFECT_ADD_FARSIGHT, SPELL_EFFECT_REDIRECT_THREAT,
+        SPELL_EFFECT_SANCTUARY, SPELL_EFFECT_STUCK, SPELL_EFFECT_INSTAKILL, SPELL_EFFECT_TRADE_SKILL,
+        SPELL_EFFECT_PROSPECTING, SPELL_EFFECT_MILLING, SPELL_EFFECT_DISENCHANT });
+}
+
+enum class Use { Never, Interrupt, Taunt, Heal, Shield, Cleanse, Purge, Defend, Attack, Energize, Cooldown, Buff };
+
+bool Heals(SpellInfo const* info)
+{
+    return HasAnyEffect(info, { SPELL_EFFECT_HEAL, SPELL_EFFECT_HEAL_PCT, SPELL_EFFECT_HEAL_MAX_HEALTH }) ||
+        info->HasAura(SPELL_AURA_PERIODIC_HEAL);
+}
+
+Use UseOf(SpellInfo const* info)
+{
+    if (NeverAlone(info))
+        return Use::Never;
+    if (info->HasEffect(SPELL_EFFECT_INTERRUPT_CAST) || info->HasAura(SPELL_AURA_MOD_SILENCE))
+        return Use::Interrupt;
+    if (info->HasEffect(SPELL_EFFECT_ATTACK_ME) || info->HasAura(SPELL_AURA_MOD_TAUNT))
+        return Use::Taunt;
+    if (info->HasEffect(SPELL_EFFECT_DISPEL))
+        return info->IsPositive() ? Use::Cleanse : Use::Purge;
+    if (!info->IsPositive())
+        return HurtsOrHinders(info) && !BreaksOnDamageOrSendsAway(info) ? Use::Attack : Use::Never;
+    if (Heals(info))
+        return Use::Heal;
+    if (info->HasAura(SPELL_AURA_SCHOOL_ABSORB))
+        return Use::Shield;
+    if (HasAnyAura(info, { SPELL_AURA_SCHOOL_IMMUNITY, SPELL_AURA_DAMAGE_IMMUNITY, SPELL_AURA_MOD_PARRY_PERCENT,
+            SPELL_AURA_MOD_DODGE_PERCENT, SPELL_AURA_MOD_DAMAGE_PERCENT_TAKEN, SPELL_AURA_SPLIT_DAMAGE_PCT }))
+        return Use::Defend;
+    if (info->HasEffect(SPELL_EFFECT_ENERGIZE))
+        return Use::Energize;
+    if (info->HasEffect(SPELL_EFFECT_SUMMON))
+        return Use::Cooldown;
+    if (info->HasEffect(SPELL_EFFECT_APPLY_AURA) && info->GetMaxDuration() >= LastingBuff)
+        return LongestRecovery(info) >= BigCooldown ? Use::Cooldown : Use::Buff;
+    return Use::Never;
+}
+
+enum class Helps { Self, Pet, Chosen, Around };
+
+Helps WhomItHelps(SpellInfo const* info)
 {
     for (SpellEffectInfo const& effect : info->GetEffects())
     {
-        switch (effect.Effect)
+        if (!effect.IsEffect())
+            continue;
+        switch (effect.TargetA.GetTarget())
         {
-            case SPELL_EFFECT_SCHOOL_DAMAGE:
-            case SPELL_EFFECT_WEAPON_DAMAGE:
-            case SPELL_EFFECT_WEAPON_DAMAGE_NOSCHOOL:
-            case SPELL_EFFECT_NORMALIZED_WEAPON_DMG:
-            case SPELL_EFFECT_WEAPON_PERCENT_DAMAGE:
-            case SPELL_EFFECT_HEALTH_LEECH:
-            case SPELL_EFFECT_POWER_BURN:
-            case SPELL_EFFECT_POWER_DRAIN:
-            case SPELL_EFFECT_TRANS_DOOR:
+            case TARGET_UNIT_PET:
+                return Helps::Pet;
+            case TARGET_UNIT_CASTER_AREA_PARTY:
+            case TARGET_UNIT_CASTER_AREA_RAID:
+            case TARGET_UNIT_SRC_AREA_ALLY:
+            case TARGET_UNIT_DEST_AREA_ALLY:
+                return Helps::Around;
+            default:
+                break;
+        }
+    }
+    constexpr uint32 FriendlyUnit = TARGET_FLAG_UNIT | TARGET_FLAG_UNIT_ALLY | TARGET_FLAG_UNIT_PARTY |
+        TARGET_FLAG_UNIT_RAID;
+    return (info->GetExplicitTargetMask() & FriendlyUnit) ? Helps::Chosen : Helps::Self;
+}
+
+std::vector<Unit*> Friends(Player* player)
+{
+    std::vector<Unit*> friends = { player };
+    if (Pet* pet = player->GetPet())
+        friends.push_back(pet);
+    if (Group* group = player->GetGroup())
+        for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+        {
+            Player* member = ref->GetSource();
+            if (member && member != player && member->IsInMap(player))
+            {
+                friends.push_back(member);
+                if (Pet* pet = member->GetPet())
+                    friends.push_back(pet);
+            }
+        }
+    std::erase_if(friends, [](Unit* unit) { return !unit->IsInWorld() || !unit->IsAlive(); });
+    return friends;
+}
+
+bool InAFight(Player* player)
+{
+    std::vector<Unit*> const friends = Friends(player);
+    return std::any_of(friends.begin(), friends.end(), [](Unit* unit) { return unit->IsInCombat(); });
+}
+
+bool Reaches(Player* player, SpellInfo const* info, Unit* target)
+{
+    if (target == player)
+        return true;
+    float const range = info->GetMaxRange(info->IsPositive(), player);
+    return (range <= 0.0f || player->IsWithinDistInMap(target, range)) && player->IsWithinLOSInMap(target);
+}
+
+std::vector<Unit*> Helped(Player* player, SpellInfo const* info, std::vector<Unit*> const& friends)
+{
+    switch (WhomItHelps(info))
+    {
+        case Helps::Self:
+            return { player };
+        case Helps::Pet:
+            if (Pet* pet = player->GetPet(); pet && pet->IsAlive())
+                return { pet };
+            return {};
+        default:
+            break;
+    }
+    std::vector<Unit*> helped;
+    for (Unit* unit : friends)
+        if (Reaches(player, info, unit))
+            helped.push_back(unit);
+    return helped;
+}
+
+uint32 ExpectedHealing(Player* player, SpellInfo const* info, Unit* target)
+{
+    uint64 total = 0;
+    for (SpellEffectInfo const& effect : info->GetEffects())
+    {
+        uint32 const base = uint32(std::max(effect.CalcValue(player), 0));
+        if (effect.Effect == SPELL_EFFECT_HEAL)
+            total += player->SpellHealingBonusDone(target, info, base, HEAL, effect.EffectIndex);
+        else if (effect.Effect == SPELL_EFFECT_HEAL_PCT)
+            total += target->CountPctFromMaxHealth(int32(base));
+        else if (effect.Effect == SPELL_EFFECT_HEAL_MAX_HEALTH)
+            total += target->GetMaxHealth();
+        else if (effect.IsAura(SPELL_AURA_PERIODIC_HEAL) && effect.Amplitude)
+            total += uint64(player->SpellHealingBonusDone(target, info, base, DOT, effect.EffectIndex)) *
+                uint32(std::max(info->GetMaxDuration(), 0)) / effect.Amplitude;
+    }
+    return uint32(std::min<uint64>(total, UINT32_MAX));
+}
+
+bool BeingHealedByAnother(Player* player, Unit* target)
+{
+    Group* group = player->GetGroup();
+    if (!group)
+        return false;
+    for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+    {
+        Player* member = ref->GetSource();
+        if (!member || member == player || !member->IsInMap(player))
+            continue;
+        Spell const* casting = member->GetCurrentSpell(CURRENT_GENERIC_SPELL);
+        if (casting && casting->m_targets.GetUnitTargetGUID() == target->GetGUID() && Heals(casting->GetSpellInfo()))
+            return true;
+    }
+    return false;
+}
+
+float HealthPct(Unit const* unit)
+{
+    return unit->GetHealthPct();
+}
+
+uint32 Missing(Unit const* unit)
+{
+    return unit->GetMaxHealth() - unit->GetHealth();
+}
+
+bool HasDispellable(Unit* target, uint32 dispelMask, bool harmful)
+{
+    for (auto const& [auraId, application] : target->GetAppliedAuras())
+    {
+        Aura const* aura = application->GetBase();
+        if (!aura->IsPassive() && application->IsPositive() != harmful &&
+            (aura->GetSpellInfo()->GetDispelMask() & dispelMask))
+            return true;
+    }
+    return false;
+}
+
+uint32 DispelMaskOf(SpellInfo const* info)
+{
+    uint32 mask = 0;
+    for (SpellEffectInfo const& effect : info->GetEffects())
+        if (effect.Effect == SPELL_EFFECT_DISPEL)
+            mask |= SpellInfo::GetDispelMask(DispelType(effect.MiscValue));
+    return mask;
+}
+
+bool AlreadyGiven(Unit* target, SpellInfo const* info, ObjectGuid caster)
+{
+    if (target->GetAura(info->Id, caster))
+        return true;
+    for (auto const& [auraId, application] : target->GetAppliedAuras())
+    {
+        SpellInfo const* held = application->GetBase()->GetSpellInfo();
+        if (held->Id == info->Id || held->GetFirstRankSpell() == info->GetFirstRankSpell())
+            return true;
+        bool const sameCaster = application->GetBase()->GetCasterGUID() == caster;
+        if (info->IsAuraExclusiveBySpecificWith(held) ||
+            (sameCaster && info->IsAuraExclusiveBySpecificPerCasterWith(held)))
+            return true;
+        switch (sSpellMgr->CheckSpellGroupStackRules(info, held))
+        {
+            case SPELL_GROUP_STACK_RULE_EXCLUSIVE:
+            case SPELL_GROUP_STACK_RULE_EXCLUSIVE_SAME_EFFECT:
+            case SPELL_GROUP_STACK_RULE_EXCLUSIVE_HIGHEST:
                 return true;
-            case SPELL_EFFECT_APPLY_AURA:
-            case SPELL_EFFECT_PERSISTENT_AREA_AURA:
-                switch (effect.ApplyAuraName)
-                {
-                    case SPELL_AURA_PERIODIC_DAMAGE:
-                    case SPELL_AURA_PERIODIC_DAMAGE_PERCENT:
-                    case SPELL_AURA_PERIODIC_LEECH:
-                    case SPELL_AURA_PERIODIC_TRIGGER_SPELL:
-                    case SPELL_AURA_MOD_STUN:
-                    case SPELL_AURA_MOD_ROOT:
-                    case SPELL_AURA_MOD_DECREASE_SPEED:
-                    case SPELL_AURA_MOD_CONFUSE:
-                    case SPELL_AURA_MOD_FEAR:
-                    case SPELL_AURA_MOD_SILENCE:
-                    case SPELL_AURA_MOD_PACIFY_SILENCE:
-                    case SPELL_AURA_MOD_DAMAGE_PERCENT_TAKEN:
-                    case SPELL_AURA_MOD_RESISTANCE:
-                        return true;
-                    default:
-                        break;
-                }
+            case SPELL_GROUP_STACK_RULE_EXCLUSIVE_FROM_SAME_CASTER:
+                if (sameCaster)
+                    return true;
                 break;
             default:
                 break;
@@ -2258,39 +2516,59 @@ bool HurtsOrHinders(SpellInfo const* info)
     return false;
 }
 
-constexpr float ManaKeptForTheMain = 0.35f;
-
-bool LeavesManaForTheMain(Player const* player, SpellInfo const* info)
+bool Tanking(Player const* player)
 {
-    if (info->PowerType != POWER_MANA)
+    switch (player->GetShapeshiftForm())
+    {
+        case FORM_DEFENSIVESTANCE:
+        case FORM_BEAR:
+        case FORM_DIREBEAR:
+            return true;
+        default:
+            break;
+    }
+    return player->GetTotalAuraModifier(SPELL_AURA_MOD_THREAT) > 0;
+}
+
+bool OursOrUs(Player const* player, Unit const* unit)
+{
+    return unit == player || unit->GetCharmerOrOwnerGUID() == player->GetGUID();
+}
+
+bool FoeOnAFriend(Player* player, Unit* foe)
+{
+    Unit* victim = foe->GetVictim();
+    if (!victim || OursOrUs(player, victim))
+        return false;
+    std::vector<Unit*> const friends = Friends(player);
+    return std::find(friends.begin(), friends.end(), victim) != friends.end();
+}
+
+bool Casting(Unit const* foe)
+{
+    return foe->IsNonMeleeSpellCast(false, false, true);
+}
+
+bool WorthTheBigCooldown(Unit const* foe)
+{
+    if (!foe)
+        return false;
+    if (foe->IsPlayer())
+        return true;
+    Creature const* creature = foe->ToCreature();
+    return creature && (creature->isElite() || creature->isWorldBoss());
+}
+
+constexpr float ManaKeptForTheMain = 0.35f;
+constexpr float LowPowerPct = 30.0f;
+
+bool LeavesManaForTheMain(Player const* player, SpellInfo const* info, bool emergency)
+{
+    if (info->PowerType != POWER_MANA || emergency)
         return true;
     int32 const cost = info->CalcPowerCost(player, info->GetSchoolMask());
     return int64(player->GetPower(POWER_MANA)) - cost >=
         int64(player->GetMaxPower(POWER_MANA) * ManaKeptForTheMain);
-}
-
-bool WorthDoingAlone(SpellInfo const* info)
-{
-    if (info->IsChanneled())
-        return false;
-    switch (info->GetSpellSpecific())
-    {
-        case SPELL_SPECIFIC_ASPECT:
-        case SPELL_SPECIFIC_AURA:
-        case SPELL_SPECIFIC_PRESENCE:
-        case SPELL_SPECIFIC_TRACKER:
-            return false;
-        default:
-            break;
-    }
-    for (AuraType type : { SPELL_AURA_BIND_SIGHT, SPELL_AURA_FAR_SIGHT, SPELL_AURA_MOD_POSSESS,
-             SPELL_AURA_MOD_POSSESS_PET, SPELL_AURA_TRACK_CREATURES, SPELL_AURA_TRACK_RESOURCES,
-             SPELL_AURA_TRACK_STEALTHED, SPELL_AURA_MOD_STEALTH_DETECT, SPELL_AURA_MOD_SHAPESHIFT,
-             SPELL_AURA_MOD_INVISIBILITY_DETECT })
-        if (info->HasAura(type))
-            return false;
-    return !info->HasEffect(SPELL_EFFECT_SUMMON) && !info->HasEffect(SPELL_EFFECT_TAMECREATURE) &&
-        !info->HasEffect(SPELL_EFFECT_RESURRECT_PET);
 }
 
 bool RecentlyRefused(Player const* player, uint32 spellId)
@@ -2301,51 +2579,161 @@ bool RecentlyRefused(Player const* player, uint32 spellId)
     return itr != refused.end() && itr->second > GameTime::GetGameTimeMS().count();
 }
 
+struct Pick
+{
+    uint32 SpellId = 0;
+    Unit* Target = nullptr;
+    int32 Tier = 0;
+    float HealthPct = 100.0f;
+    uint32 Weight = 0;
+};
+
+enum Tier : int32
+{
+    TierBuff = 1,
+    TierCooldown,
+    TierAttack,
+    TierEnergize,
+    TierHelp,
+    TierTaunt,
+    TierEmergency,
+    TierInterrupt
+};
+
+void Consider(Pick& best, Pick const& pick)
+{
+    if (pick.Tier > best.Tier)
+    {
+        best = pick;
+        return;
+    }
+    if (pick.Tier < best.Tier)
+        return;
+    bool const better = pick.Tier == TierHelp || pick.Tier == TierEmergency ?
+        Subclass::BetterHeal(pick.HealthPct, pick.Weight, best.HealthPct, best.Weight) : pick.Weight > best.Weight;
+    if (better)
+        best = pick;
+}
+
+bool ReachesFoe(Player* player, SpellInfo const* info, Unit* foe)
+{
+    return IsShot(info) ? BrotherReaches(player, info, foe) : Reaches(player, info, foe);
+}
+
+void ConsiderHeal(Player* player, SpellInfo const* info, std::vector<Unit*> const& friends, Pick& best)
+{
+    std::vector<Unit*> const helped = Helped(player, info, friends);
+    bool const around = WhomItHelps(info) == Helps::Around;
+    std::size_t worth = 0;
+    Pick pick;
+    for (Unit* unit : helped)
+    {
+        if (BeingHealedByAnother(player, unit) || (info->HasAura(SPELL_AURA_PERIODIC_HEAL) &&
+                unit->GetAura(info->Id, player->GetGUID())))
+            continue;
+        uint32 const expected = ExpectedHealing(player, info, unit);
+        if (!Subclass::HealWorthCasting(expected, Missing(unit), HealthPct(unit)))
+            continue;
+        ++worth;
+        Pick const candidate = { info->Id, around ? player : unit,
+            HealthPct(unit) < Subclass::CriticalHealthPct ? TierEmergency : TierHelp, HealthPct(unit), expected };
+        if (!pick.SpellId || Subclass::BetterHeal(candidate.HealthPct, candidate.Weight, pick.HealthPct,
+                pick.Weight))
+            pick = candidate;
+    }
+    if (pick.SpellId && (!around || worth >= std::min<std::size_t>(2, helped.size())))
+        Consider(best, pick);
+}
+
+void ConsiderShield(Player* player, SpellInfo const* info, std::vector<Unit*> const& friends, Pick& best)
+{
+    for (Unit* unit : Helped(player, info, friends))
+        if (!unit->getAttackers().empty() && !AlreadyGiven(unit, info, player->GetGUID()) &&
+            HealthPct(unit) < Subclass::AlmostFullHealthPct)
+            Consider(best, { info->Id, unit, TierHelp, HealthPct(unit), 0 });
+}
+
+void ConsiderCleanse(Player* player, SpellInfo const* info, std::vector<Unit*> const& friends, Pick& best)
+{
+    uint32 const mask = DispelMaskOf(info);
+    for (Unit* unit : Helped(player, info, friends))
+        if (HasDispellable(unit, mask, true))
+            Consider(best, { info->Id, unit, TierHelp, HealthPct(unit), 0 });
+}
+
+void ConsiderSpell(Player* player, SpellInfo const* info, Unit* foe, std::vector<Unit*> const& friends, Pick& best)
+{
+    uint32 const recovery = LongestRecovery(info);
+    switch (UseOf(info))
+    {
+        case Use::Interrupt:
+            if (foe && Casting(foe) && ReachesFoe(player, info, foe))
+                Consider(best, { info->Id, foe, TierInterrupt, 100.0f, recovery });
+            break;
+        case Use::Taunt:
+            if (foe && Subclass::TauntNeeded(Tanking(player), foe->GetVictim() == player, FoeOnAFriend(player, foe)) &&
+                ReachesFoe(player, info, foe))
+                Consider(best, { info->Id, foe, TierTaunt, 100.0f, recovery });
+            break;
+        case Use::Heal:
+            ConsiderHeal(player, info, friends, best);
+            break;
+        case Use::Shield:
+            ConsiderShield(player, info, friends, best);
+            break;
+        case Use::Cleanse:
+            ConsiderCleanse(player, info, friends, best);
+            break;
+        case Use::Purge:
+            if (foe && HasDispellable(foe, DispelMaskOf(info), false) && ReachesFoe(player, info, foe))
+                Consider(best, { info->Id, foe, TierAttack, 100.0f, recovery });
+            break;
+        case Use::Defend:
+            if (HealthPct(player) < Subclass::LowHealthPct && !player->getAttackers().empty() &&
+                !AlreadyGiven(player, info, player->GetGUID()))
+                Consider(best, { info->Id, player, TierEmergency, HealthPct(player), recovery });
+            break;
+        case Use::Attack:
+            if (foe && ReachesFoe(player, info, foe) && !(info->HasEffect(SPELL_EFFECT_APPLY_AURA) &&
+                    AlreadyGiven(foe, info, player->GetGUID())))
+                Consider(best, { info->Id, foe, TierAttack, 100.0f, recovery });
+            break;
+        case Use::Energize:
+            if (info->PowerType != POWER_MANA && player->GetPowerPct(player->getPowerType()) < LowPowerPct)
+                Consider(best, { info->Id, player, TierEnergize, 100.0f, recovery });
+            break;
+        case Use::Cooldown:
+            if (WorthTheBigCooldown(foe) && !AlreadyGiven(player, info, player->GetGUID()))
+                Consider(best, { info->Id, player, TierCooldown, 100.0f, recovery });
+            break;
+        case Use::Buff:
+        {
+            Unit* const buffed = WhomItHelps(info) == Helps::Pet ? static_cast<Unit*>(player->GetPet()) : player;
+            if (buffed && !AlreadyGiven(buffed, info, player->GetGUID()))
+                Consider(best, { info->Id, player, TierBuff, 100.0f, recovery });
+            break;
+        }
+        case Use::Never:
+            break;
+    }
+}
+
 std::pair<uint32, Unit*> PickSpell(Player* player)
 {
     Unit* foe = TwinTarget(player);
-    uint32 attack = 0;
-    uint32 attackRecovery = 0;
-    uint32 buff = 0;
+    std::vector<Unit*> const friends = Friends(player);
+    bool const emergency = std::any_of(friends.begin(), friends.end(),
+        [](Unit* unit) { return HealthPct(unit) < Subclass::CriticalHealthPct; });
+    Pick best;
     for (uint32 spellId : KnownBorrowedActives(player))
     {
         SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
-        if (!info || !Affordable(player, info) || RecentlyRefused(player, spellId) || !WorthDoingAlone(info) ||
-            !LeavesManaForTheMain(player, info))
+        if (!info || !Affordable(player, info) || RecentlyRefused(player, spellId) ||
+            !LeavesManaForTheMain(player, info, emergency))
             continue;
-        bool const heals = info->HasEffect(SPELL_EFFECT_HEAL) || info->HasAura(SPELL_AURA_PERIODIC_HEAL);
-        if (heals)
-        {
-            if (player->GetHealthPct() < HealBelowPct)
-                return { spellId, player };
-            continue;
-        }
-        if (info->IsPositive())
-        {
-            if (!buff && info->HasEffect(SPELL_EFFECT_APPLY_AURA) && info->GetDuration() >= LastingBuff &&
-                !player->HasAura(spellId))
-                buff = spellId;
-            continue;
-        }
-        if (!foe || !HurtsOrHinders(info))
-            continue;
-        float const range = info->GetMaxRange(false, player);
-        bool const reaches = IsShot(info) ? BrotherReaches(player, info, foe) :
-            (range <= 0.0f || player->IsWithinDistInMap(foe, range)) && player->IsWithinLOSInMap(foe);
-        if (!reaches)
-            continue;
-        uint32 const recovery = std::max(info->RecoveryTime, info->CategoryRecoveryTime);
-        if (!attack || recovery > attackRecovery)
-        {
-            attack = spellId;
-            attackRecovery = recovery;
-        }
+        ConsiderSpell(player, info, foe, friends, best);
     }
-    if (attack)
-        return { attack, foe };
-    if (buff)
-        return { buff, player };
-    return { 0, nullptr };
+    return { best.SpellId, best.Target };
 }
 
 void PlayEasy(Player* player, uint32 diff)
@@ -2362,7 +2750,7 @@ void PlayEasy(Player* player, uint32 diff)
             return;
     }
     uint32 const easyAura = HasTwin(player) ? CowboyAura : HalfBrainAura;
-    if (!player->HasAura(easyAura) || !player->IsInCombat() || !player->IsAlive() || player->HasStealthAura() ||
+    if (!player->HasAura(easyAura) || !InAFight(player) || !player->IsAlive() || player->HasStealthAura() ||
         !OtherHalfAwake(player) || (HasTwin(player) && !BrotherOut(player)))
         return;
     auto const [spellId, target] = PickSpell(player);

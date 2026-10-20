@@ -209,3 +209,28 @@ TEST(Subclass, AStandardMainBorrowsTheCoAClassBudgetForTheLentTrees)
     EXPECT_EQ(classPoints, 0u);
     EXPECT_EQ(specializationPoints, 35u);
 }
+
+TEST(Subclass, TheOtherHalfHealsWhatIsMissingWithoutOverhealing)
+{
+    EXPECT_FALSE(HealWorthCasting(500, 0, 100.0f));
+    EXPECT_FALSE(HealWorthCasting(100, 1000, 90.0f));
+    EXPECT_TRUE(HealWorthCasting(800, 1000, 70.0f));
+    EXPECT_FALSE(HealWorthCasting(3000, 1000, 70.0f));
+    EXPECT_FALSE(HealWorthCasting(9000, 6000, 40.0f));
+    EXPECT_TRUE(HealWorthCasting(9000, 8000, 20.0f));
+}
+
+TEST(Subclass, TheMostHurtFriendGetsTheBiggestFittingHeal)
+{
+    EXPECT_TRUE(BetterHeal(30.0f, 500, 60.0f, 2000));
+    EXPECT_FALSE(BetterHeal(60.0f, 2000, 30.0f, 500));
+    EXPECT_TRUE(BetterHeal(50.0f, 2000, 50.0f, 500));
+}
+
+TEST(Subclass, TheOtherHalfTauntsOnlyWhatATankLostToAFriend)
+{
+    EXPECT_TRUE(TauntNeeded(true, false, true));
+    EXPECT_FALSE(TauntNeeded(true, true, false));
+    EXPECT_FALSE(TauntNeeded(false, false, true));
+    EXPECT_FALSE(TauntNeeded(true, false, false));
+}

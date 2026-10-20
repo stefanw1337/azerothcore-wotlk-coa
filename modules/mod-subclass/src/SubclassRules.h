@@ -251,6 +251,29 @@ inline std::uint32_t CyclopsHelmet(bool ownWardrobe, bool helmHidden, std::uint3
     return helmHidden ? 0 : wornHelmet;
 }
 
+constexpr float CriticalHealthPct = 25.0f;
+constexpr float LowHealthPct = 45.0f;
+constexpr float AlmostFullHealthPct = 85.0f;
+
+inline bool HealWorthCasting(std::uint32_t expected, std::uint32_t missing, float healthPct)
+{
+    if (!missing || healthPct >= AlmostFullHealthPct)
+        return false;
+    return expected <= missing || healthPct < CriticalHealthPct;
+}
+
+inline bool BetterHeal(float healthPct, std::uint32_t expected, float bestHealthPct, std::uint32_t bestExpected)
+{
+    if (healthPct != bestHealthPct)
+        return healthPct < bestHealthPct;
+    return expected > bestExpected;
+}
+
+inline bool TauntNeeded(bool tanking, bool foeOnUs, bool foeOnFriend)
+{
+    return tanking && !foeOnUs && foeOnFriend;
+}
+
 inline Choice Trimmed(std::vector<Pair> const& pairs, Character const& character, Choice const& choice)
 {
     if (!choice.Complete() || !AllowsChoice(pairs, character, choice))
