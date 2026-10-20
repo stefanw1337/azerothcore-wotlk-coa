@@ -50,6 +50,8 @@ void HandleTwinLook(Player* player, std::vector<std::string_view> const& words);
 void LearnStandardMainWeaponSkills(Player* player);
 std::string TwinWearing(Player const* player);
 void EchoCyclopsHelmet(Player* player);
+std::string RelicState(Player* player);
+std::string HandleRelicMessage(Player* player, std::vector<std::string_view> const& words);
 std::string TwinState(Player const* player);
 std::string ToggleTwin(Player* player);
 bool SubclassResting(Player const* player);
@@ -753,6 +755,7 @@ void SendSubclassState(Player* player)
         record.Insights));
     if (Subclass::Choice const choice = ChoiceOf(player); choice.Complete())
         SendAddon(player, Acore::StringFormat("SUBCLASS {}", PlainClassName(choice.SubClass)));
+    SendAddon(player, RelicState(player));
     for (std::size_t index = 0; index < open.size(); ++index)
     {
         Subclass::Tree const& tree = open[index];
@@ -837,6 +840,7 @@ void HandleAddonMessage(Player* player, std::string_view message)
     {
         SendSubclassState(player);
         SendAddon(player, TwinState(player));
+        SendAddon(player, RelicState(player));
         return;
     }
     if (message == "TWINTOGGLE")
@@ -853,6 +857,12 @@ void HandleAddonMessage(Player* player, std::string_view message)
     }
     else if (words.size() == 1 && words[0] == "TWINWEARING")
         SendAddon(player, TwinWearing(player));
+    else if (!words.empty() && words[0].starts_with("RELIC"))
+    {
+        if (std::string const refusal = HandleRelicMessage(player, words); !refusal.empty())
+            ChatHandler(player->GetSession()).SendSysMessage(refusal);
+        SendAddon(player, RelicState(player));
+    }
     else if (words.size() == 1 && words[0] == "CYCLOPSECHO")
     {
         EchoCyclopsHelmet(player);

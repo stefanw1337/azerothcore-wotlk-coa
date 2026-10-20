@@ -610,6 +610,92 @@ if PaperDollFrame_SetLevel then
     hooksecurefunc("PaperDollFrame_SetLevel", SubclassedLevelLine)
 end
 
+local relicState = { eligible = false, entry = 0 }
+local relicButton
+local RELIC_EMPTY = "Interface\\Paperdoll\\UI-PaperDoll-Slot-Relic"
+
+local function ServerSlotOf(bag, slot)
+    if bag == 0 then
+        return 255, 22 + slot
+    end
+    return 18 + bag, slot - 1
+end
+
+local function CursorBagSlot()
+    local kind, _, link = GetCursorInfo()
+    if kind ~= "item" then
+        return
+    end
+    for bag = 0, 4 do
+        for slot = 1, GetContainerNumSlots(bag) do
+            local _, _, locked = GetContainerItemInfo(bag, slot)
+            if locked and GetContainerItemLink(bag, slot) == link then
+                return bag, slot
+            end
+        end
+    end
+end
+
+local function WearCursorRelic()
+    local bag, slot = CursorBagSlot()
+    if not bag then
+        return false
+    end
+    local serverBag, serverSlot = ServerSlotOf(bag, slot)
+    ClearCursor()
+    Send("RELICWEAR " .. serverBag .. " " .. serverSlot)
+    return true
+end
+
+local function ShowRelic()
+    if not relicButton then
+        return
+    end
+    if not relicState.eligible then
+        relicButton:Hide()
+        return
+    end
+    local icon = relicState.entry > 0 and (GetItemIcon and GetItemIcon(relicState.entry)
+        or select(10, GetItemInfo(relicState.entry)))
+    relicButton.icon:SetTexture(icon or RELIC_EMPTY)
+    relicButton:Show()
+end
+
+local function CreateRelicButton()
+    if relicButton or not CharacterRangedSlot then
+        return
+    end
+    relicButton = CreateFrame("Button", "Ascension_SubclassRelicSlot", CharacterRangedSlot:GetParent(),
+        "ItemButtonTemplate")
+    relicButton:SetPoint("LEFT", CharacterRangedSlot, "RIGHT", 8, 0)
+    relicButton.icon = _G["Ascension_SubclassRelicSlotIconTexture"]
+    relicButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    relicButton:RegisterForDrag("LeftButton")
+    relicButton:SetScript("OnReceiveDrag", WearCursorRelic)
+    relicButton:SetScript("OnClick", function(_, mouse)
+        if WearCursorRelic() then
+            return
+        end
+        if relicState.entry > 0 then
+            Send(mouse == "RightButton" and "RELICUSE" or "RELICTAKE")
+        end
+    end)
+    relicButton:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if relicState.entry > 0 then
+            GameTooltip:SetHyperlink("item:" .. relicState.entry)
+            GameTooltip:AddLine("Left-click to take it off. Right-click to use it.", 0.5, 0.8, 1, true)
+        else
+            GameTooltip:SetText("Relic", 1, 1, 1)
+            GameTooltip:AddLine("Drop a libram, idol, totem or sigil here to hold it beside your ranged weapon.",
+                nil, nil, nil, true)
+        end
+        GameTooltip:Show()
+    end)
+    relicButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    ShowRelic()
+end
+
 local function Receive(message)
     local command, rest = string.match(message, "^(%S+)%s?(.*)$")
     if command == "TWINSTATE" then
@@ -618,6 +704,13 @@ local function Receive(message)
         if ShowTwinState then
             ShowTwinState()
         end
+        return
+    end
+    if command == "RELIC" then
+        local eligible, entry = string.match(rest, "^(%d) (%d+)$")
+        relicState = { eligible = eligible == "1", entry = tonumber(entry) or 0 }
+        CreateRelicButton()
+        ShowRelic()
         return
     end
     if command == "TWINWEAR" then
