@@ -87,33 +87,41 @@ do
 		pcall(C_CharacterCreate.SetCameraPosition, x * k, y * k, z * (1 + (k - 1) * 0.6))
 	end)
 	local selectWatch = CreateFrame("Frame")
-	local shownRace, applied
+	local placed, seen, steady
 	selectWatch:SetScript("OnUpdate", function(self, elapsed)
 		self.wait = (self.wait or 0) + elapsed
 		if self.wait < 0.2 then return end
 		self.wait = 0
-		if not (CharacterSelect and CharacterSelect:IsShown() and CharacterSelect.selectedIndex) then
-			shownRace, applied = nil, nil
+		if not (CharacterSelect and CharacterSelect:IsShown() and CharacterSelect.selectedIndex
+			and C_CharacterCreate and C_CharacterCreate.GetCameraPosition) then
+			placed, seen, steady = nil, nil, 0
 			return
 		end
 		local ok, _, race = pcall(GetCharacterInfo, GetCharIDFromIndex and GetCharIDFromIndex(CharacterSelect.selectedIndex) or CharacterSelect.selectedIndex)
-		race = ok and race or nil
-		if race == shownRace then return end
-		shownRace = race
-		local k = COA_SUBCLASS_SELECT_SCALES[race or ""]
+		local k = ok and COA_SUBCLASS_SELECT_SCALES[race or ""]
 		if CharacterSelect.SetCamDistanceScale then
-			pcall(CharacterSelect.SetCamDistanceScale, CharacterSelect, k or 1)
+			pcall(CharacterSelect.SetCamDistanceScale, CharacterSelect, 1)
 		end
-		if k and not applied and C_CharacterCreate and C_CharacterCreate.GetCameraPosition then
-			pcall(function()
-				local x, y, z = C_CharacterCreate.GetCameraPosition()
-				applied = { x, y, z }
-				C_CharacterCreate.SetCameraPosition(x * k, y * k, z * (1 + (k - 1) * 0.6))
-			end)
-		elseif not k and applied and C_CharacterCreate and C_CharacterCreate.SetCameraPosition then
-			pcall(C_CharacterCreate.SetCameraPosition, applied[1], applied[2], applied[3])
-			applied = nil
+		local got, x, y, z = pcall(C_CharacterCreate.GetCameraPosition)
+		if not got or not x then return end
+		local now = { x, y, z }
+		if placed and Near(now, placed.target) then
+			if not k then
+				pcall(C_CharacterCreate.SetCameraPosition, placed.base[1], placed.base[2], placed.base[3])
+				placed = nil
+			end
+			return
 		end
+		if not k then
+			placed = nil
+			return
+		end
+		steady = Near(now, seen) and (steady or 0) + 1 or 0
+		seen = now
+		if steady < 1 then return end
+		local target = { x * k, y * k, z * (1 + (k - 1) * 0.6) }
+		placed = { base = now, target = target }
+		pcall(C_CharacterCreate.SetCameraPosition, target[1], target[2], target[3])
 	end)
 end
 
