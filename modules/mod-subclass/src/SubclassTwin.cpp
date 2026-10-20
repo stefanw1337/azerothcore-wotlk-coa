@@ -2258,6 +2258,41 @@ bool HurtsOrHinders(SpellInfo const* info)
     return false;
 }
 
+constexpr float ManaKeptForTheMain = 0.35f;
+
+bool LeavesManaForTheMain(Player const* player, SpellInfo const* info)
+{
+    if (info->PowerType != POWER_MANA)
+        return true;
+    int32 const cost = info->CalcPowerCost(player, info->GetSchoolMask());
+    return int64(player->GetPower(POWER_MANA)) - cost >=
+        int64(player->GetMaxPower(POWER_MANA) * ManaKeptForTheMain);
+}
+
+bool WorthDoingAlone(SpellInfo const* info)
+{
+    if (info->IsChanneled())
+        return false;
+    switch (info->GetSpellSpecific())
+    {
+        case SPELL_SPECIFIC_ASPECT:
+        case SPELL_SPECIFIC_AURA:
+        case SPELL_SPECIFIC_PRESENCE:
+        case SPELL_SPECIFIC_TRACKER:
+            return false;
+        default:
+            break;
+    }
+    for (AuraType type : { SPELL_AURA_BIND_SIGHT, SPELL_AURA_FAR_SIGHT, SPELL_AURA_MOD_POSSESS,
+             SPELL_AURA_MOD_POSSESS_PET, SPELL_AURA_TRACK_CREATURES, SPELL_AURA_TRACK_RESOURCES,
+             SPELL_AURA_TRACK_STEALTHED, SPELL_AURA_MOD_STEALTH_DETECT, SPELL_AURA_MOD_SHAPESHIFT,
+             SPELL_AURA_MOD_INVISIBILITY_DETECT })
+        if (info->HasAura(type))
+            return false;
+    return !info->HasEffect(SPELL_EFFECT_SUMMON) && !info->HasEffect(SPELL_EFFECT_TAMECREATURE) &&
+        !info->HasEffect(SPELL_EFFECT_RESURRECT_PET);
+}
+
 bool RecentlyRefused(Player const* player, uint32 spellId)
 {
     std::lock_guard<std::mutex> lock(twinMutex);
@@ -2275,7 +2310,8 @@ std::pair<uint32, Unit*> PickSpell(Player* player)
     for (uint32 spellId : KnownBorrowedActives(player))
     {
         SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
-        if (!info || !Affordable(player, info) || RecentlyRefused(player, spellId))
+        if (!info || !Affordable(player, info) || RecentlyRefused(player, spellId) || !WorthDoingAlone(info) ||
+            !LeavesManaForTheMain(player, info))
             continue;
         bool const heals = info->HasEffect(SPELL_EFFECT_HEAL) || info->HasAura(SPELL_AURA_PERIODIC_HEAL);
         if (heals)
