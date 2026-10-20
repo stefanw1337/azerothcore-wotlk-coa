@@ -98,6 +98,7 @@ HELMET_SHIFT = (-0.1, 0.0, -0.17)
 HELMET_SCALE = (0.95, 1.08, 0.95)
 HELMET_TILT = 0.0
 CYCLOPS_HELMET_ATTACHMENT = 25
+CYCLOPS_HELMET_SHIFT = (-0.02, 0.0, -0.03)
 ATTACHMENT_SCALE = 1.9
 ANIMATED = b"\x01"
 BONE_PIVOT = 76
@@ -343,7 +344,7 @@ def helmet_seat(m2):
 
 
 def cyclops_helmet_seat(helmet_position):
-    return helmet_position * (1.0, -1.0, 1.0)
+    return helmet_position * (1.0, -1.0, 1.0) + np.array(CYCLOPS_HELMET_SHIFT)
 
 
 def add_attachment(blob, m2, attachment_id, bone, position, global_sequence):
