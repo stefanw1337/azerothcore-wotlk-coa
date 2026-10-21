@@ -3472,6 +3472,16 @@ bool SwingsAWeapon(SpellInfo const* info)
         info->HasEffect(SPELL_EFFECT_WEAPON_PERCENT_DAMAGE));
 }
 
+void HideOtherHeadsArm(Player* player, SpellInfo const* info)
+{
+    bool const hidden = IsBorrowedSpell(player, info->Id) &&
+        !(info->HasAttribute(SPELL_ATTR0_USES_RANGED_SLOT) && GunInHand(player));
+    if (hidden)
+        strikingAsOtherHead = { player->GetGUID(), ObjectGuid::Empty, info->Id };
+    else if (strikingAsOtherHead.Player == player->GetGUID() && strikingAsOtherHead.Spell == info->Id)
+        strikingAsOtherHead = {};
+}
+
 class mod_subclass_twin_shots : public PlayerScript
 {
 public:
@@ -3479,9 +3489,12 @@ public:
 
     void OnPlayerSpellCast(Player* player, Spell* spell, bool /*skipCheck*/) override
     {
-        if (!spell || !HasSecondHead(player) || !OtherHalfAwake(player))
+        if (!spell || !HasSecondHead(player))
             return;
         SpellInfo const* info = spell->GetSpellInfo();
+        HideOtherHeadsArm(player, info);
+        if (!OtherHalfAwake(player))
+            return;
         if (!IsShot(info))
         {
             if (SwingsAWeapon(info) && IsBorrowedSpell(player, info->Id))
