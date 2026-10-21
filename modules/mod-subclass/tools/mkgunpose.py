@@ -39,8 +39,8 @@ MACE_RESTING_REACH = (-0.2, -0.3, 0.175)
 GUN_REACHES = grid(np.arange(0.2, 0.85, 0.1), np.arange(0.0, 0.45, 0.1), np.arange(-0.9, 0.05, 0.15))
 FRONT_CLEARANCE = 0.06
 LATERAL = (0.0, 1.0, 0.0)
-SPIN_COCK = ((0, 0, 0), (70, -30, -12), (160, -10, -4), (260, 90, 10), (360, 180, 14), (460, 270, 10),
-             (560, 360, 4), (720, 355, 0), (1000, 360, 0))
+SPIN_COCK = ((0, 0, 0), (70, 30, 12), (160, 10, 4), (260, -90, -10), (360, -180, -14), (460, -270, -10),
+             (560, -360, -4), (720, -355, 0), (1000, -360, 0))
 COPIED = ((49, READY_RIFLE, True, True, HELD_AIM), (49, 49, True, True, None), (49, 110, True, True, None),
           (109, READY_BOW, False, False, HELD_AIM), (46, 46, False, False, None), (109, 109, False, False, None),
           (49, ATTACK_OFF_PIERCE, True, True, None))

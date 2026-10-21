@@ -39,6 +39,7 @@
 #include <limits>
 #include <list>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 
 using namespace Acore::ChatCommands;
@@ -2316,7 +2317,7 @@ bool ShowHitsOnBrother(WorldSession* session, WorldPacket const& packet)
 
 bool IsShot(SpellInfo const* info);
 
-bool HideOtherHeadStrikeCast(WorldPacket const& packet)
+bool HideShotWithoutGun(WorldPacket const& packet)
 {
     if (packet.GetOpcode() != SMSG_SPELL_START && packet.GetOpcode() != SMSG_SPELL_GO)
         return true;
@@ -2329,8 +2330,6 @@ bool HideOtherHeadStrikeCast(WorldPacket const& packet)
     reader >> source.ReadAsPacked();
     reader >> caster.ReadAsPacked();
     reader >> castCount >> spellId;
-    if (strikingAsOtherHead.Spell && caster == strikingAsOtherHead.Player && spellId == strikingAsOtherHead.Spell)
-        return false;
     SpellInfo const* info = caster.IsPlayer() ? sSpellMgr->GetSpellInfo(spellId) : nullptr;
     if (!info || !IsShot(info))
         return true;
@@ -2340,6 +2339,106 @@ bool HideOtherHeadStrikeCast(WorldPacket const& packet)
     if (packet.GetOpcode() == SMSG_SPELL_GO)
         LOG_INFO("module", "mod-subclass: hides the shooting animation of {} ({}) without a gun in {}'s hand",
             info->SpellName[0], spellId, shooter->GetName());
+    return false;
+}
+
+std::unordered_map<uint32, uint32> const& OtherHeadSpells()
+{
+    static std::unordered_map<uint32, uint32> const shown = []
+    {
+        std::unordered_map<uint32, uint32> loaded;
+        bool const exists = bool(WorldDatabase.Query("SELECT 1 FROM information_schema.TABLES WHERE "
+            "TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mod_subclass_other_head_spell'"));
+        if (exists)
+            if (QueryResult result =
+                    WorldDatabase.Query("SELECT `SpellId`, `ShownId` FROM `mod_subclass_other_head_spell`"))
+                do
+                {
+                    Field* fields = result->Fetch();
+                    loaded[fields[0].Get<uint32>()] = fields[1].Get<uint32>();
+                } while (result->NextRow());
+        LOG_INFO("module", "mod-subclass: {} class spells have a copy the other head casts without her arm",
+            loaded.size());
+        return loaded;
+    }();
+    return shown;
+}
+
+uint32 OtherHeadShownSpell(uint32 spellId)
+{
+    auto const& shown = OtherHeadSpells();
+    auto const itr = shown.find(spellId);
+    return itr == shown.end() ? 0 : itr->second;
+}
+
+constexpr std::array<uint32, 10> ClassSpellFamilies = { SPELLFAMILY_MAGE, SPELLFAMILY_WARRIOR, SPELLFAMILY_WARLOCK,
+    SPELLFAMILY_PRIEST, SPELLFAMILY_DRUID, SPELLFAMILY_ROGUE, SPELLFAMILY_HUNTER, SPELLFAMILY_PALADIN,
+    SPELLFAMILY_SHAMAN, SPELLFAMILY_DEATHKNIGHT };
+
+bool LeavesTheArmsAlone(uint32 spellId)
+{
+    SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+    return info && std::find(ClassSpellFamilies.begin(), ClassSpellFamilies.end(), info->SpellFamilyName) !=
+        ClassSpellFamilies.end();
+}
+
+struct SpellPacket
+{
+    ObjectGuid Caster;
+    uint32 SpellId = 0;
+    std::size_t SpellAt = 0;
+};
+
+std::optional<SpellPacket> ReadSpellPacket(WorldPacket const& packet)
+{
+    WorldPacket reader(packet);
+    reader.rpos(0);
+    SpellPacket read;
+    ObjectGuid other;
+    uint8 castCount = 0;
+    switch (packet.GetOpcode())
+    {
+        case SMSG_SPELL_START:
+        case SMSG_SPELL_GO:
+            reader >> other.ReadAsPacked() >> read.Caster.ReadAsPacked() >> castCount;
+            break;
+        case SMSG_SPELL_FAILURE:
+        case SMSG_SPELL_FAILED_OTHER:
+            reader >> read.Caster.ReadAsPacked() >> castCount;
+            break;
+        case SMSG_SPELLLOGEXECUTE:
+            reader >> read.Caster.ReadAsPacked();
+            break;
+        case SMSG_SPELLNONMELEEDAMAGELOG:
+        case SMSG_SPELLHEALLOG:
+        case SMSG_SPELLENERGIZELOG:
+            reader >> other.ReadAsPacked() >> read.Caster.ReadAsPacked();
+            break;
+        case SMSG_SPELLLOGMISS:
+            reader >> read.SpellId >> read.Caster;
+            return read;
+        default:
+            return std::nullopt;
+    }
+    read.SpellAt = reader.rpos();
+    reader >> read.SpellId;
+    return read;
+}
+
+bool ShowOtherHeadStrikeAsCopy(WorldSession* session, WorldPacket const& packet)
+{
+    if (!strikingAsOtherHead.Spell)
+        return true;
+    std::optional<SpellPacket> const read = ReadSpellPacket(packet);
+    if (!read || read->Caster != strikingAsOtherHead.Player || read->SpellId != strikingAsOtherHead.Spell)
+        return true;
+    uint32 const shown = OtherHeadShownSpell(read->SpellId);
+    if (!shown)
+        return (packet.GetOpcode() != SMSG_SPELL_START && packet.GetOpcode() != SMSG_SPELL_GO) ||
+            LeavesTheArmsAlone(read->SpellId);
+    WorldPacket copy(packet);
+    copy.put<uint32>(read->SpellAt, shown);
+    session->SendPacket(&copy);
     return false;
 }
 
@@ -2419,7 +2518,8 @@ public:
     {
         if (session)
             NoteAttackStopped(session, packet);
-        return !session || (HideOtherHeadStrikeCast(packet) && ShowCastOnBrother(session, packet) &&
+        return !session || (HideShotWithoutGun(packet) && ShowOtherHeadStrikeAsCopy(session, packet) &&
+            ShowCastOnBrother(session, packet) &&
             ShareSwingWithBrother(session, packet) && ShowHitsOnBrother(session, packet));
     }
 
