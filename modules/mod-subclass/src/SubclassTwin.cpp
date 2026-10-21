@@ -1370,6 +1370,32 @@ void HoldWeaponLook(Player* player, uint32 itemId)
 
 std::unordered_set<uint32>& castsNoted = *new std::unordered_set<uint32>;
 
+void NoteHands(Player* player, char const* moment)
+{
+    LOG_INFO("module", "mod-subclass: {} {}: main {}, off {}, ranged {}, sheath {}, emote state {}, gun in hand {}, "
+        "melee {}, casting {}", player->GetName(), moment, ShownIn(player, EQUIPMENT_SLOT_MAINHAND),
+        ShownIn(player, EQUIPMENT_SLOT_OFFHAND), ShownIn(player, EQUIPMENT_SLOT_RANGED), uint32(player->GetSheath()),
+        player->GetUInt32Value(UNIT_NPC_EMOTESTATE), GunInHand(player),
+        player->GetVictim() && player->IsWithinMeleeRange(player->GetVictim()),
+        player->HasUnitState(UNIT_STATE_CASTING));
+}
+
+std::unordered_set<uint32>& emptyHanded = *new std::unordered_set<uint32>;
+
+void NoteEmptyHands(Player* player)
+{
+    bool const armed = player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND);
+    bool const empty = armed && !ShownIn(player, EQUIPMENT_SLOT_MAINHAND) && !ShownIn(player, EQUIPMENT_SLOT_OFFHAND);
+    bool fresh = false;
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        uint32 const guid = player->GetGUID().GetCounter();
+        fresh = empty ? emptyHanded.insert(guid).second : (emptyHanded.erase(guid), false);
+    }
+    if (fresh)
+        NoteHands(player, "shows no weapon in hand");
+}
+
 void NoteCastLook(Player* player, bool freeOffHand, uint32 heldLook)
 {
     bool const casting = player->HasUnitState(UNIT_STATE_CASTING);
@@ -1466,6 +1492,7 @@ void HoldTheGun(Player* player, bool afar)
         SetShown(player, EQUIPMENT_SLOT_OFFHAND, offHand);
     HoldWeaponLook(player, heldLook);
     NoteCastLook(player, freeOffHand, heldLook);
+    NoteEmptyHands(player);
 }
 
 constexpr float AlongShotRange = 35.0f;
@@ -1584,6 +1611,10 @@ void AimFromAfar(Player* player)
     if (current == wanted || (!wanted && !ours))
         return;
     player->SetUInt32Value(UNIT_NPC_EMOTESTATE, wanted);
+    LOG_INFO("module", "mod-subclass: {} {} aiming at {} (victim {}, in melee range {}, in combat {})",
+        player->GetName(), wanted ? "starts" : "stops", target ? target->GetName() : "nobody",
+        player->GetVictim() ? player->GetVictim()->GetName() : "none",
+        target && player->IsWithinMeleeRange(target), player->IsInCombat());
     if (wanted && !player->IsInCombat())
     {
         player->ForceValuesUpdateAtIndex(UNIT_FIELD_BYTES_2);
@@ -1654,6 +1685,7 @@ void ShootAlong(Player* player)
     player->resetAttackTimer(RANGED_ATTACK);
     WorldPacket shot = ProjectilePacket(player->GetGUID(), ReachAura, gun->GetEntry(), victim->GetGUID(), false);
     player->SendMessageToSet(&shot, true);
+    NoteHands(player, "shoots along");
     if (GunInHand(player))
         player->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_OFF_PIERCE);
     bool const critical = roll_chance_f(player->GetUnitCriticalChance(RANGED_ATTACK, victim));
@@ -3451,6 +3483,7 @@ public:
         Item* gun = OwnBow(player);
         if (!gun)
             return;
+        NoteHands(player, "shoots");
         if (!GunInHand(player) && !IsBow(gun))
             return;
         if (!target || !player->IsWithinMeleeRange(target))
