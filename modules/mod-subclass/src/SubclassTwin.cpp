@@ -1295,7 +1295,6 @@ void HoldTheGun(Player* player, bool afar)
     bool const drawn = gun && freeOffHand && player->IsAlive() && OtherHeadShoots(player) &&
         player->GetSheath() == SHEATH_STATE_MELEE;
     afar = afar && drawn;
-    bool const bow = gun && IsBow(gun);
     uint32 const shownMain = ShownIn(player, EQUIPMENT_SLOT_MAINHAND);
     uint32 const shownRanged = ShownIn(player, EQUIPMENT_SLOT_RANGED);
     uint32 look = 0;
@@ -1308,7 +1307,7 @@ void HoldTheGun(Player* player, bool afar)
         if (drawn && shownRanged)
             stowed.Ranged = shownRanged;
         look = gun ? stowed.Ranged.value_or(gun->GetEntry()) : 0;
-        heldInMain = bow ? 0 : look;
+        heldInMain = 0;
         if (afar && shownMain != heldInMain)
             stowed.MainHand = shownMain;
         if (afar)
@@ -1337,7 +1336,7 @@ void HoldTheGun(Player* player, bool afar)
     else if (restoreMain)
         SetShown(player, EQUIPMENT_SLOT_MAINHAND, *restoreMain);
     if (freeOffHand)
-        SetShown(player, EQUIPMENT_SLOT_OFFHAND, drawn && !(afar && !bow) ? look : 0);
+        SetShown(player, EQUIPMENT_SLOT_OFFHAND, drawn ? look : 0);
 }
 
 constexpr float AlongShotRange = 35.0f;
@@ -1502,6 +1501,8 @@ bool AimsFromAfar(Player* player)
     return target && OtherHeadShoots(player) && !player->IsWithinMeleeRange(target);
 }
 
+std::unordered_set<uint32>& drawnToAim = *new std::unordered_set<uint32>;
+
 void DrawForTheFight(Player* player)
 {
     if (!HasSecondHead(player))
@@ -1509,8 +1510,21 @@ void DrawForTheFight(Player* player)
     MeleeUpClose(player);
     bool const fighting = (player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) && player->GetVictim()) ||
         ShootsFromAfar(player) || (OtherHeadShoots(player) && IntendedFoe(player));
+    bool const aimingOnly = fighting && !player->IsInCombat();
+    bool drewToAim = false;
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        uint32 const guid = player->GetGUID().GetCounter();
+        drewToAim = drawnToAim.count(guid);
+        if (aimingOnly)
+            drawnToAim.insert(guid);
+        else
+            drawnToAim.erase(guid);
+    }
     if (fighting && player->GetSheath() != SHEATH_STATE_MELEE)
         player->SetSheath(SHEATH_STATE_MELEE);
+    else if (!fighting && drewToAim && !player->IsInCombat())
+        player->SetSheath(SHEATH_STATE_UNARMED);
     HoldTheGun(player, fighting && AimsFromAfar(player));
     if (fighting)
         AimFromAfar(player);

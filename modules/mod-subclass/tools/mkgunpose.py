@@ -9,6 +9,7 @@ SEQUENCE_SIZE, BONE_SIZE = 64, 88
 SEQUENCE_BOUNDS = slice(32, 60)
 SEQUENCE_NEXT = 60
 BONE_TRACKS = (16, 36, 56)
+TRACK_VALUE_SIZES = (12, 8, 12)
 ROTATION = 36
 TRACK_SIZE = 20
 RECORD_TRACKS = {TEXTURE_WEIGHTS: (20, (0,)), TEXTURE_TRANSFORMS: (60, (0, 20, 40)), ATTACHMENTS: (40, (20,)),
@@ -22,10 +23,10 @@ FORWARD = (1.0, 0.0, 0.0)
 ATTACK_OFF_PIERCE = 88
 ATTACK_THROWN, SPECIAL_UNARMED, PARRY_UNARMED, PARRY_SHIELD = 107, 118, 20, 24
 HELD_AIM = 0.5
-COPIED = ((48, 48, False, False, None), (49, 49, False, False, None), (110, 110, False, False, None),
+COPIED = ((48, 48, True, False, None), (49, 49, True, False, None), (110, 110, True, False, None),
           (29, 29, False, False, None), (46, 46, False, False, None), (109, 109, False, False, None),
-          (49, ATTACK_OFF_PIERCE, True, True, None), (49, ATTACK_THROWN, False, False, HELD_AIM),
-          (49, PARRY_UNARMED, False, False, HELD_AIM), (109, SPECIAL_UNARMED, False, False, None),
+          (49, ATTACK_OFF_PIERCE, True, True, None), (49, ATTACK_THROWN, True, False, HELD_AIM),
+          (49, PARRY_UNARMED, True, False, HELD_AIM), (109, SPECIAL_UNARMED, False, False, None),
           (109, PARRY_SHIELD, False, False, None))
 
 
@@ -174,12 +175,22 @@ def decoded(entry):
             [unpacked(values[index * 8:index * 8 + 8]) for index in range(count)])
 
 
+def posed_rotation(ogre, bone, ready, time, posed):
+    rotation = (0.0, 0.0, 0.0, 1.0)
+    while bone >= 0:
+        keys = posed[bone] if bone in posed else bone_keys(ogre, bone, ready)
+        rotation = product(at_time(*keys, time), rotation)
+        bone = parent_of(ogre, bone)
+    return rotation
+
+
 def aimed_shoulder(ogre, ready, chain, entries, axis):
-    stamps, keys = decoded(entries[chain[0]])
-    lower = [decoded(entries[bone]) for bone in chain[1:]]
+    posed = {bone: decoded(entry) for bone, entry in entries.items()}
+    stamps, keys = posed[chain[0]]
+    lower = [posed[bone] for bone in chain[1:]]
     aimed = []
     for stamp, key in zip(stamps, keys):
-        above = world_rotation(ogre, parent_of(ogre, chain[0]), ready, stamp)
+        above = posed_rotation(ogre, parent_of(ogre, chain[0]), ready, stamp, posed)
         hand = product(above, key)
         for bone_stamps, bone_keys_ in lower:
             hand = product(hand, at_time(bone_stamps, bone_keys_, stamp))
@@ -231,6 +242,15 @@ class Grafter:
         self.ready = sequence_index(ogre, READY_1H)
         self.added = []
 
+    def still(self, track, size):
+        data = self.blob.data
+        _, global_sequence, count, _ = struct.unpack_from("<hhII", data, track)
+        if global_sequence != -1 or count != self.old_count:
+            return None
+        values = struct.unpack_from("<I", data, track + 16)[0]
+        keys, at = array(data, values + self.ready * 8)
+        return (1, struct.pack("<I", 0), bytes(data[at:at + size])) if keys else None
+
     def extend(self, track, has_values, entries):
         data = self.blob.data
         _, global_sequence, count, times = struct.unpack_from("<hhII", data, track)
@@ -268,15 +288,19 @@ class Grafter:
             if held is not None:
                 moment = int(sequence_length(self.source, sequence) * held)
                 keys = {bone: frozen(entry, moment) for bone, entry in keys.items()}
-            if left_arm_only:
+            if mirror:
                 axis = gun_axis(self.source, sequence)
                 keys[left_arm[0]] = aimed_shoulder(ogre, self.ready, left_arm, keys, axis)
             rotations.append(keys)
+        held = [entry[4] is not None for entry in COPIED]
         bone_count, _ = array(self.blob.data, BONES)
         for bone in range(bone_count):
-            for track in BONE_TRACKS:
+            for track, size in zip(BONE_TRACKS, TRACK_VALUE_SIZES):
+                place = bone_offset(self.blob.data, bone) + track
                 entries = [keys.get(bone) if track == ROTATION else None for keys in rotations]
-                self.extend(bone_offset(self.blob.data, bone) + track, True, entries)
+                entries = [self.still(place, size) if entry is None and still else entry
+                           for entry, still in zip(entries, held)]
+                self.extend(place, True, entries)
         for header, (size, tracks) in RECORD_TRACKS.items():
             count, offset = array(self.blob.data, header)
             for record in range(count):
