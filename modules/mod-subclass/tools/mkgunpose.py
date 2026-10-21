@@ -20,6 +20,7 @@ SPINE = (2, 3, 4)
 SPINE_PATH = (2, 4)
 READY_1H = 26
 FORWARD = (1.0, 0.0, 0.0)
+HELD_BARREL = FORWARD
 ATTACK_OFF_PIERCE = 88
 SPECIAL_UNARMED, PARRY_UNARMED, PARRY_SHIELD, ATTACK_UNARMED = 118, 20, 24, 16
 HELD_AIM = 0.5
@@ -163,12 +164,6 @@ def sequence_length(data, sequence):
     return struct.unpack_from("<I", data, array(data, SEQUENCES)[1] + sequence * SEQUENCE_SIZE + 4)[0]
 
 
-def gun_axis(source, sequence):
-    hand = arm_chain(source, KEY_ARM_RIGHT)[-1]
-    held = world_rotation(source, hand, sequence, sequence_length(source, sequence) // 2)
-    return rotate(conjugate(held), FORWARD)
-
-
 def decoded(entry):
     count, stamps, values = entry
     return (list(struct.unpack(f"<{count}I", stamps)),
@@ -184,7 +179,7 @@ def posed_rotation(ogre, bone, ready, time, posed):
     return rotation
 
 
-def aimed_shoulder(ogre, ready, chain, entries, axis):
+def aimed_joint(ogre, ready, chain, entries, axis):
     posed = {bone: decoded(entry) for bone, entry in entries.items()}
     stamps, keys = posed[chain[0]]
     lower = [posed[bone] for bone in chain[1:]]
@@ -289,8 +284,8 @@ class Grafter:
                 moment = int(sequence_length(self.source, sequence) * held)
                 keys = {bone: frozen(entry, moment) for bone, entry in keys.items()}
             if mirror:
-                axis = gun_axis(self.source, sequence)
-                keys[left_arm[0]] = aimed_shoulder(ogre, self.ready, left_arm, keys, axis)
+                axis = HELD_BARREL
+                keys[left_arm[-1]] = aimed_joint(ogre, self.ready, left_arm[-1:], keys, axis)
             rotations.append(keys)
         held = [entry[4] is not None for entry in COPIED]
         bone_count, _ = array(self.blob.data, BONES)
