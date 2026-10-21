@@ -47,7 +47,7 @@
 
 using namespace Acore::ChatCommands;
 
-ChatCommandTable SubclassTwinCommandTable();
+ChatCommandTable const& SubclassTwinCommandTable();
 bool HandleSubclassBrain(ChatHandler* handler);
 bool HandleSubclassBots(ChatHandler* handler, Optional<std::string> mode);
 

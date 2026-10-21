@@ -1981,9 +1981,9 @@ std::vector<std::string> ExplainBrain(Player* player);
 class TwinCommands
 {
 public:
-    static ChatCommandTable Table()
+    static ChatCommandTable const& Table()
     {
-        return
+        static ChatCommandTable const table =
         {
             { "", HandleToggle, SEC_GAMEMASTER, Console::No },
             { "wear", HandleWear, SEC_GAMEMASTER, Console::No },
@@ -1991,6 +1991,7 @@ public:
             { "copy", HandleCopy, SEC_GAMEMASTER, Console::No },
             { "info", HandleInfo, SEC_GAMEMASTER, Console::No }
         };
+        return table;
     }
 
     static bool RefuseWithoutTwin(ChatHandler* handler)
@@ -2923,7 +2924,7 @@ void AddSC_mod_subclass_twin()
     new mod_subclass_twin_player();
 }
 
-ChatCommandTable SubclassTwinCommandTable()
+ChatCommandTable const& SubclassTwinCommandTable()
 {
     return TwinCommands::Table();
 }
