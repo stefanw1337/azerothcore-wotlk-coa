@@ -2899,15 +2899,18 @@ end
 
 local aimWatcher = CreateFrame("Frame")
 aimWatcher:RegisterEvent("PLAYER_TARGET_CHANGED")
-aimWatcher:SetScript("OnEvent", function()
-    if IsMouseButtonDown("RightButton") then
+aimWatcher:SetScript("OnEvent", function(self)
+    if IsMouseButtonDown("RightButton") or GetTime() - (self.released or 0) < 0.5 then
         AimIfRightClicked()
     end
 end)
 aimWatcher:SetScript("OnUpdate", function(self)
     local down = IsMouseButtonDown("RightButton")
-    if down and not self.down and UnitExists("mouseover") and UnitIsUnit("mouseover", "target") then
-        AimIfRightClicked()
+    if self.down and not down then
+        self.released = GetTime()
+        if UnitExists("mouseover") and UnitIsUnit("mouseover", "target") then
+            AimIfRightClicked()
+        end
     end
     self.down = down
 end)
@@ -2932,6 +2935,9 @@ SlashCmdList.ASCENSIONSUBCLASS = function(message)
             sheet and tostring(LevelLineIn(sheet) and LevelLineIn(sheet):GetText()) or "-",
             sheet and (CornerPortrait(sheet) and "found" or "missing") or "-",
             MicroButtonPortrait and "found" or "missing"))
+    elseif message == "aim" then
+        AimIfRightClicked()
+        DEFAULT_CHAT_FRAME:AddMessage("Subclass: asked her to aim at your target.")
     elseif message == "apply" then
         local pending = 0
         for category = 1, 14 do
