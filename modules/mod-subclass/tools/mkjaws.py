@@ -20,7 +20,8 @@ from mkhelmets import (CYCLOPS_HEAD, HEAD, TWO_EYED_HEAD, bone_parents, dbc_text
                        pivots, read_dbc, subtree)
 
 LEFT_JAW, RIGHT_JAW = 27, 26
-BOTH_JAWS, RIGHT_JAW_ONLY, LEFT_JAW_ONLY, NO_JAW = 301, 302, 303, 304
+BOTH_JAWS, RIGHT_JAW_ONLY, LEFT_JAW_ONLY, NO_JAW = 301, 303, 305, 307
+GEOSET_SPAN = 2
 OGRE_RACE, FEMALE = 85, 1
 STYLE_FIELDS = 8
 JAW_GEOSET_FIELD = 4
@@ -70,7 +71,8 @@ def split(m2_path, skin_path, styles_path):
     units = bytearray(skin[unit_offset:unit_offset + unit_count * TEXTURE_UNIT_SIZE])
     body_unit = next(index for index in range(unit_count)
                      if struct.unpack_from("<H", units, index * TEXTURE_UNIT_SIZE + 4)[0] == 0)
-    for geoset, shown in ((BOTH_JAWS, left | right), (RIGHT_JAW_ONLY, right), (LEFT_JAW_ONLY, left)):
+    pieces = ((BOTH_JAWS, left | right), (RIGHT_JAW_ONLY, right), (LEFT_JAW_ONLY, left))
+    for geoset, shown in ((first + offset, shown) for first, shown in pieces for offset in range(GEOSET_SPAN)):
         piece = corners[shown]
         submesh = bytearray(submeshes[:SUBMESH_SIZE])
         struct.pack_into("<HH", submesh, 0, geoset, 0)
