@@ -2993,26 +2993,30 @@ SlashCmdList.ASCENSIONSUBCLASS = function(message)
             DEFAULT_CHAT_FRAME:AddMessage(SendTwinLook() and "Subclass: sent the look to your other head."
                 or "Subclass: nothing picked to apply.")
         elseif C_Appearance and C_Appearance.ApplyPendingAppearances then
+            local function Results(...)
+                local values = {}
+                for index = 1, select("#", ...) do
+                    values[#values + 1] = tostring((select(index, ...)))
+                end
+                return table.concat(values, "/")
+            end
+            local function Try(name, ...)
+                local check = C_Appearance[name]
+                if not check then
+                    return name .. "=missing"
+                end
+                return name .. "=" .. Results(pcall(check, ...))
+            end
+            DEFAULT_CHAT_FRAME:AddMessage("Subclass: " .. Try("CanApplyPendingAppearances"))
             for category = 1, 14 do
                 local appearance = C_Appearance.GetPendingAppearance(category)
                 if appearance then
-                    local checks = {}
-                    for name, check in pairs(C_Appearance) do
-                        if type(check) == "function" and (name:find("Valid") or name:find("Can")) then
-                            local ok, result = pcall(check, appearance, category)
-                            checks[#checks + 1] = name .. "=" .. tostring(ok and result)
-                        end
-                    end
-                    DEFAULT_CHAT_FRAME:AddMessage(string.format("Subclass: slot %d pending %s %s", category,
-                        tostring(appearance), table.concat(checks, " ")))
+                    DEFAULT_CHAT_FRAME:AddMessage(string.format("Subclass: slot %d pending %s worn %s; %s; %s; %s",
+                        category, tostring(appearance), Results(pcall(C_Appearance.GetAppearanceForCategory, category)),
+                        Try("CanSetAppearance", category, appearance), Try("CanSetAppearance", appearance, category),
+                        Try("IsTransmogable", category)))
                 end
             end
-            local names = {}
-            for name in pairs(C_Appearance) do
-                names[#names + 1] = name
-            end
-            table.sort(names)
-            DEFAULT_CHAT_FRAME:AddMessage("Subclass: C_Appearance has " .. table.concat(names, ", "))
             C_Appearance.ApplyPendingAppearances()
         end
     elseif message == "corner" then
