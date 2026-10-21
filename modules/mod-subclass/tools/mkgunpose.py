@@ -31,11 +31,15 @@ ATTACK_1H = 17
 MACE_RAISED_MS = 300
 PISTOL_REACH = (0.75, 0.15, -0.1)
 MACE_REACH = (0.25, -0.35, 0.3)
+LATERAL = (0.0, 1.0, 0.0)
+SHOTGUN_FLING = ((0, 0, 0), (80, -40, -15), (220, -25, -10), (420, 75, 25), (600, 20, 5), (780, -8, -3),
+                 (1000, 0, 0))
 COPIED = ((49, 48, True, True, None), (49, 49, True, True, None), (49, 110, True, True, None),
           (29, 29, False, False, None), (46, 46, False, False, None), (109, 109, False, False, None),
           (49, ATTACK_OFF_PIERCE, True, True, None), (49, ATTACK_UNARMED, True, True, HELD_AIM),
           (109, SPECIAL_UNARMED, False, False, HELD_AIM))
 HOLD_LOOPS = 12
+KICKED = (49, ATTACK_OFF_PIERCE)
 
 
 def array(data, offset):
@@ -315,6 +319,28 @@ def bent_toward(ogre, ready, entries, chain, reach_in_chest):
     return entries
 
 
+def kicked(ogre, ready, entries, chain):
+    posed = {bone: decoded(entry) for bone, entry in entries.items()}
+    _, fore, hand = chain[1:]
+    pose = Pose(ogre, ready, posed, 0)
+    elbow_frame = pose.frame(parent_of(ogre, fore))[0]
+    fore_world = elbow_frame @ pose.local(fore)
+    hand_world = fore_world @ pose.local(hand)
+    stamps, fores, hands = [], [], []
+    for stamp, wrist_degrees, elbow_degrees in SHOTGUN_FLING:
+        swing = about(np.array(LATERAL), np.radians(elbow_degrees))
+        flick = about(np.array(LATERAL), np.radians(wrist_degrees))
+        swung_fore = swing @ fore_world
+        stamps.append(stamp)
+        fores.append(packed(as_quaternion(elbow_frame.T @ swung_fore), False))
+        hands.append(packed(as_quaternion(swung_fore.T @ flick @ swing @ hand_world), False))
+    times = struct.pack(f"<{len(stamps)}I", *stamps)
+    entries = dict(entries)
+    entries[fore] = (len(stamps), times, b"".join(fores))
+    entries[hand] = (len(stamps), times, b"".join(hands))
+    return entries
+
+
 def own_keys(data, bone, sequence):
     track = bone_offset(data, bone) + ROTATION
     times, values = struct.unpack_from("<I", data, track + 8)[0], struct.unpack_from("<I", data, track + 16)[0]
@@ -420,7 +446,7 @@ class Grafter:
         left_arm = arm_chain(ogre, KEY_ARM_LEFT)
         right_arm = arm_chain(ogre, KEY_ARM_RIGHT)
         rotations = []
-        for (sequence, mirror), mapping, (_, _, _, left_arm_only, held) in zip(wanted, mappings, COPIED):
+        for (sequence, mirror), mapping, (_, target, _, left_arm_only, held) in zip(wanted, mappings, COPIED):
             keys = {bone: rotation_keys(self.source, chain, sequence, mirror) for bone, chain in mapping.items()}
             if held is not None:
                 moment = int(sequence_length(self.source, sequence) * held)
@@ -437,6 +463,8 @@ class Grafter:
                 keys = pointed(ogre, self.base, keys, right_arm, MACE_REACH)
             if mirror:
                 keys[left_arm[-1]] = aimed_joint(ogre, self.base, left_arm[-1:], keys, HELD_BARREL)
+            if target in KICKED:
+                keys = kicked(ogre, self.base, keys, left_arm)
             rotations.append(keys)
         held = [entry[4] is not None for entry in COPIED]
         bone_count, _ = array(self.blob.data, BONES)
