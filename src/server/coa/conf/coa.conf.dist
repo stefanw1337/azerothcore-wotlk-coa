@@ -97,6 +97,15 @@ CoA.LearnOwnedCompanions = 1
 # from the first login, including level-one characters. No profession grants.
 CoA.MaxRidingFromStart = 1
 
+# Talent points of the standard classes (Warrior ... Druid) on a realm where they use the character
+# advancement trees, as a percentage of the table's amount. The Wrath trees are built for 71 points at
+# level 80; on a level 60 realm 140 gives them that budget (51 -> 71) while CoA classes keep theirs.
+CoA.StandardClassTalentPercent = 100
+
+# Highest level whose talent points the CoA classes get; 0 follows the table to the realm's level cap.
+# 60 keeps them at the budget CoA was designed for on a level 80 realm.
+CoA.CustomClassTalentLevelCap = 0
+
 # Give a character that carries none of the three PvP ruleset auras the PvE set at login,
 # because character creation grants no ruleset and the client's selection frame is level- and
 # rested-area gated. The PvE set is the PvE Mode aura 9931032 alone, exactly what pressing

@@ -448,6 +448,8 @@ enum class AscensionCompatConfig {
   ALLOW_LEARNED_SPELL_DELIVERY,
   LEARN_OWNED_COMPANIONS,
   MAX_RIDING_FROM_START,
+  STANDARD_CLASS_TALENT_PERCENT,
+  CUSTOM_CLASS_TALENT_LEVEL_CAP,
   QUEST_LEVEL_SCALING,
   AUTO_PROGRESSION,
   GAME_MODE_MASK,
@@ -502,6 +504,10 @@ public:
                          "CoA.LearnOwnedCompanions", true);
     SetConfigValue<bool>(AscensionCompatConfig::MAX_RIDING_FROM_START,
                          "CoA.MaxRidingFromStart", true);
+    SetConfigValue<uint32>(AscensionCompatConfig::STANDARD_CLASS_TALENT_PERCENT,
+                           "CoA.StandardClassTalentPercent", 100);
+    SetConfigValue<uint32>(AscensionCompatConfig::CUSTOM_CLASS_TALENT_LEVEL_CAP,
+                           "CoA.CustomClassTalentLevelCap", 0);
     SetConfigValue<bool>(AscensionCompatConfig::QUEST_LEVEL_SCALING,
                          "CoA.QuestLevelScaling", true);
     SetConfigValue<uint32>(AscensionCompatConfig::COLLECTIONS_FOR_BOTS,
@@ -1983,9 +1989,14 @@ public:
 
   bool TalentBudget(Player const* player, uint32& classBudget, uint32& specializationBudget, std::string& error)
   {
-    if (AscensionCompatData::GetCoATalentBudget(player->getClass(), player->GetLevel(), classBudget,
+    uint8 const budgetLevel = IsAscensionCustomClass(player) ?
+        GetAscensionCustomClassTalentLevel(player->GetLevel()) : player->GetLevel();
+    if (AscensionCompatData::GetCoATalentBudget(player->getClass(), budgetLevel, classBudget,
                                                 specializationBudget))
     {
+      if (!IsAscensionCustomClass(player))
+        specializationBudget = uint32(uint64(specializationBudget) * ascensionCompatConfig.GetConfigValue<uint32>(
+            AscensionCompatConfig::STANDARD_CLASS_TALENT_PERCENT) / 100);
       for (AscensionTalentBudgetProvider const& provider : TalentBudgetProviders())
         provider(player, classBudget, specializationBudget);
       return true;
@@ -10276,6 +10287,13 @@ bool RestoreAscensionSpecializationSignature(Player* player)
     service.SaveSlot(player);
     service.SendCharacterAdvancementKnownEntries(player);
     return true;
+}
+
+uint8 GetAscensionCustomClassTalentLevel(uint8 level)
+{
+    uint32 const cap =
+        ascensionCompatConfig.GetConfigValue<uint32>(AscensionCompatConfig::CUSTOM_CLASS_TALENT_LEVEL_CAP);
+    return uint8(cap ? std::min<uint32>(level, cap) : level);
 }
 
 bool ApplyAscensionTalentBuild(Player* player, std::vector<AscensionCoATalentState::KnownEntry> const& build,

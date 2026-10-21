@@ -2562,8 +2562,8 @@ void AddSC_mod_subclass()
         uint32 lentClassPoints = 0;
         uint32 lentSpecializationPoints = 0;
         if (!IsAscensionCustomClassId(player->getClass()) && IsAscensionCustomClassId(subClass) &&
-            AscensionCompatData::GetCoATalentBudget(subClass, player->GetLevel(), lentClassPoints,
-                lentSpecializationPoints))
+            AscensionCompatData::GetCoATalentBudget(subClass, GetAscensionCustomClassTalentLevel(player->GetLevel()),
+                lentClassPoints, lentSpecializationPoints))
             Subclass::AddLentClassPoints(settings, borrowsClassTree, Subclass::SpecializationTreeCount(open),
                 lentClassPoints, lentSpecializationPoints, classPoints, specializationPoints);
         else if (!IsAscensionCustomClassId(player->getClass()))

@@ -43,6 +43,8 @@ AscensionCoATalentState::TalentAccess GetAscensionTalentAccess(Player const* pla
 bool ApplyAscensionTalentBuild(Player* player, std::vector<AscensionCoATalentState::KnownEntry> const& build,
     std::string& refusal);
 
+uint8 GetAscensionCustomClassTalentLevel(uint8 level);
+
 bool GetAscensionTalentPointsLeft(Player const* player, uint32& classPoints, uint32& specializationPoints);
 
 void ClearAscensionSpecializationSlots(Player* player);
