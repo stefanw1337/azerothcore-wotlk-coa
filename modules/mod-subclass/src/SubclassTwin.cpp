@@ -1397,16 +1397,12 @@ std::unordered_map<uint32, AttackIntent>& attackIntents = *new std::unordered_ma
 void NoteAttackIntent(WorldSession* session, WorldPacket const& packet)
 {
     Player* player = session->GetPlayer();
-    if (!player || (packet.GetOpcode() != CMSG_ATTACKSWING && packet.GetOpcode() != CMSG_ATTACKSTOP))
+    if (!player || packet.GetOpcode() != CMSG_ATTACKSWING || packet.size() < sizeof(uint64))
         return;
-    ObjectGuid foe;
-    if (packet.GetOpcode() == CMSG_ATTACKSWING && packet.size() >= sizeof(uint64))
-        foe = ObjectGuid(packet.read<uint64>(0));
     std::lock_guard<std::mutex> lock(twinMutex);
     AttackIntent& intent = attackIntents[player->GetGUID().GetCounter()];
-    intent.Foe = foe;
-    if (foe)
-        intent.AskedAt = GameTime::GetGameTimeMS().count();
+    intent.Foe = ObjectGuid(packet.read<uint64>(0));
+    intent.AskedAt = GameTime::GetGameTimeMS().count();
 }
 
 void NoteAttackStopped(WorldSession* session, WorldPacket const& packet)
