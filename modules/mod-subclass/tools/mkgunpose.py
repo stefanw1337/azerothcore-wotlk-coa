@@ -49,8 +49,8 @@ KICKED = (49, ATTACK_OFF_PIERCE)
 LEFT_HAND_HOLDS = (17, 21, 26, 57, 31, 51, 52, 53, 54, 107, 108, 124, 125, 126)
 READY_1H = 26
 OFF_HAND_SWINGS = (87,)
-FIST_RAISED = (0.6, 0.3, 0.35)
-FIST_DIPPED = (0.6, 0.3, 0.2)
+FIST_RAISED = (0.6, 0.05, -0.4)
+FIST_DIPPED = (0.6, 0.05, -0.45)
 TOSSED_UP = (0.5, -0.35, 0.8)
 DRAWN_BACK = (0.15, -0.4, 0.55)
 THROWN_FORWARD = (0.95, -0.15, 0.2)
@@ -433,7 +433,9 @@ def raised_hand(ogre, ready, chain, frames, length):
             previous[bone] = continuous(unpacked(posed[bone][2][:8]), previous[bone])
             values[bone].append(packed(previous[bone], False))
     times = struct.pack(f"<{len(stamps)}I", *stamps)
-    return {bone: (len(stamps), times, b"".join(values[bone])) for bone in chain[1:]}
+    raised = {bone: (len(stamps), times, b"".join(values[bone])) for bone in chain[1:]}
+    raised[chain[0]] = base[chain[0]]
+    return raised
 
 
 def subtree_of(data, root):
@@ -649,13 +651,15 @@ class Grafter:
         _, offset = array(ogre, SEQUENCES)
         for sequence in range(self.old_count):
             animation = struct.unpack_from("<H", ogre, offset + sequence * SEQUENCE_SIZE)[0]
+            frames = SPELL_HOLD if animation in SPELL_HOLDS else SPELL_RELEASES.get(animation)
+            if frames:
+                self.calm_body(sequence, self.base, set())
+            if animation in OFF_HAND_SWINGS:
+                self.calm_body(sequence, sequence_index(ogre, READY_1H), subtree_of(ogre, left_arm[0]))
             if animation in LEFT_HAND_HOLDS:
                 for bone in left_arm:
                     if bone in gun_hold:
                         self.set_own_rotation(bone, sequence, gun_hold[bone])
-            if animation in OFF_HAND_SWINGS:
-                self.calm_body(sequence, sequence_index(ogre, READY_1H), subtree_of(ogre, left_arm[0]))
-            frames = SPELL_HOLD if animation in SPELL_HOLDS else SPELL_RELEASES.get(animation)
             if frames:
                 length = sequence_length(ogre, sequence)
                 for bone, entry in raised_hand(ogre, self.base, right_arm, frames, length).items():
