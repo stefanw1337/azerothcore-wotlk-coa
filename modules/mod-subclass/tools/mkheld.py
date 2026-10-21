@@ -4,7 +4,7 @@ import zipfile
 from pathlib import Path, PureWindowsPath
 
 from mkcape import Blob, arr
-from mkcyclops import EFFECT_SCALES, HARDCODED, OBJECT_SKIN, TEXTURE_SIZE, TEXTURES, Table, bounded, kit_row, \
+from mkcyclops import HARDCODED, OBJECT_SKIN, TEXTURE_SIZE, TEXTURES, Table, bounded, kit_row, \
     visual_row
 
 FIRST_ID = 9540000
@@ -17,6 +17,10 @@ HELD_SUBCLASSES = (0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 13, 15, 18, 20)
 SPELL_NAME = 9 + 127
 SPELL_VISUAL = 131
 AURA_NAME = "Held Weapon"
+HAND_SCALE = 1.7
+EFFECT_SCALES = (1.0, 1.0, 0.01, 1.0)
+VERTICES, BONES, ATTACHMENTS = 60, 0x2C, 0xF0
+VERTEX_SIZE, BONE_SIZE, BONE_PIVOT, ATTACHMENT_SIZE = 48, 88, 76, 40
 
 
 def dbc_rows(data):
@@ -55,6 +59,17 @@ def textured(m2, texture_path):
         if struct.unpack_from("<I", blob.data, record)[0] == OBJECT_SKIN:
             struct.pack_into("<IIII", blob.data, record, HARDCODED, 0, len(texture_path) + 1, name)
     return bytes(blob.data)
+
+
+def scaled(m2, factor):
+    data = bytearray(m2)
+    points = ((VERTICES, VERTEX_SIZE, 0), (BONES, BONE_SIZE, BONE_PIVOT), (ATTACHMENTS, ATTACHMENT_SIZE, 8))
+    for header, size, at in points:
+        count, offset = arr(data, header)
+        for index in range(count):
+            place = offset + index * size + at
+            struct.pack_into("<3f", data, place, *(value * factor for value in struct.unpack_from("<3f", data, place)))
+    return bytes(data)
 
 
 def sql_values(text):
@@ -157,7 +172,7 @@ def main(weapons_zip, item_dbc, display_dbc, client_root, model_root, auras_temp
         model_path = FOLDER + "%s__%s.m2" % (model, PureWindowsPath(texture).name)
         target = model_root / Path(*PureWindowsPath(model_path).parts)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(bounded(textured(bundle.read(source), texture_path)))
+        target.write_bytes(bounded(scaled(textured(bundle.read(source), texture_path), HAND_SCALE)))
         target.with_name(target.stem + "00.skin").write_bytes(bundle.read(skin))
         effect_table = tables["SpellVisualEffectName"]
         effects.append(struct.pack("<3I4f", record_id, effect_table.text(target.stem), effect_table.text(model_path),

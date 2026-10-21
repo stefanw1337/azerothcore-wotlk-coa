@@ -203,6 +203,7 @@ struct BrotherCast
 
 thread_local BrotherCast castingAsBrother;
 thread_local bool resendingAsBrother = false;
+thread_local BrotherCast strikingAsOtherHead;
 
 enum class Swing : uint8
 {
@@ -1290,6 +1291,14 @@ struct StowedLooks
 
 std::unordered_map<uint32, StowedLooks>& stowedLooks = *new std::unordered_map<uint32, StowedLooks>;
 
+std::unordered_set<uint32>& gunsInHand = *new std::unordered_set<uint32>;
+
+bool GunInHand(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(twinMutex);
+    return gunsInHand.count(player->GetGUID().GetCounter());
+}
+
 void ForgetStowedLook(Player const* player, uint8 slot)
 {
     std::lock_guard<std::mutex> lock(twinMutex);
@@ -1359,6 +1368,28 @@ void HoldWeaponLook(Player* player, uint32 itemId)
         player->AddAura(wanted, player);
 }
 
+std::unordered_set<uint32>& castsNoted = *new std::unordered_set<uint32>;
+
+void NoteCastLook(Player* player, bool freeOffHand, uint32 heldLook)
+{
+    bool const casting = player->HasUnitState(UNIT_STATE_CASTING);
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        uint32 const guid = player->GetGUID().GetCounter();
+        if (!casting)
+        {
+            castsNoted.erase(guid);
+            return;
+        }
+        if (!castsNoted.insert(guid).second)
+            return;
+    }
+    uint32 const main = ShownIn(player, EQUIPMENT_SLOT_MAINHAND);
+    LOG_INFO("module", "mod-subclass: {} casts with off hand free {}, other half awake {}, sheath {}, main look {}, "
+        "held look {} (display {}, aura {})", player->GetName(), freeOffHand, OtherHalfAwake(player),
+        uint32(player->GetSheath()), main, heldLook, DisplayOfItem(heldLook), HeldWeaponAura(heldLook));
+}
+
 bool CastsWithOtherHeadArmed(Player const* player, bool freeOffHand)
 {
     return freeOffHand && player->IsAlive() && OtherHalfAwake(player) && player->HasUnitState(UNIT_STATE_CASTING) &&
@@ -1416,6 +1447,10 @@ void HoldTheGun(Player* player, bool afar)
             stowed.Ranged.reset();
         }
         offHand = drawn && gun ? gunLook : 0;
+        if (offHand || (handedOver && heldLook == gunLook))
+            gunsInHand.insert(guid);
+        else
+            gunsInHand.erase(guid);
         if (!stowed.MainHand && !stowed.Ranged)
             stowedLooks.erase(guid);
     }
@@ -1430,6 +1465,7 @@ void HoldTheGun(Player* player, bool afar)
     if (freeOffHand)
         SetShown(player, EQUIPMENT_SLOT_OFFHAND, offHand);
     HoldWeaponLook(player, heldLook);
+    NoteCastLook(player, freeOffHand, heldLook);
 }
 
 constexpr float AlongShotRange = 35.0f;
@@ -1618,7 +1654,8 @@ void ShootAlong(Player* player)
     player->resetAttackTimer(RANGED_ATTACK);
     WorldPacket shot = ProjectilePacket(player->GetGUID(), ReachAura, gun->GetEntry(), victim->GetGUID(), false);
     player->SendMessageToSet(&shot, true);
-    player->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_OFF_PIERCE);
+    if (GunInHand(player))
+        player->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_OFF_PIERCE);
     bool const critical = roll_chance_f(player->GetUnitCriticalChance(RANGED_ATTACK, victim));
     uint32 damage = Unit::CalcArmorReducedDamage(player, victim, player->CalculateDamage(RANGED_ATTACK, false, true),
         nullptr, 0, RANGED_ATTACK);
@@ -2226,6 +2263,22 @@ bool ShowHitsOnBrother(WorldSession* session, WorldPacket const& packet)
     return false;
 }
 
+bool HideOtherHeadStrikeCast(WorldPacket const& packet)
+{
+    if (!strikingAsOtherHead.Spell || (packet.GetOpcode() != SMSG_SPELL_START && packet.GetOpcode() != SMSG_SPELL_GO))
+        return true;
+    WorldPacket reader(packet);
+    reader.rpos(0);
+    ObjectGuid source;
+    ObjectGuid caster;
+    uint8 castCount = 0;
+    uint32 spellId = 0;
+    reader >> source.ReadAsPacked();
+    reader >> caster.ReadAsPacked();
+    reader >> castCount >> spellId;
+    return caster != strikingAsOtherHead.Player || spellId != strikingAsOtherHead.Spell;
+}
+
 bool ShowCastOnBrother(WorldSession* session, WorldPacket const& packet)
 {
     if (resendingAsBrother || !castingAsBrother.Spell ||
@@ -2302,8 +2355,8 @@ public:
     {
         if (session)
             NoteAttackStopped(session, packet);
-        return !session || (ShowCastOnBrother(session, packet) && ShareSwingWithBrother(session, packet) &&
-            ShowHitsOnBrother(session, packet));
+        return !session || (HideOtherHeadStrikeCast(packet) && ShowCastOnBrother(session, packet) &&
+            ShareSwingWithBrother(session, packet) && ShowHitsOnBrother(session, packet));
     }
 
     bool CanPacketReceive(WorldSession* session, WorldPacket const& packet) override
@@ -2547,6 +2600,8 @@ void ActOutCast(Player* player, SpellInfo const* info, Unit* target)
     twin->HandleEmoteCommand(info->IsPositive() ? EMOTE_ONESHOT_SPELL_CAST_OMNI : EMOTE_ONESHOT_SPELL_CAST);
 }
 
+bool SwingsAWeapon(SpellInfo const* info);
+
 void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid)
 {
     SetBusy(player, false, 0);
@@ -2559,6 +2614,8 @@ void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid)
     ActOutCast(player, info, target);
     if (twin)
         castingAsBrother = { player->GetGUID(), twin->GetGUID(), spellId };
+    else if (HasSecondHead(player) && SwingsAWeapon(info))
+        strikingAsOtherHead = { player->GetGUID(), ObjectGuid::Empty, spellId };
     SpellCastResult const result = player->CastSpell(target, spellId, TriggerCastFlags(TRIGGERED_IGNORE_GCD |
         TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_CAST_DIRECTLY | TRIGGERED_IGNORE_SET_FACING |
         TRIGGERED_DONT_REPORT_CAST_ERROR));
@@ -2573,6 +2630,7 @@ void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid)
             RefusedSpellRest;
     }
     castingAsBrother = {};
+    strikingAsOtherHead = {};
 }
 
 bool IsShot(SpellInfo const* info)
@@ -3389,6 +3447,8 @@ public:
         Unit* target = spell->m_targets.GetUnitTarget();
         Item* gun = OwnBow(player);
         if (!gun)
+            return;
+        if (!GunInHand(player) && !IsBow(gun))
             return;
         if (!target || !player->IsWithinMeleeRange(target))
             player->HandleEmoteCommand(RangedEmote(gun->GetTemplate()));
