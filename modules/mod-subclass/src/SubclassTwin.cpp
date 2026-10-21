@@ -1306,15 +1306,25 @@ void MeleeUpClose(Player* player)
     player->Attack(victim, true);
 }
 
+uint32 AimingState(ItemTemplate const* ranged)
+{
+    return ranged->SubClass == ITEM_SUBCLASS_WEAPON_BOW ? EMOTE_STATE_READY_BOW : EMOTE_STATE_READY_RIFLE;
+}
+
 void DrawForTheFight(Player* player)
 {
     if (!HasSecondHead(player))
         return;
     MeleeUpClose(player);
-    bool const fighting = (player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) && player->GetVictim()) ||
-        (OtherHeadShoots(player) && player->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL));
+    bool const shooting = OtherHeadShoots(player) && player->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL);
+    bool const fighting = (player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) && player->GetVictim()) || shooting;
     if (fighting && player->GetSheath() != SHEATH_STATE_MELEE)
         player->SetSheath(SHEATH_STATE_MELEE);
+    Item* gun = shooting ? OwnBow(player) : nullptr;
+    uint32 const aiming = gun ? AimingState(gun->GetTemplate()) : 0;
+    uint32 const state = player->GetUInt32Value(UNIT_NPC_EMOTESTATE);
+    if (state != aiming && (aiming || state == EMOTE_STATE_READY_RIFLE || state == EMOTE_STATE_READY_BOW))
+        player->SetUInt32Value(UNIT_NPC_EMOTESTATE, aiming);
 }
 
 void ShootAlong(Player* player)
@@ -2923,7 +2933,8 @@ public:
     void OnPlayerSpellCast(Player* player, Spell* spell, bool /*skipCheck*/) override
     {
         if (spell && IsShot(spell->GetSpellInfo()) && OtherHeadShoots(player))
-            player->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_OFF);
+            if (Item* gun = OwnBow(player))
+                player->HandleEmoteCommand(RangedEmote(gun->GetTemplate()));
     }
 };
 
