@@ -51,14 +51,19 @@ KICKED = (49, ATTACK_OFF_PIERCE)
 LEFT_HAND_HOLDS = (17, 21, 26, 57, 31, 51, 52, 53, 54, 124, 125)
 FIST_RAISED = (0.6, 0.3, 0.35)
 FIST_DIPPED = (0.6, 0.3, 0.2)
-TOSSED_UP = (0.35, 0.1, 0.9)
+TOSSED_UP = (0.5, -0.35, 0.8)
 DRAWN_BACK = (0.15, -0.4, 0.55)
 THROWN_FORWARD = (0.95, -0.15, 0.2)
+TOWARD_HERSELF = (-0.5, 0.25, 0.85)
+UPWARD = (0.0, 0.0, 1.0)
 SPELL_LEFT_HAND, SPELL_RIGHT_HAND = 21, 22
 SPELL_HOLDS = (31, 51, 52, 124, 125)
+SPELL_HOLD = ((0.0, FIST_RAISED, TOWARD_HERSELF),)
 SPELL_RELEASES = {
-    54: ((0.0, FIST_RAISED), (0.25, FIST_DIPPED), (0.45, TOSSED_UP), (0.75, TOSSED_UP), (1.0, None)),
-    53: ((0.0, FIST_RAISED), (0.25, DRAWN_BACK), (0.45, THROWN_FORWARD), (0.75, THROWN_FORWARD), (1.0, None))}
+    54: ((0.0, FIST_RAISED, TOWARD_HERSELF), (0.25, FIST_DIPPED, TOWARD_HERSELF), (0.45, TOSSED_UP, UPWARD),
+         (0.75, TOSSED_UP, UPWARD), (1.0, None, None)),
+    53: ((0.0, FIST_RAISED, TOWARD_HERSELF), (0.25, DRAWN_BACK, UPWARD), (0.45, THROWN_FORWARD, FORWARD),
+         (0.75, THROWN_FORWARD, FORWARD), (1.0, None, None))}
 
 
 def array(data, offset):
@@ -407,12 +412,22 @@ def straightest(ogre, ready, entries, chain, toward, candidates, fits):
     return best[1]
 
 
+def finger_axis(ogre, chain):
+    forearm = pivot(ogre, chain[3]) - pivot(ogre, chain[2])
+    fingers = [bone for bone in children(ogre).get(chain[3], []) if children(ogre).get(bone)]
+    longest = max(fingers, key=lambda bone: np.dot(pivot(ogre, bone) - pivot(ogre, chain[3]), forearm))
+    return tuple(unit(pivot(ogre, longest) - pivot(ogre, chain[3])))
+
+
 def raised_hand(ogre, ready, chain, frames, length):
     base = {bone: frozen(own_keys(ogre, bone, ready), 0) for bone in chain}
+    fingers = finger_axis(ogre, chain)
     stamps, values = [], {bone: [] for bone in chain[1:]}
     previous = dict.fromkeys(chain[1:])
-    for fraction, reach in frames:
+    for fraction, reach, pointing in frames:
         posed = base if reach is None else pointed(ogre, ready, base, chain, reach)
+        if pointing is not None:
+            posed[chain[3]] = aimed_joint(ogre, ready, chain[3:], posed, fingers, pointing)
         stamps.append(int(length * fraction))
         for bone in chain[1:]:
             previous[bone] = continuous(unpacked(posed[bone][2][:8]), previous[bone])
@@ -618,7 +633,7 @@ class Grafter:
                 for bone in left_arm:
                     if bone in gun_hold:
                         self.set_own_rotation(bone, sequence, gun_hold[bone])
-            frames = ((0.0, FIST_RAISED),) if animation in SPELL_HOLDS else SPELL_RELEASES.get(animation)
+            frames = SPELL_HOLD if animation in SPELL_HOLDS else SPELL_RELEASES.get(animation)
             if frames:
                 length = sequence_length(ogre, sequence)
                 for bone, entry in raised_hand(ogre, self.base, right_arm, frames, length).items():
