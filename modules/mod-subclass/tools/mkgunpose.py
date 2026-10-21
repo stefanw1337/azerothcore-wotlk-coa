@@ -18,9 +18,10 @@ KEY_ARM_LEFT, KEY_ARM_RIGHT = 0, 1
 SPINE = (2, 3, 4)
 SPINE_PATH = (2, 4)
 READY_1H = 26
+FORWARD = (1.0, 0.0, 0.0)
 ATTACK_OFF_PIERCE = 88
-COPIED = ((48, 48, True, False), (49, 49, True, False), (110, 110, True, False), (29, 29, False, False),
-          (46, 46, False, False), (109, 109, False, False), (49, ATTACK_OFF_PIERCE, False, True))
+COPIED = ((48, 48, True, True), (49, 49, True, True), (110, 110, True, True), (29, 29, False, False),
+          (46, 46, False, False), (109, 109, False, False), (49, ATTACK_OFF_PIERCE, True, True))
 
 
 def array(data, offset):
@@ -118,6 +119,70 @@ def at_time(stamps, keys, time):
     return keys[earlier[-1] if earlier else 0]
 
 
+def conjugate(quaternion):
+    x, y, z, w = quaternion
+    return (-x, -y, -z, w)
+
+
+def rotate(quaternion, vector):
+    return product(product(quaternion, (*vector, 0.0)), conjugate(quaternion))[:3]
+
+
+def turning(start, end):
+    cross = (start[1] * end[2] - start[2] * end[1], start[2] * end[0] - start[0] * end[2],
+             start[0] * end[1] - start[1] * end[0])
+    turn = (*cross, 1.0 + sum(a * b for a, b in zip(start, end)))
+    length = sum(v * v for v in turn) ** 0.5
+    return tuple(v / length for v in turn)
+
+
+def unit(vector):
+    length = sum(v * v for v in vector) ** 0.5
+    return tuple(v / length for v in vector)
+
+
+def parent_of(data, bone):
+    return struct.unpack_from("<h", data, bone_offset(data, bone) + 8)[0]
+
+
+def world_rotation(data, bone, sequence, time):
+    rotation = (0.0, 0.0, 0.0, 1.0)
+    while bone >= 0:
+        rotation = product(at_time(*bone_keys(data, bone, sequence), time), rotation)
+        bone = parent_of(data, bone)
+    return rotation
+
+
+def sequence_length(data, sequence):
+    return struct.unpack_from("<I", data, array(data, SEQUENCES)[1] + sequence * SEQUENCE_SIZE + 4)[0]
+
+
+def gun_axis(source, sequence):
+    hand = arm_chain(source, KEY_ARM_RIGHT)[-1]
+    held = world_rotation(source, hand, sequence, sequence_length(source, sequence) // 2)
+    return rotate(conjugate(held), FORWARD)
+
+
+def decoded(entry):
+    count, stamps, values = entry
+    return (list(struct.unpack(f"<{count}I", stamps)),
+            [unpacked(values[index * 8:index * 8 + 8]) for index in range(count)])
+
+
+def aimed_shoulder(ogre, ready, chain, entries, axis):
+    stamps, keys = decoded(entries[chain[0]])
+    lower = [decoded(entries[bone]) for bone in chain[1:]]
+    aimed = []
+    for stamp, key in zip(stamps, keys):
+        above = world_rotation(ogre, parent_of(ogre, chain[0]), ready, stamp)
+        hand = product(above, key)
+        for bone_stamps, bone_keys_ in lower:
+            hand = product(hand, at_time(bone_stamps, bone_keys_, stamp))
+        correction = turning(unit(rotate(hand, axis)), FORWARD)
+        aimed.append(packed(product(product(conjugate(above), product(correction, above)), key), False))
+    return len(stamps), struct.pack(f"<{len(stamps)}I", *stamps), b"".join(aimed)
+
+
 def rotation_keys(data, chain, sequence, mirror):
     stamps, keys = bone_keys(data, chain[-1], sequence)
     parents = [bone_keys(data, bone, sequence) for bone in chain[:-1]]
@@ -182,13 +247,19 @@ class Grafter:
         wanted = [(sequence_index(self.source, animation), mirror) for animation, _, mirror, _ in COPIED]
         mappings = [bone_sources(bytes(self.blob.data), self.source, mirror, left_arm_only)
                     for _, _, mirror, left_arm_only in COPIED]
+        ogre = bytes(self.blob.data)
+        left_arm = arm_chain(ogre, KEY_ARM_LEFT)
+        rotations = []
+        for (sequence, mirror), mapping, (_, _, _, left_arm_only) in zip(wanted, mappings, COPIED):
+            keys = {bone: rotation_keys(self.source, chain, sequence, mirror) for bone, chain in mapping.items()}
+            if left_arm_only:
+                axis = gun_axis(self.source, sequence)
+                keys[left_arm[0]] = aimed_shoulder(ogre, self.ready, left_arm, keys, axis)
+            rotations.append(keys)
         bone_count, _ = array(self.blob.data, BONES)
         for bone in range(bone_count):
             for track in BONE_TRACKS:
-                entries = []
-                for (sequence, mirror), mapping in zip(wanted, mappings):
-                    copied = track == ROTATION and bone in mapping
-                    entries.append(rotation_keys(self.source, mapping[bone], sequence, mirror) if copied else None)
+                entries = [keys.get(bone) if track == ROTATION else None for keys in rotations]
                 self.extend(bone_offset(self.blob.data, bone) + track, True, entries)
         for header, (size, tracks) in RECORD_TRACKS.items():
             count, offset = array(self.blob.data, header)

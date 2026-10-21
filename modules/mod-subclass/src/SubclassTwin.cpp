@@ -1307,12 +1307,48 @@ void MeleeUpClose(Player* player)
 }
 
 constexpr uint32 AimAfterShotMs = 2500;
+constexpr uint32 ShotPoseMs = 1000;
+constexpr uint32 AimPoseMs = 2000;
 std::unordered_map<uint32, uint32>& aimingUntil = *new std::unordered_map<uint32, uint32>;
+std::unordered_map<uint32, uint32>& aimPoseUntil = *new std::unordered_map<uint32, uint32>;
 
 void NoteOtherHeadShot(Player const* player)
 {
+    uint32 const now = GameTime::GetGameTimeMS().count();
     std::lock_guard<std::mutex> lock(twinMutex);
-    aimingUntil[player->GetGUID().GetCounter()] = GameTime::GetGameTimeMS().count() + AimAfterShotMs;
+    aimingUntil[player->GetGUID().GetCounter()] = now + AimAfterShotMs;
+    aimPoseUntil[player->GetGUID().GetCounter()] = now + ShotPoseMs;
+}
+
+Unit* AimedAt(Player* player)
+{
+    if (Unit* victim = player->GetVictim())
+        return victim;
+    Spell* repeating = player->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL);
+    return repeating ? repeating->m_targets.GetUnitTarget() : nullptr;
+}
+
+void AimFromAfar(Player* player)
+{
+    Unit* target = AimedAt(player);
+    bool const aiming = target && OtherHeadShoots(player) && player->GetSheath() == SHEATH_STATE_MELEE &&
+        target->IsAlive() && !player->IsWithinMeleeRange(target) && !player->isMoving() &&
+        !player->IsNonMeleeSpellCast(false, true, true);
+    uint32 const now = GameTime::GetGameTimeMS().count();
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        uint32& until = aimPoseUntil[player->GetGUID().GetCounter()];
+        if (!aiming)
+        {
+            if (player->isMoving())
+                until = 0;
+            return;
+        }
+        if (until > now)
+            return;
+        until = now + AimPoseMs;
+    }
+    player->HandleEmoteCommand(EMOTE_ONESHOT_READY_RIFLE);
 }
 
 bool RecentlyShot(Player const* player)
@@ -1339,6 +1375,8 @@ void DrawForTheFight(Player* player)
         ShootsFromAfar(player);
     if (fighting && player->GetSheath() != SHEATH_STATE_MELEE)
         player->SetSheath(SHEATH_STATE_MELEE);
+    if (fighting)
+        AimFromAfar(player);
 }
 
 void ShootAlong(Player* player)
@@ -2602,9 +2640,38 @@ bool WorthTheBigCooldown(Unit const* foe)
 constexpr float ManaKeptForTheMain = 0.35f;
 constexpr float LowPowerPct = 30.0f;
 
+bool GivesManaBack(SpellInfo const* info, uint8 depth = 0)
+{
+    for (SpellEffectInfo const& effect : info->GetEffects())
+    {
+        if (!effect.IsEffect())
+            continue;
+        bool const manaEffect = effect.MiscValue == POWER_MANA &&
+            (effect.Effect == SPELL_EFFECT_POWER_DRAIN || (effect.Effect == SPELL_EFFECT_ENERGIZE &&
+                effect.TargetA.GetTarget() == TARGET_UNIT_CASTER));
+        bool const manaAura = effect.IsAura(SPELL_AURA_PERIODIC_MANA_LEECH) ||
+            (effect.IsAura(SPELL_AURA_PERIODIC_ENERGIZE) && effect.MiscValue == POWER_MANA &&
+                effect.TargetA.GetTarget() == TARGET_UNIT_CASTER);
+        if (manaEffect || manaAura)
+            return true;
+        if (depth == 0 && effect.TriggerSpell)
+            if (SpellInfo const* triggered = sSpellMgr->GetSpellInfo(effect.TriggerSpell);
+                triggered && GivesManaBack(triggered, depth + 1))
+                return true;
+    }
+    return false;
+}
+
+constexpr float LowManaPct = 40.0f;
+
+bool LowOnMana(Player const* player)
+{
+    return player->GetMaxPower(POWER_MANA) && player->GetPowerPct(POWER_MANA) < LowManaPct;
+}
+
 bool LeavesManaForTheMain(Player const* player, SpellInfo const* info, bool emergency)
 {
-    if (info->PowerType != POWER_MANA || emergency)
+    if (info->PowerType != POWER_MANA || emergency || GivesManaBack(info))
         return true;
     int32 const cost = info->CalcPowerCost(player, info->GetSchoolMask());
     return int64(player->GetPower(POWER_MANA)) - cost >=
@@ -2657,7 +2724,11 @@ void Consider(Pick& best, Pick const& pick)
 
 bool ReachesFoe(Player* player, SpellInfo const* info, Unit* foe)
 {
-    return IsShot(info) ? BrotherReaches(player, info, foe) : Reaches(player, info, foe);
+    if (!IsShot(info))
+        return Reaches(player, info, foe);
+    if (OtherHeadShoots(player) && player->IsWithinMeleeRange(foe))
+        return false;
+    return BrotherReaches(player, info, foe);
 }
 
 std::string_view ConsiderHeal(Player* player, SpellInfo const* info, std::vector<Unit*> const& friends, Pick& best)
@@ -2764,7 +2835,8 @@ std::string_view ConsiderSpell(Player* player, SpellInfo const* info, Unit* foe,
                 return "attack: out of reach";
             if (info->HasEffect(SPELL_EFFECT_APPLY_AURA) && AlreadyGiven(foe, info, player->GetGUID()))
                 return "attack: already on the target";
-            Consider(best, { info->Id, foe, TierAttack, 100.0f, recovery });
+            Consider(best, { info->Id, foe, GivesManaBack(info) && LowOnMana(player) ? TierEnergize : TierAttack,
+                100.0f, recovery });
             return {};
         case Use::Energize:
             if (info->PowerType == POWER_MANA || player->GetPowerPct(player->getPowerType()) >= LowPowerPct)
