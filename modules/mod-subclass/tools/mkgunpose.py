@@ -48,7 +48,15 @@ COPIED = ((49, READY_RIFLE, True, True, HELD_AIM), (49, 49, True, True, None), (
           (49, ATTACK_OFF_PIERCE, True, True, None))
 HOLD_LOOPS = 12
 KICKED = (49, ATTACK_OFF_PIERCE)
-MELEE_WITH_GUN = (17, 21, 26, 57)
+LEFT_HAND_HOLDS = (17, 21, 26, 57, 31, 51, 52, 53, 54, 124, 125)
+FIST_RAISED = (0.45, -0.3, 0.45)
+TOSSED_UP = (0.25, -0.25, 0.95)
+DRAWN_BACK = (0.15, -0.4, 0.55)
+THROWN_FORWARD = (0.95, -0.15, 0.2)
+SPELL_HOLDS = (31, 51, 52, 124, 125)
+SPELL_RELEASES = {
+    54: ((0.0, FIST_RAISED), (0.25, (0.45, -0.3, 0.3)), (0.45, TOSSED_UP), (0.75, TOSSED_UP), (1.0, None)),
+    53: ((0.0, FIST_RAISED), (0.25, DRAWN_BACK), (0.45, THROWN_FORWARD), (0.75, THROWN_FORWARD), (1.0, None))}
 
 
 def array(data, offset):
@@ -397,6 +405,20 @@ def straightest(ogre, ready, entries, chain, toward, candidates, fits):
     return best[1]
 
 
+def raised_hand(ogre, ready, chain, frames, length):
+    base = {bone: frozen(own_keys(ogre, bone, ready), 0) for bone in chain}
+    stamps, values = [], {bone: [] for bone in chain[1:]}
+    previous = dict.fromkeys(chain[1:])
+    for fraction, reach in frames:
+        posed = base if reach is None else pointed(ogre, ready, base, chain, reach)
+        stamps.append(int(length * fraction))
+        for bone in chain[1:]:
+            previous[bone] = continuous(unpacked(posed[bone][2][:8]), previous[bone])
+            values[bone].append(packed(previous[bone], False))
+    times = struct.pack(f"<{len(stamps)}I", *stamps)
+    return {bone: (len(stamps), times, b"".join(values[bone])) for bone in chain[1:]}
+
+
 def own_keys(data, bone, sequence):
     track = bone_offset(data, bone) + ROTATION
     times, values = struct.unpack_from("<I", data, track + 8)[0], struct.unpack_from("<I", data, track + 16)[0]
@@ -544,7 +566,7 @@ class Grafter:
             if target in KICKED:
                 keys = kicked(ogre, self.base, keys, left_arm)
             rotations.append(keys)
-        self.hold_gun_in_melee(left_arm, rotations[0])
+        self.hold_left_hand_weapon(left_arm, right_arm, rotations[0])
         held = [entry[4] is not None for entry in COPIED]
         bone_count, _ = array(self.blob.data, BONES)
         for bone in range(bone_count):
@@ -565,21 +587,31 @@ class Grafter:
         self.append_sequences(wanted, source_offset)
         return bytes(self.blob.data)
 
-    def hold_gun_in_melee(self, left_arm, gun_hold):
+    def set_own_rotation(self, bone, sequence, entry):
         data = self.blob.data
-        _, offset = array(data, SEQUENCES)
-        melee = [sequence for sequence in range(self.old_count)
-                 if struct.unpack_from("<H", data, offset + sequence * SEQUENCE_SIZE)[0] in MELEE_WITH_GUN]
-        for bone in left_arm:
-            track = bone_offset(data, bone) + ROTATION
-            _, global_sequence, count, times = struct.unpack_from("<hhII", data, track)
-            if bone not in gun_hold or global_sequence != -1 or count != self.old_count:
-                continue
-            values = struct.unpack_from("<I", data, track + 16)[0]
-            keys, stamps, packed = gun_hold[bone]
-            for sequence in melee:
-                struct.pack_into("<II", self.blob.data, times + sequence * 8, keys, self.blob.append(stamps, 4))
-                struct.pack_into("<II", self.blob.data, values + sequence * 8, keys, self.blob.append(packed, 4))
+        track = bone_offset(data, bone) + ROTATION
+        _, global_sequence, count, times = struct.unpack_from("<hhII", data, track)
+        if global_sequence != -1 or count != self.old_count:
+            return
+        values = struct.unpack_from("<I", data, track + 16)[0]
+        keys, stamps, packed_values = entry
+        struct.pack_into("<II", self.blob.data, times + sequence * 8, keys, self.blob.append(stamps, 4))
+        struct.pack_into("<II", self.blob.data, values + sequence * 8, keys, self.blob.append(packed_values, 4))
+
+    def hold_left_hand_weapon(self, left_arm, right_arm, gun_hold):
+        ogre = bytes(self.blob.data)
+        _, offset = array(ogre, SEQUENCES)
+        for sequence in range(self.old_count):
+            animation = struct.unpack_from("<H", ogre, offset + sequence * SEQUENCE_SIZE)[0]
+            if animation in LEFT_HAND_HOLDS:
+                for bone in left_arm:
+                    if bone in gun_hold:
+                        self.set_own_rotation(bone, sequence, gun_hold[bone])
+            frames = ((0.0, FIST_RAISED),) if animation in SPELL_HOLDS else SPELL_RELEASES.get(animation)
+            if frames:
+                length = sequence_length(ogre, sequence)
+                for bone, entry in raised_hand(ogre, self.base, right_arm, frames, length).items():
+                    self.set_own_rotation(bone, sequence, entry)
 
     def append_sequences(self, wanted, source_offset):
         data = self.blob.data
