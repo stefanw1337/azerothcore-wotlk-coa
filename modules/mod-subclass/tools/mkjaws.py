@@ -31,7 +31,7 @@ CELL = 0.03
 FRONT_OF_FACE = 0.1
 COVERED_SHARE = 0.6
 LIP_HEIGHT = 0.04
-LIP_MARGIN = 0.015
+LIP_MARGIN = {"left": 0.015, "right": 0.04}
 MOST_PUSH = {"left": 0.01, "right": 0.15}
 
 
@@ -138,7 +138,7 @@ class Face:
         for point in lip:
             near = front[(np.abs(front[:, 1] - point[1]) < CELL) & (np.abs(front[:, 2] - point[2]) < CELL)]
             if len(near):
-                need = max(need, point[0] + LIP_MARGIN - near[:, 0].max())
+                need = max(need, point[0] + LIP_MARGIN[side] - near[:, 0].max())
         return True, min(need, MOST_PUSH[side])
 
 
