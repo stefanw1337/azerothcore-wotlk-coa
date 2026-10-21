@@ -1306,11 +1306,30 @@ void MeleeUpClose(Player* player)
     player->Attack(victim, true);
 }
 
-std::unordered_map<uint32, std::string>& fightLooks = *new std::unordered_map<uint32, std::string>;
+constexpr uint32 AimAfterShotMs = 2500;
+std::unordered_map<uint32, uint32>& aimingUntil = *new std::unordered_map<uint32, uint32>;
 
-uint32 AimingState(ItemTemplate const* ranged)
+void NoteOtherHeadShot(Player const* player)
 {
-    return ranged->SubClass == ITEM_SUBCLASS_WEAPON_BOW ? EMOTE_STATE_READY_BOW : EMOTE_STATE_READY_RIFLE;
+    std::lock_guard<std::mutex> lock(twinMutex);
+    aimingUntil[player->GetGUID().GetCounter()] = GameTime::GetGameTimeMS().count() + AimAfterShotMs;
+}
+
+bool RecentlyShot(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(twinMutex);
+    auto const itr = aimingUntil.find(player->GetGUID().GetCounter());
+    return itr != aimingUntil.end() && itr->second > GameTime::GetGameTimeMS().count();
+}
+
+bool AimsFromAfar(Player* player)
+{
+    if (!OtherHeadShoots(player))
+        return false;
+    if (player->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) || RecentlyShot(player))
+        return true;
+    Unit* victim = player->GetVictim();
+    return victim && player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) && !player->IsWithinMeleeRange(victim);
 }
 
 void DrawForTheFight(Player* player)
@@ -1318,28 +1337,16 @@ void DrawForTheFight(Player* player)
     if (!HasSecondHead(player))
         return;
     MeleeUpClose(player);
-    bool const shooting = OtherHeadShoots(player) && player->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL);
-    bool const fighting = (player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) && player->GetVictim()) || shooting;
-    if (fighting && player->GetSheath() != SHEATH_STATE_MELEE)
-        player->SetSheath(SHEATH_STATE_MELEE);
-    Item* gun = shooting ? OwnBow(player) : nullptr;
-    uint32 const aiming = gun ? AimingState(gun->GetTemplate()) : 0;
     uint32 const state = player->GetUInt32Value(UNIT_NPC_EMOTESTATE);
-    if (state != aiming && (aiming || state == EMOTE_STATE_READY_RIFLE || state == EMOTE_STATE_READY_BOW))
-        player->SetUInt32Value(UNIT_NPC_EMOTESTATE, aiming);
-    Spell const* repeating = player->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL);
-    std::string const seen = Acore::StringFormat("awake {} other shoots {} main shoots {} gun {} repeating {} "
-        "melee {} sheath {} emote state {}", OtherHalfAwake(player), OtherHalfShoots(player), MainHalfShoots(player),
-        OwnBow(player) ? OwnBow(player)->GetEntry() : 0, repeating ? repeating->m_spellInfo->Id : 0,
-        player->HasUnitState(UNIT_STATE_MELEE_ATTACKING), uint32(player->GetSheath()),
-        player->GetUInt32Value(UNIT_NPC_EMOTESTATE));
-    std::lock_guard<std::mutex> lock(twinMutex);
-    std::string& last = fightLooks[player->GetGUID().GetCounter()];
-    if (last != seen)
-    {
-        LOG_INFO("module", "mod-subclass: {} draws for the fight: {}", player->GetName(), seen);
-        last = seen;
-    }
+    if (state == EMOTE_STATE_READY_RIFLE || state == EMOTE_STATE_READY_BOW)
+        player->SetUInt32Value(UNIT_NPC_EMOTESTATE, 0);
+    SheathState wanted = SHEATH_STATE_UNARMED;
+    if (AimsFromAfar(player))
+        wanted = SHEATH_STATE_RANGED;
+    else if (player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) && player->GetVictim())
+        wanted = SHEATH_STATE_MELEE;
+    if (wanted != SHEATH_STATE_UNARMED && player->GetSheath() != wanted)
+        player->SetSheath(wanted);
 }
 
 void ShootAlong(Player* player)
@@ -2947,9 +2954,11 @@ public:
 
     void OnPlayerSpellCast(Player* player, Spell* spell, bool /*skipCheck*/) override
     {
-        if (spell && IsShot(spell->GetSpellInfo()) && OtherHeadShoots(player))
-            if (Item* gun = OwnBow(player))
-                player->HandleEmoteCommand(RangedEmote(gun->GetTemplate()));
+        if (!spell || !IsShot(spell->GetSpellInfo()) || !OtherHeadShoots(player))
+            return;
+        NoteOtherHeadShot(player);
+        if (Item* gun = OwnBow(player))
+            player->HandleEmoteCommand(RangedEmote(gun->GetTemplate()));
     }
 };
 
