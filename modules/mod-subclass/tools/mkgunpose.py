@@ -21,7 +21,7 @@ EVENT_SIZE, EVENT_TRACK = 36, 24
 KEY_ARM_LEFT, KEY_ARM_RIGHT = 0, 1
 SPINE = (2, 3, 4)
 SPINE_PATH = (2, 4)
-READY_1H = 26
+STAND = 0
 FORWARD = (1.0, 0.0, 0.0)
 HELD_BARREL = FORWARD
 ATTACK_OFF_PIERCE = 88
@@ -334,7 +334,7 @@ class Grafter:
         self.blob = Blob(ogre)
         self.source = source
         self.old_count = array(ogre, SEQUENCES)[0]
-        self.ready = sequence_index(ogre, READY_1H)
+        self.base = sequence_index(ogre, STAND)
         self.added = []
 
     def still(self, track, size):
@@ -343,7 +343,7 @@ class Grafter:
         if global_sequence != -1 or count != self.old_count:
             return None
         values = struct.unpack_from("<I", data, track + 16)[0]
-        keys, at = array(data, values + self.ready * 8)
+        keys, at = array(data, values + self.base * 8)
         return (1, struct.pack("<I", 0), bytes(data[at:at + size])) if keys else None
 
     def extend(self, track, has_values, entries):
@@ -358,9 +358,9 @@ class Grafter:
             outer_values = bytearray(data[values:values + count * 8])
         for entry in entries:
             if entry is None:
-                outer_times += data[times + self.ready * 8:times + self.ready * 8 + 8]
+                outer_times += data[times + self.base * 8:times + self.base * 8 + 8]
                 if has_values:
-                    outer_values += data[values + self.ready * 8:values + self.ready * 8 + 8]
+                    outer_values += data[values + self.base * 8:values + self.base * 8 + 8]
                 continue
             keys, stamps, packed = entry
             outer_times += struct.pack("<II", keys, self.blob.append(stamps, 4))
@@ -387,9 +387,9 @@ class Grafter:
             if mirror and not left_arm_only:
                 source_sides = (arm_chain(self.source, KEY_ARM_RIGHT), arm_chain(self.source, KEY_ARM_LEFT))
                 for chain, source_chain in zip((left_arm, right_arm), source_sides):
-                    keys = reached(ogre, self.ready, self.source, sequence, keys, chain, source_chain)
+                    keys = reached(ogre, self.base, self.source, sequence, keys, chain, source_chain)
             if mirror:
-                keys[left_arm[-1]] = aimed_joint(ogre, self.ready, left_arm[-1:], keys, HELD_BARREL)
+                keys[left_arm[-1]] = aimed_joint(ogre, self.base, left_arm[-1:], keys, HELD_BARREL)
             rotations.append(keys)
         held = [entry[4] is not None for entry in COPIED]
         bone_count, _ = array(self.blob.data, BONES)
@@ -415,7 +415,7 @@ class Grafter:
         data = self.blob.data
         _, offset = array(data, SEQUENCES)
         records = bytearray(data[offset:offset + self.old_count * SEQUENCE_SIZE])
-        ready = data[offset + self.ready * SEQUENCE_SIZE:offset + (self.ready + 1) * SEQUENCE_SIZE]
+        ready = data[offset + self.base * SEQUENCE_SIZE:offset + (self.base + 1) * SEQUENCE_SIZE]
         for position, (sequence, _) in enumerate(wanted):
             record = bytearray(self.source[source_offset + sequence * SEQUENCE_SIZE:
                                            source_offset + (sequence + 1) * SEQUENCE_SIZE])
