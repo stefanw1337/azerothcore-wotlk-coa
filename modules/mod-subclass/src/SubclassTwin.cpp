@@ -1299,6 +1299,12 @@ bool GunInHand(Player const* player)
     return gunsInHand.count(player->GetGUID().GetCounter());
 }
 
+bool GunInHandOrBusy(Player const* player)
+{
+    std::unique_lock<std::mutex> lock(twinMutex, std::try_to_lock);
+    return !lock.owns_lock() || gunsInHand.count(player->GetGUID().GetCounter());
+}
+
 void ForgetStowedLook(Player const* player, uint8 slot)
 {
     std::lock_guard<std::mutex> lock(twinMutex);
@@ -2293,9 +2299,11 @@ bool ShowHitsOnBrother(WorldSession* session, WorldPacket const& packet)
     return false;
 }
 
+bool IsShot(SpellInfo const* info);
+
 bool HideOtherHeadStrikeCast(WorldPacket const& packet)
 {
-    if (!strikingAsOtherHead.Spell || (packet.GetOpcode() != SMSG_SPELL_START && packet.GetOpcode() != SMSG_SPELL_GO))
+    if (packet.GetOpcode() != SMSG_SPELL_START && packet.GetOpcode() != SMSG_SPELL_GO)
         return true;
     WorldPacket reader(packet);
     reader.rpos(0);
@@ -2306,7 +2314,13 @@ bool HideOtherHeadStrikeCast(WorldPacket const& packet)
     reader >> source.ReadAsPacked();
     reader >> caster.ReadAsPacked();
     reader >> castCount >> spellId;
-    return caster != strikingAsOtherHead.Player || spellId != strikingAsOtherHead.Spell;
+    if (strikingAsOtherHead.Spell && caster == strikingAsOtherHead.Player && spellId == strikingAsOtherHead.Spell)
+        return false;
+    SpellInfo const* info = caster.IsPlayer() ? sSpellMgr->GetSpellInfo(spellId) : nullptr;
+    if (!info || !IsShot(info))
+        return true;
+    Player* shooter = ObjectAccessor::FindConnectedPlayer(caster);
+    return !shooter || !HasSecondHead(shooter) || GunInHandOrBusy(shooter);
 }
 
 bool ShowCastOnBrother(WorldSession* session, WorldPacket const& packet)
@@ -2631,7 +2645,6 @@ void ActOutCast(Player* player, SpellInfo const* info, Unit* target)
 }
 
 bool SwingsAWeapon(SpellInfo const* info);
-bool IsShot(SpellInfo const* info);
 
 void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid)
 {
@@ -2645,7 +2658,7 @@ void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid)
     ActOutCast(player, info, target);
     if (twin)
         castingAsBrother = { player->GetGUID(), twin->GetGUID(), spellId };
-    else if (HasSecondHead(player) && (SwingsAWeapon(info) || (IsShot(info) && !GunInHand(player))))
+    else if (HasSecondHead(player) && !(IsShot(info) && GunInHand(player)))
         strikingAsOtherHead = { player->GetGUID(), ObjectGuid::Empty, spellId };
     SpellCastResult const result = player->CastSpell(target, spellId, TriggerCastFlags(TRIGGERED_IGNORE_GCD |
         TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_CAST_DIRECTLY | TRIGGERED_IGNORE_SET_FACING |
