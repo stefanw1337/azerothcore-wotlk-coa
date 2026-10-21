@@ -1676,7 +1676,7 @@ void ShootAlong(Player* player)
     DrawForTheFight(player);
     Unit* victim = player->GetVictim();
     Item* gun = OwnBow(player);
-    if (!gun || IsBow(gun) || !OtherHeadShoots(player) || !victim ||
+    if (!gun || IsBow(gun) || !OtherHeadShoots(player) || !GunInHand(player) || !victim ||
         !player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) ||
         !player->IsValidAttackTarget(victim) || player->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) ||
         !player->isAttackReady(RANGED_ATTACK) || !player->IsWithinDistInMap(victim, AlongShotRange) ||
@@ -1685,9 +1685,7 @@ void ShootAlong(Player* player)
     player->resetAttackTimer(RANGED_ATTACK);
     WorldPacket shot = ProjectilePacket(player->GetGUID(), ReachAura, gun->GetEntry(), victim->GetGUID(), false);
     player->SendMessageToSet(&shot, true);
-    NoteHands(player, "shoots along");
-    if (GunInHand(player))
-        player->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_OFF_PIERCE);
+    player->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_OFF_PIERCE);
     bool const critical = roll_chance_f(player->GetUnitCriticalChance(RANGED_ATTACK, victim));
     uint32 damage = Unit::CalcArmorReducedDamage(player, victim, player->CalculateDamage(RANGED_ATTACK, false, true),
         nullptr, 0, RANGED_ATTACK);
