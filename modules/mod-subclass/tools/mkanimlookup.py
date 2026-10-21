@@ -31,7 +31,7 @@ def own_sequences(model: bytes) -> dict:
     for index in range(count):
         animation, variation = struct.unpack_from("<HH", model, offset + index * 64)
         if variation == 0:
-            found.setdefault(animation, index)
+            found[animation] = index
     return found
 
 

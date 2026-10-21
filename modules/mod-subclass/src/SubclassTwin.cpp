@@ -1251,7 +1251,7 @@ void HandWeaponsToBrother(Player* player)
                     twin->SetVirtualItem(index, shown);
         }
     uint16 const field = PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_RANGED * 2;
-    if (Item* bow = OwnBow(player); bow && !player->GetUInt32Value(field))
+    if (Item* bow = OwnBow(player); bow && !player->GetUInt32Value(field) && !HasSecondHead(player))
         player->SetVisibleItemSlot(EQUIPMENT_SLOT_RANGED, bow);
 }
 
@@ -1265,18 +1265,28 @@ bool IsBow(Item const* gun)
     return gun->GetTemplate()->SubClass == ITEM_SUBCLASS_WEAPON_BOW;
 }
 
-std::unordered_map<uint32, uint32>& stowedMainHands = *new std::unordered_map<uint32, uint32>;
+struct StowedLooks
+{
+    std::optional<uint32> MainHand;
+    std::optional<uint32> Ranged;
+    uint32 PlacedMainHand = 0;
+};
+
+std::unordered_map<uint32, StowedLooks>& stowedLooks = *new std::unordered_map<uint32, StowedLooks>;
+
+uint32 ShownIn(Player const* player, uint8 slot)
+{
+    return player->GetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + slot * 2);
+}
 
 void SetShown(Player* player, uint8 slot, uint32 entry)
 {
-    uint16 const field = PLAYER_VISIBLE_ITEM_1_ENTRYID + slot * 2;
-    if (player->GetUInt32Value(field) != entry)
-        player->SetUInt32Value(field, entry);
+    if (ShownIn(player, slot) != entry)
+        player->SetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + slot * 2, entry);
 }
 
 void HoldTheGun(Player* player, bool afar)
 {
-    uint16 const mainHand = PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_MAINHAND * 2;
     uint32 const guid = player->GetGUID().GetCounter();
     Item* gun = OwnBow(player);
     if (gun && !HeldInHand(gun))
@@ -1285,29 +1295,47 @@ void HoldTheGun(Player* player, bool afar)
     bool const drawn = gun && freeOffHand && player->IsAlive() && OtherHeadShoots(player) &&
         player->GetSheath() == SHEATH_STATE_MELEE;
     afar = afar && drawn;
-    uint32 const shownGun = player->GetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_RANGED * 2);
-    uint32 const look = !gun ? 0 : shownGun ? shownGun : gun->GetEntry();
     bool const bow = gun && IsBow(gun);
-    std::optional<uint32> restore;
+    uint32 const shownMain = ShownIn(player, EQUIPMENT_SLOT_MAINHAND);
+    uint32 const shownRanged = ShownIn(player, EQUIPMENT_SLOT_RANGED);
+    uint32 look = 0;
+    uint32 heldInMain = 0;
+    std::optional<uint32> restoreMain;
+    std::optional<uint32> restoreRanged;
     {
         std::lock_guard<std::mutex> lock(twinMutex);
-        auto const stowed = stowedMainHands.find(guid);
+        StowedLooks& stowed = stowedLooks[guid];
+        if (drawn && shownRanged)
+            stowed.Ranged = shownRanged;
+        look = gun ? stowed.Ranged.value_or(gun->GetEntry()) : 0;
+        heldInMain = bow ? 0 : look;
+        if (afar && shownMain != heldInMain)
+            stowed.MainHand = shownMain;
         if (afar)
+            stowed.PlacedMainHand = heldInMain;
+        if (!afar && stowed.MainHand)
         {
-            uint32 const current = player->GetUInt32Value(mainHand);
-            if (current != (bow ? 0 : look))
-                stowedMainHands[guid] = current;
+            if (shownMain == stowed.PlacedMainHand)
+                restoreMain = stowed.MainHand;
+            stowed.MainHand.reset();
         }
-        else if (stowed != stowedMainHands.end())
+        if (!drawn && stowed.Ranged)
         {
-            restore = stowed->second;
-            stowedMainHands.erase(stowed);
+            if (!shownRanged)
+                restoreRanged = stowed.Ranged;
+            stowed.Ranged.reset();
         }
+        if (!stowed.MainHand && !stowed.Ranged)
+            stowedLooks.erase(guid);
     }
+    if (drawn)
+        SetShown(player, EQUIPMENT_SLOT_RANGED, 0);
+    else if (restoreRanged)
+        SetShown(player, EQUIPMENT_SLOT_RANGED, *restoreRanged);
     if (afar)
-        SetShown(player, EQUIPMENT_SLOT_MAINHAND, bow ? 0 : look);
-    else if (restore)
-        SetShown(player, EQUIPMENT_SLOT_MAINHAND, *restore);
+        SetShown(player, EQUIPMENT_SLOT_MAINHAND, heldInMain);
+    else if (restoreMain)
+        SetShown(player, EQUIPMENT_SLOT_MAINHAND, *restoreMain);
     if (freeOffHand)
         SetShown(player, EQUIPMENT_SLOT_OFFHAND, drawn && !(afar && !bow) ? look : 0);
 }
@@ -1342,7 +1370,8 @@ void MeleeUpClose(Player* player)
 
 constexpr uint32 AimAfterShotMs = 2500;
 constexpr uint32 ShotPoseMs = 1000;
-constexpr uint32 AimPoseMs = 2000;
+constexpr uint32 AimPoseMs = 900;
+constexpr uint32 EmoteHoldBowAim = 477;
 std::unordered_map<uint32, uint32>& aimingUntil = *new std::unordered_map<uint32, uint32>;
 std::unordered_map<uint32, uint32>& aimPoseUntil = *new std::unordered_map<uint32, uint32>;
 
@@ -1383,7 +1412,7 @@ void AimFromAfar(Player* player)
             return;
         until = now + AimPoseMs;
     }
-    player->HandleEmoteCommand(IsBow(gun) ? EMOTE_ONESHOT_READY_BOW : EMOTE_ONESHOT_READY_RIFLE);
+    player->HandleEmoteCommand(IsBow(gun) ? EmoteHoldBowAim : uint32(EMOTE_ONESHOT_ATTACK_THROWN));
 }
 
 bool RecentlyShot(Player const* player)

@@ -20,8 +20,12 @@ SPINE_PATH = (2, 4)
 READY_1H = 26
 FORWARD = (1.0, 0.0, 0.0)
 ATTACK_OFF_PIERCE = 88
-COPIED = ((48, 48, False, False), (49, 49, False, False), (110, 110, False, False), (29, 29, False, False),
-          (46, 46, False, False), (109, 109, False, False), (49, ATTACK_OFF_PIERCE, True, True))
+ATTACK_THROWN, SPECIAL_UNARMED = 107, 118
+HELD_AIM = 0.5
+COPIED = ((48, 48, False, False, None), (49, 49, False, False, None), (110, 110, False, False, None),
+          (29, 29, False, False, None), (46, 46, False, False, None), (109, 109, False, False, None),
+          (49, ATTACK_OFF_PIERCE, True, True, None), (49, ATTACK_THROWN, False, False, HELD_AIM),
+          (109, SPECIAL_UNARMED, False, False, None))
 
 
 def array(data, offset):
@@ -183,6 +187,14 @@ def aimed_shoulder(ogre, ready, chain, entries, axis):
     return len(stamps), struct.pack(f"<{len(stamps)}I", *stamps), b"".join(aimed)
 
 
+def frozen(entry, moment):
+    count, stamps, values = entry
+    times = struct.unpack(f"<{count}I", stamps)
+    earlier = [index for index, stamp in enumerate(times) if stamp <= moment]
+    index = earlier[-1] if earlier else 0
+    return 1, struct.pack("<I", 0), values[index * 8:index * 8 + 8]
+
+
 def rotation_keys(data, chain, sequence, mirror):
     stamps, keys = bone_keys(data, chain[-1], sequence)
     parents = [bone_keys(data, bone, sequence) for bone in chain[:-1]]
@@ -244,14 +256,17 @@ class Grafter:
 
     def graft(self):
         source_count, source_offset = array(self.source, SEQUENCES)
-        wanted = [(sequence_index(self.source, animation), mirror) for animation, _, mirror, _ in COPIED]
+        wanted = [(sequence_index(self.source, animation), mirror) for animation, _, mirror, _, _ in COPIED]
         mappings = [bone_sources(bytes(self.blob.data), self.source, mirror, left_arm_only)
-                    for _, _, mirror, left_arm_only in COPIED]
+                    for _, _, mirror, left_arm_only, _ in COPIED]
         ogre = bytes(self.blob.data)
         left_arm = arm_chain(ogre, KEY_ARM_LEFT)
         rotations = []
-        for (sequence, mirror), mapping, (_, _, _, left_arm_only) in zip(wanted, mappings, COPIED):
+        for (sequence, mirror), mapping, (_, _, _, left_arm_only, held) in zip(wanted, mappings, COPIED):
             keys = {bone: rotation_keys(self.source, chain, sequence, mirror) for bone, chain in mapping.items()}
+            if held is not None:
+                moment = int(sequence_length(self.source, sequence) * held)
+                keys = {bone: frozen(entry, moment) for bone, entry in keys.items()}
             if left_arm_only:
                 axis = gun_axis(self.source, sequence)
                 keys[left_arm[0]] = aimed_shoulder(ogre, self.ready, left_arm, keys, axis)
