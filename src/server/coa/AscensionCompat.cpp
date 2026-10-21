@@ -6889,6 +6889,11 @@ private:
   }
 
 public:
+  bool CanSeeItemAppearances(Player *player) {
+    std::shared_ptr<PlayerCollectionState> state = GetState(player);
+    return !state || state->CanSeeItemAppearances;
+  }
+
   uint32 AppearanceOfItem(uint32 itemId) const {
     auto const itr = _itemAppearances.find(itemId);
     return itr == _itemAppearances.end() ? 0 : itr->second;
@@ -10384,6 +10389,11 @@ bool RestoreAscensionSpecializationSignature(Player* player)
     service.SaveSlot(player);
     service.SendCharacterAdvancementKnownEntries(player);
     return true;
+}
+
+bool AscensionShowsItemAppearances(Player* player)
+{
+    return AscensionCollectionService::Instance().CanSeeItemAppearances(player);
 }
 
 uint32 AscensionAppearanceOfItem(uint32 itemId)

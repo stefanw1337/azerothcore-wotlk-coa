@@ -1590,7 +1590,8 @@ uint32 ShownCyclopsHelmetItem(Player const* player)
 {
     if (!HasSecondHead(player))
         return 0;
-    return Subclass::CyclopsHelmet(IsSplit(player), player->HasPlayerFlag(PLAYER_FLAGS_HIDE_HELM),
+    return Subclass::CyclopsHelmet(IsSplit(player) && AscensionShowsItemAppearances(const_cast<Player*>(player)),
+        player->HasPlayerFlag(PLAYER_FLAGS_HIDE_HELM),
         player->GetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_HEAD * 2),
         WardrobeOf(player).Items[HeadSlot]);
 }
