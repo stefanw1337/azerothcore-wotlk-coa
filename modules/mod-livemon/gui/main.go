@@ -133,6 +133,11 @@ func main() {
 		data, err := game.spellIcon(uint32(id))
 		sendPNG(w, r, data, err)
 	})
+	mux.HandleFunc("/wow/itemicon", func(w http.ResponseWriter, r *http.Request) {
+		id, _ := strconv.ParseUint(r.URL.Query().Get("display"), 10, 32)
+		data, err := game.itemIcon(uint32(id))
+		sendPNG(w, r, data, err)
+	})
 	mux.HandleFunc("/wow/font", func(w http.ResponseWriter, r *http.Request) {
 		data, err := game.read(r.URL.Query().Get("path"))
 		if err != nil {

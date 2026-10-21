@@ -19,6 +19,8 @@ type library struct {
 	cache    map[string][]byte
 	icons    map[uint32]string
 	iconOnce sync.Once
+	items    map[uint32]string
+	itemOnce sync.Once
 }
 
 func newLibrary(folder string) *library {
@@ -119,28 +121,40 @@ func (l *library) texture(name string) ([]byte, error) {
 	return out, nil
 }
 
+func (l *library) stringColumn(file string, offset uint32) map[uint32]string {
+	found := map[uint32]string{}
+	data, err := l.read("DBFilesClient\\" + file)
+	if err != nil || len(data) < 20 || string(data[:4]) != "WDBC" {
+		return found
+	}
+	count := binary.LittleEndian.Uint32(data[4:])
+	size := binary.LittleEndian.Uint32(data[12:])
+	texts := 20 + count*size
+	for i := uint32(0); i < count; i++ {
+		row := data[20+i*size:]
+		at := texts + binary.LittleEndian.Uint32(row[offset:])
+		if int(at) >= len(data) {
+			continue
+		}
+		end := bytes.IndexByte(data[at:], 0)
+		if end > 0 {
+			found[binary.LittleEndian.Uint32(row)] = string(data[at : int(at)+end])
+		}
+	}
+	return found
+}
+
+func (l *library) itemIcon(display uint32) ([]byte, error) {
+	l.itemOnce.Do(func() { l.items = l.stringColumn("ItemDisplayInfo.dbc", 20) })
+	name, ok := l.items[display]
+	if !ok {
+		return nil, os.ErrNotExist
+	}
+	return l.texture("Interface\\Icons\\" + name)
+}
+
 func (l *library) spellIcon(id uint32) ([]byte, error) {
-	l.iconOnce.Do(func() {
-		l.icons = map[uint32]string{}
-		data, err := l.read("DBFilesClient\\SpellIcon.dbc")
-		if err != nil || len(data) < 20 || string(data[:4]) != "WDBC" {
-			return
-		}
-		count := binary.LittleEndian.Uint32(data[4:])
-		size := binary.LittleEndian.Uint32(data[12:])
-		strings := 20 + count*size
-		for i := uint32(0); i < count; i++ {
-			row := data[20+i*size:]
-			at := strings + binary.LittleEndian.Uint32(row[4:])
-			if int(at) >= len(data) {
-				continue
-			}
-			end := bytes.IndexByte(data[at:], 0)
-			if end > 0 {
-				l.icons[binary.LittleEndian.Uint32(row)] = string(data[at : int(at)+end])
-			}
-		}
-	})
+	l.iconOnce.Do(func() { l.icons = l.stringColumn("SpellIcon.dbc", 4) })
 	path, ok := l.icons[id]
 	if !ok {
 		return nil, os.ErrNotExist

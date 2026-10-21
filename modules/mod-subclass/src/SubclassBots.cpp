@@ -5,6 +5,8 @@
 #include "AscensionCoATalentData.h"
 #include "AscensionSpecialization.h"
 #include "Chat.h"
+#include "Config.h"
+#include "PlayerScript.h"
 #include "DBCStores.h"
 #include "DatabaseEnv.h"
 #include "Log.h"
@@ -18,6 +20,7 @@
 #include <map>
 #include <mutex>
 #include <numeric>
+#include <random>
 #include <unordered_map>
 
 bool ForcedBot(Player const* player);
@@ -75,6 +78,9 @@ struct CastTally
 };
 
 std::mutex& botMutex = *new std::mutex;
+std::atomic<uint32> rebuildMs{ 4 * HOUR * IN_MILLISECONDS };
+std::unordered_map<uint32, uint32>& rebuildIn = *new std::unordered_map<uint32, uint32>;
+std::unordered_map<uint32, uint32>& buildRolls = *new std::unordered_map<uint32, uint32>;
 std::unordered_map<uint32, ForcedBotRow>& forcedBots = *new std::unordered_map<uint32, ForcedBotRow>;
 std::unordered_map<uint32, BotState>& onlineBots = *new std::unordered_map<uint32, BotState>;
 std::map<uint64, CastTally>& castsByChoice = *new std::map<uint64, CastTally>;
@@ -159,12 +165,14 @@ void NoteBotState(Player* player, Optional<std::string> refusal)
     stored = state;
 }
 
-std::vector<Subclass::Offer> OffersOf(std::vector<AscensionCompatData::CoATalentEntry const*> entries)
+std::vector<Subclass::Offer> OffersOf(std::vector<AscensionCompatData::CoATalentEntry const*> entries,
+    uint32 seed)
 {
     std::sort(entries.begin(), entries.end(), [](auto const* left, auto const* right)
     {
-        return std::tie(left->RequiredLevel, left->EntryId) < std::tie(right->RequiredLevel, right->EntryId);
+        return left->EntryId < right->EntryId;
     });
+    std::shuffle(entries.begin(), entries.end(), std::mt19937(seed));
     std::vector<Subclass::Offer> offers;
     for (AscensionCompatData::CoATalentEntry const* entry : entries)
         offers.push_back({ entry->EntryId, entry->SpellCount, entry->AECost, entry->TECost, entry->RequiredLevel,
@@ -184,8 +192,15 @@ Optional<std::string> SpendPoints(Player* player)
     for (AscensionCoATalentState::KnownEntry const& entry : build)
         known.push_back({ entry.EntryId, entry.Rank });
     bool changed = false;
-    for (Subclass::Rank const& rank : Subclass::PlanRanks(OffersOf(entries), known, player->GetLevel(), classPoints,
-             specializationPoints))
+    uint32 roll = 0;
+    {
+        std::lock_guard<std::mutex> lock(botMutex);
+        roll = buildRolls[player->GetGUID().GetCounter()];
+    }
+    uint32 const seed = player->GetGUID().GetCounter() * 2654435761u + roll;
+    std::vector<Subclass::Rank> const planned = Subclass::PlanRanks(OffersOf(entries, seed), known, player->GetLevel(),
+        classPoints, specializationPoints);
+    for (Subclass::Rank const& rank : planned)
     {
         if (rank.Value <= Subclass::RankIn(known, rank.EntryId))
             continue;
@@ -237,14 +252,65 @@ struct ChoiceSummary
     std::string Refusal;
 };
 
+void ClearBorrowedBuild(Player* player)
+{
+    std::vector<AscensionCompatData::CoATalentEntry const*> const entries = OpenBorrowedEntries(player);
+    std::vector<AscensionCoATalentState::KnownEntry> build = GetAscensionKnownTalentEntries(player);
+    std::erase_if(build, [&entries](AscensionCoATalentState::KnownEntry const& known)
+    {
+        return std::any_of(entries.begin(), entries.end(), [&known](auto const* entry)
+        {
+            return entry->EntryId == known.EntryId;
+        });
+    });
+    std::string refusal;
+    ApplyAscensionTalentBuild(player, build, refusal);
+}
+
 class mod_subclass_bots_world : public WorldScript
 {
 public:
-    mod_subclass_bots_world() : WorldScript("mod_subclass_bots_world", { WORLDHOOK_ON_STARTUP }) { }
+    mod_subclass_bots_world() : WorldScript("mod_subclass_bots_world", { WORLDHOOK_ON_STARTUP,
+        WORLDHOOK_ON_AFTER_CONFIG_LOAD }) { }
+
+    void OnAfterConfigLoad(bool /*reload*/) override
+    {
+        rebuildMs = sConfigMgr->GetOption<uint32>("Subclass.Bots.RebuildHours", 4) * HOUR * IN_MILLISECONDS;
+    }
 
     void OnStartup() override
     {
         LoadForcedBots();
+    }
+};
+
+class mod_subclass_bots_player : public PlayerScript
+{
+public:
+    mod_subclass_bots_player() : PlayerScript("mod_subclass_bots_player", { PLAYERHOOK_ON_UPDATE }) { }
+
+    void OnPlayerUpdate(Player* player, uint32 diff) override
+    {
+        uint32 const every = rebuildMs;
+        if (!every || !ForcedBot(player))
+            return;
+        {
+            std::lock_guard<std::mutex> lock(botMutex);
+            auto [itr, fresh] = rebuildIn.try_emplace(player->GetGUID().GetCounter(), every);
+            if (fresh || itr->second > diff)
+            {
+                if (!fresh)
+                    itr->second -= diff;
+                return;
+            }
+            itr->second = every;
+            ++buildRolls[player->GetGUID().GetCounter()];
+        }
+        if (!SubclassChoiceOf(player).Complete() || player->IsInCombat())
+            return;
+        ClearBorrowedBuild(player);
+        SpendBotPoints(player);
+        LOG_INFO("module", "mod-subclass: bot {} tries a new borrowed build", player->GetName());
     }
 };
 }
@@ -303,6 +369,15 @@ void ForgetBotPlayer(Player const* player)
 {
     std::lock_guard<std::mutex> lock(botMutex);
     onlineBots.erase(player->GetGUID().GetCounter());
+    rebuildIn.erase(player->GetGUID().GetCounter());
+}
+
+void ForgetDeletedBot(uint32 guid)
+{
+    CharacterDatabase.Execute("DELETE FROM `mod_subclass_bot` WHERE `guid` = {}", guid);
+    std::lock_guard<std::mutex> lock(botMutex);
+    forcedBots.erase(guid);
+    buildRolls.erase(guid);
 }
 
 void NoteBotCast(Player const* player, uint32 spellId, uint32 result)
@@ -385,4 +460,5 @@ bool HandleSubclassBots(ChatHandler* handler, Optional<std::string> mode)
 void AddSC_mod_subclass_bots()
 {
     new mod_subclass_bots_world();
+    new mod_subclass_bots_player();
 }

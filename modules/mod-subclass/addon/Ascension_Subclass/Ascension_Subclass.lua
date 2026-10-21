@@ -879,60 +879,12 @@ local function ShowMicroPortrait()
     end
 end
 
-local CYCLOPS_CAMERA = 1
 local cyclops = { model = nil, previews = {}, asked = {} }
 
-local function CyclopsCamera()
-    return Ascension_SubclassDump and Ascension_SubclassDump.cyclopsCamera or CYCLOPS_CAMERA
-end
-
-local function CyclopsNudge()
-    local nudge = Ascension_SubclassDump and Ascension_SubclassDump.cyclopsNudge
-    return nudge and nudge[1] or 0, nudge and nudge[2] or 0, nudge and nudge[3] or 0
-end
-
-local function FollowHost(overlay, elapsed)
-    local host = overlay.host
-    overlay.loading = (overlay.loading or 0) + (elapsed or 0)
-    if overlay.loading < 3 then
-        overlay:SetCamera(CyclopsCamera())
+local function ShowCyclopsHelmetOn(host)
+    if host and host.cyclopsOverlay then
+        host.cyclopsOverlay:Hide()
     end
-    if host.GetModelScale then
-        overlay:SetModelScale(host:GetModelScale())
-    end
-    overlay:SetFacing(host:GetFacing())
-    local x, y, z = host:GetPosition()
-    local nx, ny, nz = CyclopsNudge()
-    overlay:SetPosition(x + nx, y + ny, z + nz)
-end
-
-local function ShowCyclopsHelmetOn(host, path)
-    if not host then
-        return
-    end
-    local overlay = host.cyclopsOverlay
-    if not path then
-        if overlay then
-            overlay:Hide()
-        end
-        return
-    end
-    if not overlay then
-        overlay = CreateFrame("Model", nil, host)
-        overlay:SetAllPoints(host)
-        overlay:EnableMouse(false)
-        overlay.host = host
-        overlay:SetScript("OnUpdate", FollowHost)
-        host.cyclopsOverlay = overlay
-    end
-    overlay:SetFrameLevel(host:GetFrameLevel() + 1)
-    if overlay.path ~= path or overlay.camera ~= CyclopsCamera() then
-        overlay:SetModel(path)
-        overlay:SetCamera(CyclopsCamera())
-        overlay.path, overlay.camera, overlay.loading = path, CyclopsCamera(), 0
-    end
-    FollowHost(overlay)
-    overlay:Show()
 end
 
 local function CyclopsPreviewOf(itemId)
@@ -954,6 +906,11 @@ local function SheetFit()
     return saved or SHEET_FIT
 end
 
+local function ShowsOgre(model)
+    local path = model.GetModel and model:GetModel()
+    return type(path) ~= "string" or path:lower():find("twoheadedogre", 1, true) ~= nil
+end
+
 local function SheetModel(frame)
     local best, bestArea
     for _, child in ipairs(VisibleRegions(frame, {}, "PlayerModel")) do
@@ -970,7 +927,7 @@ local function FitSheetModel(frame)
         return
     end
     local model = SheetModel(frame)
-    if not model then
+    if not model or not ShowsOgre(model) then
         return
     end
     local fit = SheetFit()
@@ -1020,8 +977,12 @@ sheetWatch:SetScript("OnUpdate", function(self, elapsed)
     end
     if relicButton and relicState.eligible then
         local slot = ShownRangedSlot(frame)
-        if slot and relicButton.anchor ~= slot then
-            relicButton:SetParent(slot:GetParent())
+        if not slot then
+            relicButton:Hide()
+            return
+        end
+        if relicButton.anchor ~= slot then
+            relicButton:SetParent(slot)
             relicButton:ClearAllPoints()
             relicButton:SetPoint("LEFT", slot, "RIGHT", 8, 0)
             relicButton:SetFrameStrata(slot:GetFrameStrata())
@@ -2951,22 +2912,6 @@ SlashCmdList.ASCENSIONSUBCLASS = function(message)
         Ascension_SubclassDump.stanceBarPoint = nil
         Stances.placed = false
         Stances.BuildStanceBar()
-    elseif message:find("^helm") then
-        local x, y, z = message:match("^helm%s+(%S+)%s+(%S+)%s+(%S+)$")
-        Ascension_SubclassDump = Ascension_SubclassDump or {}
-        if x then
-            Ascension_SubclassDump.cyclopsNudge = { tonumber(x) or 0, tonumber(y) or 0, tonumber(z) or 0 }
-        elseif message == "helm reset" then
-            Ascension_SubclassDump.cyclopsNudge = nil
-        end
-        local nx, ny, nz = CyclopsNudge()
-        DEFAULT_CHAT_FRAME:AddMessage(string.format("Subclass: cyclops helmet overlay nudged %.2f forward, %.2f right, "
-            .. "%.2f up (/subclass helm <forward> <right> <up>, /subclass helm reset)", nx, ny, nz))
-    elseif message:find("^cam") then
-        Ascension_SubclassDump = Ascension_SubclassDump or {}
-        Ascension_SubclassDump.cyclopsCamera = tonumber(message:match("^cam%s+(%d+)")) or nil
-        DEFAULT_CHAT_FRAME:AddMessage("Subclass: cyclops helmet overlay uses camera " .. CyclopsCamera()
-            .. " (/subclass cam <0-1>), model " .. tostring(cyclops.model))
     elseif message:find("^sheet") then
         local zoom, right, up = message:match("^sheet%s+(%S+)%s+(%S+)%s+(%S+)$")
         Ascension_SubclassDump = Ascension_SubclassDump or {}

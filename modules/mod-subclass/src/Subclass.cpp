@@ -70,6 +70,7 @@ bool ForcedBot(Player const* player);
 void AssignBotSubclass(Player* player);
 void SpendBotPoints(Player* player);
 void ForgetBotPlayer(Player const* player);
+void ForgetDeletedBot(uint32 guid);
 bool IsStandardMainClass(uint8 classId);
 Trainer::Trainer const* ClassTrainerOf(uint8 classId);
 bool IsBorrowedSpell(Player const* player, uint32 spellId);
@@ -2041,6 +2042,7 @@ public:
     void OnPlayerDelete(ObjectGuid guid, uint32 /*accountId*/) override
     {
         CharacterDatabase.Execute("DELETE FROM `mod_subclass_character` WHERE `guid` = {}", guid.GetCounter());
+        ForgetDeletedBot(guid.GetCounter());
         std::lock_guard<std::mutex> lock(subclassMutex);
         records.erase(guid.GetCounter());
     }
