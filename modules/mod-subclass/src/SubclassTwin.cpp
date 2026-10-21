@@ -1308,7 +1308,7 @@ void HoldTheGun(Player* player, bool afar)
         if (drawn && shownRanged)
             stowed.Ranged = shownRanged;
         look = gun ? stowed.Ranged.value_or(gun->GetEntry()) : 0;
-        heldInMain = 0;
+        heldInMain = gun && IsBow(gun) ? 0 : shownMain;
         if (afar && shownMain != heldInMain)
             stowed.MainHand = shownMain;
         if (afar)

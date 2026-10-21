@@ -27,9 +27,13 @@ HELD_BARREL = FORWARD
 ATTACK_OFF_PIERCE = 88
 SPECIAL_UNARMED, ATTACK_UNARMED = 118, 16
 HELD_AIM = 0.5
-COPIED = ((48, 48, True, False, None), (49, 49, True, False, None), (110, 110, True, False, None),
+ATTACK_1H = 17
+MACE_RAISED_MS = 300
+PISTOL_REACH = (0.75, 0.15, -0.1)
+MACE_REACH = (0.25, -0.35, 0.3)
+COPIED = ((49, 48, True, True, None), (49, 49, True, True, None), (49, 110, True, True, None),
           (29, 29, False, False, None), (46, 46, False, False, None), (109, 109, False, False, None),
-          (49, ATTACK_OFF_PIERCE, True, True, None), (110, ATTACK_UNARMED, True, False, HELD_AIM),
+          (49, ATTACK_OFF_PIERCE, True, True, None), (49, ATTACK_UNARMED, True, True, HELD_AIM),
           (109, SPECIAL_UNARMED, False, False, HELD_AIM))
 HOLD_LOOPS = 12
 
@@ -263,18 +267,31 @@ def arm_length(data, chain):
 
 
 def reached(ogre, ready, source, sequence, entries, chain, source_chain):
+    scale = arm_length(ogre, chain) / arm_length(source, source_chain)
+
+    def tauren_hold(stamp):
+        model = Pose(source, sequence, {}, stamp)
+        source_chest = model.frame(parent_of(source, source_chain[0]))[0]
+        return source_chest.T @ (model.joint(source_chain[3]) - model.joint(source_chain[1])) * \
+            np.array((1.0, -1.0, 1.0)) * scale
+
+    return bent_toward(ogre, ready, entries, chain, tauren_hold)
+
+
+def pointed(ogre, ready, entries, chain, direction):
+    reach = np.array(direction) * arm_length(ogre, chain)
+    return bent_toward(ogre, ready, entries, chain, lambda stamp: reach)
+
+
+def bent_toward(ogre, ready, entries, chain, reach_in_chest):
     posed = {bone: decoded(entry) for bone, entry in entries.items()}
     upper, fore, hand = chain[1:]
-    scale = arm_length(ogre, chain) / arm_length(source, source_chain)
     stamps = posed[upper][0]
     uppers, fores = [], []
     for stamp in stamps:
-        model = Pose(source, sequence, {}, stamp)
-        source_chest = model.frame(parent_of(source, source_chain[0]))[0]
-        held = source_chest.T @ (model.joint(source_chain[3]) - model.joint(source_chain[1]))
         pose = Pose(ogre, ready, posed, stamp)
         chest = pose.frame(parent_of(ogre, chain[0]))[0]
-        reach = chest @ (held * np.array((1.0, -1.0, 1.0))) * scale
+        reach = chest @ reach_in_chest(stamp)
         shoulder, elbow, wrist = pose.joint(upper), pose.joint(fore), pose.joint(hand)
         above = pose.frame(parent_of(ogre, upper))[0]
         upper_world = above @ pose.local(upper)
@@ -296,6 +313,14 @@ def reached(ogre, ready, source, sequence, entries, chain, source_chain):
     entries[upper] = (len(stamps), times, b"".join(uppers))
     entries[fore] = (len(stamps), times, b"".join(fores))
     return entries
+
+
+def own_keys(data, bone, sequence):
+    track = bone_offset(data, bone) + ROTATION
+    times, values = struct.unpack_from("<I", data, track + 8)[0], struct.unpack_from("<I", data, track + 16)[0]
+    count, stamps_at = array(data, times + sequence * 8)
+    _, values_at = array(data, values + sequence * 8)
+    return count, bytes(data[stamps_at:stamps_at + count * 4]), bytes(data[values_at:values_at + count * 8])
 
 
 def frozen(entry, moment):
@@ -404,6 +429,12 @@ class Grafter:
                 source_sides = (arm_chain(self.source, KEY_ARM_RIGHT), arm_chain(self.source, KEY_ARM_LEFT))
                 for chain, source_chain in zip((left_arm, right_arm), source_sides):
                     keys = reached(ogre, self.base, self.source, sequence, keys, chain, source_chain)
+            if left_arm_only:
+                keys = pointed(ogre, self.base, keys, left_arm, PISTOL_REACH)
+                attack = sequence_index(ogre, ATTACK_1H)
+                keys.update((bone, frozen(own_keys(ogre, bone, attack), MACE_RAISED_MS)) for bone in right_arm
+                            if own_keys(ogre, bone, attack)[0])
+                keys = pointed(ogre, self.base, keys, right_arm, MACE_REACH)
             if mirror:
                 keys[left_arm[-1]] = aimed_joint(ogre, self.base, left_arm[-1:], keys, HELD_BARREL)
             rotations.append(keys)
