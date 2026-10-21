@@ -9674,6 +9674,77 @@ class spell_ascension_specialization_slot : public SpellScript
     }
 };
 
+bool AscensionFlightAllowedHere(Player const* player)
+{
+    uint32 const map = GetVirtualMapForMapAndZone(player->GetMapId(), player->GetZoneId());
+    if (map != MAP_OUTLAND && !(map == MAP_NORTHREND && player->HasSpell(SPELL_COLD_WEATHER_FLYING)))
+        return false;
+    AreaTableEntry const* area = sAreaTableStore.LookupEntry(player->GetAreaId());
+    Battlefield* battlefield = sBattlefieldMgr->GetBattlefieldToZoneId(player->GetZoneId());
+    return !(area && (area->flags & AREA_FLAG_NO_FLY_ZONE)) && !(battlefield && !battlefield->CanFlyIn()) &&
+        !player->InBattleground();
+}
+
+std::mutex& groundedFlyersLock = *new std::mutex;
+std::unordered_set<ObjectGuid>& groundedFlyers = *new std::unordered_set<ObjectGuid>;
+
+void KeepFlightToFlyingAreas(Player* player)
+{
+    if (!ascensionCompatConfig.GetConfigValue<bool>(AscensionCompatConfig::ENABLED) || player->IsGameMaster())
+        return;
+    bool const flightAura = player->HasIncreaseMountedFlightSpeedAura() || player->HasFlyAura();
+    bool const allowed = AscensionFlightAllowedHere(player);
+    bool wasGrounded = false;
+    {
+        std::lock_guard<std::mutex> lock(groundedFlyersLock);
+        wasGrounded = groundedFlyers.erase(player->GetGUID()) > 0;
+        if (flightAura && !allowed)
+            groundedFlyers.insert(player->GetGUID());
+    }
+    if (flightAura && !allowed && !wasGrounded)
+        player->SetCanFly(false);
+    else if (flightAura && allowed && wasGrounded)
+        player->SetCanFly(true);
+}
+
+class AscensionFlightAreaScript : public PlayerScript
+{
+public:
+    AscensionFlightAreaScript() : PlayerScript("AscensionFlightAreaScript", { PLAYERHOOK_ON_UPDATE_AREA,
+        PLAYERHOOK_ON_LOGOUT }) { }
+
+    void OnPlayerUpdateArea(Player* player, uint32 /*oldArea*/, uint32 /*newArea*/) override
+    {
+        KeepFlightToFlyingAreas(player);
+    }
+
+    void OnPlayerLogout(Player* player) override
+    {
+        std::lock_guard<std::mutex> lock(groundedFlyersLock);
+        groundedFlyers.erase(player->GetGUID());
+    }
+};
+
+class AscensionFlightAuraScript : public UnitScript
+{
+public:
+    AscensionFlightAuraScript() : UnitScript("AscensionFlightAuraScript", true, { UNITHOOK_ON_AURA_APPLY }) { }
+
+    void OnAuraApply(Unit* unit, Aura* aura) override
+    {
+        Player* player = unit ? unit->ToPlayer() : nullptr;
+        if (player && aura && (aura->HasEffectType(SPELL_AURA_MOD_INCREASE_MOUNTED_FLIGHT_SPEED) ||
+                aura->HasEffectType(SPELL_AURA_FLY)))
+        {
+            {
+                std::lock_guard<std::mutex> lock(groundedFlyersLock);
+                groundedFlyers.erase(player->GetGUID());
+            }
+            KeepFlightToFlyingAreas(player);
+        }
+    }
+};
+
 class spell_ascension_local_mount : public SpellScript
 {
     PrepareSpellScript(spell_ascension_local_mount);
@@ -10799,6 +10870,8 @@ void AddAscensionCompatScripts() {
   new AscensionCompatGroupScript();
   new AscensionCompatAllSpellScript();
   new AscensionCompatUnitScript();
+  new AscensionFlightAreaScript();
+  new AscensionFlightAuraScript();
   new AscensionCompatChangelogScript();
   new AscensionCompatWorldScript();
   new AscensionCompatAllCreatureScript();
