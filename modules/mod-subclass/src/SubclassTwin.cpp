@@ -1331,7 +1331,8 @@ Unit* AimedAt(Player* player)
 void AimFromAfar(Player* player)
 {
     Unit* target = AimedAt(player);
-    bool const aiming = target && OtherHeadShoots(player) && player->GetSheath() == SHEATH_STATE_MELEE &&
+    Item* gun = OwnBow(player);
+    bool const aiming = target && gun && OtherHeadShoots(player) && player->GetSheath() == SHEATH_STATE_RANGED &&
         target->IsAlive() && !player->IsWithinMeleeRange(target) && !player->isMoving() &&
         !player->IsNonMeleeSpellCast(false, true, true);
     uint32 const now = GameTime::GetGameTimeMS().count();
@@ -1348,7 +1349,8 @@ void AimFromAfar(Player* player)
             return;
         until = now + AimPoseMs;
     }
-    player->HandleEmoteCommand(EMOTE_ONESHOT_READY_RIFLE);
+    bool const bow = gun->GetTemplate()->SubClass == ITEM_SUBCLASS_WEAPON_BOW;
+    player->HandleEmoteCommand(bow ? EMOTE_ONESHOT_READY_BOW : EMOTE_ONESHOT_READY_RIFLE);
 }
 
 bool RecentlyShot(Player const* player)
@@ -1366,6 +1368,12 @@ bool ShootsFromAfar(Player* player)
     return !victim || !player->IsWithinMeleeRange(victim);
 }
 
+bool AimsFromAfar(Player* player)
+{
+    Unit* target = AimedAt(player);
+    return target && OtherHeadShoots(player) && !player->IsWithinMeleeRange(target);
+}
+
 void DrawForTheFight(Player* player)
 {
     if (!HasSecondHead(player))
@@ -1373,10 +1381,12 @@ void DrawForTheFight(Player* player)
     MeleeUpClose(player);
     bool const fighting = (player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) && player->GetVictim()) ||
         ShootsFromAfar(player);
-    if (fighting && player->GetSheath() != SHEATH_STATE_MELEE)
-        player->SetSheath(SHEATH_STATE_MELEE);
-    if (fighting)
-        AimFromAfar(player);
+    if (!fighting)
+        return;
+    SheathState const drawn = AimsFromAfar(player) ? SHEATH_STATE_RANGED : SHEATH_STATE_MELEE;
+    if (player->GetSheath() != drawn)
+        player->SetSheath(drawn);
+    AimFromAfar(player);
 }
 
 void ShootAlong(Player* player)
@@ -2726,7 +2736,7 @@ bool ReachesFoe(Player* player, SpellInfo const* info, Unit* foe)
 {
     if (!IsShot(info))
         return Reaches(player, info, foe);
-    if (OtherHeadShoots(player) && player->IsWithinMeleeRange(foe))
+    if (OtherHeadShoots(player) && player->IsWithinMeleeRange(foe) && !GivesManaBack(info))
         return false;
     return BrotherReaches(player, info, foe);
 }

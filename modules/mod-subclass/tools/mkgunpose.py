@@ -20,7 +20,7 @@ SPINE_PATH = (2, 4)
 READY_1H = 26
 FORWARD = (1.0, 0.0, 0.0)
 ATTACK_OFF_PIERCE = 88
-COPIED = ((48, 48, True, True), (49, 49, True, True), (110, 110, True, True), (29, 29, False, False),
+COPIED = ((48, 48, False, False), (49, 49, False, False), (110, 110, False, False), (29, 29, False, False),
           (46, 46, False, False), (109, 109, False, False), (49, ATTACK_OFF_PIERCE, True, True))
 
 
