@@ -4,10 +4,12 @@
 
 #include "AllCreatureScript.h"
 #include "AscensionAppearanceChanges.h"
+#include "CellImpl.h"
 #include "Chat.h"
 #include "CommandScript.h"
 #include "DatabaseEnv.h"
 #include "GameTime.h"
+#include "GridNotifiersImpl.h"
 #include "Group.h"
 #include "Log.h"
 #include "LootMgr.h"
@@ -34,6 +36,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
+#include <list>
 #include <mutex>
 #include <unordered_map>
 
@@ -1426,10 +1430,18 @@ void NoteCastLook(Player* player, bool freeOffHand, uint32 heldLook)
         uint32(player->GetSheath()), main, heldLook, DisplayOfItem(heldLook), HeldWeaponAura(heldLook));
 }
 
+bool CastsOwnSpell(Player const* player)
+{
+    for (CurrentSpellTypes type : { CURRENT_GENERIC_SPELL, CURRENT_CHANNELED_SPELL })
+        if (Spell const* spell = player->GetCurrentSpell(type))
+            return !IsBorrowedSpell(player, spell->GetSpellInfo()->Id);
+    return false;
+}
+
 bool CastsWithOtherHeadArmed(Player const* player, bool freeOffHand)
 {
     return freeOffHand && player->IsAlive() && OtherHalfAwake(player) && player->HasUnitState(UNIT_STATE_CASTING) &&
-        player->GetSheath() == SHEATH_STATE_MELEE;
+        player->GetSheath() == SHEATH_STATE_MELEE && CastsOwnSpell(player);
 }
 
 void HoldTheGun(Player* player, bool afar)
@@ -2766,7 +2778,8 @@ bool HurtsOrHinders(SpellInfo const* info)
         SPELL_EFFECT_HEALTH_LEECH, SPELL_EFFECT_POWER_BURN, SPELL_EFFECT_POWER_DRAIN, SPELL_EFFECT_TRANS_DOOR }) ||
         HasAnyAura(info, { SPELL_AURA_PERIODIC_DAMAGE, SPELL_AURA_PERIODIC_DAMAGE_PERCENT, SPELL_AURA_PERIODIC_LEECH,
         SPELL_AURA_PERIODIC_TRIGGER_SPELL, SPELL_AURA_MOD_STUN, SPELL_AURA_MOD_ROOT, SPELL_AURA_MOD_DECREASE_SPEED,
-        SPELL_AURA_MOD_DAMAGE_PERCENT_TAKEN, SPELL_AURA_MOD_RESISTANCE });
+        SPELL_AURA_MOD_DAMAGE_PERCENT_TAKEN, SPELL_AURA_MOD_RESISTANCE, SPELL_AURA_MOD_STALKED,
+        SPELL_AURA_RANGED_ATTACK_POWER_ATTACKER_BONUS });
 }
 
 bool BreaksOnDamageOrSendsAway(SpellInfo const* info)
@@ -2794,9 +2807,14 @@ bool SummonsAShortHelper(SpellInfo const* info)
     return duration > 0 && duration <= ShortSummon && LongestRecovery(info) >= BigCooldown;
 }
 
+bool RainsOnAnArea(SpellInfo const* info)
+{
+    return info->HasEffect(SPELL_EFFECT_PERSISTENT_AREA_AURA);
+}
+
 bool NeverAlone(SpellInfo const* info)
 {
-    if (info->IsChanneled() || UsesReagents(info) || info->PowerType == POWER_HEALTH)
+    if ((info->IsChanneled() && !RainsOnAnArea(info)) || UsesReagents(info) || info->PowerType == POWER_HEALTH)
         return true;
     switch (info->GetSpellSpecific())
     {
@@ -3248,6 +3266,24 @@ std::string_view ConsiderCleanse(Player* player, SpellInfo const* info, std::vec
     return considered ? std::string_view() : "nothing to dispel";
 }
 
+constexpr std::size_t AreaFoes = 3;
+constexpr uint32 MarkWeight = std::numeric_limits<uint32>::max();
+
+std::size_t FoesAround(Player* player, Unit* foe, SpellInfo const* info)
+{
+    float const radius = std::max(info->Effects[EFFECT_0].CalcRadius(player), 5.0f);
+    std::list<Unit*> foes;
+    Acore::AnyUnfriendlyUnitInObjectRangeCheck check(foe, player, radius);
+    Acore::UnitListSearcher<Acore::AnyUnfriendlyUnitInObjectRangeCheck> searcher(foe, foes, check);
+    Cell::VisitObjects(foe, searcher, radius);
+    return foes.size();
+}
+
+bool MarksTheFoe(SpellInfo const* info)
+{
+    return HasAnyAura(info, { SPELL_AURA_MOD_STALKED, SPELL_AURA_RANGED_ATTACK_POWER_ATTACKER_BONUS });
+}
+
 std::string_view ConsiderSpell(Player* player, SpellInfo const* info, Unit* foe, std::vector<Unit*> const& friends,
     Pick& best)
 {
@@ -3296,8 +3332,12 @@ std::string_view ConsiderSpell(Player* player, SpellInfo const* info, Unit* foe,
                 return "attack: out of reach";
             if (info->HasEffect(SPELL_EFFECT_APPLY_AURA) && AlreadyGiven(foe, info, player->GetGUID()))
                 return "attack: already on the target";
+            if (RainsOnAnArea(info) && FoesAround(player, foe, info) < AreaFoes)
+                return "area: fewer foes than worth it";
+            if (info->IsChanneled() && player->HasUnitState(UNIT_STATE_CASTING))
+                return "channel: the main head is casting";
             Consider(best, { info->Id, foe, GivesManaBack(info) && LowOnMana(player) ? TierEnergize : TierAttack,
-                100.0f, recovery });
+                100.0f, MarksTheFoe(info) ? MarkWeight : recovery });
             return {};
         case Use::Energize:
             if (info->PowerType == POWER_MANA || player->GetPowerPct(player->getPowerType()) >= LowPowerPct)
@@ -3393,6 +3433,8 @@ void PlayEasy(Player* player, uint32 diff)
         if (brain.Busy || brain.Pause)
             return;
     }
+    if (player->GetCurrentSpell(CURRENT_CHANNELED_SPELL))
+        return;
     uint32 const easyAura = HasTwin(player) ? CowboyAura : HalfBrainAura;
     bool const bot = BotPlaysOtherHalf(player);
     if ((!bot && !player->HasAura(easyAura)) || !InAFight(player) || !player->IsAlive() ||
