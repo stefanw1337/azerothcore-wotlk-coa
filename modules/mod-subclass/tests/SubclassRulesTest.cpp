@@ -234,3 +234,28 @@ TEST(Subclass, TheOtherHalfTauntsOnlyWhatATankLostToAFriend)
     EXPECT_FALSE(TauntNeeded(false, false, true));
     EXPECT_FALSE(TauntNeeded(true, false, false));
 }
+
+TEST(Subclass, BotsTakeTheLeastUsedSubclass)
+{
+    EXPECT_EQ(LeastUsed({ 3, 1, 2, 1 }), 1u);
+    EXPECT_EQ(LeastUsed({ 0, 0 }), 0u);
+}
+
+TEST(Subclass, ABotSpreadsItsBorrowedPointsRankByRank)
+{
+    std::vector<Offer> const offers = {
+        { 1, 3, 0, 1, 10, {} },
+        { 2, 2, 0, 1, 10, {} },
+        { 3, 1, 1, 0, 10, {} },
+        { 4, 1, 0, 1, 60, {} },
+        { 5, 1, 0, 1, 10, { 9 } },
+        { 6, 1, 0, 1, 10, { 3 } }
+    };
+    std::vector<Rank> const planned = PlanRanks(offers, { { 1, 1 } }, 40, 1, 4);
+    EXPECT_EQ(RankIn(planned, 1), 3u);
+    EXPECT_EQ(RankIn(planned, 2), 1u);
+    EXPECT_EQ(RankIn(planned, 3), 1u);
+    EXPECT_EQ(RankIn(planned, 4), 0u);
+    EXPECT_EQ(RankIn(planned, 5), 0u);
+    EXPECT_EQ(RankIn(planned, 6), 1u);
+}

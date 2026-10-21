@@ -6,6 +6,7 @@
 #define MOD_SUBCLASS_RULES_H
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -79,6 +80,7 @@ struct Settings
     std::uint8_t CoATrees = 1;
     bool ThinHuman = true;
     bool TwoHeadedOgre = true;
+    bool ForceBots = false;
 };
 
 constexpr std::uint8_t ThinHumanRace = 96;
@@ -272,6 +274,71 @@ inline bool BetterHeal(float healthPct, std::uint32_t expected, float bestHealth
 inline bool TauntNeeded(bool tanking, bool foeOnUs, bool foeOnFriend)
 {
     return tanking && !foeOnUs && foeOnFriend;
+}
+
+inline std::size_t LeastUsed(std::vector<std::uint32_t> const& counts)
+{
+    return std::size_t(std::min_element(counts.begin(), counts.end()) - counts.begin());
+}
+
+struct Offer
+{
+    std::uint32_t EntryId = 0;
+    std::uint8_t MaxRank = 0;
+    std::uint8_t ClassCost = 0;
+    std::uint8_t SpecCost = 0;
+    std::uint8_t RequiredLevel = 0;
+    std::array<std::uint32_t, 3> Requires{};
+};
+
+struct Rank
+{
+    std::uint32_t EntryId = 0;
+    std::uint32_t Value = 0;
+
+    bool operator==(Rank const&) const = default;
+};
+
+inline std::uint32_t RankIn(std::vector<Rank> const& ranks, std::uint32_t entryId)
+{
+    auto const found = std::find_if(ranks.begin(), ranks.end(), [entryId](Rank const& rank)
+    {
+        return rank.EntryId == entryId;
+    });
+    return found == ranks.end() ? 0 : found->Value;
+}
+
+inline std::vector<Rank> PlanRanks(std::vector<Offer> const& offers, std::vector<Rank> const& known,
+    std::uint8_t level, std::uint32_t classPoints, std::uint32_t specPoints)
+{
+    std::vector<Rank> planned;
+    for (Offer const& offer : offers)
+        planned.push_back({ offer.EntryId, RankIn(known, offer.EntryId) });
+    auto held = [&](std::uint32_t entryId)
+    {
+        return RankIn(planned, entryId) > 0 || RankIn(known, entryId) > 0;
+    };
+    bool raised = true;
+    while (raised)
+    {
+        raised = false;
+        for (std::size_t index = 0; index < offers.size(); ++index)
+        {
+            Offer const& offer = offers[index];
+            if (planned[index].Value >= offer.MaxRank || offer.RequiredLevel > level ||
+                (!offer.ClassCost && !offer.SpecCost) || offer.ClassCost > classPoints ||
+                offer.SpecCost > specPoints)
+                continue;
+            if (!std::all_of(offer.Requires.begin(), offer.Requires.end(),
+                    [&](std::uint32_t required) { return !required || held(required); }))
+                continue;
+            ++planned[index].Value;
+            classPoints -= offer.ClassCost;
+            specPoints -= offer.SpecCost;
+            raised = true;
+        }
+    }
+    return planned;
 }
 
 inline Choice Trimmed(std::vector<Pair> const& pairs, Character const& character, Choice const& choice)

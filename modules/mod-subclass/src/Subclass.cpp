@@ -49,6 +49,7 @@ using namespace Acore::ChatCommands;
 
 ChatCommandTable SubclassTwinCommandTable();
 bool HandleSubclassBrain(ChatHandler* handler);
+bool HandleSubclassBots(ChatHandler* handler, Optional<std::string> mode);
 
 void HandleTwinLook(Player* player, std::vector<std::string_view> const& words);
 void LearnStandardMainWeaponSkills(Player* player);
@@ -65,6 +66,10 @@ bool LonelyTwin(Player const* player);
 bool OrderBrother(Player* player, uint32 spellId, Unit* target);
 bool OffersStandardMains();
 bool SubclassRaceEnabled(uint8 race);
+bool ForcedBot(Player const* player);
+void AssignBotSubclass(Player* player);
+void SpendBotPoints(Player* player);
+void ForgetBotPlayer(Player const* player);
 bool IsStandardMainClass(uint8 classId);
 Trainer::Trainer const* ClassTrainerOf(uint8 classId);
 bool IsBorrowedSpell(Player const* player, uint32 spellId);
@@ -287,8 +292,15 @@ std::mutex& subclassMutex = *new std::mutex;
 Subclass::Settings settings;
 std::atomic<bool> thinHumanEnabled{ true };
 std::atomic<bool> twoHeadedOgreEnabled{ true };
+std::atomic<bool> forceBots{ false };
 std::vector<Subclass::Pair> pairs;
 std::unordered_map<uint32, Record>& records = *new std::unordered_map<uint32, Record>;
+std::vector<Subclass::Pair> const anyPair = { { 0, Subclass::GenderMaskMale | Subclass::GenderMaskFemale, 0, 0, 0 } };
+
+std::vector<Subclass::Pair> const& PairsFor(Player const* player)
+{
+    return ForcedBot(player) ? anyPair : pairs;
+}
 
 struct Voice
 {
@@ -557,6 +569,15 @@ void StoreRecord(Player const* player, Record const& record)
     records[guid] = record;
 }
 
+bool MainMaySubclass(uint8 classId);
+
+bool MayCarrySubclass(Player const* player)
+{
+    if (ForcedBot(player))
+        return true;
+    return MainMaySubclass(player->getClass()) && SubclassRaceEnabled(player->getRace());
+}
+
 bool MainMaySubclass(uint8 classId)
 {
     bool const standard = !IsAscensionCustomClassId(classId);
@@ -567,21 +588,21 @@ bool MainMaySubclass(uint8 classId)
 
 bool IsEligible(Player const* player)
 {
-    if (!MainMaySubclass(player->getClass()) || !SubclassRaceEnabled(player->getRace()))
+    if (!MayCarrySubclass(player))
         return false;
     std::lock_guard<std::mutex> lock(subclassMutex);
-    return Subclass::IsEligible(pairs, CharacterOf(player));
+    return Subclass::IsEligible(PairsFor(player), CharacterOf(player));
 }
 
 std::vector<Subclass::Tree> OpenTreesOf(Player const* player)
 {
-    if (!MainMaySubclass(player->getClass()) || !SubclassRaceEnabled(player->getRace()))
+    if (!MayCarrySubclass(player))
         return {};
     Subclass::Choice const choice = ChoiceOf(player);
     bool const hasClassTree = HasClassTree(choice.SubClass);
     std::lock_guard<std::mutex> lock(subclassMutex);
-    return Subclass::OpenTrees(settings, pairs, CharacterOf(player), choice, hasClassTree, SpecsOf(choice.SubClass),
-        TreesFor(choice.SubClass));
+    return Subclass::OpenTrees(settings, PairsFor(player), CharacterOf(player), choice, hasClassTree,
+        SpecsOf(choice.SubClass), TreesFor(choice.SubClass));
 }
 
 uint32 ForgetBorrowedTrees(Player* player, Subclass::Choice const& choice)
@@ -1540,8 +1561,10 @@ public:
         loaded.CoATrees = trees("Subclass.CoATrees", 1);
         loaded.ThinHuman = sConfigMgr->GetOption<bool>("Subclass.ThinHuman.Enable", true);
         loaded.TwoHeadedOgre = sConfigMgr->GetOption<bool>("Subclass.TwoHeadedOgre.Enable", true);
+        loaded.ForceBots = sConfigMgr->GetOption<bool>("Subclass.Bots.Force", false);
         thinHumanEnabled = loaded.ThinHuman;
         twoHeadedOgreEnabled = loaded.TwoHeadedOgre;
+        forceBots = loaded.ForceBots;
         std::lock_guard<std::mutex> lock(subclassMutex);
         settings = loaded;
     }
@@ -1553,6 +1576,77 @@ public:
         LoadSpecializationRoles();
     }
 };
+
+bool ForcedBot(Player const* player)
+{
+    WorldSession const* session = player->GetSession();
+    return forceBots && session && session->IsBot();
+}
+
+std::vector<Subclass::Choice> BotChoicesFor(uint8 mainClass)
+{
+    std::vector<uint8> classes;
+    for (Subclass::Tree const& specialization : CatalogSpecializations())
+        if (std::find(classes.begin(), classes.end(), specialization.ClassId) == classes.end())
+            classes.push_back(specialization.ClassId);
+    std::vector<Subclass::Choice> options;
+    std::lock_guard<std::mutex> lock(subclassMutex);
+    for (uint8 classId : classes)
+    {
+        if (!OfferedAsSubclass(mainClass, classId))
+            continue;
+        std::vector<uint16> const specs = SpecsOf(classId);
+        bool const lendsAll = LendsAllOf(classId);
+        bool const twoSpecs = !lendsAll && TreesFor(classId) >= 2;
+        for (std::size_t first = 0; first < specs.size(); ++first)
+        {
+            if (twoSpecs)
+                for (std::size_t second = first + 1; second < specs.size(); ++second)
+                    options.push_back({ classId, specs[first], specs[second] });
+            else
+                options.push_back({ classId, specs[first], 0 });
+            if (lendsAll)
+                break;
+        }
+    }
+    std::erase_if(options, [](Subclass::Choice const& choice) { return BorrowedTreesOf(choice).empty(); });
+    return options;
+}
+
+Subclass::Choice SubclassChoiceOf(Player const* player)
+{
+    return ChoiceOf(player);
+}
+
+void ApplySubclassChoice(Player* player, Subclass::Choice const& choice)
+{
+    ApplyChoice(player, choice);
+}
+
+std::vector<AscensionCompatData::CoATalentEntry const*> OpenBorrowedEntries(Player const* player)
+{
+    std::vector<Subclass::Tree> const trees = OpenTreesOf(player);
+    std::vector<AscensionCompatData::CoATalentEntry const*> entries;
+    for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
+        if (InTrees(trees, entry))
+            entries.push_back(&entry);
+    return entries;
+}
+
+std::string DescribeSubclassChoice(Subclass::Choice const& choice)
+{
+    return Describe(choice);
+}
+
+uint8 SubclassMinLevel()
+{
+    return CurrentSettings().MinLevel;
+}
+
+std::string SubclassClassName(uint8 classId)
+{
+    return PlainClassName(CatalogClassOf(classId));
+}
 
 void SendSubclassMessage(Player* player, std::string const& message)
 {
@@ -1889,6 +1983,7 @@ public:
     void OnPlayerLogin(Player* player) override
     {
         TrimChoice(player);
+        AssignBotSubclass(player);
         LearnStandardMainWeaponSkills(player);
         LendRunes(player);
         SyncBorrowedBaseSpells(player);
@@ -1903,6 +1998,7 @@ public:
         if (oldLevel < CurrentSettings().MinLevel)
             SchedulePrompt(player, 1s);
         SyncBorrowedBaseSpells(player);
+        SpendBotPoints(player);
         SendSubclassState(player);
     }
 
@@ -1933,6 +2029,7 @@ public:
 
     void OnPlayerLogout(Player* player) override
     {
+        ForgetBotPlayer(player);
         std::lock_guard<std::mutex> lock(subclassMutex);
         records.erase(player->GetGUID().GetCounter());
         focusLent.erase(player->GetGUID().GetCounter());
@@ -1955,11 +2052,10 @@ private:
 
         Subclass::Character const character = CharacterOf(player);
         Subclass::Choice kept;
-        if (MainMaySubclass(character.Class) && SubclassRaceEnabled(character.Race) &&
-            IsSpecializationOf(choice.SubClass, choice.SubSpec))
+        if (MayCarrySubclass(player) && IsSpecializationOf(choice.SubClass, choice.SubSpec))
         {
             std::lock_guard<std::mutex> lock(subclassMutex);
-            kept = Subclass::Trimmed(pairs, character, choice);
+            kept = Subclass::Trimmed(PairsFor(player), character, choice);
         }
         if (kept == choice)
             return;
@@ -2098,6 +2194,7 @@ public:
             { "quest", HandleQuest, SEC_GAMEMASTER, Console::No },
             { "insight", HandleInsight, SEC_GAMEMASTER, Console::No },
             { "brain", HandleSubclassBrain, SEC_GAMEMASTER, Console::No },
+            { "bots", HandleSubclassBots, SEC_GAMEMASTER, Console::Yes },
             { "twin", SubclassTwinCommandTable() },
             { "reload", HandleReload, SEC_ADMINISTRATOR, Console::Yes }
         };

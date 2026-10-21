@@ -39,6 +39,8 @@
 using namespace Acore::ChatCommands;
 
 bool SubclassChosen(Player const* player);
+bool ForcedBot(Player const* player);
+void NoteBotCast(Player const* player, uint32 spellId, uint32 result);
 bool OtherHalfShoots(Player const* player);
 bool MainHalfShoots(Player const* player);
 bool BrotherOut(Player const* player);
@@ -1144,6 +1146,8 @@ void OfferStoryLater(Player* player);
 
 bool SubclassResting(Player const* player)
 {
+    if (ForcedBot(player))
+        return false;
     if (HasTwin(player))
         return IsSplit(player) && !WardrobeOf(player).Enabled;
     return HasSecondHead(player) && WardrobeOf(player).Enabled;
@@ -1162,6 +1166,16 @@ bool OtherHalfAwake(Player const* player)
 {
     uint32 const aura = WantedSelfAura(player);
     return aura == TeamingUpAura || aura == DisagreedAura;
+}
+
+bool BotPlaysOtherHalf(Player const* player)
+{
+    return ForcedBot(player) && SubclassChosen(player);
+}
+
+bool OtherHalfActs(Player const* player)
+{
+    return OtherHalfAwake(player) || BotPlaysOtherHalf(player);
 }
 
 bool BrotherOut(Player const* player);
@@ -2125,7 +2139,7 @@ void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid)
     SetBusy(player, false, 0);
     SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
     Unit* target = targetGuid == player->GetGUID() ? player : ObjectAccessor::GetUnit(*player, targetGuid);
-    if (!info || !target || !player->IsInWorld() || !player->IsAlive() || !OtherHalfAwake(player) ||
+    if (!info || !target || !player->IsInWorld() || !player->IsAlive() || !OtherHalfActs(player) ||
         !Affordable(player, info) || Helpless(player))
         return;
     Creature* twin = HasTwin(player) ? TwinOf(player) : nullptr;
@@ -2138,6 +2152,7 @@ void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid)
     LOG_INFO("module", "The other half of {} casts {} ({}) at {}: result {}, {} cast packet(s) shown on the twin",
         player->GetName(), info->SpellName[0], spellId, target->GetName(), uint32(result), castingAsBrother.Shown);
     SendSubclassMessage(player, Acore::StringFormat("OTHERCAST {} {}", spellId, uint32(result)));
+    NoteBotCast(player, spellId, uint32(result));
     if (result != SPELL_CAST_OK)
     {
         std::lock_guard<std::mutex> lock(twinMutex);
@@ -2167,7 +2182,7 @@ bool BrotherReaches(Player* player, SpellInfo const* info, Unit* target)
 bool OrderOtherHalf(Player* player, uint32 spellId, Unit* target, uint32 pause)
 {
     SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
-    if (!info || !target || !OtherHalfAwake(player) || !Affordable(player, info) || Helpless(player) ||
+    if (!info || !target || !OtherHalfActs(player) || !Affordable(player, info) || Helpless(player) ||
         !BrotherReaches(player, info, target))
         return false;
     {
@@ -2819,8 +2834,9 @@ void PlayEasy(Player* player, uint32 diff)
             return;
     }
     uint32 const easyAura = HasTwin(player) ? CowboyAura : HalfBrainAura;
-    if (!player->HasAura(easyAura) || !InAFight(player) || !player->IsAlive() || player->HasStealthAura() ||
-        !OtherHalfAwake(player) || (HasTwin(player) && !BrotherOut(player)))
+    bool const bot = BotPlaysOtherHalf(player);
+    if ((!bot && !player->HasAura(easyAura)) || !InAFight(player) || !player->IsAlive() ||
+        player->HasStealthAura() || !OtherHalfActs(player) || (!bot && HasTwin(player) && !BrotherOut(player)))
         return;
     auto const [spellId, target] = PickSpell(player);
     if (spellId)

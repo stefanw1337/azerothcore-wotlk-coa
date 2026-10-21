@@ -108,3 +108,13 @@ Subclass.SubClasses = 0
 
 Subclass.StandardTrees = 3
 Subclass.CoATrees = 1
+
+#    Subclass.Bots.Force
+#        Test setting: every playerbot gets a subclass at its next login, whatever its race, and plays
+#        its borrowed half on its own. Pairs are handed out evenly, borrowed points are spent for it,
+#        and .subclass bots reports which pairs and races work. Real players are never touched.
+#        Turning it off removes the forced subclass from those bots at their next login.
+#        Default: 0 - disabled
+#                 1 - enabled
+
+Subclass.Bots.Force = 0
