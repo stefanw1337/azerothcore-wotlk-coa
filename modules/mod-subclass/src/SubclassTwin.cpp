@@ -1665,6 +1665,16 @@ void HideCoveredJaws(Player* player)
         player->SetByteValue(PLAYER_BYTES_2, PLAYER_BYTES_2_OFFSET_FACIAL_STYLE, jaws);
 }
 
+void KeepRightJawForCharacterSelect(Player const* player)
+{
+    if (!HasSecondHead(player))
+        return;
+    uint32 const leftHelmet = player->HasPlayerFlag(PLAYER_FLAGS_HIDE_HELM) ? 0 :
+        player->GetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_HEAD * 2);
+    CharacterDatabase.Execute("UPDATE `characters` SET `facialStyle` = {} WHERE `guid` = {}",
+        CoversMouth(leftHelmet, LeftMouth) ? LeftMouth : 0, player->GetGUID().GetCounter());
+}
+
 void UpdateCyclopsHelmet(Player* player)
 {
     HideCoveredJaws(player);
@@ -2266,6 +2276,7 @@ public:
 
     void OnPlayerLogout(Player* player) override
     {
+        KeepRightJawForCharacterSelect(player);
         DismissTwin(player);
         std::lock_guard<std::mutex> lock(twinMutex);
         wardrobes.erase(player->GetGUID().GetCounter());
