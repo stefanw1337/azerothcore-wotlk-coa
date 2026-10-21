@@ -658,6 +658,8 @@ local Slots = {
     rangedId = 18,
     offHandId = 17,
     offHandEmpty = "Interface\\Paperdoll\\UI-PaperDoll-Slot-SecondaryHand",
+    ammoId = 0,
+    ammoEmpty = "Interface\\Paperdoll\\UI-PaperDoll-Slot-Ammo",
 }
 
 local function ServerSlotOf(bag, slot)
@@ -871,6 +873,56 @@ function Slots.ShowEmptyOffHand(frame)
     end
 end
 
+function Slots.CreateAmmo()
+    local button = CreateFrame("Button", "Ascension_SubclassAmmoSlot", UIParent, "ItemButtonTemplate")
+    button:Hide()
+    button.icon = _G["Ascension_SubclassAmmoSlotIconTexture"]
+    button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    button:RegisterForDrag("LeftButton")
+    local function Swap()
+        PickupInventoryItem(Slots.ammoId)
+    end
+    button:SetScript("OnClick", Swap)
+    button:SetScript("OnDragStart", Swap)
+    button:SetScript("OnReceiveDrag", Swap)
+    button:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        if not GameTooltip:SetInventoryItem("player", Slots.ammoId) then
+            GameTooltip:SetText(AMMOSLOT or "Ammo", 1, 1, 1)
+        end
+        GameTooltip:Show()
+    end)
+    button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    Slots.ammo = button
+end
+
+function Slots.ShowAmmo(slot)
+    local loaded = GetInventoryItemTexture("player", Slots.ammoId)
+    if not loaded and not relicState.eligible then
+        if Slots.ammo then
+            Slots.ammo:Hide()
+        end
+        return
+    end
+    if not Slots.ammo then
+        Slots.CreateAmmo()
+    end
+    local button = Slots.ammo
+    local anchor = relicButton and relicButton:IsShown() and relicButton or slot
+    if button.anchor ~= anchor then
+        button:SetParent(slot)
+        button:ClearAllPoints()
+        button:SetPoint("LEFT", anchor, "RIGHT", 8, 0)
+        button:SetFrameStrata(slot:GetFrameStrata())
+        button:SetFrameLevel(slot:GetFrameLevel() + 2)
+        button.anchor = anchor
+    end
+    if button.icon:GetTexture() ~= (loaded or Slots.ammoEmpty) then
+        button.icon:SetTexture(loaded or Slots.ammoEmpty)
+    end
+    button:Show()
+end
+
 local function CornerPortrait(frame)
     if frame == AscensionCharacterFrame and AscensionCharacterFramePortrait then
         return AscensionCharacterFramePortrait
@@ -1039,6 +1091,12 @@ sheetWatch:SetScript("OnUpdate", function(self, elapsed)
             and icon:GetTexture() ~= Slots.rangedEmpty then
             icon:SetTexture(Slots.rangedEmpty)
         end
+    end
+    local ranged = ShownRangedSlot(frame)
+    if ranged and OnCharacterPage(frame, ranged) then
+        Slots.ShowAmmo(ranged)
+    elseif Slots.ammo then
+        Slots.ammo:Hide()
     end
 end)
 
