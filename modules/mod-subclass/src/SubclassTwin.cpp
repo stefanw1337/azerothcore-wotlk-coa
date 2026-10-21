@@ -1290,6 +1290,20 @@ struct StowedLooks
 
 std::unordered_map<uint32, StowedLooks>& stowedLooks = *new std::unordered_map<uint32, StowedLooks>;
 
+void ForgetStowedLook(Player const* player, uint8 slot)
+{
+    std::lock_guard<std::mutex> lock(twinMutex);
+    auto const itr = stowedLooks.find(player->GetGUID().GetCounter());
+    if (itr == stowedLooks.end())
+        return;
+    if (slot == EQUIPMENT_SLOT_MAINHAND)
+        itr->second.MainHand.reset();
+    else if (slot == EQUIPMENT_SLOT_RANGED)
+        itr->second.Ranged.reset();
+    if (!itr->second.MainHand && !itr->second.Ranged)
+        stowedLooks.erase(itr);
+}
+
 uint32 ShownIn(Player const* player, uint8 slot)
 {
     return player->GetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + slot * 2);
@@ -2331,6 +2345,7 @@ public:
 
     void OnPlayerAfterSetVisibleItemSlot(Player* player, uint8 slot, Item* /*item*/) override
     {
+        ForgetStowedLook(player, slot);
         MarkRestyle(player);
     }
 
