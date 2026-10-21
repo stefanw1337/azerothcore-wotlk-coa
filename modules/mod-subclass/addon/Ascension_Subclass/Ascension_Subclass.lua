@@ -854,10 +854,44 @@ function Slots.ShownOffHand(frame)
             return known
         end
     end
-    for _, button in ipairs(VisibleRegions(frame, {}, "Button")) do
+    local buttons = VisibleRegions(frame, {}, "Button")
+    for _, button in ipairs(buttons) do
         local name = button:GetName()
-        if button ~= relicButton and name and name:find("SecondaryHand") then
+        if button ~= relicButton and button ~= Slots.ammo and name
+            and (name:find("SecondaryHand") or name:find("OffHand")) then
             return button
+        end
+    end
+    for _, button in ipairs(buttons) do
+        if button ~= relicButton and button ~= Slots.ammo and button.GetID and button:GetID() == Slots.offHandId
+            and SlotSized(button) then
+            return button
+        end
+    end
+    local ranged = ShownRangedSlot(frame)
+    local nearest
+    if ranged and ranged:GetLeft() and ranged:GetBottom() then
+        for _, button in ipairs(buttons) do
+            if button ~= ranged and button ~= relicButton and button ~= Slots.ammo and SlotSized(button)
+                and button:GetLeft() and button:GetBottom()
+                and math.abs(button:GetBottom() - ranged:GetBottom()) <= 2 and button:GetLeft() < ranged:GetLeft()
+                and (not nearest or button:GetLeft() > nearest:GetLeft()) then
+                nearest = button
+            end
+        end
+    end
+    return nearest
+end
+
+function Slots.IconOf(slot)
+    local icon = slot.icon or (slot:GetName() and _G[slot:GetName() .. "IconTexture"])
+    if icon then
+        return icon
+    end
+    for _, region in ipairs({ slot:GetRegions() }) do
+        local path = region:GetObjectType() == "Texture" and region:GetTexture()
+        if path and path:lower():find("interface\\icons\\", 1, true) then
+            return region
         end
     end
 end
@@ -867,7 +901,7 @@ function Slots.ShowEmptyOffHand(frame)
         return
     end
     local slot = Slots.ShownOffHand(frame)
-    local icon = slot and (slot.icon or (slot:GetName() and _G[slot:GetName() .. "IconTexture"]))
+    local icon = slot and Slots.IconOf(slot)
     if icon and icon:GetTexture() ~= Slots.offHandEmpty then
         icon:SetTexture(Slots.offHandEmpty)
     end

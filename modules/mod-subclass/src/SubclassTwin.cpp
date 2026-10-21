@@ -1211,11 +1211,24 @@ bool HasUsableAmmo(Player* player)
     return proto && player->HasItemCount(loaded, 1) && player->CheckAmmoCompatibility(proto);
 }
 
+void DropOtherEndlessAmmo(Player* player, uint32 ammo)
+{
+    uint32 const other = ammo == EndlessArrow ? EndlessShot : EndlessArrow;
+    if (uint32 const count = player->GetItemCount(other))
+        player->DestroyItemCount(other, count, true);
+}
+
 void LoadEndlessAmmo(Player* player, bool wanted)
 {
     uint32 const ammo = wanted ? EndlessAmmoFor(player) : 0;
-    if (!ammo || HasUsableAmmo(player))
+    if (!ammo)
         return;
+    if (HasUsableAmmo(player))
+    {
+        if (player->GetUInt32Value(PLAYER_AMMO_ID) == ammo)
+            DropOtherEndlessAmmo(player, ammo);
+        return;
+    }
     if (!player->HasItemCount(ammo, 1))
     {
         ItemPosCountVec destination;
