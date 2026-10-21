@@ -208,7 +208,38 @@ struct BrotherCast
 
 thread_local BrotherCast castingAsBrother;
 thread_local bool resendingAsBrother = false;
-thread_local BrotherCast strikingAsOtherHead;
+
+constexpr uint32 CopyShownMs = 4000;
+std::mutex shownCopiesMutex;
+std::unordered_map<uint64, uint32>& shownCopies = *new std::unordered_map<uint64, uint32>;
+
+uint64 CopyKey(ObjectGuid player, uint32 spellId)
+{
+    return (uint64(player.GetCounter()) << 32) | spellId;
+}
+
+void ShowCastAsCopy(Player const* player, uint32 spellId, bool shown)
+{
+    std::lock_guard<std::mutex> lock(shownCopiesMutex);
+    if (shown)
+        shownCopies[CopyKey(player->GetGUID(), spellId)] = GameTime::GetGameTimeMS().count() + CopyShownMs;
+    else
+        shownCopies.erase(CopyKey(player->GetGUID(), spellId));
+}
+
+bool CastShownAsCopy(ObjectGuid caster, uint32 spellId)
+{
+    if (!caster.IsPlayer())
+        return false;
+    std::lock_guard<std::mutex> lock(shownCopiesMutex);
+    auto const itr = shownCopies.find(CopyKey(caster, spellId));
+    if (itr == shownCopies.end())
+        return false;
+    if (itr->second >= GameTime::GetGameTimeMS().count())
+        return true;
+    shownCopies.erase(itr);
+    return false;
+}
 
 enum class Swing : uint8
 {
@@ -231,6 +262,7 @@ constexpr uint32 RighteousFury = 25780;
 constexpr uint32 SneakAlong = 1784;
 constexpr int32 TankThreatBonus = 40;
 constexpr uint32 AutoShotSpell = 75;
+constexpr uint32 PistolWhipEmote = 587;
 constexpr uint32 ArrowProjectileDisplay = 3482;
 constexpr uint32 BulletProjectileDisplay = 3483;
 constexpr uint32 SplitHitFlags = HITINFO_FULL_ABSORB | HITINFO_PARTIAL_ABSORB | HITINFO_FULL_RESIST |
@@ -1314,6 +1346,20 @@ void NoteGunInHand(Player const* player, bool held)
         gunsInHand.erase(player->GetGUID().GetCounter());
 }
 
+uint32 OffHandSwing(Player const* player)
+{
+    return GunInHand(player) && !player->IsNonMeleeSpellCast(false, true, true) ? PistolWhipEmote :
+        uint32(EMOTE_ONESHOT_ATTACK_OFF);
+}
+
+bool ShowsAsCopy(Player const* player, SpellInfo const* info)
+{
+    if (!info->HasAttribute(SPELL_ATTR0_USES_RANGED_SLOT))
+        return true;
+    Item const* gun = OwnBow(player);
+    return gun && !IsBow(gun) && GunInHand(player);
+}
+
 void ForgetStowedLook(Player const* player, uint8 slot)
 {
     std::lock_guard<std::mutex> lock(twinMutex);
@@ -1705,7 +1751,8 @@ void ShootAlong(Player* player)
         !player->IsWithinLOSInMap(victim))
         return;
     player->resetAttackTimer(RANGED_ATTACK);
-    WorldPacket shot = ProjectilePacket(player->GetGUID(), ReachAura, gun->GetEntry(), victim->GetGUID(), false);
+    ShowCastAsCopy(player, AutoShotSpell, true);
+    WorldPacket shot = ProjectilePacket(player->GetGUID(), AutoShotSpell, gun->GetEntry(), victim->GetGUID(), false);
     player->SendMessageToSet(&shot, true);
     player->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_OFF_PIERCE);
     bool const critical = roll_chance_f(player->GetUnitCriticalChance(RANGED_ATTACK, victim));
@@ -2425,12 +2472,31 @@ std::optional<SpellPacket> ReadSpellPacket(WorldPacket const& packet)
     return read;
 }
 
+bool CarriesASpell(uint16 opcode)
+{
+    switch (opcode)
+    {
+        case SMSG_SPELL_START:
+        case SMSG_SPELL_GO:
+        case SMSG_SPELL_FAILURE:
+        case SMSG_SPELL_FAILED_OTHER:
+        case SMSG_SPELLLOGEXECUTE:
+        case SMSG_SPELLNONMELEEDAMAGELOG:
+        case SMSG_SPELLHEALLOG:
+        case SMSG_SPELLENERGIZELOG:
+        case SMSG_SPELLLOGMISS:
+            return true;
+        default:
+            return false;
+    }
+}
+
 bool ShowOtherHeadStrikeAsCopy(WorldSession* session, WorldPacket const& packet)
 {
-    if (!strikingAsOtherHead.Spell)
+    if (!CarriesASpell(packet.GetOpcode()))
         return true;
     std::optional<SpellPacket> const read = ReadSpellPacket(packet);
-    if (!read || read->Caster != strikingAsOtherHead.Player || read->SpellId != strikingAsOtherHead.Spell)
+    if (!read || !CastShownAsCopy(read->Caster, read->SpellId))
         return true;
     uint32 const shown = OtherHeadShownSpell(read->SpellId);
     if (!shown)
@@ -2778,8 +2844,8 @@ void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid)
     ActOutCast(player, info, target);
     if (twin)
         castingAsBrother = { player->GetGUID(), twin->GetGUID(), spellId };
-    else if (HasSecondHead(player) && !(info->HasAttribute(SPELL_ATTR0_USES_RANGED_SLOT) && GunInHand(player)))
-        strikingAsOtherHead = { player->GetGUID(), ObjectGuid::Empty, spellId };
+    else if (HasSecondHead(player))
+        ShowCastAsCopy(player, spellId, ShowsAsCopy(player, info));
     SpellCastResult const result = player->CastSpell(target, spellId, TriggerCastFlags(TRIGGERED_IGNORE_GCD |
         TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_CAST_DIRECTLY | TRIGGERED_IGNORE_SET_FACING |
         TRIGGERED_DONT_REPORT_CAST_ERROR));
@@ -2794,7 +2860,6 @@ void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid)
             RefusedSpellRest;
     }
     castingAsBrother = {};
-    strikingAsOtherHead = {};
 }
 
 bool IsShot(SpellInfo const* info)
@@ -3624,12 +3689,7 @@ bool SwingsAWeapon(SpellInfo const* info)
 
 void HideOtherHeadsArm(Player* player, SpellInfo const* info)
 {
-    bool const hidden = IsBorrowedSpell(player, info->Id) &&
-        !(info->HasAttribute(SPELL_ATTR0_USES_RANGED_SLOT) && GunInHand(player));
-    if (hidden)
-        strikingAsOtherHead = { player->GetGUID(), ObjectGuid::Empty, info->Id };
-    else if (strikingAsOtherHead.Player == player->GetGUID() && strikingAsOtherHead.Spell == info->Id)
-        strikingAsOtherHead = {};
+    ShowCastAsCopy(player, info->Id, IsBorrowedSpell(player, info->Id) && ShowsAsCopy(player, info));
 }
 
 class mod_subclass_twin_shots : public PlayerScript
@@ -3648,7 +3708,7 @@ public:
         if (!IsShot(info))
         {
             if (SwingsAWeapon(info) && IsBorrowedSpell(player, info->Id))
-                player->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_OFF);
+                player->HandleEmoteCommand(OffHandSwing(player));
             return;
         }
         if (!OtherHeadShoots(player))
@@ -3661,10 +3721,10 @@ public:
         NoteHands(player, "shoots");
         if (!GunInHand(player) && !IsBow(gun))
             return;
-        if (!target || !player->IsWithinMeleeRange(target))
-            player->HandleEmoteCommand(RangedEmote(gun->GetTemplate()));
-        else if (!IsBow(gun))
+        if (!IsBow(gun))
             player->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_OFF_PIERCE);
+        else if (!target || !player->IsWithinMeleeRange(target))
+            player->HandleEmoteCommand(RangedEmote(gun->GetTemplate()));
     }
 };
 
