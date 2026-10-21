@@ -1288,6 +1288,37 @@ void SetShown(Player* player, uint8 slot, uint32 entry)
         player->SetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + slot * 2, entry);
 }
 
+constexpr uint32 RedrawAfterCastStartMs = 300;
+std::unordered_map<uint32, uint32>& castsStartedAt = *new std::unordered_map<uint32, uint32>;
+
+void RedrawDuringCast(Player* player, bool handedOver)
+{
+    uint32 const now = GameTime::GetGameTimeMS().count();
+    bool redraw = false;
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        uint32 const guid = player->GetGUID().GetCounter();
+        auto const itr = castsStartedAt.find(guid);
+        if (!handedOver)
+        {
+            if (itr != castsStartedAt.end())
+                castsStartedAt.erase(itr);
+            return;
+        }
+        if (itr == castsStartedAt.end())
+            castsStartedAt[guid] = now;
+        else if (itr->second && now - itr->second >= RedrawAfterCastStartMs)
+        {
+            itr->second = 0;
+            redraw = true;
+        }
+    }
+    if (!redraw)
+        return;
+    player->ForceValuesUpdateAtIndex(UNIT_FIELD_BYTES_2);
+    player->ForceValuesUpdateAtIndex(PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_OFFHAND * 2);
+}
+
 bool HandsMaceToOtherHead(Player const* player, bool freeOffHand)
 {
     return freeOffHand && player->IsAlive() && OtherHalfAwake(player) && player->HasUnitState(UNIT_STATE_CASTING) &&
@@ -1310,6 +1341,7 @@ void HoldTheGun(Player* player, bool afar)
     uint32 offHand = 0;
     uint32 placed = 0;
     bool placing = false;
+    bool handedOver = false;
     std::optional<uint32> restoreMain;
     std::optional<uint32> restoreRanged;
     {
@@ -1318,7 +1350,7 @@ void HoldTheGun(Player* player, bool afar)
         if (drawn && shownRanged)
             stowed.Ranged = shownRanged;
         uint32 const mace = stowed.MainHand.value_or(shownMain);
-        bool const handedOver = casting && mace;
+        handedOver = casting && mace;
         placing = afar || handedOver;
         placed = handedOver || (gun && IsBow(gun)) ? 0 : mace;
         if (placing && !stowed.MainHand && shownMain != placed)
@@ -1351,6 +1383,7 @@ void HoldTheGun(Player* player, bool afar)
         SetShown(player, EQUIPMENT_SLOT_MAINHAND, *restoreMain);
     if (freeOffHand)
         SetShown(player, EQUIPMENT_SLOT_OFFHAND, offHand);
+    RedrawDuringCast(player, handedOver);
 }
 
 constexpr float AlongShotRange = 35.0f;
