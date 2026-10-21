@@ -20,12 +20,13 @@ SPINE_PATH = (2, 4)
 READY_1H = 26
 FORWARD = (1.0, 0.0, 0.0)
 ATTACK_OFF_PIERCE = 88
-ATTACK_THROWN, SPECIAL_UNARMED = 107, 118
+ATTACK_THROWN, SPECIAL_UNARMED, PARRY_UNARMED, PARRY_SHIELD = 107, 118, 20, 24
 HELD_AIM = 0.5
 COPIED = ((48, 48, False, False, None), (49, 49, False, False, None), (110, 110, False, False, None),
           (29, 29, False, False, None), (46, 46, False, False, None), (109, 109, False, False, None),
           (49, ATTACK_OFF_PIERCE, True, True, None), (49, ATTACK_THROWN, False, False, HELD_AIM),
-          (109, SPECIAL_UNARMED, False, False, None))
+          (49, PARRY_UNARMED, False, False, HELD_AIM), (109, SPECIAL_UNARMED, False, False, None),
+          (109, PARRY_SHIELD, False, False, None))
 
 
 def array(data, offset):
