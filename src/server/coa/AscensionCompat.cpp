@@ -33,6 +33,7 @@
 #include "AscensionWildcard.h"
 #include "AscensionStockScriptShapes.h"
 #include "AscensionFreepick.h"
+#include "AscensionAppearanceChanges.h"
 #include "AscensionRunemasterEchoes.h"
 #include "AscensionCollectionModelData.h"
 #include "AscensionWitchHunterCompletion.h"
@@ -6884,6 +6885,26 @@ private:
         requested[index] = appearanceId;
     }
 
+    ApplyRequestedAppearances(player, *state, requested);
+  }
+
+public:
+  bool ApplyAppearanceChanges(Player *player, std::vector<std::pair<uint32, uint32>> const &changes) {
+    std::shared_ptr<PlayerCollectionState> state = GetState(player);
+    if (!state)
+      return false;
+    std::array<uint32, APPEARANCE_CATEGORY_COUNT> requested = state->ActiveAppearances;
+    for (auto const &[categoryId, appearanceId] : changes)
+      if (categoryId && categoryId < requested.size())
+        requested[categoryId] = appearanceId;
+    ApplyRequestedAppearances(player, *state, requested);
+    return true;
+  }
+
+private:
+  void ApplyRequestedAppearances(Player *player, PlayerCollectionState &collection,
+                                 std::array<uint32, APPEARANCE_CATEGORY_COUNT> requested) {
+    PlayerCollectionState *state = &collection;
     for (uint32 categoryId = 1; categoryId < requested.size(); ++categoryId) {
       uint32 appearanceId = requested[categoryId];
       if (!appearanceId)
@@ -10358,6 +10379,11 @@ bool RestoreAscensionSpecializationSignature(Player* player)
     service.SaveSlot(player);
     service.SendCharacterAdvancementKnownEntries(player);
     return true;
+}
+
+bool ApplyAscensionAppearanceChanges(Player* player, std::vector<std::pair<uint32, uint32>> const& changes)
+{
+    return AscensionCollectionService::Instance().ApplyAppearanceChanges(player, changes);
 }
 
 uint8 GetAscensionCustomClassTalentLevel(uint8 level)

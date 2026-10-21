@@ -2364,6 +2364,22 @@ local function SendTwinLook()
     return true
 end
 
+local function SendOwnLook()
+    local looks = {}
+    for category = 1, 14 do
+        local appearance = C_Appearance.GetPendingAppearance(category)
+        if appearance then
+            looks[#looks + 1] = category .. ":" .. appearance
+        end
+    end
+    if #looks == 0 then
+        return false
+    end
+    Send("OWNLOOK " .. table.concat(looks, " "))
+    C_Appearance.ClearPendingAppearances()
+    return true
+end
+
 local function HookWardrobeApply()
     if not C_Appearance or not C_Appearance.ApplyPendingAppearances or C_Appearance.SubclassTwinHooked then
         return
@@ -2616,9 +2632,9 @@ end
 
 local function ShowCyclopsMenu(anchor)
     local entries = {
-        { text = "Your left head", isTitle = true, notCheckable = true },
+        { text = "Your right head", isTitle = true, notCheckable = true },
         { text = "Bare head", notCheckable = true, func = function() TakeOffTwin({ 1 }) end },
-        { text = "Same helmet as the right head", notCheckable = true, func = function() Send("CYCLOPSECHO") end },
+        { text = "Same helmet as the left head", notCheckable = true, func = function() Send("CYCLOPSECHO") end },
     }
     twinUndressMenu = twinUndressMenu or CreateFrame("Frame", "Ascension_SubclassTwinUndressMenu", UIParent,
         "UIDropDownMenuTemplate")
@@ -2658,7 +2674,8 @@ local function PlaceTwinApply()
             "UIPanelButtonTemplate")
         twinApplyButton:SetText("Apply")
         twinApplyButton:SetScript("OnClick", function()
-            DEFAULT_CHAT_FRAME:AddMessage(SendTwinLook() and "|cffffd100Wardrobe:|r look sent to your other head."
+            local sent = dressingTwin and SendTwinLook() or (not dressingTwin and SendOwnLook())
+            DEFAULT_CHAT_FRAME:AddMessage(sent and "|cffffd100Wardrobe:|r look applied."
                 or "|cffffd100Wardrobe:|r pick something first.")
         end)
     end
@@ -2671,14 +2688,14 @@ end
 function ShowDressing()
     PlaceTwinApply()
     if twinApplyButton then
-        if dressingTwin then
+        if dressingTwin or DressesCyclops() then
             twinApplyButton:Show()
         else
             twinApplyButton:Hide()
         end
     end
-    local other = DressesCyclops() and "Dressing: Left head" or "Dressing: Your twin"
-    local own = DressesCyclops() and "Dressing: Right head" or "Dressing: You"
+    local other = DressesCyclops() and "Dressing: Right head" or "Dressing: Your twin"
+    local own = DressesCyclops() and "Dressing: Left head" or "Dressing: You"
     twinButton:SetText(dressingTwin and other or own)
     if twinUndressButton then
         if dressingTwin then
@@ -2732,7 +2749,7 @@ local function AttachTwinButton()
         else
             ShowOwnPreview()
         end
-        local other = DressesCyclops() and "|cffffd100Wardrobe:|r Apply now puts the helmet on your left head."
+        local other = DressesCyclops() and "|cffffd100Wardrobe:|r Apply now puts the helmet on your right head."
             or "|cffffd100Wardrobe:|r Apply now dresses your twin."
         DEFAULT_CHAT_FRAME:AddMessage(dressingTwin and other or "|cffffd100Wardrobe:|r Apply now dresses you.")
     end)
@@ -2740,8 +2757,8 @@ local function AttachTwinButton()
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
         GameTooltip:SetText("Who the Wardrobe dresses", 1, 1, 1)
         GameTooltip:AddLine(DressesCyclops()
-            and "Switch to your left head, pick a helmet and apply it as usual. She wears it without needing "
-            .. "the item. The preview shows it on your right head."
+            and "Switch to your right head, pick a helmet and apply it as usual. She wears it without needing "
+            .. "the item. The preview shows it on your left head."
             or "Switch to your twin, pick his look and apply it as usual. "
             .. "He wears it without needing the items.", nil, nil, nil, true)
         GameTooltip:Show()
@@ -3017,7 +3034,8 @@ SlashCmdList.ASCENSIONSUBCLASS = function(message)
                         Try("IsTransmogable", category)))
                 end
             end
-            C_Appearance.ApplyPendingAppearances()
+            DEFAULT_CHAT_FRAME:AddMessage(SendOwnLook() and "Subclass: applied your look." or
+                "Subclass: nothing picked to apply.")
         end
     elseif message == "corner" then
         for _, page in ipairs({ panel, ownPage }) do

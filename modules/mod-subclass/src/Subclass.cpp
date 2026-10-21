@@ -4,6 +4,7 @@
 
 #include "AllCreatureScript.h"
 #include "AllSpellScript.h"
+#include "AscensionAppearanceChanges.h"
 #include "AscensionCoATalentData.h"
 #include "AscensionCustomClassData.h"
 #include "AscensionCustomResourceData.h"
@@ -940,6 +941,21 @@ void HandleAddonMessage(Player* player, std::string_view message)
         return;
     }
     std::vector<std::string_view> const words = Acore::Tokenize(message, ' ', false);
+    if (!words.empty() && words[0] == "OWNLOOK")
+    {
+        std::vector<std::pair<uint32, uint32>> changes;
+        for (std::size_t index = 1; index < words.size(); ++index)
+        {
+            std::vector<std::string_view> const pair = Acore::Tokenize(words[index], ':', false);
+            Optional<uint32> category = pair.size() == 2 ? Acore::StringTo<uint32>(pair[0]) : std::nullopt;
+            Optional<uint32> appearance = pair.size() == 2 ? Acore::StringTo<uint32>(pair[1]) : std::nullopt;
+            if (category && appearance)
+                changes.emplace_back(*category, *appearance);
+        }
+        if (changes.empty() || !ApplyAscensionAppearanceChanges(player, changes))
+            ChatHandler(player->GetSession()).SendSysMessage("Your wardrobe could not apply that look.");
+        return;
+    }
     if (!words.empty() && words[0] == "TWINLOOK")
     {
         HandleTwinLook(player, words);
