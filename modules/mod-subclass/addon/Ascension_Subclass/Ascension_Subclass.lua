@@ -906,6 +906,20 @@ local function SheetFit()
     return saved or SHEET_FIT
 end
 
+local function Inside(inner, outer)
+    local left, right, top, bottom = inner:GetLeft(), inner:GetRight(), inner:GetTop(), inner:GetBottom()
+    local oLeft, oRight, oTop, oBottom = outer:GetLeft(), outer:GetRight(), outer:GetTop(), outer:GetBottom()
+    return left and oLeft and left >= oLeft and right <= oRight and top <= oTop and bottom >= oBottom
+end
+
+local function OnCharacterPage(frame, slot)
+    local selected = frame.selectedTab or (PanelTemplates_GetSelectedTab and PanelTemplates_GetSelectedTab(frame))
+    if selected and selected ~= 1 then
+        return false
+    end
+    return slot:GetEffectiveAlpha() > 0.5 and Inside(slot, frame)
+end
+
 local function ShowsOgre(model)
     local path = model.GetModel and model:GetModel()
     return type(path) ~= "string" or path:lower():find("twoheadedogre", 1, true) ~= nil
@@ -977,7 +991,7 @@ sheetWatch:SetScript("OnUpdate", function(self, elapsed)
     end
     if relicButton and relicState.eligible then
         local slot = ShownRangedSlot(frame)
-        if not slot then
+        if not slot or not OnCharacterPage(frame, slot) then
             relicButton:Hide()
             return
         end
