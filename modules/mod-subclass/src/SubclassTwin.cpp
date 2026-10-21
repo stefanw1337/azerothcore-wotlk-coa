@@ -1291,18 +1291,22 @@ struct StowedLooks
 
 std::unordered_map<uint32, StowedLooks>& stowedLooks = *new std::unordered_map<uint32, StowedLooks>;
 
+std::mutex& gunsMutex = *new std::mutex;
 std::unordered_set<uint32>& gunsInHand = *new std::unordered_set<uint32>;
 
 bool GunInHand(Player const* player)
 {
-    std::lock_guard<std::mutex> lock(twinMutex);
+    std::lock_guard<std::mutex> lock(gunsMutex);
     return gunsInHand.count(player->GetGUID().GetCounter());
 }
 
-bool GunInHandOrBusy(Player const* player)
+void NoteGunInHand(Player const* player, bool held)
 {
-    std::unique_lock<std::mutex> lock(twinMutex, std::try_to_lock);
-    return !lock.owns_lock() || gunsInHand.count(player->GetGUID().GetCounter());
+    std::lock_guard<std::mutex> lock(gunsMutex);
+    if (held)
+        gunsInHand.insert(player->GetGUID().GetCounter());
+    else
+        gunsInHand.erase(player->GetGUID().GetCounter());
 }
 
 void ForgetStowedLook(Player const* player, uint8 slot)
@@ -1447,6 +1451,7 @@ void HoldTheGun(Player* player, bool afar)
     uint32 heldLook = 0;
     bool placing = false;
     bool rangedAway = false;
+    bool gunHeld = false;
     std::optional<uint32> restoreMain;
     std::optional<uint32> restoreRanged;
     {
@@ -1479,10 +1484,7 @@ void HoldTheGun(Player* player, bool afar)
             stowed.Ranged.reset();
         }
         offHand = drawn && gun ? gunLook : 0;
-        if (offHand || (handedOver && heldLook == gunLook))
-            gunsInHand.insert(guid);
-        else
-            gunsInHand.erase(guid);
+        gunHeld = offHand || (handedOver && heldLook == gunLook);
         if (!stowed.MainHand && !stowed.Ranged)
             stowedLooks.erase(guid);
     }
@@ -1496,6 +1498,7 @@ void HoldTheGun(Player* player, bool afar)
         SetShown(player, EQUIPMENT_SLOT_MAINHAND, *restoreMain);
     if (freeOffHand)
         SetShown(player, EQUIPMENT_SLOT_OFFHAND, offHand);
+    NoteGunInHand(player, gunHeld);
     HoldWeaponLook(player, heldLook);
     NoteCastLook(player, freeOffHand, heldLook);
     NoteEmptyHands(player);
@@ -2320,7 +2323,12 @@ bool HideOtherHeadStrikeCast(WorldPacket const& packet)
     if (!info || !IsShot(info))
         return true;
     Player* shooter = ObjectAccessor::FindConnectedPlayer(caster);
-    return !shooter || !HasSecondHead(shooter) || GunInHandOrBusy(shooter);
+    if (!shooter || !HasSecondHead(shooter) || GunInHand(shooter))
+        return true;
+    if (packet.GetOpcode() == SMSG_SPELL_GO)
+        LOG_INFO("module", "mod-subclass: hides the shooting animation of {} ({}) without a gun in {}'s hand",
+            info->SpellName[0], spellId, shooter->GetName());
+    return false;
 }
 
 bool ShowCastOnBrother(WorldSession* session, WorldPacket const& packet)
