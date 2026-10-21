@@ -1536,8 +1536,7 @@ void DrawForTheFight(Player* player)
     else if (!fighting && drewToAim && !player->IsInCombat())
         player->SetSheath(SHEATH_STATE_UNARMED);
     HoldTheGun(player, fighting && AimsFromAfar(player));
-    if (fighting)
-        AimFromAfar(player);
+    AimFromAfar(player);
 }
 
 void ShootAlong(Player* player)
