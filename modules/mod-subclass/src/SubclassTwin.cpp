@@ -1373,7 +1373,7 @@ void HoldTheGun(Player* player, bool afar)
         gun = nullptr;
     bool const freeOffHand = !player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
     bool const casting = CastsWithOtherHeadArmed(player, freeOffHand);
-    bool const aimingAfar = afar;
+    bool const aimingAfar = afar && OtherHeadShoots(player);
     bool const drawn = gun && freeOffHand && player->IsAlive() && OtherHeadShoots(player) &&
         player->GetSheath() == SHEATH_STATE_MELEE && !casting;
     afar = afar && drawn;
@@ -1392,7 +1392,7 @@ void HoldTheGun(Player* player, bool afar)
         uint32 const mace = stowed.MainHand.value_or(shownMain);
         uint32 const gunLook = gun ? stowed.Ranged.value_or(shownRanged ? shownRanged : gun->GetEntry()) : 0;
         if (casting)
-            heldLook = aimingAfar && gunLook && OtherHeadShoots(player) ? gunLook : mace ? mace : gunLook;
+            heldLook = aimingAfar && gunLook ? gunLook : mace ? mace : gunLook;
         bool const handedOver = heldLook != 0;
         rangedAway = drawn || (handedOver && heldLook == gunLook);
         if (rangedAway && shownRanged)
