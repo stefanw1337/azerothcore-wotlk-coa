@@ -1383,12 +1383,64 @@ void NoteOtherHeadShot(Player const* player)
     aimPoseUntil[player->GetGUID().GetCounter()] = now + ShotPoseMs;
 }
 
+struct AttackIntent
+{
+    ObjectGuid Foe;
+    uint32 AskedAt = 0;
+    uint32 StoppedAt = 0;
+};
+
+std::unordered_map<uint32, AttackIntent>& attackIntents = *new std::unordered_map<uint32, AttackIntent>;
+
+void NoteAttackIntent(WorldSession* session, WorldPacket const& packet)
+{
+    Player* player = session->GetPlayer();
+    if (!player || (packet.GetOpcode() != CMSG_ATTACKSWING && packet.GetOpcode() != CMSG_ATTACKSTOP))
+        return;
+    ObjectGuid foe;
+    if (packet.GetOpcode() == CMSG_ATTACKSWING && packet.size() >= sizeof(uint64))
+        foe = ObjectGuid(packet.read<uint64>(0));
+    std::lock_guard<std::mutex> lock(twinMutex);
+    AttackIntent& intent = attackIntents[player->GetGUID().GetCounter()];
+    intent.Foe = foe;
+    if (foe)
+        intent.AskedAt = GameTime::GetGameTimeMS().count();
+}
+
+void NoteAttackStopped(WorldSession* session, WorldPacket const& packet)
+{
+    Player* player = session->GetPlayer();
+    if (!player || packet.GetOpcode() != SMSG_ATTACKSTOP)
+        return;
+    std::lock_guard<std::mutex> lock(twinMutex);
+    auto const itr = attackIntents.find(player->GetGUID().GetCounter());
+    if (itr != attackIntents.end())
+        itr->second.StoppedAt = GameTime::GetGameTimeMS().count();
+}
+
+AttackIntent IntentOf(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(twinMutex);
+    auto const itr = attackIntents.find(player->GetGUID().GetCounter());
+    return itr == attackIntents.end() ? AttackIntent() : itr->second;
+}
+
+Unit* IntendedFoe(Player* player)
+{
+    ObjectGuid const foe = IntentOf(player).Foe;
+    if (!foe || player->GetTarget() != foe)
+        return nullptr;
+    Unit* unit = ObjectAccessor::GetUnit(*player, foe);
+    return unit && unit->IsAlive() && player->IsValidAttackTarget(unit) ? unit : nullptr;
+}
+
 Unit* AimedAt(Player* player)
 {
     if (Unit* victim = player->GetVictim())
         return victim;
-    Spell* repeating = player->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL);
-    return repeating ? repeating->m_targets.GetUnitTarget() : nullptr;
+    if (Spell* repeating = player->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL))
+        return repeating->m_targets.GetUnitTarget();
+    return IntendedFoe(player);
 }
 
 void AimFromAfar(Player* player)
@@ -1442,7 +1494,7 @@ void DrawForTheFight(Player* player)
         return;
     MeleeUpClose(player);
     bool const fighting = (player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) && player->GetVictim()) ||
-        ShootsFromAfar(player);
+        ShootsFromAfar(player) || (OtherHeadShoots(player) && IntendedFoe(player));
     if (fighting && player->GetSheath() != SHEATH_STATE_MELEE)
         player->SetSheath(SHEATH_STATE_MELEE);
     HoldTheGun(player, fighting && AimsFromAfar(player));
@@ -2037,6 +2089,8 @@ public:
 
     bool CanPacketSend(WorldSession* session, WorldPacket const& packet) override
     {
+        if (session)
+            NoteAttackStopped(session, packet);
         return !session || (ShowCastOnBrother(session, packet) && ShareSwingWithBrother(session, packet) &&
             ShowHitsOnBrother(session, packet));
     }
@@ -2044,7 +2098,10 @@ public:
     bool CanPacketReceive(WorldSession* session, WorldPacket const& packet) override
     {
         if (session)
+        {
             OrderCompanion(session, packet);
+            NoteAttackIntent(session, packet);
+        }
         return !session || AnswerMirrorImage(session, packet);
     }
 };
@@ -3151,6 +3208,12 @@ bool HandleSubclassGun(ChatHandler* handler)
         OtherHeadShoots(player), target ? target->GetName() : "none",
         target ? player->IsWithinMeleeRange(target) : false, player->isMoving(),
         player->IsNonMeleeSpellCast(false, true, true));
+    AttackIntent const intent = IntentOf(player);
+    uint32 const now = GameTime::GetGameTimeMS().count();
+    handler->PSendSysMessage("Attack asked {}; server stopped it {}; attacking state {}.",
+        intent.AskedAt ? Acore::StringFormat("{} ms ago", now - intent.AskedAt) : std::string("never"),
+        intent.StoppedAt ? Acore::StringFormat("{} ms ago", now - intent.StoppedAt) : std::string("never"),
+        player->HasUnitState(UNIT_STATE_MELEE_ATTACKING));
     return true;
 }
 
