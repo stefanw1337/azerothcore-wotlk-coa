@@ -2631,7 +2631,10 @@ local function TakeOffTwin(slots)
 end
 
 local function ShowCyclopsMenu(anchor)
-    local entries = {
+    local entries = not dressingTwin and {
+        { text = "Your left head", isTitle = true, notCheckable = true },
+        { text = "Remove the transmog", notCheckable = true, func = function() Send("OWNLOOK 1:0") end },
+    } or {
         { text = "Your right head", isTitle = true, notCheckable = true },
         { text = "Bare head", notCheckable = true, func = function() TakeOffTwin({ 1 }) end },
         { text = "Same helmet as the left head", notCheckable = true, func = function() Send("CYCLOPSECHO") end },
@@ -2698,7 +2701,7 @@ function ShowDressing()
     local own = DressesCyclops() and "Dressing: Left head" or "Dressing: You"
     twinButton:SetText(dressingTwin and other or own)
     if twinUndressButton then
-        if dressingTwin then
+        if dressingTwin or DressesCyclops() then
             twinUndressButton:Show()
         else
             twinUndressButton:Hide()
