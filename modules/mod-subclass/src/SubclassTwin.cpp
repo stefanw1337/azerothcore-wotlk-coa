@@ -3,6 +3,7 @@
  */
 
 #include "AllCreatureScript.h"
+#include "AscensionAppearanceChanges.h"
 #include "Chat.h"
 #include "CommandScript.h"
 #include "DatabaseEnv.h"
@@ -1896,6 +1897,56 @@ void ChooseCyclopsHelmet(Player* player, uint32 helmet, std::string_view done)
     StoreWardrobe(player, wardrobe);
     UpdateCyclopsHelmet(player);
     ChatHandler(player->GetSession()).SendSysMessage(done);
+}
+
+void KeepRightHelmet(Player* player)
+{
+    if (IsSplit(player) && !WardrobeOf(player).Items[HeadSlot])
+    {
+        uint32 const shown = ShownCyclopsHelmet(player);
+        Wardrobe wardrobe = WardrobeOf(player);
+        wardrobe.Items[HeadSlot] = shown ? shown : Subclass::BareCyclopsHead;
+        StoreWardrobe(player, wardrobe);
+    }
+}
+
+void DressLeftHead(Player* player, std::string_view choice)
+{
+    ChatHandler chat(player->GetSession());
+    if (choice == "BARE")
+    {
+        KeepRightHelmet(player);
+        player->SetPlayerFlag(PLAYER_FLAGS_HIDE_HELM);
+        chat.SendSysMessage("Your left head goes bare-headed.");
+    }
+    else if (choice == "WEAR")
+    {
+        player->RemovePlayerFlag(PLAYER_FLAGS_HIDE_HELM);
+        chat.SendSysMessage("Your left head wears her helmet again.");
+    }
+    else if (choice == "ECHO")
+    {
+        if (!IsSplit(player) || !WardrobeOf(player).Items[HeadSlot])
+        {
+            chat.SendSysMessage("Your heads already wear the same helmet.");
+            return;
+        }
+        uint32 const right = ShownCyclopsHelmet(player);
+        if (!right)
+        {
+            player->SetPlayerFlag(PLAYER_FLAGS_HIDE_HELM);
+            chat.SendSysMessage("Your left head goes bare-headed like the right head.");
+        }
+        else if (uint32 const appearance = AscensionAppearanceOfItem(right);
+            appearance && ApplyAscensionAppearanceChanges(player, { { HeadCategory, appearance } }))
+        {
+            player->RemovePlayerFlag(PLAYER_FLAGS_HIDE_HELM);
+            chat.SendSysMessage("Your left head wears the same helmet as the right head.");
+        }
+        else
+            chat.SendSysMessage("Your left head cannot wear that helmet.");
+    }
+    UpdateCyclopsHelmet(player);
 }
 
 void EchoCyclopsHelmet(Player* player)

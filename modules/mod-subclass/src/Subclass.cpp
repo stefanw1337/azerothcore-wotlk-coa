@@ -55,6 +55,7 @@ bool HandleSubclassBots(ChatHandler* handler, Optional<std::string> mode);
 
 void HandleTwinLook(Player* player, std::vector<std::string_view> const& words);
 void AimAtTarget(Player* player);
+void DressLeftHead(Player* player, std::string_view choice);
 void LearnStandardMainWeaponSkills(Player* player);
 std::string TwinWearing(Player const* player);
 void EchoCyclopsHelmet(Player* player);
@@ -941,6 +942,12 @@ void HandleAddonMessage(Player* player, std::string_view message)
         return;
     }
     std::vector<std::string_view> const words = Acore::Tokenize(message, ' ', false);
+    if (words.size() == 2 && words[0] == "LEFTHEAD")
+    {
+        DressLeftHead(player, words[1]);
+        SendAddon(player, TwinWearing(player));
+        return;
+    }
     if (!words.empty() && words[0] == "OWNLOOK")
     {
         std::vector<std::pair<uint32, uint32>> changes;

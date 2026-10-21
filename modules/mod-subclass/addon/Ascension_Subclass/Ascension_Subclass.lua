@@ -2633,7 +2633,10 @@ end
 local function ShowCyclopsMenu(anchor)
     local entries = not dressingTwin and {
         { text = "Your left head", isTitle = true, notCheckable = true },
+        { text = "Bare head", notCheckable = true, func = function() Send("LEFTHEAD BARE") end },
+        { text = "Wear her helmet again", notCheckable = true, func = function() Send("LEFTHEAD WEAR") end },
         { text = "Remove the transmog", notCheckable = true, func = function() Send("OWNLOOK 1:0") end },
+        { text = "Same helmet as the right head", notCheckable = true, func = function() Send("LEFTHEAD ECHO") end },
     } or {
         { text = "Your right head", isTitle = true, notCheckable = true },
         { text = "Bare head", notCheckable = true, func = function() TakeOffTwin({ 1 }) end },

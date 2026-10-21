@@ -9,6 +9,7 @@
 
 class Player;
 
+uint32 AscensionAppearanceOfItem(uint32 itemId);
 bool ApplyAscensionAppearanceChanges(Player* player, std::vector<std::pair<uint32, uint32>> const& changes);
 
 #endif

@@ -6889,6 +6889,11 @@ private:
   }
 
 public:
+  uint32 AppearanceOfItem(uint32 itemId) const {
+    auto const itr = _itemAppearances.find(itemId);
+    return itr == _itemAppearances.end() ? 0 : itr->second;
+  }
+
   bool ApplyAppearanceChanges(Player *player, std::vector<std::pair<uint32, uint32>> const &changes) {
     std::shared_ptr<PlayerCollectionState> state = GetState(player);
     if (!state)
@@ -10379,6 +10384,11 @@ bool RestoreAscensionSpecializationSignature(Player* player)
     service.SaveSlot(player);
     service.SendCharacterAdvancementKnownEntries(player);
     return true;
+}
+
+uint32 AscensionAppearanceOfItem(uint32 itemId)
+{
+    return AscensionCollectionService::Instance().AppearanceOfItem(itemId);
 }
 
 bool ApplyAscensionAppearanceChanges(Player* player, std::vector<std::pair<uint32, uint32>> const& changes)
