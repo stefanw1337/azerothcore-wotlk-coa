@@ -79,6 +79,8 @@ constexpr uint32 CowboyAura = 9530108;
 constexpr uint32 HalfBrainAura = 9530109;
 constexpr uint32 ReachAura = 9530110;
 constexpr uint32 EndlessAmmoAura = 46699;
+constexpr uint32 EndlessArrow = 2512;
+constexpr uint32 EndlessShot = 2516;
 
 constexpr uint32 TwinLinkedSpell = 9530111;
 constexpr uint32 ToleranceSpell = 9530112;
@@ -1185,23 +1187,51 @@ bool OnlyOtherHalfShoots(Player const* player)
     return OtherHalfAwake(player) && OtherHalfShoots(player) && !MainHalfShoots(player);
 }
 
-void ClearGivenAmmo(Player* player)
+uint32 EndlessAmmoFor(Player const* player)
 {
-    static uint32 const given[] = { 2512, 2516, 2515, 2519, 3030, 3033, 11285, 11284, 18042, 15997, 28053, 28060,
-        28056, 28061, 41586, 41584 };
+    Item const* ranged = OwnBow(player);
+    if (!ranged)
+        return 0;
+    switch (ranged->GetTemplate()->SubClass)
+    {
+        case ITEM_SUBCLASS_WEAPON_BOW:
+        case ITEM_SUBCLASS_WEAPON_CROSSBOW:
+            return EndlessArrow;
+        case ITEM_SUBCLASS_WEAPON_GUN:
+            return EndlessShot;
+        default:
+            return 0;
+    }
+}
+
+bool HasUsableAmmo(Player* player)
+{
     uint32 const loaded = player->GetUInt32Value(PLAYER_AMMO_ID);
-    if (!loaded || std::find(std::begin(given), std::end(given), loaded) == std::end(given))
+    ItemTemplate const* proto = loaded ? sObjectMgr->GetItemTemplate(loaded) : nullptr;
+    return proto && player->HasItemCount(loaded, 1) && player->CheckAmmoCompatibility(proto);
+}
+
+void LoadEndlessAmmo(Player* player, bool wanted)
+{
+    uint32 const ammo = wanted ? EndlessAmmoFor(player) : 0;
+    if (!ammo || HasUsableAmmo(player))
         return;
-    player->RemoveAmmo();
-    for (uint32 item : given)
-        if (player->HasItemCount(item, 1))
-            player->DestroyItemCount(item, 1, true);
+    if (!player->HasItemCount(ammo, 1))
+    {
+        ItemPosCountVec destination;
+        if (player->CanStoreNewItem(NULL_BAG, NULL_SLOT, destination, ammo, 1) != EQUIP_ERR_OK)
+            return;
+        if (Item* item = player->StoreNewItem(destination, ammo, true))
+            player->SendNewItem(item, 1, true, false);
+    }
+    player->RemoveAurasDueToSpell(EndlessAmmoAura);
+    player->SetAmmo(ammo);
 }
 
 void UpdateReach(Player* player)
 {
     bool const wanted = OnlyOtherHalfShoots(player);
-    ClearGivenAmmo(player);
+    LoadEndlessAmmo(player, wanted);
     for (uint32 aura : { ReachAura, EndlessAmmoAura })
     {
         if (wanted && !player->HasAura(aura) && sSpellMgr->GetSpellInfo(aura))
@@ -1290,8 +1320,8 @@ void HoldTheGun(Player* player, bool afar)
         uint32 const mace = stowed.MainHand.value_or(shownMain);
         bool const handedOver = casting && mace;
         placing = afar || handedOver;
-        placed = handedOver || (gun && IsBow(gun)) ? 0 : shownMain;
-        if (placing && shownMain != placed)
+        placed = handedOver || (gun && IsBow(gun)) ? 0 : mace;
+        if (placing && !stowed.MainHand && shownMain != placed)
             stowed.MainHand = shownMain;
         if (placing)
             stowed.PlacedMainHand = placed;
