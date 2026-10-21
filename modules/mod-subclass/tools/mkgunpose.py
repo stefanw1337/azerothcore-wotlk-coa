@@ -30,7 +30,8 @@ HELD_AIM = 0.5
 ATTACK_1H = 17
 MACE_RAISED_MS = 300
 PISTOL_REACH = (0.75, 0.15, -0.1)
-MACE_REACH = (0.25, -0.35, 0.3)
+MACE_REST = (-0.1, -0.15, 0.08)
+MACE_SHAFT = (-0.05, 1.0, 0.02)
 LATERAL = (0.0, 1.0, 0.0)
 SPIN_COCK = ((0, 0, 0), (70, -30, -12), (160, -10, -4), (260, 90, 10), (360, 180, 14), (460, 270, 10),
              (560, 360, 4), (720, 355, 0), (1000, 360, 0))
@@ -190,7 +191,7 @@ def posed_rotation(ogre, bone, ready, time, posed):
     return rotation
 
 
-def aimed_joint(ogre, ready, chain, entries, axis):
+def aimed_joint(ogre, ready, chain, entries, axis, toward=FORWARD):
     posed = {bone: decoded(entry) for bone, entry in entries.items()}
     stamps, keys = posed[chain[0]]
     lower = [posed[bone] for bone in chain[1:]]
@@ -200,7 +201,7 @@ def aimed_joint(ogre, ready, chain, entries, axis):
         hand = product(above, key)
         for bone_stamps, bone_keys_ in lower:
             hand = product(hand, at_time(bone_stamps, bone_keys_, stamp))
-        correction = turning(unit(rotate(hand, axis)), FORWARD)
+        correction = turning(unit(rotate(hand, axis)), unit(toward))
         aimed.append(packed(product(product(conjugate(above), product(correction, above)), key), False))
     return len(stamps), struct.pack(f"<{len(stamps)}I", *stamps), b"".join(aimed)
 
@@ -469,7 +470,8 @@ class Grafter:
                 attack = sequence_index(ogre, ATTACK_1H)
                 keys.update((bone, frozen(own_keys(ogre, bone, attack), MACE_RAISED_MS)) for bone in right_arm
                             if own_keys(ogre, bone, attack)[0])
-                keys = pointed(ogre, self.base, keys, right_arm, MACE_REACH)
+                keys = pointed(ogre, self.base, keys, right_arm, MACE_REST)
+                keys[right_arm[-1]] = aimed_joint(ogre, self.base, right_arm[-1:], keys, HELD_BARREL, MACE_SHAFT)
             if mirror:
                 keys[left_arm[-1]] = aimed_joint(ogre, self.base, left_arm[-1:], keys, HELD_BARREL)
             if target in KICKED:
