@@ -1703,7 +1703,7 @@ bool CoversMouth(uint32 itemId, uint8 mouth)
 
 void HideCoveredJaws(Player* player)
 {
-    if (!HasSecondHead(player))
+    if (!HasSecondHead(player) || player->GetSession()->PlayerLogout())
         return;
     uint32 const leftHelmet = player->HasPlayerFlag(PLAYER_FLAGS_HIDE_HELM) ? 0 :
         player->GetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_HEAD * 2);
@@ -1713,14 +1713,14 @@ void HideCoveredJaws(Player* player)
         player->SetByteValue(PLAYER_BYTES_2, PLAYER_BYTES_2_OFFSET_FACIAL_STYLE, jaws);
 }
 
-void KeepRightJawForCharacterSelect(Player const* player)
+void ShowCharacterSelectJaws(Player* player)
 {
     if (!HasSecondHead(player))
         return;
     uint32 const leftHelmet = player->HasPlayerFlag(PLAYER_FLAGS_HIDE_HELM) ? 0 :
         player->GetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_HEAD * 2);
-    CharacterDatabase.Execute("UPDATE `characters` SET `facialStyle` = {} WHERE `guid` = {}",
-        CoversMouth(leftHelmet, LeftMouth) ? LeftMouth : 0, player->GetGUID().GetCounter());
+    player->SetByteValue(PLAYER_BYTES_2, PLAYER_BYTES_2_OFFSET_FACIAL_STYLE,
+        CoversMouth(leftHelmet, LeftMouth) ? LeftMouth : 0);
 }
 
 void UpdateCyclopsHelmet(Player* player)
@@ -2279,7 +2279,8 @@ class mod_subclass_twin_player : public PlayerScript
 {
 public:
     mod_subclass_twin_player() : PlayerScript("mod_subclass_twin_player", { PLAYERHOOK_ON_LOGIN,
-        PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_ON_MAP_CHANGED, PLAYERHOOK_ON_DELETE, PLAYERHOOK_ON_UPDATE,
+        PLAYERHOOK_ON_BEFORE_LOGOUT, PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_ON_MAP_CHANGED, PLAYERHOOK_ON_DELETE,
+        PLAYERHOOK_ON_UPDATE,
         PLAYERHOOK_ON_TEXT_EMOTE, PLAYERHOOK_ON_AFTER_SET_VISIBLE_ITEM_SLOT })
     {
     }
@@ -2322,9 +2323,13 @@ public:
         ArriveLater(player, ArrivalDelay);
     }
 
+    void OnPlayerBeforeLogout(Player* player) override
+    {
+        ShowCharacterSelectJaws(player);
+    }
+
     void OnPlayerLogout(Player* player) override
     {
-        KeepRightJawForCharacterSelect(player);
         DismissTwin(player);
         std::lock_guard<std::mutex> lock(twinMutex);
         wardrobes.erase(player->GetGUID().GetCounter());
