@@ -1354,6 +1354,7 @@ void ShootAlong(Player* player)
     player->resetAttackTimer(RANGED_ATTACK);
     WorldPacket shot = ProjectilePacket(player->GetGUID(), ReachAura, gun->GetEntry(), victim->GetGUID(), false);
     player->SendMessageToSet(&shot, true);
+    player->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_OFF_PIERCE);
     bool const critical = roll_chance_f(player->GetUnitCriticalChance(RANGED_ATTACK, victim));
     uint32 damage = Unit::CalcArmorReducedDamage(player, victim, player->CalculateDamage(RANGED_ATTACK, false, true),
         nullptr, 0, RANGED_ATTACK);
@@ -2939,6 +2940,13 @@ public:
     }
 };
 
+bool SwingsAWeapon(SpellInfo const* info)
+{
+    return info->DmgClass == SPELL_DAMAGE_CLASS_MELEE && (info->HasEffect(SPELL_EFFECT_WEAPON_DAMAGE) ||
+        info->HasEffect(SPELL_EFFECT_WEAPON_DAMAGE_NOSCHOOL) || info->HasEffect(SPELL_EFFECT_NORMALIZED_WEAPON_DMG) ||
+        info->HasEffect(SPELL_EFFECT_WEAPON_PERCENT_DAMAGE));
+}
+
 class mod_subclass_twin_shots : public PlayerScript
 {
 public:
@@ -2946,13 +2954,22 @@ public:
 
     void OnPlayerSpellCast(Player* player, Spell* spell, bool /*skipCheck*/) override
     {
-        if (!spell || !IsShot(spell->GetSpellInfo()) || !OtherHeadShoots(player))
+        if (!spell || !HasSecondHead(player) || !OtherHalfAwake(player))
+            return;
+        SpellInfo const* info = spell->GetSpellInfo();
+        if (!IsShot(info))
+        {
+            if (SwingsAWeapon(info) && IsBorrowedSpell(player, info->Id))
+                player->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_OFF);
+            return;
+        }
+        if (!OtherHeadShoots(player))
             return;
         NoteOtherHeadShot(player);
         Unit* target = spell->m_targets.GetUnitTarget();
         if (target && player->IsWithinMeleeRange(target))
-            return;
-        if (Item* gun = OwnBow(player))
+            player->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_OFF_PIERCE);
+        else if (Item* gun = OwnBow(player))
             player->HandleEmoteCommand(RangedEmote(gun->GetTemplate()));
     }
 };

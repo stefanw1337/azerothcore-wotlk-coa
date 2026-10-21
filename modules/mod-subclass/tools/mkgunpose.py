@@ -16,8 +16,11 @@ RECORD_TRACKS = {TEXTURE_WEIGHTS: (20, (0,)), TEXTURE_TRANSFORMS: (60, (0, 20, 4
 EVENT_SIZE, EVENT_TRACK = 36, 24
 KEY_ARM_LEFT, KEY_ARM_RIGHT = 0, 1
 SPINE = (2, 3, 4)
+SPINE_PATH = (2, 4)
 READY_1H = 26
-COPIED = ((48, True), (49, True), (110, True), (29, False), (46, False), (109, False))
+ATTACK_OFF_PIERCE = 88
+COPIED = ((48, 48, True, False), (49, 49, True, False), (110, 110, True, False), (29, 29, False, False),
+          (46, 46, False, False), (109, 109, False, False), (49, ATTACK_OFF_PIERCE, False, True))
 
 
 def array(data, offset):
@@ -81,29 +84,64 @@ def encode(value):
     return round(value * 32767) - 32768 if value >= 0 else round(value * 32767) + 32767
 
 
-def mirrored(packed):
-    x, y, z, w = (decode(v) for v in struct.unpack("<4h", packed))
-    return struct.pack("<4h", encode(-x), encode(y), encode(-z), encode(w))
+def unpacked(packed):
+    return tuple(decode(v) for v in struct.unpack("<4h", packed))
 
 
-def rotation_keys(data, bone, sequence, mirror):
+def packed(quaternion, mirror):
+    x, y, z, w = quaternion
+    if mirror:
+        x, z = -x, -z
+    return struct.pack("<4h", encode(x), encode(y), encode(z), encode(w))
+
+
+def product(first, second):
+    x1, y1, z1, w1 = first
+    x2, y2, z2, w2 = second
+    return (w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2, w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2, w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2)
+
+
+def bone_keys(data, bone, sequence):
     track = bone_offset(data, bone) + ROTATION
-    _, _, times_count, times, values_count, values = struct.unpack_from("<hhIIII", data, track)
+    times, values = struct.unpack_from("<II", data, track + 8)[0], struct.unpack_from("<I", data, track + 16)[0]
     count, at = array(data, times + sequence * 8)
-    stamps = data[at:at + count * 4]
+    stamps = list(struct.unpack_from(f"<{count}I", data, at))
     count, at = array(data, values + sequence * 8)
-    keys = [data[at + index * 8:at + index * 8 + 8] for index in range(count)]
-    return count, bytes(stamps), b"".join(mirrored(key) if mirror else key for key in keys)
+    return stamps, [unpacked(data[at + index * 8:at + index * 8 + 8]) for index in range(count)]
 
 
-def bone_sources(ogre, source, mirror):
+def at_time(stamps, keys, time):
+    if not keys:
+        return (0.0, 0.0, 0.0, 1.0)
+    earlier = [index for index, stamp in enumerate(stamps) if stamp <= time]
+    return keys[earlier[-1] if earlier else 0]
+
+
+def rotation_keys(data, chain, sequence, mirror):
+    stamps, keys = bone_keys(data, chain[-1], sequence)
+    parents = [bone_keys(data, bone, sequence) for bone in chain[:-1]]
+    composed = []
+    for stamp, key in zip(stamps, keys):
+        rotation = (0.0, 0.0, 0.0, 1.0)
+        for parent_stamps, parent_keys in parents:
+            rotation = product(rotation, at_time(parent_stamps, parent_keys, stamp))
+        composed.append(packed(product(rotation, key), mirror))
+    return len(composed), struct.pack(f"<{len(stamps)}I", *stamps), b"".join(composed)
+
+
+def bone_sources(ogre, source, mirror, left_arm_only):
     ogre_sides = (arm_chain(ogre, KEY_ARM_LEFT), arm_chain(ogre, KEY_ARM_RIGHT))
     source_sides = (arm_chain(source, KEY_ARM_LEFT), arm_chain(source, KEY_ARM_RIGHT))
     if mirror:
         source_sides = source_sides[::-1]
-    mapping = {bone: bone for bone in SPINE}
+    if left_arm_only:
+        mapping = {bone: (source,) for bone, source in zip(ogre_sides[0][1:], source_sides[0][1:])}
+        mapping[ogre_sides[0][0]] = (*SPINE_PATH, source_sides[0][0])
+        return mapping
+    mapping = {bone: (bone,) for bone in SPINE}
     for ogre_chain, source_chain in zip(ogre_sides, source_sides):
-        mapping.update(zip(ogre_chain, source_chain))
+        mapping.update((bone, (source,)) for bone, source in zip(ogre_chain, source_chain))
     return mapping
 
 
@@ -141,8 +179,9 @@ class Grafter:
 
     def graft(self):
         source_count, source_offset = array(self.source, SEQUENCES)
-        wanted = [(sequence_index(self.source, animation), mirror) for animation, mirror in COPIED]
-        mappings = [bone_sources(bytes(self.blob.data), self.source, mirror) for _, mirror in wanted]
+        wanted = [(sequence_index(self.source, animation), mirror) for animation, _, mirror, _ in COPIED]
+        mappings = [bone_sources(bytes(self.blob.data), self.source, mirror, left_arm_only)
+                    for _, _, mirror, left_arm_only in COPIED]
         bone_count, _ = array(self.blob.data, BONES)
         for bone in range(bone_count):
             for track in BONE_TRACKS:
@@ -171,6 +210,7 @@ class Grafter:
             record = bytearray(self.source[source_offset + sequence * SEQUENCE_SIZE:
                                            source_offset + (sequence + 1) * SEQUENCE_SIZE])
             record[SEQUENCE_BOUNDS] = ready[SEQUENCE_BOUNDS]
+            struct.pack_into("<H", record, 0, COPIED[position][1])
             struct.pack_into("<hH", record, SEQUENCE_NEXT, -1, self.old_count + position)
             records += record
         struct.pack_into("<II", self.blob.data, SEQUENCES, len(records) // SEQUENCE_SIZE,
