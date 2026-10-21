@@ -1223,12 +1223,14 @@ void LoadEndlessAmmo(Player* player, bool wanted)
         if (Item* item = player->StoreNewItem(destination, ammo, true))
             player->SendNewItem(item, 1, true, false);
     }
+    player->RemoveAurasDueToSpell(EndlessAmmoAura);
     player->SetAmmo(ammo);
 }
 
 void UpdateReach(Player* player)
 {
     bool const wanted = OnlyOtherHalfShoots(player);
+    LoadEndlessAmmo(player, wanted);
     for (uint32 aura : { ReachAura, EndlessAmmoAura })
     {
         if (wanted && !player->HasAura(aura) && sSpellMgr->GetSpellInfo(aura))
@@ -1236,7 +1238,6 @@ void UpdateReach(Player* player)
         else if (!wanted && player->HasAura(aura))
             player->RemoveAurasDueToSpell(aura);
     }
-    LoadEndlessAmmo(player, wanted);
 }
 
 void HandWeaponsToBrother(Player* player)
