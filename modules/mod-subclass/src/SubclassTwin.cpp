@@ -2658,7 +2658,7 @@ void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid)
     ActOutCast(player, info, target);
     if (twin)
         castingAsBrother = { player->GetGUID(), twin->GetGUID(), spellId };
-    else if (HasSecondHead(player) && !(IsShot(info) && GunInHand(player)))
+    else if (HasSecondHead(player) && !(info->HasAttribute(SPELL_ATTR0_USES_RANGED_SLOT) && GunInHand(player)))
         strikingAsOtherHead = { player->GetGUID(), ObjectGuid::Empty, spellId };
     SpellCastResult const result = player->CastSpell(target, spellId, TriggerCastFlags(TRIGGERED_IGNORE_GCD |
         TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_CAST_DIRECTLY | TRIGGERED_IGNORE_SET_FACING |
