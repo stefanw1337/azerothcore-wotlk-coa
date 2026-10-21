@@ -1370,12 +1370,18 @@ void MeleeUpClose(Player* player)
 
 constexpr uint32 AimAfterShotMs = 2500;
 constexpr uint32 ShotPoseMs = 1000;
-constexpr uint32 AimPoseMs = 1900;
-constexpr std::array<uint32, 2> GunAimEmotes = { EMOTE_ONESHOT_ATTACK_UNARMED, EMOTE_ONESHOT_PARRY_UNARMED };
-constexpr std::array<uint32, 2> BowAimEmotes = { 477, EMOTE_ONESHOT_PARRY_SHIELD };
-std::unordered_map<uint32, uint8>& aimEmoteTurns = *new std::unordered_map<uint32, uint8>;
+constexpr uint32 AimHoldMs = 32004 + 100;
+constexpr uint32 GunHoldEmote = EMOTE_ONESHOT_ATTACK_UNARMED;
+constexpr uint32 BowHoldEmote = 477;
+constexpr uint32 EndHoldEmote = 707;
 std::unordered_map<uint32, uint32>& aimingUntil = *new std::unordered_map<uint32, uint32>;
 std::unordered_map<uint32, uint32>& aimPoseUntil = *new std::unordered_map<uint32, uint32>;
+
+bool RecentlyShotLocked(Player const* player, uint32 now)
+{
+    auto const itr = aimingUntil.find(player->GetGUID().GetCounter());
+    return itr != aimingUntil.end() && itr->second > now;
+}
 
 void NoteOtherHeadShot(Player const* player)
 {
@@ -1457,27 +1463,31 @@ void AimFromAfar(Player* player)
         target->IsAlive() && !player->IsWithinMeleeRange(target) && !player->isMoving() &&
         !player->IsNonMeleeSpellCast(false, true, true);
     uint32 const now = GameTime::GetGameTimeMS().count();
-    uint8 turn = 0;
+    bool endHold = false;
     {
         std::lock_guard<std::mutex> lock(twinMutex);
         uint32& until = aimPoseUntil[player->GetGUID().GetCounter()];
         if (!aiming)
         {
-            if (player->isMoving())
+            endHold = until > now && !player->isMoving() && !RecentlyShotLocked(player, now);
+            if (until > now || player->isMoving())
                 until = 0;
-            return;
         }
-        if (until > now)
+        else if (until > now)
             return;
-        turn = aimEmoteTurns[player->GetGUID().GetCounter()]++ % 2;
-        until = now + AimPoseMs;
+        else
+            until = now + AimHoldMs;
     }
+    if (endHold)
+        player->HandleEmoteCommand(EndHoldEmote);
+    if (!aiming)
+        return;
     if (!player->IsInCombat())
     {
         player->ForceValuesUpdateAtIndex(UNIT_FIELD_BYTES_2);
         player->ForceValuesUpdateAtIndex(PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_OFFHAND * 2);
     }
-    player->HandleEmoteCommand((IsBow(gun) ? BowAimEmotes : GunAimEmotes)[turn]);
+    player->HandleEmoteCommand(IsBow(gun) ? BowHoldEmote : GunHoldEmote);
 }
 
 bool RecentlyShot(Player const* player)

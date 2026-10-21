@@ -19,18 +19,19 @@ RECORD_TRACKS = {TEXTURE_WEIGHTS: (20, (0,)), TEXTURE_TRANSFORMS: (60, (0, 20, 4
                  CAMERAS: (100, (16, 48, 80))}
 EVENT_SIZE, EVENT_TRACK = 36, 24
 KEY_ARM_LEFT, KEY_ARM_RIGHT = 0, 1
-SPINE = (2, 3, 4)
+SPINE = (2, 4)
 SPINE_PATH = (2, 4)
 STAND = 0
 FORWARD = (1.0, 0.0, 0.0)
 HELD_BARREL = FORWARD
 ATTACK_OFF_PIERCE = 88
-SPECIAL_UNARMED, PARRY_UNARMED, PARRY_SHIELD, ATTACK_UNARMED = 118, 20, 24, 16
+SPECIAL_UNARMED, ATTACK_UNARMED = 118, 16
+HELD_AIM = 0.5
 COPIED = ((48, 48, True, False, None), (49, 49, True, False, None), (110, 110, True, False, None),
           (29, 29, False, False, None), (46, 46, False, False, None), (109, 109, False, False, None),
-          (49, ATTACK_OFF_PIERCE, True, True, None), (110, ATTACK_UNARMED, True, False, None),
-          (110, PARRY_UNARMED, True, False, None), (109, SPECIAL_UNARMED, False, False, None),
-          (109, PARRY_SHIELD, False, False, None))
+          (49, ATTACK_OFF_PIERCE, True, True, None), (110, ATTACK_UNARMED, True, False, HELD_AIM),
+          (109, SPECIAL_UNARMED, False, False, HELD_AIM))
+HOLD_LOOPS = 12
 
 
 def array(data, offset):
@@ -269,8 +270,11 @@ def reached(ogre, ready, source, sequence, entries, chain, source_chain):
     uppers, fores = [], []
     for stamp in stamps:
         model = Pose(source, sequence, {}, stamp)
-        reach = (model.joint(source_chain[3]) - model.joint(source_chain[1])) * np.array((1.0, -1.0, 1.0)) * scale
+        source_chest = model.frame(parent_of(source, source_chain[0]))[0]
+        held = source_chest.T @ (model.joint(source_chain[3]) - model.joint(source_chain[1]))
         pose = Pose(ogre, ready, posed, stamp)
+        chest = pose.frame(parent_of(ogre, chain[0]))[0]
+        reach = chest @ (held * np.array((1.0, -1.0, 1.0))) * scale
         shoulder, elbow, wrist = pose.joint(upper), pose.joint(fore), pose.joint(hand)
         above = pose.frame(parent_of(ogre, upper))[0]
         upper_world = above @ pose.local(upper)
@@ -314,7 +318,7 @@ def rotation_keys(data, chain, sequence, mirror):
     return len(composed), struct.pack(f"<{len(stamps)}I", *stamps), b"".join(composed)
 
 
-def bone_sources(ogre, source, mirror, left_arm_only):
+def bone_sources(ogre, source, mirror, left_arm_only, calm):
     ogre_sides = (arm_chain(ogre, KEY_ARM_LEFT), arm_chain(ogre, KEY_ARM_RIGHT))
     source_sides = (arm_chain(source, KEY_ARM_LEFT), arm_chain(source, KEY_ARM_RIGHT))
     if mirror:
@@ -323,7 +327,7 @@ def bone_sources(ogre, source, mirror, left_arm_only):
         mapping = {bone: (source,) for bone, source in zip(ogre_sides[0][1:], source_sides[0][1:])}
         mapping[ogre_sides[0][0]] = (*SPINE_PATH, source_sides[0][0])
         return mapping
-    mapping = {bone: (bone,) for bone in SPINE}
+    mapping = {} if calm else {bone: (bone,) for bone in SPINE}
     for ogre_chain, source_chain in zip(ogre_sides, source_sides):
         mapping.update((bone, (source,)) for bone, source in zip(ogre_chain, source_chain))
     return mapping
@@ -337,14 +341,26 @@ class Grafter:
         self.base = sequence_index(ogre, STAND)
         self.added = []
 
-    def still(self, track, size):
+    def looped(self, track, size):
         data = self.blob.data
-        _, global_sequence, count, _ = struct.unpack_from("<hhII", data, track)
+        _, global_sequence, count, times = struct.unpack_from("<hhII", data, track)
         if global_sequence != -1 or count != self.old_count:
             return None
         values = struct.unpack_from("<I", data, track + 16)[0]
-        keys, at = array(data, values + self.base * 8)
-        return (1, struct.pack("<I", 0), bytes(data[at:at + size])) if keys else None
+        keys, stamps_at = array(data, times + self.base * 8)
+        _, values_at = array(data, values + self.base * 8)
+        if not keys:
+            return None
+        length = sequence_length(bytes(data), self.base)
+        stamps = struct.unpack_from(f"<{keys}I", data, stamps_at)
+        looped_stamps, looped_values = [], bytearray()
+        for loop in range(HOLD_LOOPS):
+            for index, stamp in enumerate(stamps):
+                if stamp >= length and loop < HOLD_LOOPS - 1:
+                    continue
+                looped_stamps.append(stamp + loop * length)
+                looped_values += data[values_at + index * size:values_at + (index + 1) * size]
+        return len(looped_stamps), struct.pack(f"<{len(looped_stamps)}I", *looped_stamps), bytes(looped_values)
 
     def extend(self, track, has_values, entries):
         data = self.blob.data
@@ -373,8 +389,8 @@ class Grafter:
     def graft(self):
         source_count, source_offset = array(self.source, SEQUENCES)
         wanted = [(sequence_index(self.source, animation), mirror) for animation, _, mirror, _, _ in COPIED]
-        mappings = [bone_sources(bytes(self.blob.data), self.source, mirror, left_arm_only)
-                    for _, _, mirror, left_arm_only, _ in COPIED]
+        mappings = [bone_sources(bytes(self.blob.data), self.source, mirror, left_arm_only, held is not None)
+                    for _, _, mirror, left_arm_only, held in COPIED]
         ogre = bytes(self.blob.data)
         left_arm = arm_chain(ogre, KEY_ARM_LEFT)
         right_arm = arm_chain(ogre, KEY_ARM_RIGHT)
@@ -397,7 +413,7 @@ class Grafter:
             for track, size in zip(BONE_TRACKS, TRACK_VALUE_SIZES):
                 place = bone_offset(self.blob.data, bone) + track
                 entries = [keys.get(bone) if track == ROTATION else None for keys in rotations]
-                entries = [self.still(place, size) if entry is None and still else entry
+                entries = [self.looped(place, size) if entry is None and still else entry
                            for entry, still in zip(entries, held)]
                 self.extend(place, True, entries)
         for header, (size, tracks) in RECORD_TRACKS.items():
@@ -421,6 +437,8 @@ class Grafter:
                                            source_offset + (sequence + 1) * SEQUENCE_SIZE])
             record[SEQUENCE_BOUNDS] = ready[SEQUENCE_BOUNDS]
             struct.pack_into("<H", record, 0, COPIED[position][1])
+            if COPIED[position][4] is not None:
+                struct.pack_into("<I", record, 4, sequence_length(bytes(data), self.base) * HOLD_LOOPS)
             struct.pack_into("<hH", record, SEQUENCE_NEXT, -1, self.old_count + position)
             records += record
         struct.pack_into("<II", self.blob.data, SEQUENCES, len(records) // SEQUENCE_SIZE,
