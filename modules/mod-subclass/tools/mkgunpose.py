@@ -4,6 +4,11 @@ from pathlib import Path
 
 import numpy as np
 
+
+def grid(*ranges):
+    return [np.array(point) for point in np.array(np.meshgrid(*ranges)).reshape(len(ranges), -1).T]
+
+
 SEQUENCES, BONES, KEY_BONES = 0x1C, 0x2C, 0x34
 TEXTURE_WEIGHTS, TEXTURE_TRANSFORMS = 0x58, 0x60
 ATTACHMENTS, EVENTS, CAMERAS = 0xF0, 0x100, 0x110
@@ -29,9 +34,12 @@ READY_RIFLE, READY_BOW = 48, 29
 HELD_AIM = 0.5
 ATTACK_1H = 17
 MACE_RAISED_MS = 300
-PISTOL_REACH = (0.75, 0.15, -0.1)
-MACE_REST = (-0.1, -0.15, 0.08)
-MACE_SHAFT = (-0.05, 1.0, 0.02)
+MACE_SHAFT = tuple(np.array((-0.05, 1.0, 0.02)) / np.linalg.norm((-0.05, 1.0, 0.02)))
+GUN_REACHES = grid(np.arange(0.2, 0.85, 0.1), np.arange(0.0, 0.45, 0.1), np.arange(-0.9, 0.05, 0.15))
+MACE_REACHES = grid(np.arange(-0.3, 0.15, 0.1), np.arange(-0.4, 0.05, 0.1), np.arange(-0.1, 0.4, 0.075))
+FRONT_CLEARANCE = 0.06
+HEAD_CLEARANCE = 0.2
+MACE_LENGTH = 1.0
 LATERAL = (0.0, 1.0, 0.0)
 SPIN_COCK = ((0, 0, 0), (70, -30, -12), (160, -10, -4), (260, 90, 10), (360, 180, 14), (460, 270, 10),
              (560, 360, 4), (720, 355, 0), (1000, 360, 0))
@@ -40,6 +48,7 @@ COPIED = ((49, READY_RIFLE, True, True, HELD_AIM), (49, 49, True, True, None), (
           (49, ATTACK_OFF_PIERCE, True, True, None))
 HOLD_LOOPS = 12
 KICKED = (49, ATTACK_OFF_PIERCE)
+MELEE_WITH_GUN = (17, 21, 26, 57)
 
 
 def array(data, offset):
@@ -350,6 +359,44 @@ def kicked(ogre, ready, entries, chain):
     return entries
 
 
+def angle_between(first, second):
+    return float(np.arccos(np.clip(np.dot(unit(first), unit(second)), -1.0, 1.0)))
+
+
+def rolled(ogre, ready, entries, chain, toward):
+    posed = {bone: decoded(entry) for bone, entry in entries.items()}
+    _, fore, hand = chain[1:]
+    stamps = posed[fore][0]
+    fores, bend = [], 0.0
+    for stamp in stamps:
+        pose = Pose(ogre, ready, posed, stamp)
+        elbow_frame = pose.frame(parent_of(ogre, fore))[0]
+        fore_world = elbow_frame @ pose.local(fore)
+        held = (fore_world @ pose.local(hand))[:, 0]
+        along = np.array(unit(pose.joint(hand) - pose.joint(fore)))
+        flat_held = held - np.dot(held, along) * along
+        flat_wanted = np.array(toward) - np.dot(toward, along) * along
+        roll = np.arctan2(np.dot(along, np.cross(flat_held, flat_wanted)), np.dot(flat_held, flat_wanted))
+        turn = about(along, roll)
+        bend = max(bend, angle_between(turn @ held, toward))
+        fores.append(packed(as_quaternion(elbow_frame.T @ turn @ fore_world), False))
+    entries = dict(entries)
+    entries[fore] = (len(stamps), struct.pack(f"<{len(stamps)}I", *stamps), b"".join(fores))
+    return entries, bend
+
+
+def straightest(ogre, ready, entries, chain, toward, candidates, fits):
+    best = None
+    for reach in candidates:
+        posed_entries, bend = rolled(ogre, ready, pointed(ogre, ready, entries, chain, reach), chain, toward)
+        pose = Pose(ogre, ready, {bone: decoded(entry) for bone, entry in posed_entries.items()}, 0)
+        if not fits(pose.joint(chain[3]), np.array(unit(toward))):
+            continue
+        if best is None or bend < best[0]:
+            best = (bend, posed_entries)
+    return best[1]
+
+
 def own_keys(data, bone, sequence):
     track = bone_offset(data, bone) + ROTATION
     times, values = struct.unpack_from("<I", data, track + 8)[0], struct.unpack_from("<I", data, track + 16)[0]
@@ -393,12 +440,32 @@ def bone_sources(ogre, source, mirror, left_arm_only, calm):
     return mapping
 
 
+class Body:
+    def __init__(self, ogre, skin):
+        from mkhelmets import CYCLOPS_HEAD, TWO_EYED_HEAD, bone_parents, load_mesh, subtree
+        mesh = load_mesh(ogre, skin, {0})
+        parents = bone_parents(ogre)
+        arms = subtree(parents, {arm_chain(ogre, KEY_ARM_LEFT)[1], arm_chain(ogre, KEY_ARM_RIGHT)[1]})
+        heads = subtree(parents, {CYCLOPS_HEAD, TWO_EYED_HEAD})
+        self.torso = mesh.positions[~np.isin(mesh.bones, list(arms | heads))]
+        self.heads = mesh.positions[np.isin(mesh.bones, list(heads))]
+
+    def clears_front(self, hand, _):
+        near = self.torso[(np.abs(self.torso[:, 1] - hand[1]) < 0.12) & (np.abs(self.torso[:, 2] - hand[2]) < 0.12)]
+        return not len(near) or hand[0] >= near[:, 0].max() + FRONT_CLEARANCE
+
+    def clears_heads(self, hand, shaft):
+        return all(np.linalg.norm(self.heads - (hand + shaft * step), axis=1).min() >= HEAD_CLEARANCE
+                   for step in np.linspace(0.0, MACE_LENGTH, 6))
+
+
 class Grafter:
-    def __init__(self, ogre, source):
+    def __init__(self, ogre, source, skin):
         self.blob = Blob(ogre)
         self.source = source
         self.old_count = array(ogre, SEQUENCES)[0]
         self.base = sequence_index(ogre, STAND)
+        self.body = Body(ogre, skin)
         self.added = []
 
     def looped(self, track, size):
@@ -465,17 +532,19 @@ class Grafter:
                 for chain, source_chain in zip((left_arm, right_arm), source_sides):
                     keys = reached(ogre, self.base, self.source, sequence, keys, chain, source_chain)
             if left_arm_only:
-                keys = pointed(ogre, self.base, keys, left_arm, PISTOL_REACH)
+                keys = straightest(ogre, self.base, keys, left_arm, FORWARD, GUN_REACHES, self.body.clears_front)
                 attack = sequence_index(ogre, ATTACK_1H)
                 keys.update((bone, frozen(own_keys(ogre, bone, attack), MACE_RAISED_MS)) for bone in right_arm
                             if own_keys(ogre, bone, attack)[0])
-                keys = pointed(ogre, self.base, keys, right_arm, MACE_REST)
+                keys = straightest(ogre, self.base, keys, right_arm, MACE_SHAFT, MACE_REACHES,
+                                   self.body.clears_heads)
                 keys[right_arm[-1]] = aimed_joint(ogre, self.base, right_arm[-1:], keys, HELD_BARREL, MACE_SHAFT)
             if mirror:
                 keys[left_arm[-1]] = aimed_joint(ogre, self.base, left_arm[-1:], keys, HELD_BARREL)
             if target in KICKED:
                 keys = kicked(ogre, self.base, keys, left_arm)
             rotations.append(keys)
+        self.hold_gun_in_melee(left_arm, rotations[0])
         held = [entry[4] is not None for entry in COPIED]
         bone_count, _ = array(self.blob.data, BONES)
         for bone in range(bone_count):
@@ -496,6 +565,22 @@ class Grafter:
         self.append_sequences(wanted, source_offset)
         return bytes(self.blob.data)
 
+    def hold_gun_in_melee(self, left_arm, gun_hold):
+        data = self.blob.data
+        _, offset = array(data, SEQUENCES)
+        melee = [sequence for sequence in range(self.old_count)
+                 if struct.unpack_from("<H", data, offset + sequence * SEQUENCE_SIZE)[0] in MELEE_WITH_GUN]
+        for bone in left_arm:
+            track = bone_offset(data, bone) + ROTATION
+            _, global_sequence, count, times = struct.unpack_from("<hhII", data, track)
+            if bone not in gun_hold or global_sequence != -1 or count != self.old_count:
+                continue
+            values = struct.unpack_from("<I", data, track + 16)[0]
+            keys, stamps, packed = gun_hold[bone]
+            for sequence in melee:
+                struct.pack_into("<II", self.blob.data, times + sequence * 8, keys, self.blob.append(stamps, 4))
+                struct.pack_into("<II", self.blob.data, values + sequence * 8, keys, self.blob.append(packed, 4))
+
     def append_sequences(self, wanted, source_offset):
         data = self.blob.data
         _, offset = array(data, SEQUENCES)
@@ -514,10 +599,10 @@ class Grafter:
                          self.blob.append(bytes(records), 16))
 
 
-def graft(ogre_path, source_path):
+def graft(ogre_path, source_path, skin_path):
     ogre = Path(ogre_path)
-    ogre.write_bytes(Grafter(ogre.read_bytes(), Path(source_path).read_bytes()).graft())
+    ogre.write_bytes(Grafter(ogre.read_bytes(), Path(source_path).read_bytes(), Path(skin_path).read_bytes()).graft())
 
 
 if __name__ == "__main__":
-    graft(sys.argv[1], sys.argv[2])
+    graft(sys.argv[1], sys.argv[2], sys.argv[3])
