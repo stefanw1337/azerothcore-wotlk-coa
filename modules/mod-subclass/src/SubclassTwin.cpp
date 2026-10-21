@@ -1322,14 +1322,12 @@ bool RecentlyShot(Player const* player)
     return itr != aimingUntil.end() && itr->second > GameTime::GetGameTimeMS().count();
 }
 
-bool AimsFromAfar(Player* player)
+bool ShootsFromAfar(Player* player)
 {
-    if (!OtherHeadShoots(player))
+    if (!OtherHeadShoots(player) || !(player->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) || RecentlyShot(player)))
         return false;
-    if (player->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) || RecentlyShot(player))
-        return true;
     Unit* victim = player->GetVictim();
-    return victim && player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) && !player->IsWithinMeleeRange(victim);
+    return !victim || !player->IsWithinMeleeRange(victim);
 }
 
 void DrawForTheFight(Player* player)
@@ -1337,16 +1335,10 @@ void DrawForTheFight(Player* player)
     if (!HasSecondHead(player))
         return;
     MeleeUpClose(player);
-    uint32 const state = player->GetUInt32Value(UNIT_NPC_EMOTESTATE);
-    if (state == EMOTE_STATE_READY_RIFLE || state == EMOTE_STATE_READY_BOW)
-        player->SetUInt32Value(UNIT_NPC_EMOTESTATE, 0);
-    SheathState wanted = SHEATH_STATE_UNARMED;
-    if (AimsFromAfar(player))
-        wanted = SHEATH_STATE_RANGED;
-    else if (player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) && player->GetVictim())
-        wanted = SHEATH_STATE_MELEE;
-    if (wanted != SHEATH_STATE_UNARMED && player->GetSheath() != wanted)
-        player->SetSheath(wanted);
+    bool const fighting = (player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) && player->GetVictim()) ||
+        ShootsFromAfar(player);
+    if (fighting && player->GetSheath() != SHEATH_STATE_MELEE)
+        player->SetSheath(SHEATH_STATE_MELEE);
 }
 
 void ShootAlong(Player* player)
@@ -2957,6 +2949,9 @@ public:
         if (!spell || !IsShot(spell->GetSpellInfo()) || !OtherHeadShoots(player))
             return;
         NoteOtherHeadShot(player);
+        Unit* target = spell->m_targets.GetUnitTarget();
+        if (target && player->IsWithinMeleeRange(target))
+            return;
         if (Item* gun = OwnBow(player))
             player->HandleEmoteCommand(RangedEmote(gun->GetTemplate()));
     }
