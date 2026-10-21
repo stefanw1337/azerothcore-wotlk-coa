@@ -1373,6 +1373,9 @@ constexpr uint32 ShotPoseMs = 1000;
 constexpr uint32 AimPoseMs = 900;
 constexpr std::array<uint32, 2> GunAimEmotes = { EMOTE_ONESHOT_ATTACK_THROWN, EMOTE_ONESHOT_PARRY_UNARMED };
 constexpr std::array<uint32, 2> BowAimEmotes = { 477, EMOTE_ONESHOT_PARRY_SHIELD };
+constexpr uint32 EmoteBreathBetweenAims = 554;
+constexpr uint32 BreathMs = 2000;
+constexpr uint8 AimsPerBreath = 3;
 std::unordered_map<uint32, uint8>& aimEmoteTurns = *new std::unordered_map<uint32, uint8>;
 std::unordered_map<uint32, uint32>& aimingUntil = *new std::unordered_map<uint32, uint32>;
 std::unordered_map<uint32, uint32>& aimPoseUntil = *new std::unordered_map<uint32, uint32>;
@@ -1475,10 +1478,18 @@ void AimFromAfar(Player* player)
         }
         if (until > now)
             return;
-        until = now + AimPoseMs;
-        turn = aimEmoteTurns[player->GetGUID().GetCounter()]++ % 2;
+        turn = aimEmoteTurns[player->GetGUID().GetCounter()]++ % (AimsPerBreath + 1);
+        until = now + (turn == AimsPerBreath && !IsBow(gun) ? BreathMs : AimPoseMs);
     }
-    player->HandleEmoteCommand((IsBow(gun) ? BowAimEmotes : GunAimEmotes)[turn]);
+    if (!player->IsInCombat())
+    {
+        player->ForceValuesUpdateAtIndex(UNIT_FIELD_BYTES_2);
+        player->ForceValuesUpdateAtIndex(PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_OFFHAND * 2);
+    }
+    if (turn == AimsPerBreath && !IsBow(gun))
+        player->HandleEmoteCommand(EmoteBreathBetweenAims);
+    else
+        player->HandleEmoteCommand((IsBow(gun) ? BowAimEmotes : GunAimEmotes)[turn % 2]);
 }
 
 bool RecentlyShot(Player const* player)
