@@ -2,10 +2,13 @@ import struct
 import sys
 from pathlib import Path
 
+import numpy as np
+
 SEQUENCES, BONES, KEY_BONES = 0x1C, 0x2C, 0x34
 TEXTURE_WEIGHTS, TEXTURE_TRANSFORMS = 0x58, 0x60
 ATTACHMENTS, EVENTS, CAMERAS = 0xF0, 0x100, 0x110
 SEQUENCE_SIZE, BONE_SIZE = 64, 88
+BONE_PIVOT = 76
 SEQUENCE_BOUNDS = slice(32, 60)
 SEQUENCE_NEXT = 60
 BONE_TRACKS = (16, 36, 56)
@@ -23,11 +26,10 @@ FORWARD = (1.0, 0.0, 0.0)
 HELD_BARREL = FORWARD
 ATTACK_OFF_PIERCE = 88
 SPECIAL_UNARMED, PARRY_UNARMED, PARRY_SHIELD, ATTACK_UNARMED = 118, 20, 24, 16
-HELD_AIM = 0.5
 COPIED = ((48, 48, True, False, None), (49, 49, True, False, None), (110, 110, True, False, None),
           (29, 29, False, False, None), (46, 46, False, False, None), (109, 109, False, False, None),
-          (49, ATTACK_OFF_PIERCE, True, True, None), (49, ATTACK_UNARMED, True, False, HELD_AIM),
-          (48, PARRY_UNARMED, True, False, None), (109, SPECIAL_UNARMED, False, False, None),
+          (49, ATTACK_OFF_PIERCE, True, True, None), (110, ATTACK_UNARMED, True, False, None),
+          (110, PARRY_UNARMED, True, False, None), (109, SPECIAL_UNARMED, False, False, None),
           (109, PARRY_SHIELD, False, False, None))
 
 
@@ -194,6 +196,104 @@ def aimed_joint(ogre, ready, chain, entries, axis):
     return len(stamps), struct.pack(f"<{len(stamps)}I", *stamps), b"".join(aimed)
 
 
+def as_matrix(quaternion):
+    x, y, z, w = quaternion
+    return np.array([[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+                     [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+                     [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]])
+
+
+def as_quaternion(matrix):
+    trace = matrix[0, 0] + matrix[1, 1] + matrix[2, 2]
+    if trace > 0:
+        s = (trace + 1.0) ** 0.5 * 2
+        return ((matrix[2, 1] - matrix[1, 2]) / s, (matrix[0, 2] - matrix[2, 0]) / s,
+                (matrix[1, 0] - matrix[0, 1]) / s, s / 4)
+    axis = int(np.argmax(np.diag(matrix)))
+    other, last = (axis + 1) % 3, (axis + 2) % 3
+    s = (1.0 + matrix[axis, axis] - matrix[other, other] - matrix[last, last]) ** 0.5 * 2
+    values = [0.0, 0.0, 0.0, 0.0]
+    values[axis] = s / 4
+    values[other] = (matrix[other, axis] + matrix[axis, other]) / s
+    values[last] = (matrix[last, axis] + matrix[axis, last]) / s
+    values[3] = (matrix[last, other] - matrix[other, last]) / s
+    return tuple(values)
+
+
+def about(axis, angle):
+    axis = axis / np.linalg.norm(axis)
+    half = angle / 2
+    return as_matrix((*(axis * np.sin(half)), np.cos(half)))
+
+
+def arc(start, end):
+    return as_matrix(turning(unit(start), unit(end)))
+
+
+def pivot(data, bone):
+    return np.array(struct.unpack_from("<3f", data, bone_offset(data, bone) + BONE_PIVOT))
+
+
+class Pose:
+    def __init__(self, data, sequence, posed, time):
+        self.data, self.sequence, self.posed, self.time = data, sequence, posed, time
+        self.frames = {}
+
+    def local(self, bone):
+        keys = self.posed[bone] if bone in self.posed else bone_keys(self.data, bone, self.sequence)
+        return as_matrix(at_time(*keys, self.time))
+
+    def frame(self, bone):
+        if bone < 0:
+            return np.eye(3), np.zeros(3)
+        if bone not in self.frames:
+            rotation, shift = self.frame(parent_of(self.data, bone))
+            local, place = self.local(bone), pivot(self.data, bone)
+            self.frames[bone] = (rotation @ local, rotation @ (place - local @ place) + shift)
+        return self.frames[bone]
+
+    def joint(self, bone):
+        rotation, shift = self.frame(parent_of(self.data, bone))
+        return rotation @ pivot(self.data, bone) + shift
+
+
+def arm_length(data, chain):
+    return sum(np.linalg.norm(pivot(data, chain[index + 1]) - pivot(data, chain[index])) for index in (1, 2))
+
+
+def reached(ogre, ready, source, sequence, entries, chain, source_chain):
+    posed = {bone: decoded(entry) for bone, entry in entries.items()}
+    upper, fore, hand = chain[1:]
+    scale = arm_length(ogre, chain) / arm_length(source, source_chain)
+    stamps = posed[upper][0]
+    uppers, fores = [], []
+    for stamp in stamps:
+        model = Pose(source, sequence, {}, stamp)
+        reach = (model.joint(source_chain[3]) - model.joint(source_chain[1])) * np.array((1.0, -1.0, 1.0)) * scale
+        pose = Pose(ogre, ready, posed, stamp)
+        shoulder, elbow, wrist = pose.joint(upper), pose.joint(fore), pose.joint(hand)
+        above = pose.frame(parent_of(ogre, upper))[0]
+        upper_world = above @ pose.local(upper)
+        fore_world = upper_world @ pose.local(fore)
+        first, second = np.linalg.norm(elbow - shoulder), np.linalg.norm(wrist - elbow)
+        wanted = min(max(np.linalg.norm(reach), abs(first - second) + 1e-3), first + second - 1e-3)
+        bend_axis = np.cross(shoulder - elbow, wrist - elbow)
+        bend = np.eye(3)
+        if np.linalg.norm(bend_axis) > 1e-6:
+            current = np.arccos(np.clip(np.dot(unit(shoulder - elbow), unit(wrist - elbow)), -1, 1))
+            target = np.arccos(np.clip((first ** 2 + second ** 2 - wanted ** 2) / (2 * first * second), -1, 1))
+            bend = about(bend_axis, target - current)
+        bent_wrist = elbow + bend @ (wrist - elbow)
+        swing = arc(bent_wrist - shoulder, reach)
+        uppers.append(packed(as_quaternion(above.T @ swing @ upper_world), False))
+        fores.append(packed(as_quaternion(upper_world.T @ bend @ fore_world), False))
+    times = struct.pack(f"<{len(stamps)}I", *stamps)
+    entries = dict(entries)
+    entries[upper] = (len(stamps), times, b"".join(uppers))
+    entries[fore] = (len(stamps), times, b"".join(fores))
+    return entries
+
+
 def frozen(entry, moment):
     count, stamps, values = entry
     times = struct.unpack(f"<{count}I", stamps)
@@ -277,15 +377,19 @@ class Grafter:
                     for _, _, mirror, left_arm_only, _ in COPIED]
         ogre = bytes(self.blob.data)
         left_arm = arm_chain(ogre, KEY_ARM_LEFT)
+        right_arm = arm_chain(ogre, KEY_ARM_RIGHT)
         rotations = []
         for (sequence, mirror), mapping, (_, _, _, left_arm_only, held) in zip(wanted, mappings, COPIED):
             keys = {bone: rotation_keys(self.source, chain, sequence, mirror) for bone, chain in mapping.items()}
             if held is not None:
                 moment = int(sequence_length(self.source, sequence) * held)
                 keys = {bone: frozen(entry, moment) for bone, entry in keys.items()}
+            if mirror and not left_arm_only:
+                source_sides = (arm_chain(self.source, KEY_ARM_RIGHT), arm_chain(self.source, KEY_ARM_LEFT))
+                for chain, source_chain in zip((left_arm, right_arm), source_sides):
+                    keys = reached(ogre, self.ready, self.source, sequence, keys, chain, source_chain)
             if mirror:
-                axis = HELD_BARREL
-                keys[left_arm[-1]] = aimed_joint(ogre, self.ready, left_arm[-1:], keys, axis)
+                keys[left_arm[-1]] = aimed_joint(ogre, self.ready, left_arm[-1:], keys, HELD_BARREL)
             rotations.append(keys)
         held = [entry[4] is not None for entry in COPIED]
         bone_count, _ = array(self.blob.data, BONES)
