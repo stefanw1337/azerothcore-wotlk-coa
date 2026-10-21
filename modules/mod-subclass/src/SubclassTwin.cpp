@@ -1371,9 +1371,9 @@ void MeleeUpClose(Player* player)
 constexpr uint32 AimAfterShotMs = 2500;
 constexpr uint32 ShotPoseMs = 1000;
 constexpr uint32 AimPoseMs = 900;
-constexpr std::array<uint32, 2> GunAimEmotes = { EMOTE_ONESHOT_ATTACK_THROWN, EMOTE_ONESHOT_PARRY_UNARMED };
+constexpr std::array<uint32, 2> GunAimEmotes = { EMOTE_ONESHOT_ATTACK_UNARMED, 554 };
 constexpr std::array<uint32, 2> BowAimEmotes = { 477, EMOTE_ONESHOT_PARRY_SHIELD };
-constexpr uint32 EmoteBreathBetweenAims = 554;
+constexpr uint32 EmoteBreathBetweenAims = EMOTE_ONESHOT_PARRY_UNARMED;
 constexpr uint32 BreathMs = 2000;
 constexpr uint8 AimsPerBreath = 3;
 std::unordered_map<uint32, uint8>& aimEmoteTurns = *new std::unordered_map<uint32, uint8>;
