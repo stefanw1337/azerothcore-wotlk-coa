@@ -2959,6 +2959,26 @@ SlashCmdList.ASCENSIONSUBCLASS = function(message)
             DEFAULT_CHAT_FRAME:AddMessage(SendTwinLook() and "Subclass: sent the look to your other head."
                 or "Subclass: nothing picked to apply.")
         elseif C_Appearance and C_Appearance.ApplyPendingAppearances then
+            for category = 1, 14 do
+                local appearance = C_Appearance.GetPendingAppearance(category)
+                if appearance then
+                    local checks = {}
+                    for name, check in pairs(C_Appearance) do
+                        if type(check) == "function" and (name:find("Valid") or name:find("Can")) then
+                            local ok, result = pcall(check, appearance, category)
+                            checks[#checks + 1] = name .. "=" .. tostring(ok and result)
+                        end
+                    end
+                    DEFAULT_CHAT_FRAME:AddMessage(string.format("Subclass: slot %d pending %s %s", category,
+                        tostring(appearance), table.concat(checks, " ")))
+                end
+            end
+            local names = {}
+            for name in pairs(C_Appearance) do
+                names[#names + 1] = name
+            end
+            table.sort(names)
+            DEFAULT_CHAT_FRAME:AddMessage("Subclass: C_Appearance has " .. table.concat(names, ", "))
             C_Appearance.ApplyPendingAppearances()
         end
     elseif message == "corner" then
