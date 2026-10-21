@@ -436,6 +436,15 @@ def raised_hand(ogre, ready, chain, frames, length):
     return {bone: (len(stamps), times, b"".join(values[bone])) for bone in chain[1:]}
 
 
+def subtree_of(data, root):
+    kids, found, pending = children(data), set(), [root]
+    while pending:
+        bone = pending.pop()
+        found.add(bone)
+        pending += kids.get(bone, [])
+    return found
+
+
 def own_keys(data, bone, sequence):
     track = bone_offset(data, bone) + ROTATION
     times, values = struct.unpack_from("<I", data, track + 8)[0], struct.unpack_from("<I", data, track + 16)[0]
@@ -620,6 +629,21 @@ class Grafter:
         struct.pack_into("<II", self.blob.data, times + sequence * 8, keys, self.blob.append(stamps, 4))
         struct.pack_into("<II", self.blob.data, values + sequence * 8, keys, self.blob.append(packed_values, 4))
 
+    def calm_body(self, sequence, ready, kept):
+        data = self.blob.data
+        bone_count, _ = array(data, BONES)
+        for bone in range(bone_count):
+            if bone in kept:
+                continue
+            for track in BONE_TRACKS:
+                place = bone_offset(data, bone) + track
+                _, global_sequence, count, times = struct.unpack_from("<hhII", data, place)
+                if global_sequence != -1 or count != self.old_count:
+                    continue
+                values = struct.unpack_from("<I", data, place + 16)[0]
+                for outer in (times, values):
+                    data[outer + sequence * 8:outer + sequence * 8 + 8] = data[outer + ready * 8:outer + ready * 8 + 8]
+
     def hold_left_hand_weapon(self, left_arm, right_arm, gun_hold):
         ogre = bytes(self.blob.data)
         _, offset = array(ogre, SEQUENCES)
@@ -630,10 +654,7 @@ class Grafter:
                     if bone in gun_hold:
                         self.set_own_rotation(bone, sequence, gun_hold[bone])
             if animation in OFF_HAND_SWINGS:
-                ready = sequence_index(ogre, READY_1H)
-                for bone in right_arm:
-                    if own_keys(ogre, bone, ready)[0]:
-                        self.set_own_rotation(bone, sequence, frozen(own_keys(ogre, bone, ready), 0))
+                self.calm_body(sequence, sequence_index(ogre, READY_1H), subtree_of(ogre, left_arm[0]))
             frames = SPELL_HOLD if animation in SPELL_HOLDS else SPELL_RELEASES.get(animation)
             if frames:
                 length = sequence_length(ogre, sequence)

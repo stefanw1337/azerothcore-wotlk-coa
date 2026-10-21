@@ -2631,6 +2631,7 @@ void ActOutCast(Player* player, SpellInfo const* info, Unit* target)
 }
 
 bool SwingsAWeapon(SpellInfo const* info);
+bool IsShot(SpellInfo const* info);
 
 void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid)
 {
@@ -2644,7 +2645,7 @@ void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid)
     ActOutCast(player, info, target);
     if (twin)
         castingAsBrother = { player->GetGUID(), twin->GetGUID(), spellId };
-    else if (HasSecondHead(player) && SwingsAWeapon(info))
+    else if (HasSecondHead(player) && (SwingsAWeapon(info) || (IsShot(info) && !GunInHand(player))))
         strikingAsOtherHead = { player->GetGUID(), ObjectGuid::Empty, spellId };
     SpellCastResult const result = player->CastSpell(target, spellId, TriggerCastFlags(TRIGGERED_IGNORE_GCD |
         TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_CAST_DIRECTLY | TRIGGERED_IGNORE_SET_FACING |
