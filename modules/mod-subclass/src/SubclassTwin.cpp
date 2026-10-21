@@ -1288,7 +1288,51 @@ void SetShown(Player* player, uint8 slot, uint32 entry)
         player->SetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + slot * 2, entry);
 }
 
-bool HandsMaceToOtherHead(Player const* player, bool freeOffHand)
+constexpr uint32 FirstHeldWeapon = 9540000;
+constexpr uint32 LastHeldWeapon = 9549999;
+
+std::unordered_map<uint32, uint32> const& HeldWeaponAuras()
+{
+    static std::unordered_map<uint32, uint32> const auras = []
+    {
+        std::unordered_map<uint32, uint32> loaded;
+        bool const exists = bool(WorldDatabase.Query("SELECT 1 FROM information_schema.TABLES WHERE "
+            "TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mod_subclass_held_weapon'"));
+        if (exists)
+            if (QueryResult result =
+                    WorldDatabase.Query("SELECT `DisplayId`, `SpellId` FROM `mod_subclass_held_weapon`"))
+                do
+                {
+                    Field* fields = result->Fetch();
+                    loaded[fields[0].Get<uint32>()] = fields[1].Get<uint32>();
+                } while (result->NextRow());
+        LOG_INFO("module", "mod-subclass: {} weapon looks she can hold while casting", loaded.size());
+        return loaded;
+    }();
+    return auras;
+}
+
+uint32 HeldWeaponAura(uint32 itemId)
+{
+    auto const& auras = HeldWeaponAuras();
+    auto const itr = itemId ? auras.find(DisplayOfItem(itemId)) : auras.end();
+    return itr != auras.end() && sSpellMgr->GetSpellInfo(itr->second) ? itr->second : 0;
+}
+
+void HoldWeaponLook(Player* player, uint32 itemId)
+{
+    uint32 const wanted = player->IsAlive() ? HeldWeaponAura(itemId) : 0;
+    std::vector<uint32> stale;
+    for (auto const& [spellId, application] : player->GetAppliedAuras())
+        if (spellId >= FirstHeldWeapon && spellId <= LastHeldWeapon && spellId != wanted)
+            stale.push_back(spellId);
+    for (uint32 spellId : stale)
+        player->RemoveAurasDueToSpell(spellId);
+    if (wanted && !player->HasAura(wanted))
+        player->AddAura(wanted, player);
+}
+
+bool CastsWithOtherHeadArmed(Player const* player, bool freeOffHand)
 {
     return freeOffHand && player->IsAlive() && OtherHalfAwake(player) && player->HasUnitState(UNIT_STATE_CASTING) &&
         player->GetSheath() == SHEATH_STATE_MELEE;
@@ -1301,7 +1345,8 @@ void HoldTheGun(Player* player, bool afar)
     if (gun && !HeldInHand(gun))
         gun = nullptr;
     bool const freeOffHand = !player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
-    bool const casting = HandsMaceToOtherHead(player, freeOffHand);
+    bool const casting = CastsWithOtherHeadArmed(player, freeOffHand);
+    bool const aimingAfar = afar;
     bool const drawn = gun && freeOffHand && player->IsAlive() && OtherHeadShoots(player) &&
         player->GetSheath() == SHEATH_STATE_MELEE && !casting;
     afar = afar && drawn;
@@ -1309,16 +1354,22 @@ void HoldTheGun(Player* player, bool afar)
     uint32 const shownRanged = ShownIn(player, EQUIPMENT_SLOT_RANGED);
     uint32 offHand = 0;
     uint32 placed = 0;
+    uint32 heldLook = 0;
     bool placing = false;
+    bool rangedAway = false;
     std::optional<uint32> restoreMain;
     std::optional<uint32> restoreRanged;
     {
         std::lock_guard<std::mutex> lock(twinMutex);
         StowedLooks& stowed = stowedLooks[guid];
-        if (drawn && shownRanged)
-            stowed.Ranged = shownRanged;
         uint32 const mace = stowed.MainHand.value_or(shownMain);
-        bool const handedOver = casting && mace;
+        uint32 const gunLook = gun ? stowed.Ranged.value_or(shownRanged ? shownRanged : gun->GetEntry()) : 0;
+        if (casting)
+            heldLook = aimingAfar && gunLook && OtherHeadShoots(player) ? gunLook : mace ? mace : gunLook;
+        bool const handedOver = heldLook != 0;
+        rangedAway = drawn || (handedOver && heldLook == gunLook);
+        if (rangedAway && shownRanged)
+            stowed.Ranged = shownRanged;
         placing = afar || handedOver;
         placed = handedOver || (gun && IsBow(gun)) ? 0 : mace;
         if (placing && !stowed.MainHand && shownMain != placed)
@@ -1331,17 +1382,17 @@ void HoldTheGun(Player* player, bool afar)
                 restoreMain = stowed.MainHand;
             stowed.MainHand.reset();
         }
-        if (!drawn && stowed.Ranged)
+        if (!rangedAway && stowed.Ranged)
         {
             if (!shownRanged)
                 restoreRanged = stowed.Ranged;
             stowed.Ranged.reset();
         }
-        offHand = handedOver ? mace : drawn && gun ? stowed.Ranged.value_or(gun->GetEntry()) : 0;
+        offHand = drawn && gun ? gunLook : 0;
         if (!stowed.MainHand && !stowed.Ranged)
             stowedLooks.erase(guid);
     }
-    if (drawn)
+    if (rangedAway)
         SetShown(player, EQUIPMENT_SLOT_RANGED, 0);
     else if (restoreRanged)
         SetShown(player, EQUIPMENT_SLOT_RANGED, *restoreRanged);
@@ -1351,6 +1402,7 @@ void HoldTheGun(Player* player, bool afar)
         SetShown(player, EQUIPMENT_SLOT_MAINHAND, *restoreMain);
     if (freeOffHand)
         SetShown(player, EQUIPMENT_SLOT_OFFHAND, offHand);
+    HoldWeaponLook(player, heldLook);
 }
 
 constexpr float AlongShotRange = 35.0f;
