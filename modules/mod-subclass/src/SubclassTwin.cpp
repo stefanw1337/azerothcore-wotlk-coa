@@ -1260,22 +1260,56 @@ bool OtherHeadShoots(Player* player)
     return HasSecondHead(player) && OnlyOtherHalfShoots(player) && OwnBow(player);
 }
 
-void ShowGunInOtherHand(Player* player)
+bool IsBow(Item const* gun)
 {
-    uint16 const offHand = PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_OFFHAND * 2;
-    if (player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND))
-        return;
+    return gun->GetTemplate()->SubClass == ITEM_SUBCLASS_WEAPON_BOW;
+}
+
+std::unordered_map<uint32, uint32>& stowedMainHands = *new std::unordered_map<uint32, uint32>;
+
+void SetShown(Player* player, uint8 slot, uint32 entry)
+{
+    uint16 const field = PLAYER_VISIBLE_ITEM_1_ENTRYID + slot * 2;
+    if (player->GetUInt32Value(field) != entry)
+        player->SetUInt32Value(field, entry);
+}
+
+void HoldTheGun(Player* player, bool afar)
+{
+    uint16 const mainHand = PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_MAINHAND * 2;
+    uint32 const guid = player->GetGUID().GetCounter();
     Item* gun = OwnBow(player);
     if (gun && !HeldInHand(gun))
         gun = nullptr;
+    bool const freeOffHand = !player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
+    bool const drawn = gun && freeOffHand && player->IsAlive() && OtherHeadShoots(player) &&
+        player->GetSheath() == SHEATH_STATE_MELEE;
+    afar = afar && drawn;
     uint32 const shownGun = player->GetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_RANGED * 2);
     uint32 const look = !gun ? 0 : shownGun ? shownGun : gun->GetEntry();
-    bool const wanted = gun && OtherHeadShoots(player) && player->GetSheath() == SHEATH_STATE_MELEE;
-    uint32 const shown = player->GetUInt32Value(offHand);
-    if (wanted && shown != look)
-        player->SetUInt32Value(offHand, look);
-    else if (!wanted && shown)
-        player->SetUInt32Value(offHand, 0);
+    bool const bow = gun && IsBow(gun);
+    std::optional<uint32> restore;
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        auto const stowed = stowedMainHands.find(guid);
+        if (afar)
+        {
+            uint32 const current = player->GetUInt32Value(mainHand);
+            if (current != (bow ? 0 : look))
+                stowedMainHands[guid] = current;
+        }
+        else if (stowed != stowedMainHands.end())
+        {
+            restore = stowed->second;
+            stowedMainHands.erase(stowed);
+        }
+    }
+    if (afar)
+        SetShown(player, EQUIPMENT_SLOT_MAINHAND, bow ? 0 : look);
+    else if (restore)
+        SetShown(player, EQUIPMENT_SLOT_MAINHAND, *restore);
+    if (freeOffHand)
+        SetShown(player, EQUIPMENT_SLOT_OFFHAND, drawn && !(afar && !bow) ? look : 0);
 }
 
 constexpr float AlongShotRange = 35.0f;
@@ -1332,7 +1366,7 @@ void AimFromAfar(Player* player)
 {
     Unit* target = AimedAt(player);
     Item* gun = OwnBow(player);
-    bool const aiming = target && gun && OtherHeadShoots(player) && player->GetSheath() == SHEATH_STATE_RANGED &&
+    bool const aiming = target && gun && OtherHeadShoots(player) && player->GetSheath() == SHEATH_STATE_MELEE &&
         target->IsAlive() && !player->IsWithinMeleeRange(target) && !player->isMoving() &&
         !player->IsNonMeleeSpellCast(false, true, true);
     uint32 const now = GameTime::GetGameTimeMS().count();
@@ -1349,8 +1383,7 @@ void AimFromAfar(Player* player)
             return;
         until = now + AimPoseMs;
     }
-    bool const bow = gun->GetTemplate()->SubClass == ITEM_SUBCLASS_WEAPON_BOW;
-    player->HandleEmoteCommand(bow ? EMOTE_ONESHOT_READY_BOW : EMOTE_ONESHOT_READY_RIFLE);
+    player->HandleEmoteCommand(IsBow(gun) ? EMOTE_ONESHOT_READY_BOW : EMOTE_ONESHOT_READY_RIFLE);
 }
 
 bool RecentlyShot(Player const* player)
@@ -1381,12 +1414,11 @@ void DrawForTheFight(Player* player)
     MeleeUpClose(player);
     bool const fighting = (player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) && player->GetVictim()) ||
         ShootsFromAfar(player);
-    if (!fighting)
-        return;
-    SheathState const drawn = AimsFromAfar(player) ? SHEATH_STATE_RANGED : SHEATH_STATE_MELEE;
-    if (player->GetSheath() != drawn)
-        player->SetSheath(drawn);
-    AimFromAfar(player);
+    if (fighting && player->GetSheath() != SHEATH_STATE_MELEE)
+        player->SetSheath(SHEATH_STATE_MELEE);
+    HoldTheGun(player, fighting && AimsFromAfar(player));
+    if (fighting)
+        AimFromAfar(player);
 }
 
 void ShootAlong(Player* player)
@@ -1394,7 +1426,8 @@ void ShootAlong(Player* player)
     DrawForTheFight(player);
     Unit* victim = player->GetVictim();
     Item* gun = OwnBow(player);
-    if (!gun || !OtherHeadShoots(player) || !victim || !player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) ||
+    if (!gun || IsBow(gun) || !OtherHeadShoots(player) || !victim ||
+        !player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) ||
         !player->IsValidAttackTarget(victim) || player->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL) ||
         !player->isAttackReady(RANGED_ATTACK) || !player->IsWithinDistInMap(victim, AlongShotRange) ||
         !player->IsWithinLOSInMap(victim))
@@ -1419,7 +1452,6 @@ void UpdateSelfAura(Player* player)
         return;
     UpdateReach(player);
     StowBorrowedGear(player);
-    ShowGunInOtherHand(player);
     HandWeaponsToBrother(player);
     if (!OtherHalfAwake(player))
     {
@@ -1603,6 +1635,8 @@ void TickSelfAura(Player* player, uint32 diff)
 {
     if (player->IsAlive())
         ShootAlong(player);
+    else if (HasSecondHead(player))
+        HoldTheGun(player, false);
     {
         std::lock_guard<std::mutex> lock(twinMutex);
         uint32& elapsed = auraTicks[player->GetGUID().GetCounter()];
@@ -3049,10 +3083,13 @@ public:
             return;
         NoteOtherHeadShot(player);
         Unit* target = spell->m_targets.GetUnitTarget();
-        if (target && player->IsWithinMeleeRange(target))
-            player->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_OFF_PIERCE);
-        else if (Item* gun = OwnBow(player))
+        Item* gun = OwnBow(player);
+        if (!gun)
+            return;
+        if (!target || !player->IsWithinMeleeRange(target))
             player->HandleEmoteCommand(RangedEmote(gun->GetTemplate()));
+        else if (!IsBow(gun))
+            player->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_OFF_PIERCE);
     }
 };
 
