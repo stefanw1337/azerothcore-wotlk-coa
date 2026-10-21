@@ -2550,6 +2550,9 @@ local function OwnSlotWarnings(root)
     return warnings
 end
 
+local twinApplyButton
+local ShowDressing
+
 local twinApplyKeeper = CreateFrame("Frame")
 twinApplyKeeper:Hide()
 twinApplyKeeper:SetScript("OnUpdate", function(self, elapsed)
@@ -2570,6 +2573,9 @@ twinApplyKeeper:SetScript("OnUpdate", function(self, elapsed)
     self.scan = (self.scan or 0) + 1
     if self.scan % 10 == 1 and wardrobeFrame then
         HookApplyButton(wardrobeFrame)
+        if not twinApplyButton then
+            ShowDressing()
+        end
         self.warnings = OwnSlotWarnings(wardrobeFrame)
         for _, model in ipairs(FindPreviewModels(wardrobeFrame)) do
             if not model.subclassTwinWatched then
@@ -2642,7 +2648,35 @@ local function ShowUndressMenu(anchor)
     EasyMenu(entries, twinUndressMenu, anchor, 0, 0, "MENU")
 end
 
-local function ShowDressing()
+local function PlaceTwinApply()
+    local original = applyButtons[1]
+    if not original then
+        return
+    end
+    if not twinApplyButton then
+        twinApplyButton = CreateFrame("Button", "Ascension_SubclassTwinApply", original:GetParent(),
+            "UIPanelButtonTemplate")
+        twinApplyButton:SetText("Apply")
+        twinApplyButton:SetScript("OnClick", function()
+            DEFAULT_CHAT_FRAME:AddMessage(SendTwinLook() and "|cffffd100Wardrobe:|r look sent to your other head."
+                or "|cffffd100Wardrobe:|r pick something first.")
+        end)
+    end
+    twinApplyButton:ClearAllPoints()
+    twinApplyButton:SetAllPoints(original)
+    twinApplyButton:SetFrameStrata(original:GetFrameStrata())
+    twinApplyButton:SetFrameLevel(original:GetFrameLevel() + 10)
+end
+
+function ShowDressing()
+    PlaceTwinApply()
+    if twinApplyButton then
+        if dressingTwin then
+            twinApplyButton:Show()
+        else
+            twinApplyButton:Hide()
+        end
+    end
     local other = DressesCyclops() and "Dressing: Left head" or "Dressing: Your twin"
     local own = DressesCyclops() and "Dressing: Right head" or "Dressing: You"
     twinButton:SetText(dressingTwin and other or own)
