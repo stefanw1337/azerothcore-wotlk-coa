@@ -652,8 +652,13 @@ end
 
 local relicState = { eligible = false, entry = 0 }
 local relicButton
-local RELIC_EMPTY = "Interface\\Paperdoll\\UI-PaperDoll-Slot-Relic"
-local RANGED_EMPTY = "Interface\\Paperdoll\\UI-PaperDoll-Slot-Ranged"
+local Slots = {
+    relicEmpty = "Interface\\Paperdoll\\UI-PaperDoll-Slot-Relic",
+    rangedEmpty = "Interface\\Paperdoll\\UI-PaperDoll-Slot-Ranged",
+    rangedId = 18,
+    offHandId = 17,
+    offHandEmpty = "Interface\\Paperdoll\\UI-PaperDoll-Slot-SecondaryHand",
+}
 
 local function ServerSlotOf(bag, slot)
     if bag == 0 then
@@ -698,7 +703,7 @@ local function ShowRelic()
     end
     local icon = relicState.entry > 0 and (GetItemIcon and GetItemIcon(relicState.entry)
         or select(10, GetItemInfo(relicState.entry)))
-    relicButton.icon:SetTexture(icon or RELIC_EMPTY)
+    relicButton.icon:SetTexture(icon or Slots.relicEmpty)
     if relicButton.anchor then
         relicButton:Show()
     else
@@ -740,7 +745,6 @@ local function CreateRelicButton()
     ShowRelic()
 end
 
-local RANGED_SLOT_ID = 18
 
 local function VisibleRegions(frame, found, wanted)
     for _, region in ipairs({ frame:GetRegions() }) do
@@ -827,7 +831,7 @@ local function ShownRangedSlot(frame)
         end
     end
     for _, button in ipairs(buttons) do
-        if button ~= relicButton and button.GetID and button:GetID() == RANGED_SLOT_ID and SlotSized(button) then
+        if button ~= relicButton and button.GetID and button:GetID() == Slots.rangedId and SlotSized(button) then
             return button
         end
     end
@@ -840,6 +844,31 @@ local function ShownRangedSlot(frame)
         end
     end
     return lowest
+end
+
+function Slots.ShownOffHand(frame)
+    for _, known in ipairs({ AscensionCharacterSecondaryHandSlot, CharacterSecondaryHandSlot }) do
+        if known and known:IsVisible() then
+            return known
+        end
+    end
+    for _, button in ipairs(VisibleRegions(frame, {}, "Button")) do
+        local name = button:GetName()
+        if button ~= relicButton and name and name:find("SecondaryHand") then
+            return button
+        end
+    end
+end
+
+function Slots.ShowEmptyOffHand(frame)
+    if GetInventoryItemTexture("player", Slots.offHandId) then
+        return
+    end
+    local slot = Slots.ShownOffHand(frame)
+    local icon = slot and (slot.icon or (slot:GetName() and _G[slot:GetName() .. "IconTexture"]))
+    if icon and icon:GetTexture() ~= Slots.offHandEmpty then
+        icon:SetTexture(Slots.offHandEmpty)
+    end
 end
 
 local function CornerPortrait(frame)
@@ -989,6 +1018,7 @@ sheetWatch:SetScript("OnUpdate", function(self, elapsed)
     if line and not line:GetText():find("(" .. subclass .. ")", 1, true) then
         line:SetText(line:GetText() .. " " .. ColoredSubclass(subclass))
     end
+    Slots.ShowEmptyOffHand(frame)
     if relicButton and relicState.eligible then
         local slot = ShownRangedSlot(frame)
         if not slot or not OnCharacterPage(frame, slot) then
@@ -1005,8 +1035,9 @@ sheetWatch:SetScript("OnUpdate", function(self, elapsed)
         end
         relicButton:Show()
         local icon = slot and (slot.icon or (slot:GetName() and _G[slot:GetName() .. "IconTexture"]))
-        if icon and not GetInventoryItemTexture("player", RANGED_SLOT_ID) and icon:GetTexture() ~= RANGED_EMPTY then
-            icon:SetTexture(RANGED_EMPTY)
+        if icon and not GetInventoryItemTexture("player", Slots.rangedId)
+            and icon:GetTexture() ~= Slots.rangedEmpty then
+            icon:SetTexture(Slots.rangedEmpty)
         end
     end
 end)

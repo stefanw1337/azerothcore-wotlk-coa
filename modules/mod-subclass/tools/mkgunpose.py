@@ -49,13 +49,15 @@ COPIED = ((49, READY_RIFLE, True, True, HELD_AIM), (49, 49, True, True, None), (
 HOLD_LOOPS = 12
 KICKED = (49, ATTACK_OFF_PIERCE)
 LEFT_HAND_HOLDS = (17, 21, 26, 57, 31, 51, 52, 53, 54, 124, 125)
-FIST_RAISED = (0.45, -0.3, 0.45)
-TOSSED_UP = (0.25, -0.25, 0.95)
+FIST_RAISED = (0.6, 0.3, 0.35)
+FIST_DIPPED = (0.6, 0.3, 0.2)
+TOSSED_UP = (0.35, 0.1, 0.9)
 DRAWN_BACK = (0.15, -0.4, 0.55)
 THROWN_FORWARD = (0.95, -0.15, 0.2)
+SPELL_LEFT_HAND, SPELL_RIGHT_HAND = 21, 22
 SPELL_HOLDS = (31, 51, 52, 124, 125)
 SPELL_RELEASES = {
-    54: ((0.0, FIST_RAISED), (0.25, (0.45, -0.3, 0.3)), (0.45, TOSSED_UP), (0.75, TOSSED_UP), (1.0, None)),
+    54: ((0.0, FIST_RAISED), (0.25, FIST_DIPPED), (0.45, TOSSED_UP), (0.75, TOSSED_UP), (1.0, None)),
     53: ((0.0, FIST_RAISED), (0.25, DRAWN_BACK), (0.45, THROWN_FORWARD), (0.75, THROWN_FORWARD), (1.0, None))}
 
 
@@ -585,7 +587,16 @@ class Grafter:
         for record in range(count):
             self.extend(offset + record * EVENT_SIZE + EVENT_TRACK, False, [None] * len(wanted))
         self.append_sequences(wanted, source_offset)
+        self.cast_from_right_hand()
         return bytes(self.blob.data)
+
+    def cast_from_right_hand(self):
+        count, offset = array(self.blob.data, ATTACHMENTS)
+        records = {struct.unpack_from("<I", self.blob.data, offset + index * 40)[0]: offset + index * 40
+                   for index in range(count)}
+        if SPELL_LEFT_HAND in records and SPELL_RIGHT_HAND in records:
+            left, right = records[SPELL_LEFT_HAND], records[SPELL_RIGHT_HAND]
+            self.blob.data[left + 4:left + 20] = self.blob.data[right + 4:right + 20]
 
     def set_own_rotation(self, bone, sequence, entry):
         data = self.blob.data
