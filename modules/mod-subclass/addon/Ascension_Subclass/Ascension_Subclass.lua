@@ -2569,6 +2569,7 @@ twinApplyKeeper:SetScript("OnUpdate", function(self, elapsed)
     self.wait = 0
     self.scan = (self.scan or 0) + 1
     if self.scan % 10 == 1 and wardrobeFrame then
+        HookApplyButton(wardrobeFrame)
         self.warnings = OwnSlotWarnings(wardrobeFrame)
         for _, model in ipairs(FindPreviewModels(wardrobeFrame)) do
             if not model.subclassTwinWatched then
@@ -2910,6 +2911,28 @@ SlashCmdList.ASCENSIONSUBCLASS = function(message)
             sheet and tostring(LevelLineIn(sheet) and LevelLineIn(sheet):GetText()) or "-",
             sheet and (CornerPortrait(sheet) and "found" or "missing") or "-",
             MicroButtonPortrait and "found" or "missing"))
+    elseif message == "apply" then
+        local pending = 0
+        for category = 1, 14 do
+            local appearance = C_Appearance and C_Appearance.GetPendingAppearance(category)
+            if appearance then
+                pending = pending + 1
+            end
+        end
+        local enabled = 0
+        for _, button in ipairs(applyButtons) do
+            if button:IsEnabled() then
+                enabled = enabled + 1
+            end
+        end
+        DEFAULT_CHAT_FRAME:AddMessage(string.format(
+            "Subclass: dressing %s, %d pending, %d apply button(s), %d enabled.", dressingTwin and "the other head" or "you", pending, #applyButtons, enabled))
+        if dressingTwin then
+            DEFAULT_CHAT_FRAME:AddMessage(SendTwinLook() and "Subclass: sent the look to your other head."
+                or "Subclass: nothing picked to apply.")
+        elseif C_Appearance and C_Appearance.ApplyPendingAppearances then
+            C_Appearance.ApplyPendingAppearances()
+        end
     elseif message == "corner" then
         for _, page in ipairs({ panel, ownPage }) do
             for _, copy in ipairs(page and page.cornerCopies or {}) do
