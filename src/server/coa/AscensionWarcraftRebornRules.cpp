@@ -31,7 +31,7 @@ bool Stock(Data const& data, Row const& row)
 bool TrainedAbility(Data const& data, Realm const& realm, std::uint32_t classId, Row const& row)
 {
     return realm.WarcraftReborn && row.Type == AscensionFreepick::ENTRY_ABILITY &&
-        row.Has(AscensionFreepick::ROW_DISPLAY) &&
+        row.Has(AscensionFreepick::ROW_DISPLAY) && (!realm.WotlkOnly || WotlkEntry(row.EntryId)) &&
         !(row.Flags & ROW_ALTERNATE) && row.Spells[0] && Stock(data, row) &&
         AscensionFreepick::ClassAdmits(data.Catalog, row, classId) &&
         AscensionFreepick::Visible(data.Catalog, realm, row);
@@ -50,6 +50,44 @@ std::vector<std::uint32_t> FirstRanks(Data const& data, Realm const& realm, std:
     }
     return spells;
 }
+
+std::unordered_set<std::uint32_t> NonWotlkRanks(Data const& data)
+{
+    std::unordered_set<std::uint32_t> ranks(NON_WOTLK_SPELLS.begin(), NON_WOTLK_SPELLS.end());
+    for (std::uint32_t entryId : NON_WOTLK_ENTRIES)
+        if (Row const* row = data.Catalog.Find(entryId))
+            for (std::uint32_t spellId : row->Spells)
+                if (spellId)
+                    ranks.insert(spellId);
+    return ranks;
+}
+
+bool Excluded(Data const& data, std::unordered_set<std::uint32_t> const& excluded, std::uint32_t spellId)
+{
+    std::vector<std::uint32_t> const* ladder = data.LadderOf(spellId);
+    return excluded.contains(spellId) || (ladder && excluded.contains(ladder->front()));
+}
+}
+
+std::vector<std::uint32_t> NonWotlkSpells(Data const& data)
+{
+    std::unordered_set<std::uint32_t> const excluded = NonWotlkRanks(data);
+    std::set<std::uint32_t> spells;
+    auto const add = [&data, &spells](std::uint32_t spellId)
+    {
+        std::vector<std::uint32_t> const* ladder = data.LadderOf(spellId);
+        if (ladder && ladder->front() == spellId)
+            spells.insert(ladder->begin(), ladder->end());
+        else
+            spells.insert(spellId);
+    };
+    for (std::uint32_t spellId : excluded)
+        add(spellId);
+    for (Grant const& grant : Grants())
+        if (Excluded(data, excluded, grant.Source))
+            for (std::uint32_t spellId : grant.Spells)
+                add(spellId);
+    return { spells.begin(), spells.end() };
 }
 
 std::vector<Grant> const& Grants()
@@ -188,6 +226,8 @@ std::vector<TrainerSpell> TrainerSpells(Data const& data, Realm const& realm, st
             abilities.insert(row.Spells[0]);
     }
 
+    std::unordered_set<std::uint32_t> const excluded = realm.WotlkOnly ? NonWotlkRanks(data) :
+        std::unordered_set<std::uint32_t>{};
     std::vector<TrainerSpell> spells;
     std::unordered_set<std::uint32_t> listed;
     bool teachesAbilities = false;
@@ -205,7 +245,7 @@ std::vector<TrainerSpell> TrainerSpells(Data const& data, Realm const& realm, st
         }
         for (std::uint32_t& ability : spell.ReqAbility)
             ability = RebornSpell(ability, exists);
-        if (!listed.insert(spell.SpellId).second)
+        if (Excluded(data, excluded, spell.SpellId) || !listed.insert(spell.SpellId).second)
             continue;
         teachesAbilities = teachesAbilities || abilities.contains(spell.SpellId);
         spells.push_back(spell);
@@ -228,7 +268,8 @@ std::vector<TrainerSpell> TrainerSpells(Data const& data, Realm const& realm, st
 
     std::vector<std::uint32_t> missing;
     for (std::uint32_t spellId : abilities)
-        if (data.Trainable.contains(spellId) && !listed.contains(spellId) && exists(spellId))
+        if (data.Trainable.contains(spellId) && !listed.contains(spellId) && exists(spellId) &&
+            !Excluded(data, excluded, spellId))
             missing.push_back(spellId);
     std::sort(missing.begin(), missing.end());
     for (std::uint32_t spellId : missing)

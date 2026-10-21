@@ -24,6 +24,7 @@ Data Loaded;
 AscensionFreepick::Realm CurrentRealm;
 bool RebornRealm = false;
 std::unordered_map<uint32, Trainer::Trainer> Trainers;
+std::vector<uint32> NonWotlk;
 
 bool StockClass(uint32 classId)
 {
@@ -99,6 +100,10 @@ std::vector<std::vector<uint32>> LoadRankChains()
         RebornRealm = false;
         return {};
     }
+    NonWotlk = CurrentRealm.WotlkOnly ? NonWotlkSpells(Loaded) : std::vector<uint32>{};
+    if (CurrentRealm.WotlkOnly)
+        LOG_INFO("coa", "Warcraft Reborn: WotLK abilities only, {} Ascension-made spells are left out",
+            NonWotlk.size());
     return RankChains(Loaded);
 }
 
@@ -180,6 +185,13 @@ void LearnMissing(Player* player, std::vector<uint32> const& spells)
     for (uint32 spellId : spells)
         if (Exists(spellId) && !KnowsAnyRank(player, spellId))
             player->learnSpell(spellId);
+}
+
+void ForgetNonWotlkSpells(Player* player)
+{
+    for (uint32 spellId : NonWotlk)
+        if (player->HasSpell(spellId))
+            player->removeSpell(spellId, SPEC_MASK_ALL, false);
 }
 
 void LearnClassSkills(Player* player)
@@ -304,6 +316,7 @@ public:
     {
         if (!IsRebornPlayer(player))
             return;
+        ForgetNonWotlkSpells(player);
         LearnClassSkills(player);
         LearnMissing(player, StartingSpells(Loaded, CurrentRealm, player->getClass(), StartLevel(player)));
         LearnMissing(player, AutomaticSpells(Loaded, CurrentRealm, player->getClass(), player->GetLevel()));

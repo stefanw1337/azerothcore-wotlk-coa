@@ -2,6 +2,7 @@
 
 #include "AscensionCoATalentData.h"
 #include "AscensionFreepick.h"
+#include "AscensionWarcraftRebornRules.h"
 #include "ClientDBC.h"
 #include "DBCStores.h"
 #include "ItemTemplate.h"
@@ -232,6 +233,8 @@ bool LoadCoATalentData()
         bool const customType = IsCoAClassType(classType->second);
         bool const stockType = IsBorrowOnlyClassType(classType->second);
         if (!customType && !stockType)
+            continue;
+        if (stockType && classRealm.WotlkOnly && !AscensionWarcraftReborn::WotlkEntry(entryId))
             continue;
         if (advancement.GetRecordSize() >= 483 && (record.GetUInt32At(479) & 0x9))
             continue;

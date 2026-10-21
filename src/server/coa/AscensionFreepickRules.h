@@ -161,6 +161,7 @@ struct Realm
     bool ConquestOfAzeroth = false;
     bool WarcraftReborn = false;
     bool Classless = false;
+    bool WotlkOnly = false;
     std::uint32_t Ruleset = 2;
 };
 
