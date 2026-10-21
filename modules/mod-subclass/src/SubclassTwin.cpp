@@ -1628,8 +1628,53 @@ std::string CyclopsPreview(uint32 itemId)
     return Acore::StringFormat("CYCLOPSPREVIEW {} {}", itemId, look && !look->Model.empty() ? look->Model : "-");
 }
 
+constexpr uint8 LeftMouth = 1;
+constexpr uint8 RightMouth = 2;
+
+std::unordered_map<uint32, uint8> const& MouthCovers()
+{
+    static std::unordered_map<uint32, uint8> const covers = []
+    {
+        std::unordered_map<uint32, uint8> loaded;
+        bool const present = bool(WorldDatabase.Query("SELECT 1 FROM information_schema.TABLES WHERE "
+            "TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mod_subclass_mouth_cover'"));
+        if (QueryResult result = present ?
+                WorldDatabase.Query("SELECT `DisplayId`, `Heads` FROM `mod_subclass_mouth_cover`") : nullptr)
+            do
+            {
+                Field* fields = result->Fetch();
+                loaded[fields[0].Get<uint32>()] = fields[1].Get<uint8>();
+            } while (result->NextRow());
+        LOG_INFO("module", "mod-subclass: {} helmet looks cover an ogre mouth", loaded.size());
+        return loaded;
+    }();
+    return covers;
+}
+
+bool CoversMouth(uint32 itemId, uint8 mouth)
+{
+    if (!itemId)
+        return false;
+    auto const& covers = MouthCovers();
+    auto const itr = covers.find(DisplayOfItem(itemId));
+    return itr != covers.end() && (itr->second & mouth);
+}
+
+void HideCoveredJaws(Player* player)
+{
+    if (!HasSecondHead(player))
+        return;
+    uint32 const leftHelmet = player->HasPlayerFlag(PLAYER_FLAGS_HIDE_HELM) ? 0 :
+        player->GetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_HEAD * 2);
+    uint8 const jaws = (CoversMouth(leftHelmet, LeftMouth) ? LeftMouth : 0) |
+        (CoversMouth(ShownCyclopsHelmetItem(player), RightMouth) ? RightMouth : 0);
+    if (player->GetByteValue(PLAYER_BYTES_2, PLAYER_BYTES_2_OFFSET_FACIAL_STYLE) != jaws)
+        player->SetByteValue(PLAYER_BYTES_2, PLAYER_BYTES_2_OFFSET_FACIAL_STYLE, jaws);
+}
+
 void UpdateCyclopsHelmet(Player* player)
 {
+    HideCoveredJaws(player);
     if (!player->IsAlive())
         return;
     uint32 const wanted = WantedCyclopsHelmetAura(player);
