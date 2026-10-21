@@ -32,6 +32,9 @@ VISUAL_FIELDS = 32
 VISUAL_STATE_KIT = 4
 EFFECT_SCALES = (1.0, 1.0, 0.01, 1.0)
 VERTEX_SIZE = 48
+BOUNDS_MARGIN = 0.1
+MODEL_BOUNDS = 0xA0
+SEQUENCE_SIZE, SEQUENCE_BOUNDS = 64, 32
 BONES, BONE_SIZE = 44, 88
 CAMERA_LOOKUP = 280
 CAMERA_TRACKS = (16, 48, 80)
@@ -107,6 +110,21 @@ def framed_like(m2, ogre):
     struct.pack_into("<II", blob.data, CAMERAS, ogre.camera_count, cameras)
     struct.pack_into("<II", blob.data, CAMERA_LOOKUP, ogre.lookup_count, lookup)
     return bytes(blob.data)
+
+
+def bounded(m2):
+    data = bytearray(m2)
+    count, offset = arr(data, 60)
+    positions = np.array([struct.unpack_from("<3f", data, offset + i * VERTEX_SIZE) for i in range(count)])
+    low, high = positions.min(axis=0) - BOUNDS_MARGIN, positions.max(axis=0) + BOUNDS_MARGIN
+    radius = float(np.linalg.norm(np.maximum(np.abs(low), np.abs(high))))
+    bounds = struct.pack("<7f", *low, *high, radius)
+    data[MODEL_BOUNDS:MODEL_BOUNDS + len(bounds)] = bounds
+    sequence_count, sequence_offset = arr(data, 28)
+    for index in range(sequence_count):
+        start = sequence_offset + index * SEQUENCE_SIZE + SEQUENCE_BOUNDS
+        data[start:start + len(bounds)] = bounds
+    return bytes(data)
 
 
 def one_eyed(m2, paired):
@@ -191,7 +209,7 @@ def main(zip_path, dbc_folder, ogre_path, root, auras_path, mapping_path, *wante
         helmet = bundle.read(source)
         if model in PAIRED_EYE_PIECES | SINGLE_EYE_PIECES:
             helmet = one_eyed(helmet, model in PAIRED_EYE_PIECES)
-        target.write_bytes(framed_like(textured(baked(helmet, fix), texture_path), ogre))
+        target.write_bytes(bounded(framed_like(textured(baked(helmet, fix), texture_path), ogre)))
         target.with_name(target.stem + "00.skin").write_bytes(bundle.read(names[HEAD + model + SOURCE_SUFFIX +
                                                                               "00.skin"]))
         effect_table = tables["SpellVisualEffectName"]

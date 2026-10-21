@@ -3072,6 +3072,22 @@ ChatCommandTable const& SubclassTwinCommandTable()
     return TwinCommands::Table();
 }
 
+bool HandleSubclassGun(ChatHandler* handler)
+{
+    Player* player = handler->GetSession()->GetPlayer();
+    auto shown = [player](uint8 slot) { return player->GetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + slot * 2); };
+    Item* gun = OwnBow(player);
+    Unit* target = AimedAt(player);
+    handler->PSendSysMessage("Sheath {}; shown main hand {}, off hand {}, ranged {}; ranged item {}.",
+        uint32(player->GetSheath()), shown(EQUIPMENT_SLOT_MAINHAND), shown(EQUIPMENT_SLOT_OFFHAND),
+        shown(EQUIPMENT_SLOT_RANGED), gun ? gun->GetEntry() : 0);
+    handler->PSendSysMessage("Other head shoots {}; target {}; in melee reach {}; moving {}; casting {}.",
+        OtherHeadShoots(player), target ? target->GetName() : "none",
+        target ? player->IsWithinMeleeRange(target) : false, player->isMoving(),
+        player->IsNonMeleeSpellCast(false, true, true));
+    return true;
+}
+
 bool HandleSubclassBrain(ChatHandler* handler)
 {
     for (std::string const& line : ExplainBrain(handler->GetSession()->GetPlayer()))
