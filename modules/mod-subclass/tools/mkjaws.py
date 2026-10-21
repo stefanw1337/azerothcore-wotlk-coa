@@ -32,7 +32,7 @@ FRONT_OF_FACE = 0.1
 COVERED_SHARE = 0.6
 LIP_HEIGHT = 0.04
 LIP_MARGIN = 0.015
-MOST_PUSH = 0.05
+MOST_PUSH = 0.02
 
 
 def dominant_bones(m2):
