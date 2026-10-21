@@ -34,17 +34,10 @@ READY_RIFLE, READY_BOW = 48, 29
 HELD_AIM = 0.5
 ATTACK_1H = 17
 MACE_RAISED_MS = 300
-MACE_SHAFT = tuple(np.array((-0.05, 1.0, 0.02)) / np.linalg.norm((-0.05, 1.0, 0.02)))
+MACE_SHAFT = tuple(np.array((-0.05, 1.0, -0.2)) / np.linalg.norm((-0.05, 1.0, -0.2)))
+MACE_RESTING_REACH = (-0.2, -0.3, 0.175)
 GUN_REACHES = grid(np.arange(0.2, 0.85, 0.1), np.arange(0.0, 0.45, 0.1), np.arange(-0.9, 0.05, 0.15))
-MACE_REACHES = grid(np.arange(-0.5, 0.41, 0.05), np.arange(-0.6, 0.21, 0.05), np.arange(-0.1, 0.71, 0.05))
 FRONT_CLEARANCE = 0.06
-BEHIND_HEADS = 0.14
-SHAFT_RADIUS = 0.04
-NECK_SPAN = 0.5
-RESTING_MISS = 0.04
-GRIP_ATTACHMENT = 1
-GRIP_SIDE = -0.6
-ARM_CLEARANCE = 0.1
 LATERAL = (0.0, 1.0, 0.0)
 SPIN_COCK = ((0, 0, 0), (70, -30, -12), (160, -10, -4), (260, 90, 10), (360, 180, 14), (460, 270, 10),
              (560, 360, 4), (720, 355, 0), (1000, 360, 0))
@@ -443,36 +436,6 @@ def raised_hand(ogre, ready, chain, frames, length):
     return {bone: (len(stamps), times, b"".join(values[bone])) for bone in chain[1:]}
 
 
-def grip_of(ogre):
-    count, offset = array(ogre, ATTACHMENTS)
-    for index in range(count):
-        if struct.unpack_from("<I", ogre, offset + index * 40)[0] == GRIP_ATTACHMENT:
-            return np.array(struct.unpack_from("<3f", ogre, offset + index * 40 + 8))
-    raise SystemExit("no grip attachment")
-
-
-def rested(ogre, ready, entries, chain, shaft, body):
-    rest = body.neck_rest()
-    grip = grip_of(ogre)
-    shaft = np.array(shaft)
-    best = None
-    for reach in MACE_REACHES:
-        posed_entries, bend = rolled(ogre, ready, pointed(ogre, ready, entries, chain, reach), chain, shaft)
-        posed_entries[chain[3]] = aimed_joint(ogre, ready, chain[3:], posed_entries, HELD_BARREL, tuple(shaft))
-        pose = Pose(ogre, ready, {bone: decoded(entry) for bone, entry in posed_entries.items()}, 0)
-        rotation, shift = pose.frame(chain[3])
-        miss = rotation @ grip + shift - rest
-        miss = float(np.linalg.norm(miss - np.dot(miss, shaft) * shaft))
-        elbow, wrist = pose.joint(chain[2]), pose.joint(chain[3])
-        if not miss < RESTING_MISS or elbow[0] < pose.joint(chain[1])[0] or not body.clears_heads(elbow, wrist):
-            continue
-        if best is None or bend + miss < best[0]:
-            best = (bend + miss, posed_entries)
-    if best is None:
-        raise SystemExit("no arm pose rests the shaft on her neck")
-    return best[1]
-
-
 def own_keys(data, bone, sequence):
     track = bone_offset(data, bone) + ROTATION
     times, values = struct.unpack_from("<I", data, track + 8)[0], struct.unpack_from("<I", data, track + 16)[0]
@@ -529,16 +492,6 @@ class Body:
     def clears_front(self, hand, _):
         near = self.torso[(np.abs(self.torso[:, 1] - hand[1]) < 0.12) & (np.abs(self.torso[:, 2] - hand[2]) < 0.12)]
         return not len(near) or hand[0] >= near[:, 0].max() + FRONT_CLEARANCE
-
-    def clears_heads(self, elbow, wrist):
-        return all(np.linalg.norm(self.heads - (elbow + (wrist - elbow) * step), axis=1).min() >= ARM_CLEARANCE
-                   for step in np.linspace(0.0, 1.0, 5))
-
-    def neck_rest(self):
-        back = self.heads[:, 0].min() - BEHIND_HEADS
-        behind = self.torso[(np.abs(self.torso[:, 0] - back) < SHAFT_RADIUS)
-                            & (np.abs(self.torso[:, 1]) < NECK_SPAN)]
-        return np.array((back, GRIP_SIDE, behind[:, 2].max() + SHAFT_RADIUS))
 
 
 class Grafter:
@@ -618,7 +571,9 @@ class Grafter:
                 attack = sequence_index(ogre, ATTACK_1H)
                 keys.update((bone, frozen(own_keys(ogre, bone, attack), MACE_RAISED_MS)) for bone in right_arm
                             if own_keys(ogre, bone, attack)[0])
-                keys = rested(ogre, self.base, keys, right_arm, MACE_SHAFT, self.body)
+                keys, _ = rolled(ogre, self.base, pointed(ogre, self.base, keys, right_arm, MACE_RESTING_REACH),
+                                 right_arm, MACE_SHAFT)
+                keys[right_arm[-1]] = aimed_joint(ogre, self.base, right_arm[-1:], keys, HELD_BARREL, MACE_SHAFT)
             if mirror:
                 keys[left_arm[-1]] = aimed_joint(ogre, self.base, left_arm[-1:], keys, HELD_BARREL)
             if target in KICKED:

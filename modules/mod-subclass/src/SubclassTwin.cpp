@@ -2795,6 +2795,8 @@ bool Heals(SpellInfo const* info)
         info->HasAura(SPELL_AURA_PERIODIC_HEAL);
 }
 
+bool GivesManaBack(SpellInfo const* info, uint8 depth = 0);
+
 Use UseOf(SpellInfo const* info)
 {
     if (NeverAlone(info))
@@ -2806,7 +2808,8 @@ Use UseOf(SpellInfo const* info)
     if (info->HasEffect(SPELL_EFFECT_DISPEL))
         return info->IsPositive() ? Use::Cleanse : Use::Purge;
     if (!info->IsPositive())
-        return HurtsOrHinders(info) && !BreaksOnDamageOrSendsAway(info) ? Use::Attack : Use::Never;
+        return (HurtsOrHinders(info) || GivesManaBack(info)) && !BreaksOnDamageOrSendsAway(info) ? Use::Attack :
+            Use::Never;
     if (Heals(info))
         return Use::Heal;
     if (info->HasAura(SPELL_AURA_SCHOOL_ABSORB))
@@ -3046,7 +3049,7 @@ bool WorthTheBigCooldown(Unit const* foe)
 constexpr float ManaKeptForTheMain = 0.35f;
 constexpr float LowPowerPct = 30.0f;
 
-bool GivesManaBack(SpellInfo const* info, uint8 depth = 0)
+bool GivesManaBack(SpellInfo const* info, uint8 depth)
 {
     for (SpellEffectInfo const& effect : info->GetEffects())
     {
@@ -3068,7 +3071,7 @@ bool GivesManaBack(SpellInfo const* info, uint8 depth = 0)
     return false;
 }
 
-constexpr float LowManaPct = 40.0f;
+constexpr float LowManaPct = 90.0f;
 
 bool LowOnMana(Player const* player)
 {
