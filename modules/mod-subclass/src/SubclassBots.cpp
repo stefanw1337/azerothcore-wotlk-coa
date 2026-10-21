@@ -21,7 +21,8 @@
 #include <unordered_map>
 
 bool ForcedBot(Player const* player);
-std::vector<Subclass::Choice> BotChoicesFor(uint8 mainClass);
+std::vector<Subclass::Choice> BotChoicesFor(Player const* player);
+bool SubclassEligible(Player const* player);
 Subclass::Choice SubclassChoiceOf(Player const* player);
 void ApplySubclassChoice(Player* player, Subclass::Choice const& choice);
 std::vector<AscensionCompatData::CoATalentEntry const*> OpenBorrowedEntries(Player const* player);
@@ -78,6 +79,23 @@ std::unordered_map<uint32, ForcedBotRow>& forcedBots = *new std::unordered_map<u
 std::unordered_map<uint32, BotState>& onlineBots = *new std::unordered_map<uint32, BotState>;
 std::map<uint64, CastTally>& castsByChoice = *new std::map<uint64, CastTally>;
 std::map<uint8, CastTally>& castsByRace = *new std::map<uint8, CastTally>;
+
+void GiveTheStoryGender(Player* player)
+{
+    uint8 const race = player->getRace();
+    if (race != Subclass::TwoHeadedOgreRace && race != Subclass::ThinHumanRace)
+        return;
+    uint8 const gender = race == Subclass::TwoHeadedOgreRace ? GENDER_FEMALE : GENDER_MALE;
+    if (player->getGender() == gender)
+        return;
+    player->SetByteValue(UNIT_FIELD_BYTES_0, 2, gender);
+    player->SetByteValue(PLAYER_BYTES_3, 0, gender);
+    player->SetUInt32Value(PLAYER_BYTES, 0);
+    player->SetByteValue(PLAYER_BYTES_2, 0, 0);
+    player->InitDisplayIds();
+    LOG_INFO("module", "mod-subclass: bot {} of race {} takes the {} body of its subclass story", player->GetName(),
+        uint32(race), gender == GENDER_FEMALE ? "female" : "male");
+}
 
 bool IsBot(Player const* player)
 {
@@ -251,9 +269,12 @@ void AssignBotSubclass(Player* player)
         forcedBots.erase(guid);
         return;
     }
+    GiveTheStoryGender(player);
+    if (!SubclassEligible(player))
+        return;
     if (!SubclassChoiceOf(player).Complete())
     {
-        std::vector<Subclass::Choice> const options = BotChoicesFor(player->getClass());
+        std::vector<Subclass::Choice> const options = BotChoicesFor(player);
         if (options.empty())
             return;
         Subclass::Choice const choice = LeastUsedChoice(player->getClass(), options);
@@ -334,16 +355,13 @@ bool HandleSubclassBots(ChatHandler* handler, Optional<std::string> mode)
         {
             return sum + item.second.Bots;
         }), choices.size());
-    std::string missing;
-    for (ChrRacesEntry const* race : sChrRacesStore)
-        if (race && !races.contains(uint8(race->RaceID)))
-            missing += Acore::StringFormat(" {}", race->RaceID);
-    handler->PSendSysMessage("Races with subclassed bots: {}. Races without:{}", races.size(),
-        missing.empty() ? " none" : missing);
+    std::string byRace;
+    for (auto const& [race, bots] : races)
+        byRace += Acore::StringFormat(" race {}: {}", uint32(race), bots);
+    handler->PSendSysMessage("Subclassed bots by race:{}", byRace.empty() ? " none yet" : byRace);
     for (auto const& [race, tally] : raceCasts)
-        if (all || tally.Failed > tally.Ok)
-            handler->PSendSysMessage("Race {}: {} bot(s), other-half casts {} ok, {} failed{}", uint32(race),
-                races[race], tally.Ok, tally.Failed, WorstFailure(tally));
+        handler->PSendSysMessage("Race {}: {} bot(s), other-half casts {} ok, {} failed{}", uint32(race),
+            races[race], tally.Ok, tally.Failed, WorstFailure(tally));
     uint32 problems = 0;
     for (auto const& [key, summary] : choices)
     {

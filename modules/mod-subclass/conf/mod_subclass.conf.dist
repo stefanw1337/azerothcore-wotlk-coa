@@ -110,10 +110,12 @@ Subclass.StandardTrees = 3
 Subclass.CoATrees = 1
 
 #    Subclass.Bots.Force
-#        Test setting: every playerbot gets a subclass at its next login, whatever its race, and plays
-#        its borrowed half on its own. Pairs are handed out evenly, borrowed points are spent for it,
-#        and .subclass bots reports which pairs and races work. Real players are never touched.
-#        Turning it off removes the forced subclass from those bots at their next login.
+#        Test setting: bots of the subclass races take a subclass at their next login without the quest
+#        and play their borrowed half on their own. Ogre bots become female and Thin Human bots male,
+#        as the story requires. Pairs follow mod_subclass_pair and are handed out evenly, borrowed
+#        points are spent for them, and .subclass bots reports which pairs work. Real players are
+#        never touched. Turning it off removes the forced subclass at the bots' next login.
+#        Fill the server with them with .botcmd spawnfleet 85 <level> and .botcmd spawnfleet 96 <level>.
 #        Default: 0 - disabled
 #                 1 - enabled
 

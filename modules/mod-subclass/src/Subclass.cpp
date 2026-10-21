@@ -295,12 +295,6 @@ std::atomic<bool> twoHeadedOgreEnabled{ true };
 std::atomic<bool> forceBots{ false };
 std::vector<Subclass::Pair> pairs;
 std::unordered_map<uint32, Record>& records = *new std::unordered_map<uint32, Record>;
-std::vector<Subclass::Pair> const anyPair = { { 0, Subclass::GenderMaskMale | Subclass::GenderMaskFemale, 0, 0, 0 } };
-
-std::vector<Subclass::Pair> const& PairsFor(Player const* player)
-{
-    return ForcedBot(player) ? anyPair : pairs;
-}
 
 struct Voice
 {
@@ -573,8 +567,6 @@ bool MainMaySubclass(uint8 classId);
 
 bool MayCarrySubclass(Player const* player)
 {
-    if (ForcedBot(player))
-        return true;
     return MainMaySubclass(player->getClass()) && SubclassRaceEnabled(player->getRace());
 }
 
@@ -591,7 +583,7 @@ bool IsEligible(Player const* player)
     if (!MayCarrySubclass(player))
         return false;
     std::lock_guard<std::mutex> lock(subclassMutex);
-    return Subclass::IsEligible(PairsFor(player), CharacterOf(player));
+    return Subclass::IsEligible(pairs, CharacterOf(player));
 }
 
 std::vector<Subclass::Tree> OpenTreesOf(Player const* player)
@@ -601,7 +593,7 @@ std::vector<Subclass::Tree> OpenTreesOf(Player const* player)
     Subclass::Choice const choice = ChoiceOf(player);
     bool const hasClassTree = HasClassTree(choice.SubClass);
     std::lock_guard<std::mutex> lock(subclassMutex);
-    return Subclass::OpenTrees(settings, PairsFor(player), CharacterOf(player), choice, hasClassTree,
+    return Subclass::OpenTrees(settings, pairs, CharacterOf(player), choice, hasClassTree,
         SpecsOf(choice.SubClass), TreesFor(choice.SubClass));
 }
 
@@ -1583,8 +1575,15 @@ bool ForcedBot(Player const* player)
     return forceBots && session && session->IsBot();
 }
 
-std::vector<Subclass::Choice> BotChoicesFor(uint8 mainClass)
+bool SubclassEligible(Player const* player)
 {
+    return IsEligible(player);
+}
+
+std::vector<Subclass::Choice> BotChoicesFor(Player const* player)
+{
+    uint8 const mainClass = player->getClass();
+    Subclass::Character const character = CharacterOf(player);
     std::vector<uint8> classes;
     for (Subclass::Tree const& specialization : CatalogSpecializations())
         if (std::find(classes.begin(), classes.end(), specialization.ClassId) == classes.end())
@@ -1609,7 +1608,10 @@ std::vector<Subclass::Choice> BotChoicesFor(uint8 mainClass)
                 break;
         }
     }
-    std::erase_if(options, [](Subclass::Choice const& choice) { return BorrowedTreesOf(choice).empty(); });
+    std::erase_if(options, [&character](Subclass::Choice const& choice)
+    {
+        return BorrowedTreesOf(choice).empty() || !Subclass::AllowsChoice(pairs, character, choice);
+    });
     return options;
 }
 
@@ -2055,7 +2057,7 @@ private:
         if (MayCarrySubclass(player) && IsSpecializationOf(choice.SubClass, choice.SubSpec))
         {
             std::lock_guard<std::mutex> lock(subclassMutex);
-            kept = Subclass::Trimmed(PairsFor(player), character, choice);
+            kept = Subclass::Trimmed(pairs, character, choice);
         }
         if (kept == choice)
             return;

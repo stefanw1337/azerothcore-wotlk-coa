@@ -59,7 +59,7 @@ him:
 | `.subclass twin strip [slot]` | Takes off one slot, or everything. |
 | `.subclass twin copy` | Copies your own visible outfit. |
 | `.subclass twin info` | Shows what he wears. |
-| `.subclass bots [all]` | With `Subclass.Bots.Force = 1`: subclassed bots per pair and race, pairs whose trees do not open, builds that are refused and the other half's failing casts. `all` lists every pair. |
+| `.subclass bots [all]` | With `Subclass.Bots.Force = 1` (Ogre and Thin Human bots take a subclass): subclassed bots per pair and race, pairs whose trees do not open, builds that are refused and the other half's failing casts. `all` lists every pair. |
 | `.subclass brain` | Lists every spell the other head or brother knows and why she or he would or would not cast it now. |
 
 He travels with his brother: after a second of running he hops onto his back (piggyback) and stays there when his
