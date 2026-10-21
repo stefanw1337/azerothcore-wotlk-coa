@@ -79,8 +79,18 @@ constexpr uint32 CowboyAura = 9530108;
 constexpr uint32 HalfBrainAura = 9530109;
 constexpr uint32 ReachAura = 9530110;
 constexpr uint32 EndlessAmmoAura = 46699;
-constexpr uint32 EndlessArrow = 2512;
-constexpr uint32 EndlessShot = 2516;
+
+struct EndlessAmmoTier
+{
+    uint8 Level;
+    uint32 Arrow;
+    uint32 Shot;
+};
+
+constexpr EndlessAmmoTier EndlessAmmoTiers[] = {
+    { 1, 2512, 2516 }, { 10, 2515, 2519 }, { 25, 3030, 3033 }, { 40, 11285, 11284 }, { 52, 18042, 15997 },
+    { 61, 28053, 28060 }, { 65, 28056, 28061 }, { 75, 41586, 41584 } };
+
 constexpr uint32 TwinLinkedSpell = 9530111;
 constexpr uint32 ToleranceSpell = 9530112;
 constexpr uint32 HandMeDownsSpell = 9530113;
@@ -1191,16 +1201,31 @@ uint32 EndlessAmmoFor(Player const* player)
     Item const* ranged = OwnBow(player);
     if (!ranged)
         return 0;
+    bool arrows = false;
     switch (ranged->GetTemplate()->SubClass)
     {
         case ITEM_SUBCLASS_WEAPON_BOW:
         case ITEM_SUBCLASS_WEAPON_CROSSBOW:
-            return EndlessArrow;
+            arrows = true;
+            break;
         case ITEM_SUBCLASS_WEAPON_GUN:
-            return EndlessShot;
+            break;
         default:
             return 0;
     }
+    uint32 ammo = 0;
+    for (EndlessAmmoTier const& tier : EndlessAmmoTiers)
+        if (player->GetLevel() >= tier.Level)
+            ammo = arrows ? tier.Arrow : tier.Shot;
+    return ammo;
+}
+
+bool IsEndlessAmmo(uint32 item)
+{
+    for (EndlessAmmoTier const& tier : EndlessAmmoTiers)
+        if (item == tier.Arrow || item == tier.Shot)
+            return true;
+    return false;
 }
 
 bool HasUsableAmmo(Player* player)
@@ -1210,10 +1235,31 @@ bool HasUsableAmmo(Player* player)
     return proto && player->HasItemCount(loaded, 1) && player->CheckAmmoCompatibility(proto);
 }
 
+bool KeepsLoadedAmmo(Player* player, uint32 ammo)
+{
+    uint32 const loaded = player->GetUInt32Value(PLAYER_AMMO_ID);
+    if (loaded == ammo)
+        return player->HasItemCount(ammo, 1);
+    return HasUsableAmmo(player) && !IsEndlessAmmo(loaded);
+}
+
+void DropOutgrownAmmo(Player* player)
+{
+    EndlessAmmoTier const* current = nullptr;
+    for (EndlessAmmoTier const& tier : EndlessAmmoTiers)
+        if (player->GetLevel() >= tier.Level)
+            current = &tier;
+    for (EndlessAmmoTier const& tier : EndlessAmmoTiers)
+        if (current && tier.Level < current->Level)
+            for (uint32 outgrown : { tier.Arrow, tier.Shot })
+                if (player->HasItemCount(outgrown, 1))
+                    player->DestroyItemCount(outgrown, 1, true);
+}
+
 void LoadEndlessAmmo(Player* player, bool wanted)
 {
     uint32 const ammo = wanted ? EndlessAmmoFor(player) : 0;
-    if (!ammo || HasUsableAmmo(player))
+    if (!ammo || KeepsLoadedAmmo(player, ammo))
         return;
     if (!player->HasItemCount(ammo, 1))
     {
@@ -1223,6 +1269,7 @@ void LoadEndlessAmmo(Player* player, bool wanted)
         if (Item* item = player->StoreNewItem(destination, ammo, true))
             player->SendNewItem(item, 1, true, false);
     }
+    DropOutgrownAmmo(player);
     player->RemoveAurasDueToSpell(EndlessAmmoAura);
     player->SetAmmo(ammo);
 }
