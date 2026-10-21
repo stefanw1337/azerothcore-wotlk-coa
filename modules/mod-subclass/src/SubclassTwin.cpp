@@ -1311,8 +1311,9 @@ void DrawForTheFight(Player* player)
     if (!HasSecondHead(player))
         return;
     MeleeUpClose(player);
-    if (player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) && player->GetVictim() &&
-        player->GetSheath() != SHEATH_STATE_MELEE)
+    bool const fighting = (player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) && player->GetVictim()) ||
+        (OtherHeadShoots(player) && player->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL));
+    if (fighting && player->GetSheath() != SHEATH_STATE_MELEE)
         player->SetSheath(SHEATH_STATE_MELEE);
 }
 
