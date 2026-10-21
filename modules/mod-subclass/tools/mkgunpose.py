@@ -32,8 +32,8 @@ MACE_RAISED_MS = 300
 PISTOL_REACH = (0.75, 0.15, -0.1)
 MACE_REACH = (0.25, -0.35, 0.3)
 LATERAL = (0.0, 1.0, 0.0)
-SPIN_COCK = ((0, 0, 0), (70, -30, -12), (160, -10, -4), (260, 90, 10), (360, 180, 14), (460, 270, 10),
-             (560, 360, 4), (720, 355, 0), (1000, 360, 0))
+FLIP_COCK = ((0, 0, 0), (70, -30, -12), (170, -10, -4), (300, 60, 12), (420, 115, 18), (560, 40, 6),
+             (680, -8, -2), (820, 3, 0), (1000, 0, 0))
 COPIED = ((49, 48, True, True, None), (49, 49, True, True, None), (49, 110, True, True, None),
           (29, 29, False, False, None), (46, 46, False, False, None), (109, 109, False, False, None),
           (49, ATTACK_OFF_PIERCE, True, True, None), (49, ATTACK_UNARMED, True, True, HELD_AIM),
@@ -334,12 +334,12 @@ def kicked(ogre, ready, entries, chain):
     hand_world = fore_world @ pose.local(hand)
     stamps, fores, hands = [], [], []
     fore_before = hand_before = None
-    for stamp, wrist_degrees, elbow_degrees in SPIN_COCK:
+    for stamp, wrist_degrees, elbow_degrees in FLIP_COCK:
         swing = about(np.array(LATERAL), np.radians(elbow_degrees))
-        spin = about(np.array(LATERAL), np.radians(wrist_degrees))
+        flip = about(np.array(LATERAL), np.radians(wrist_degrees))
         swung_fore = swing @ fore_world
         fore_before = continuous(as_quaternion(elbow_frame.T @ swung_fore), fore_before)
-        hand_before = continuous(as_quaternion(swung_fore.T @ spin @ swing @ hand_world), hand_before)
+        hand_before = continuous(as_quaternion(swung_fore.T @ flip @ swing @ hand_world), hand_before)
         stamps.append(stamp)
         fores.append(packed(fore_before, False))
         hands.append(packed(hand_before, False))
