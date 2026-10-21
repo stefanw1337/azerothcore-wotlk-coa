@@ -2915,9 +2915,22 @@ public:
     }
 };
 
+class mod_subclass_twin_shots : public PlayerScript
+{
+public:
+    mod_subclass_twin_shots() : PlayerScript("mod_subclass_twin_shots", { PLAYERHOOK_ON_SPELL_CAST }) { }
+
+    void OnPlayerSpellCast(Player* player, Spell* spell, bool /*skipCheck*/) override
+    {
+        if (spell && IsShot(spell->GetSpellInfo()) && OtherHeadShoots(player))
+            player->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_OFF);
+    }
+};
+
 void AddSC_mod_subclass_twin()
 {
     new mod_subclass_hand_me_downs();
+    new mod_subclass_twin_shots();
     RegisterSpellScript(spell_subclass_second_self);
     RegisterSpellScript(spell_subclass_easy);
     new mod_subclass_twin_packets();
