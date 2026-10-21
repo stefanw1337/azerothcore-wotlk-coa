@@ -2891,6 +2891,27 @@ local function ShowIcons()
     end
 end
 
+local function AimIfRightClicked()
+    if DressesCyclops() and UnitExists("target") and UnitCanAttack("player", "target") and not UnitIsDead("target") then
+        Send("AIM")
+    end
+end
+
+local aimWatcher = CreateFrame("Frame")
+aimWatcher:RegisterEvent("PLAYER_TARGET_CHANGED")
+aimWatcher:SetScript("OnEvent", function()
+    if IsMouseButtonDown("RightButton") then
+        AimIfRightClicked()
+    end
+end)
+aimWatcher:SetScript("OnUpdate", function(self)
+    local down = IsMouseButtonDown("RightButton")
+    if down and not self.down and UnitExists("mouseover") and UnitIsUnit("mouseover", "target") then
+        AimIfRightClicked()
+    end
+    self.down = down
+end)
+
 SLASH_ASCENSIONSUBCLASS1 = "/subclass"
 SlashCmdList.ASCENSIONSUBCLASS = function(message)
     if message == "dump" then
@@ -2926,7 +2947,8 @@ SlashCmdList.ASCENSIONSUBCLASS = function(message)
             end
         end
         DEFAULT_CHAT_FRAME:AddMessage(string.format(
-            "Subclass: dressing %s, %d pending, %d apply button(s), %d enabled.", dressingTwin and "the other head" or "you", pending, #applyButtons, enabled))
+            "Subclass: dressing %s, %d pending, %d apply button(s), %d enabled.",
+            dressingTwin and "the other head" or "you", pending, #applyButtons, enabled))
         if dressingTwin then
             DEFAULT_CHAT_FRAME:AddMessage(SendTwinLook() and "Subclass: sent the look to your other head."
                 or "Subclass: nothing picked to apply.")

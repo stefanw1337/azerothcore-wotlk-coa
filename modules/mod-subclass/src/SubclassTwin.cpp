@@ -1418,6 +1418,14 @@ void NoteAttackStopped(WorldSession* session, WorldPacket const& packet)
         itr->second.StoppedAt = GameTime::GetGameTimeMS().count();
 }
 
+void AimAtTarget(Player* player)
+{
+    std::lock_guard<std::mutex> lock(twinMutex);
+    AttackIntent& intent = attackIntents[player->GetGUID().GetCounter()];
+    intent.Foe = player->GetTarget();
+    intent.AskedAt = GameTime::GetGameTimeMS().count();
+}
+
 AttackIntent IntentOf(Player const* player)
 {
     std::lock_guard<std::mutex> lock(twinMutex);

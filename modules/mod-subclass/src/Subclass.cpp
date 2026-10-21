@@ -53,6 +53,7 @@ bool HandleSubclassGun(ChatHandler* handler);
 bool HandleSubclassBots(ChatHandler* handler, Optional<std::string> mode);
 
 void HandleTwinLook(Player* player, std::vector<std::string_view> const& words);
+void AimAtTarget(Player* player);
 void LearnStandardMainWeaponSkills(Player* player);
 std::string TwinWearing(Player const* player);
 void EchoCyclopsHelmet(Player* player);
@@ -925,6 +926,11 @@ void HandleAddonMessage(Player* player, std::string_view message)
         SendAddon(player, TwinState(player));
         SendAddon(player, RelicState(player));
         SendAddon(player, CyclopsModelState(player));
+        return;
+    }
+    if (message == "AIM")
+    {
+        AimAtTarget(player);
         return;
     }
     if (message == "TWINTOGGLE")
