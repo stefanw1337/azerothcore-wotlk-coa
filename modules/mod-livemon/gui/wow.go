@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -160,4 +161,29 @@ func (l *library) spellIcon(id uint32) ([]byte, error) {
 		return nil, os.ErrNotExist
 	}
 	return l.texture(path)
+}
+
+func (l *library) extractModel(base, out string) int {
+	var names []string
+	names = append(names, base+".m2")
+	for skin := 0; skin < 4; skin++ {
+		names = append(names, fmt.Sprintf("%s%02d.skin", base, skin))
+	}
+	for animation := 0; animation < 1000; animation++ {
+		for variation := 0; variation < 8; variation++ {
+			names = append(names, fmt.Sprintf("%s%04d-%02d.anim", base, animation, variation))
+		}
+	}
+	written := 0
+	for _, name := range names {
+		data, err := l.read(name)
+		if err != nil {
+			continue
+		}
+		target := filepath.Join(out, filepath.Base(strings.ReplaceAll(name, "\\", "/")))
+		if os.MkdirAll(out, 0o755) == nil && os.WriteFile(target, data, 0o644) == nil {
+			written++
+		}
+	}
+	return written
 }

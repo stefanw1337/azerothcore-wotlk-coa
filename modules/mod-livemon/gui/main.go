@@ -105,12 +105,21 @@ func main() {
 	server := flag.String("server", s.Server, "LiveMon feed of the worldserver")
 	wow := flag.String("wow", s.WowFolder, "WoW client folder (for the troll face)")
 	stay := flag.Bool("stay", false, "keep serving after the window closes")
+	extract := flag.String("extract", "", "model path without extension to copy out of the client, with its skins and animations")
+	out := flag.String("out", filepath.Join(home, "extracted"), "folder for -extract")
 	flag.Parse()
 	if *wow == "" {
 		*wow = findWowFolder(home)
 	}
 
 	game := newLibrary(*wow)
+	if *extract != "" {
+		found := game.extractModel(*extract, *out)
+		report := fmt.Sprintf("%d file(s) of %s from %s written to %s\n", found, *extract, *wow, *out)
+		os.MkdirAll(*out, 0o755)
+		os.WriteFile(filepath.Join(*out, "extract.txt"), []byte(report), 0o644)
+		return
+	}
 	pages, _ := fs.Sub(web, "web")
 	client := &http.Client{Timeout: 5 * time.Second}
 	mux := http.NewServeMux()
