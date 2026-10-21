@@ -32,8 +32,8 @@ MACE_RAISED_MS = 300
 PISTOL_REACH = (0.75, 0.15, -0.1)
 MACE_REACH = (0.25, -0.35, 0.3)
 LATERAL = (0.0, 1.0, 0.0)
-SHOTGUN_FLING = ((0, 0, 0), (80, -40, -15), (220, -25, -10), (420, 75, 25), (600, 20, 5), (780, -8, -3),
-                 (1000, 0, 0))
+SPIN_COCK = ((0, 0, 0), (70, -30, -12), (160, -10, -4), (260, 90, 10), (360, 180, 14), (460, 270, 10),
+             (560, 360, 4), (720, 355, 0), (1000, 360, 0))
 COPIED = ((49, 48, True, True, None), (49, 49, True, True, None), (49, 110, True, True, None),
           (29, 29, False, False, None), (46, 46, False, False, None), (109, 109, False, False, None),
           (49, ATTACK_OFF_PIERCE, True, True, None), (49, ATTACK_UNARMED, True, True, HELD_AIM),
@@ -319,6 +319,12 @@ def bent_toward(ogre, ready, entries, chain, reach_in_chest):
     return entries
 
 
+def continuous(quaternion, previous):
+    if previous is not None and sum(a * b for a, b in zip(quaternion, previous)) < 0:
+        return tuple(-value for value in quaternion)
+    return quaternion
+
+
 def kicked(ogre, ready, entries, chain):
     posed = {bone: decoded(entry) for bone, entry in entries.items()}
     _, fore, hand = chain[1:]
@@ -327,13 +333,16 @@ def kicked(ogre, ready, entries, chain):
     fore_world = elbow_frame @ pose.local(fore)
     hand_world = fore_world @ pose.local(hand)
     stamps, fores, hands = [], [], []
-    for stamp, wrist_degrees, elbow_degrees in SHOTGUN_FLING:
+    fore_before = hand_before = None
+    for stamp, wrist_degrees, elbow_degrees in SPIN_COCK:
         swing = about(np.array(LATERAL), np.radians(elbow_degrees))
-        flick = about(np.array(LATERAL), np.radians(wrist_degrees))
+        spin = about(np.array(LATERAL), np.radians(wrist_degrees))
         swung_fore = swing @ fore_world
+        fore_before = continuous(as_quaternion(elbow_frame.T @ swung_fore), fore_before)
+        hand_before = continuous(as_quaternion(swung_fore.T @ spin @ swing @ hand_world), hand_before)
         stamps.append(stamp)
-        fores.append(packed(as_quaternion(elbow_frame.T @ swung_fore), False))
-        hands.append(packed(as_quaternion(swung_fore.T @ flick @ swing @ hand_world), False))
+        fores.append(packed(fore_before, False))
+        hands.append(packed(hand_before, False))
     times = struct.pack(f"<{len(stamps)}I", *stamps)
     entries = dict(entries)
     entries[fore] = (len(stamps), times, b"".join(fores))
