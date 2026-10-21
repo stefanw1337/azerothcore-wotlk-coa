@@ -25,7 +25,7 @@ STAND = 0
 FORWARD = (1.0, 0.0, 0.0)
 HELD_BARREL = FORWARD
 ATTACK_OFF_PIERCE = 88
-SPECIAL_UNARMED, ATTACK_UNARMED = 118, 16
+READY_RIFLE, READY_BOW = 48, 29
 HELD_AIM = 0.5
 ATTACK_1H = 17
 MACE_RAISED_MS = 300
@@ -35,10 +35,9 @@ MACE_SHAFT = (-0.05, 1.0, 0.02)
 LATERAL = (0.0, 1.0, 0.0)
 SPIN_COCK = ((0, 0, 0), (70, -30, -12), (160, -10, -4), (260, 90, 10), (360, 180, 14), (460, 270, 10),
              (560, 360, 4), (720, 355, 0), (1000, 360, 0))
-COPIED = ((49, 48, True, True, None), (49, 49, True, True, None), (49, 110, True, True, None),
-          (29, 29, False, False, None), (46, 46, False, False, None), (109, 109, False, False, None),
-          (49, ATTACK_OFF_PIERCE, True, True, None), (49, ATTACK_UNARMED, True, True, HELD_AIM),
-          (109, SPECIAL_UNARMED, False, False, HELD_AIM))
+COPIED = ((49, READY_RIFLE, True, True, HELD_AIM), (49, 49, True, True, None), (49, 110, True, True, None),
+          (109, READY_BOW, False, False, HELD_AIM), (46, 46, False, False, None), (109, 109, False, False, None),
+          (49, ATTACK_OFF_PIERCE, True, True, None))
 HOLD_LOOPS = 12
 KICKED = (49, ATTACK_OFF_PIERCE)
 

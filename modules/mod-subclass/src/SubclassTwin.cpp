@@ -1369,26 +1369,13 @@ void MeleeUpClose(Player* player)
 }
 
 constexpr uint32 AimAfterShotMs = 2500;
-constexpr uint32 ShotPoseMs = 1000;
-constexpr uint32 AimHoldMs = 32004 + 100;
-constexpr uint32 GunHoldEmote = EMOTE_ONESHOT_ATTACK_UNARMED;
-constexpr uint32 BowHoldEmote = 477;
-constexpr uint32 EndHoldEmote = 707;
 std::unordered_map<uint32, uint32>& aimingUntil = *new std::unordered_map<uint32, uint32>;
-std::unordered_map<uint32, uint32>& aimPoseUntil = *new std::unordered_map<uint32, uint32>;
-
-bool RecentlyShotLocked(Player const* player, uint32 now)
-{
-    auto const itr = aimingUntil.find(player->GetGUID().GetCounter());
-    return itr != aimingUntil.end() && itr->second > now;
-}
 
 void NoteOtherHeadShot(Player const* player)
 {
     uint32 const now = GameTime::GetGameTimeMS().count();
     std::lock_guard<std::mutex> lock(twinMutex);
     aimingUntil[player->GetGUID().GetCounter()] = now + AimAfterShotMs;
-    aimPoseUntil[player->GetGUID().GetCounter()] = now + ShotPoseMs;
 }
 
 struct AttackIntent
@@ -1459,35 +1446,21 @@ void AimFromAfar(Player* player)
 {
     Unit* target = AimedAt(player);
     Item* gun = OwnBow(player);
-    bool const aiming = target && gun && OtherHeadShoots(player) && player->GetSheath() == SHEATH_STATE_MELEE &&
+    bool const aiming = target && gun && player->IsAlive() && OtherHeadShoots(player) &&
+        player->GetSheath() == SHEATH_STATE_MELEE &&
         target->IsAlive() && !player->IsWithinMeleeRange(target) && !player->isMoving() &&
         !player->IsNonMeleeSpellCast(false, true, true);
-    uint32 const now = GameTime::GetGameTimeMS().count();
-    bool endHold = false;
-    {
-        std::lock_guard<std::mutex> lock(twinMutex);
-        uint32& until = aimPoseUntil[player->GetGUID().GetCounter()];
-        if (!aiming)
-        {
-            endHold = until > now && !player->isMoving() && !RecentlyShotLocked(player, now);
-            if (until > now || player->isMoving())
-                until = 0;
-        }
-        else if (until > now)
-            return;
-        else
-            until = now + AimHoldMs;
-    }
-    if (endHold)
-        player->HandleEmoteCommand(EndHoldEmote);
-    if (!aiming)
+    uint32 const wanted = !aiming ? 0 : IsBow(gun) ? EMOTE_STATE_READY_BOW : EMOTE_STATE_READY_RIFLE;
+    uint32 const current = player->GetUInt32Value(UNIT_NPC_EMOTESTATE);
+    bool const ours = current == EMOTE_STATE_READY_BOW || current == EMOTE_STATE_READY_RIFLE;
+    if (current == wanted || (!wanted && !ours))
         return;
-    if (!player->IsInCombat())
+    player->SetUInt32Value(UNIT_NPC_EMOTESTATE, wanted);
+    if (wanted && !player->IsInCombat())
     {
         player->ForceValuesUpdateAtIndex(UNIT_FIELD_BYTES_2);
         player->ForceValuesUpdateAtIndex(PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_OFFHAND * 2);
     }
-    player->HandleEmoteCommand(IsBow(gun) ? BowHoldEmote : GunHoldEmote);
 }
 
 bool RecentlyShot(Player const* player)
@@ -1799,7 +1772,10 @@ void TickSelfAura(Player* player, uint32 diff)
     if (player->IsAlive())
         ShootAlong(player);
     else if (HasSecondHead(player))
+    {
         HoldTheGun(player, false);
+        AimFromAfar(player);
+    }
     {
         std::lock_guard<std::mutex> lock(twinMutex);
         uint32& elapsed = auraTicks[player->GetGUID().GetCounter()];
