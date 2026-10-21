@@ -49,6 +49,8 @@ COPIED = ((49, READY_RIFLE, True, True, HELD_AIM), (49, 49, True, True, None), (
 HOLD_LOOPS = 12
 KICKED = (49, ATTACK_OFF_PIERCE)
 LEFT_HAND_HOLDS = (17, 21, 26, 57, 31, 51, 52, 53, 54, 124, 125)
+READY_1H = 26
+OFF_HAND_SWINGS = (87,)
 FIST_RAISED = (0.6, 0.3, 0.35)
 FIST_DIPPED = (0.6, 0.3, 0.2)
 TOSSED_UP = (0.5, -0.35, 0.8)
@@ -633,6 +635,11 @@ class Grafter:
                 for bone in left_arm:
                     if bone in gun_hold:
                         self.set_own_rotation(bone, sequence, gun_hold[bone])
+            if animation in OFF_HAND_SWINGS:
+                ready = sequence_index(ogre, READY_1H)
+                for bone in right_arm:
+                    if own_keys(ogre, bone, ready)[0]:
+                        self.set_own_rotation(bone, sequence, frozen(own_keys(ogre, bone, ready), 0))
             frames = SPELL_HOLD if animation in SPELL_HOLDS else SPELL_RELEASES.get(animation)
             if frames:
                 length = sequence_length(ogre, sequence)
