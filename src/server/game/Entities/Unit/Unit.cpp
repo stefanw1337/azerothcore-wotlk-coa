@@ -14341,6 +14341,8 @@ void Unit::RestoreDisplayId()
         // iterate over already applied transform auras - from newest to oldest
         for (auto i = transforms.rbegin(); i != transforms.rend(); ++i)
         {
+            if (Player const* player = ToPlayer(); player && sScriptMgr->OnPlayerKeepsOwnLook(player, (*i)->GetId()))
+                continue;
             if (AuraApplication const* aurApp = (*i)->GetBase()->GetApplicationOfTarget(GetGUID()))
             {
                 if (!handledAura)
@@ -16716,6 +16718,9 @@ uint32 Unit::GetCombatRatingDamageReduction(CombatRating cr, float rate, float c
 
 uint32 Unit::GetModelForForm(ShapeshiftForm form, uint32 spellId)
 {
+    if (Player const* player = ToPlayer(); player && sScriptMgr->OnPlayerKeepsOwnLook(player, spellId))
+        return 0;
+
     // Hardcoded cases
     switch (spellId)
     {

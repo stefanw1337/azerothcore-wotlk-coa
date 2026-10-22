@@ -374,6 +374,41 @@ bool BrotherTanks(Player const* player)
     return player->HasAura(RighteousFury) && IsBorrowedSpell(player, RighteousFury);
 }
 
+bool InBorrowedShape(Player const* player)
+{
+    for (AuraEffect const* effect : player->GetAuraEffectsByType(SPELL_AURA_MOD_SHAPESHIFT))
+        if (IsBorrowedSpell(player, effect->GetId()))
+            return true;
+    for (AuraEffect const* effect : player->GetAuraEffectsByType(SPELL_AURA_TRANSFORM))
+        if (effect->GetSpellInfo()->IsPositive() && IsBorrowedSpell(player, effect->GetId()))
+            return true;
+    return false;
+}
+
+uint32 FormModelFor(Player* player, ShapeshiftForm form)
+{
+    if (uint32 model = sObjectMgr->GetModelForShapeshift(form, player))
+        return model;
+    SpellShapeshiftFormEntry const* entry = sSpellShapeshiftFormStore.LookupEntry(form);
+    if (!entry)
+        return 0;
+    return player->GetTeamId(true) == TEAM_HORDE && entry->modelID_H ? entry->modelID_H : entry->modelID_A;
+}
+
+uint32 BorrowedShape(Player* player)
+{
+    for (AuraEffect const* effect : player->GetAuraEffectsByType(SPELL_AURA_TRANSFORM))
+        if (effect->GetSpellInfo()->IsPositive() && IsBorrowedSpell(player, effect->GetId()))
+            if (CreatureTemplate const* shape = sObjectMgr->GetCreatureTemplate(effect->GetMiscValue()))
+                if (CreatureModel const* model = shape->GetFirstValidModel())
+                    return model->CreatureDisplayID;
+    for (AuraEffect const* effect : player->GetAuraEffectsByType(SPELL_AURA_MOD_SHAPESHIFT))
+        if (IsBorrowedSpell(player, effect->GetId()))
+            if (uint32 model = FormModelFor(player, ShapeshiftForm(effect->GetMiscValue())))
+                return model;
+    return 0;
+}
+
 void LendWeapon(Player const* player, Wardrobe& wardrobe, std::size_t slot, uint8 equipmentSlot)
 {
     if (!wardrobe.Items[slot])
@@ -495,7 +530,7 @@ void SetCarry(Player* player, Creature* twin, Carry mode)
 Carry WantedCarry(Player const* player, Motion const& motion)
 {
     if (!player->IsAlive() || player->IsInCombat() || player->IsInWater() || !player->IsStandState() ||
-        player->HasStealthAura() || player->GetSheath() != SHEATH_STATE_UNARMED)
+        player->HasStealthAura() || player->GetSheath() != SHEATH_STATE_UNARMED || InBorrowedShape(player))
         return Carry::Beside;
     if (player->IsMounted())
         return player->GetVehicleKit() && !OwnsKit(player) ? Carry::Beside : Carry::Saddle;
@@ -936,13 +971,14 @@ uint32 CursedShape(Player const* player)
     return 0;
 }
 
-void MirrorCurse(Player* player, Creature* twin)
+void MirrorShape(Player* player, Creature* twin)
 {
     uint32 const cursed = CursedShape(player);
-    uint32 const wanted = cursed ? cursed : player->GetNativeDisplayId();
+    uint32 const shaped = cursed ? cursed : BorrowedShape(player);
+    uint32 const wanted = shaped ? shaped : player->GetNativeDisplayId();
     if (twin->GetDisplayId() == wanted)
         return;
-    if (cursed)
+    if (shaped)
         twin->RemoveUnitFlag2(UNIT_FLAG2_MIRROR_IMAGE);
     else
         twin->SetUnitFlag2(UNIT_FLAG2_MIRROR_IMAGE);
@@ -1048,7 +1084,7 @@ void UpdateCarry(Player* player, uint32 diff)
         motions[guid].Swing = 0;
     }
     MirrorStun(player, twin);
-    MirrorCurse(player, twin);
+    MirrorShape(player, twin);
     UpdateCompanion(player, twin);
     HandWeaponsToBrother(player);
     UpdateShieldBearer(player, twin);
@@ -3820,8 +3856,21 @@ public:
     }
 };
 
+class mod_subclass_own_look : public PlayerScript
+{
+public:
+    mod_subclass_own_look() : PlayerScript("mod_subclass_own_look", { PLAYERHOOK_ON_KEEPS_OWN_LOOK }) { }
+
+    bool OnPlayerKeepsOwnLook(Player const* player, uint32 spellId) override
+    {
+        uint8 const race = player->getRace(true);
+        return (race == TwinRace || race == OgreRace) && SubclassRaceEnabled(race) && IsBorrowedSpell(player, spellId);
+    }
+};
+
 void AddSC_mod_subclass_twin()
 {
+    new mod_subclass_own_look();
     new mod_subclass_hand_me_downs();
     new mod_subclass_twin_shots();
     RegisterSpellScript(spell_subclass_second_self);

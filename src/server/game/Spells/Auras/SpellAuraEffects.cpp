@@ -2420,6 +2420,9 @@ void AuraEffect::HandleAuraTransform(AuraApplication const* aurApp, uint8 mode, 
 
     if (apply)
     {
+        if (Player const* player = target->ToPlayer(); player && sScriptMgr->OnPlayerKeepsOwnLook(player, GetId()))
+            return;
+
         // update active transform spell only when transform or shapeshift not set or not overwriting negative by positive case
         // (AscensionIncarnation: GetModelForForm also answers for a transform spell's incarnation, so only ask it
         //  about a real shapeshift form - otherwise a transform form with an incarnation was never applied)

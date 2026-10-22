@@ -262,6 +262,7 @@ enum PlayerHook
     PLAYERHOOK_ON_COA_PRESTIGE_SAVED,
     PLAYERHOOK_ON_MASTER_LOOT_ITEM,
     PLAYERHOOK_ON_GET_QUEST_RACE_MASK,
+    PLAYERHOOK_ON_KEEPS_OWN_LOOK,
     PLAYERHOOK_END
 };
 
@@ -1151,6 +1152,15 @@ public:
      * @return true when the script resolved the mask
      */
     [[nodiscard]] virtual bool OnPlayerGetQuestRaceMask(Player const* /*player*/, uint32& /*mask*/) { return false; }
+
+    /**
+     * @brief This hook is called before a shapeshift or transform spell changes a character's model.
+     *
+     * @param player Contains information about the Player
+     * @param spellId The shapeshift or transform spell
+     * @return true to keep the character's own model while the spell's other effects apply
+     */
+    [[nodiscard]] virtual bool OnPlayerKeepsOwnLook(Player const* /*player*/, uint32 /*spellId*/) { return false; }
 };
 
 #endif

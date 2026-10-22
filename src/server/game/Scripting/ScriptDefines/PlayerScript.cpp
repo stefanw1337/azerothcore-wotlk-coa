@@ -1163,6 +1163,15 @@ std::optional<uint32> ScriptMgr::OnPlayerGetGameModeMask(Player const* player)
     return std::nullopt;
 }
 
+bool ScriptMgr::OnPlayerKeepsOwnLook(Player const* player, uint32 spellId)
+{
+    for (auto const& script : ScriptRegistry<PlayerScript>::EnabledHooks[PLAYERHOOK_ON_KEEPS_OWN_LOOK])
+        if (script->OnPlayerKeepsOwnLook(player, spellId))
+            return true;
+
+    return false;
+}
+
 std::optional<uint32> ScriptMgr::OnPlayerGetQuestRaceMask(Player const* player)
 {
     uint32 mask = 0;
