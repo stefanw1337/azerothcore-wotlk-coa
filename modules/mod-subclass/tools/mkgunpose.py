@@ -24,6 +24,12 @@ RECORD_TRACKS = {TEXTURE_WEIGHTS: (20, (0,)), TEXTURE_TRANSFORMS: (60, (0, 20, 4
                  CAMERAS: (100, (16, 48, 80))}
 EVENT_SIZE, EVENT_TRACK = 36, 24
 KEY_ARM_LEFT, KEY_ARM_RIGHT = 0, 1
+KEY_SPINE_LOW, KEY_WAIST, KEY_ROOT = 4, 5, 26
+TRANSLATION = 16
+MOUNT, SIT_GROUND, RECLINED_MOUNT = 91, 97, 484
+SEATED_LEGS_AT = 0.5
+RECLINED_LEAN = 0.3
+RECLINED_SEAT_RISE = (0.03, 0.0, 0.065)
 SPINE = (2, 4)
 SPINE_PATH = (2, 4)
 STAND = 0
@@ -58,6 +64,7 @@ ACROSS_THE_HEART = (-0.2, 0.95, 0.2)
 UPWARD = (0.0, 0.0, 1.0)
 SPELL_LEFT_HAND, SPELL_RIGHT_HAND = 21, 22
 SPELL_HOLDS = (31, 51, 52, 124, 125)
+CAST_SPINE_SHARE = 0.5
 SPELL_HOLD = ((0.0, FIST_AT_HEART, ACROSS_THE_HEART),)
 SPELL_RELEASES = {
     54: ((0.0, FIST_AT_HEART, ACROSS_THE_HEART), (0.25, FIST_DIPPED, ACROSS_THE_HEART), (0.45, TOSSED_UP, UPWARD),
@@ -447,12 +454,85 @@ def subtree_of(data, root):
     return found
 
 
+def softened(data, bone, sequence, ready, share):
+    stamps, keys = bone_keys(data, bone, sequence)
+    if not keys:
+        return None
+    rest = bone_keys(data, bone, ready)[1]
+    calm = rest[0] if rest else (0.0, 0.0, 0.0, 1.0)
+    values, previous = [], None
+    for key in keys:
+        calm = continuous(calm, key)
+        mixed = tuple((1.0 - share) * a + share * b for a, b in zip(calm, key))
+        length = sum(value * value for value in mixed) ** 0.5
+        previous = continuous(tuple(value / length for value in mixed), previous)
+        values.append(packed(previous, False))
+    return len(stamps), struct.pack(f"<{len(stamps)}I", *stamps), b"".join(values)
+
+
+def spine_of(data, chain):
+    spine, bone = [], parent_of(data, chain[0])
+    while bone != -1 and parent_of(data, bone) != -1 and parent_of(data, parent_of(data, bone)) != -1:
+        spine.append(bone)
+        bone = parent_of(data, bone)
+    return spine
+
+
 def own_keys(data, bone, sequence):
     track = bone_offset(data, bone) + ROTATION
     times, values = struct.unpack_from("<I", data, track + 8)[0], struct.unpack_from("<I", data, track + 16)[0]
     count, stamps_at = array(data, times + sequence * 8)
     _, values_at = array(data, values + sequence * 8)
     return count, bytes(data[stamps_at:stamps_at + count * 4]), bytes(data[values_at:values_at + count * 8])
+
+
+def key_bone(data, key):
+    count, offset = array(data, KEY_BONES)
+    return struct.unpack_from(f"<{count}h", data, offset)[key]
+
+
+def own_track(data, track, sequence, size):
+    times, values = struct.unpack_from("<I", data, track + 8)[0], struct.unpack_from("<I", data, track + 16)[0]
+    count, stamps_at = array(data, times + sequence * 8)
+    _, values_at = array(data, values + sequence * 8)
+    return count, bytes(data[stamps_at:stamps_at + count * 4]), bytes(data[values_at:values_at + count * size])
+
+
+def still(quaternion):
+    return 1, struct.pack("<I", 0), packed(quaternion, False)
+
+
+def risen(entry, rise):
+    count, stamps, values = entry
+    places = [np.array(struct.unpack_from("<3f", values, index * 12)) + rise for index in range(count)]
+    return count, stamps, b"".join(struct.pack("<3f", *place) for place in places)
+
+
+def leaned(data, bone, sequence, lean):
+    stamps, keys = bone_keys(data, bone, sequence)
+    return (len(keys), struct.pack(f"<{len(stamps)}I", *stamps),
+            b"".join(packed(product(lean, key), False) for key in keys))
+
+
+def reclined_seat(data):
+    mount, sitting = sequence_index(data, MOUNT), sequence_index(data, SIT_GROUND)
+    root, spine, waist = (key_bone(data, key) for key in (KEY_ROOT, KEY_SPINE_LOW, KEY_WAIST))
+    entries = {}
+    for bone in range(array(data, BONES)[0]):
+        for track, size in zip(BONE_TRACKS, TRACK_VALUE_SIZES):
+            place = bone_offset(data, bone) + track
+            _, global_sequence, count, _ = struct.unpack_from("<hhII", data, place)
+            if global_sequence == -1 and count > mount:
+                entries[bone, track] = own_track(data, place, mount, size)
+    moment = int(sequence_length(data, sitting) * SEATED_LEGS_AT)
+    seated_hips = world_rotation(data, waist, sitting, moment)
+    saddle = world_rotation(data, root, mount, 0)
+    entries[waist, ROTATION] = still(product(conjugate(saddle), seated_hips))
+    for bone in subtree_of(data, waist) - {waist}:
+        entries[bone, ROTATION] = still(at_time(*bone_keys(data, bone, sitting), moment))
+    entries[spine, ROTATION] = leaned(data, spine, mount, as_quaternion(about(np.array(LATERAL), -RECLINED_LEAN)))
+    entries[root, TRANSLATION] = risen(entries[root, TRANSLATION], np.array(RECLINED_SEAT_RISE))
+    return entries
 
 
 def frozen(entry, moment):
@@ -591,6 +671,7 @@ class Grafter:
                 keys = kicked(ogre, self.base, keys, left_arm)
             rotations.append(keys)
         self.hold_left_hand_weapon(left_arm, right_arm, rotations[0])
+        seat = reclined_seat(bytes(self.blob.data))
         held = [entry[4] is not None for entry in COPIED]
         bone_count, _ = array(self.blob.data, BONES)
         for bone in range(bone_count):
@@ -599,15 +680,16 @@ class Grafter:
                 entries = [keys.get(bone) if track == ROTATION else None for keys in rotations]
                 entries = [self.looped(place, size) if entry is None and still else entry
                            for entry, still in zip(entries, held)]
-                self.extend(place, True, entries)
+                self.extend(place, True, entries + [seat.get((bone, track))])
+        added = len(wanted) + 1
         for header, (size, tracks) in RECORD_TRACKS.items():
             count, offset = array(self.blob.data, header)
             for record in range(count):
                 for track in tracks:
-                    self.extend(offset + record * size + track, True, [None] * len(wanted))
+                    self.extend(offset + record * size + track, True, [None] * added)
         count, offset = array(self.blob.data, EVENTS)
         for record in range(count):
-            self.extend(offset + record * EVENT_SIZE + EVENT_TRACK, False, [None] * len(wanted))
+            self.extend(offset + record * EVENT_SIZE + EVENT_TRACK, False, [None] * added)
         self.append_sequences(wanted, source_offset)
         self.cast_from_right_hand()
         return bytes(self.blob.data)
@@ -648,12 +730,17 @@ class Grafter:
 
     def hold_left_hand_weapon(self, left_arm, right_arm, gun_hold):
         ogre = bytes(self.blob.data)
+        arms = subtree_of(ogre, left_arm[0]) | subtree_of(ogre, right_arm[0])
         _, offset = array(ogre, SEQUENCES)
         for sequence in range(self.old_count):
             animation = struct.unpack_from("<H", ogre, offset + sequence * SEQUENCE_SIZE)[0]
             frames = SPELL_HOLD if animation in SPELL_HOLDS else SPELL_RELEASES.get(animation)
             if frames:
-                self.calm_body(sequence, self.base, set())
+                self.calm_body(sequence, self.base, set(range(array(ogre, BONES)[0])) - arms)
+                for bone in spine_of(ogre, left_arm):
+                    entry = softened(ogre, bone, sequence, self.base, CAST_SPINE_SHARE)
+                    if entry:
+                        self.set_own_rotation(bone, sequence, entry)
             if animation in OFF_HAND_SWINGS:
                 self.calm_body(sequence, sequence_index(ogre, READY_1H), subtree_of(ogre, left_arm[0]))
             if animation in LEFT_HAND_HOLDS:
@@ -679,6 +766,11 @@ class Grafter:
                 struct.pack_into("<I", record, 4, sequence_length(bytes(data), self.base) * HOLD_LOOPS)
             struct.pack_into("<hH", record, SEQUENCE_NEXT, -1, self.old_count + position)
             records += record
+        mount = sequence_index(bytes(data), MOUNT)
+        record = bytearray(data[offset + mount * SEQUENCE_SIZE:offset + (mount + 1) * SEQUENCE_SIZE])
+        struct.pack_into("<HH", record, 0, RECLINED_MOUNT, 0)
+        struct.pack_into("<hH", record, SEQUENCE_NEXT, -1, self.old_count + len(wanted))
+        records += record
         struct.pack_into("<II", self.blob.data, SEQUENCES, len(records) // SEQUENCE_SIZE,
                          self.blob.append(bytes(records), 16))
 

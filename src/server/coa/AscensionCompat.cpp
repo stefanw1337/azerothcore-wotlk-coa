@@ -2037,6 +2037,109 @@ public:
     return rank;
   }
 
+  static bool KeepsOwnBuildElsewhere(Player const* player)
+  {
+    return !IsAscensionCustomClass(player) || AscensionFreepick::HasFreepickBuild(player) ||
+        AscensionWildcard::IsWildcardHero(player);
+  }
+
+  static std::vector<AscensionCoATalentState::KnownEntry> ExtraTreeEntries(Player const* player)
+  {
+    AscensionCoATalentState::TalentAccess const access = AccessOf(player);
+    std::vector<AscensionCoATalentState::KnownEntry> known;
+    for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
+      if (AscensionCoATalentState::IsExtraTree(access, entry))
+        if (uint32 const rank = KnownRank(player, entry))
+          known.push_back({ entry.EntryId, rank });
+    return known;
+  }
+
+  static void ExtraTreeBudget(Player const* player, uint32& classBudget, uint32& specializationBudget)
+  {
+    classBudget = 0;
+    specializationBudget = 0;
+    for (AscensionTalentBudgetProvider const& provider : TalentBudgetProviders())
+      provider(player, classBudget, specializationBudget);
+  }
+
+  bool ApplyExtraTreeBuild(Player* player, std::vector<AscensionCoATalentState::KnownEntry> const& build,
+                           std::string& refusal)
+  {
+    AscensionCoATalentState::TalentAccess const access = AccessOf(player);
+    std::unordered_map<uint32, uint32> wanted;
+    for (AscensionCoATalentState::KnownEntry const& item : build)
+      if (AscensionCompatData::CoATalentEntry const* entry = FindTalentEntry(item.EntryId);
+          entry && AscensionCoATalentState::IsExtraTree(access, *entry) && (entry->AECost || entry->TECost))
+        wanted[entry->EntryId] = item.Rank;
+
+    std::vector<AscensionCoATalentState::KnownEntry> proposed;
+    std::vector<std::pair<AscensionCompatData::CoATalentEntry const*, uint32>> changes;
+    for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
+    {
+      if (!AscensionCoATalentState::IsExtraTree(access, entry) || (!entry.AECost && !entry.TECost))
+        continue;
+      uint32 const current = KnownRank(player, entry);
+      auto const itr = wanted.find(entry.EntryId);
+      uint32 const rank = itr == wanted.end() ? current : itr->second;
+      if (rank > entry.SpellCount)
+      {
+        refusal = Acore::StringFormat("Talent entry {} only has {} rank(s).", entry.EntryId, uint32(entry.SpellCount));
+        return false;
+      }
+      if (rank > current && player->GetLevel() < entry.RequiredLevel)
+      {
+        refusal = Acore::StringFormat("Talent entry {} requires level {}.", entry.EntryId,
+                                      uint32(entry.RequiredLevel));
+        return false;
+      }
+      if (rank > current && !sSpellMgr->GetSpellInfo(entry.SpellIds[rank - 1]))
+      {
+        refusal = Acore::StringFormat("Talent entry {} rank {} references a missing server spell.", entry.EntryId,
+                                      rank);
+        return false;
+      }
+      if (rank)
+        proposed.push_back({ entry.EntryId, rank });
+      if (rank != current)
+        changes.emplace_back(&entry, rank);
+    }
+
+    for (AscensionCoATalentState::KnownEntry const& item : proposed)
+      for (uint32 requiredId : FindTalentEntry(item.EntryId)->RequiredEntryIds)
+      {
+        if (!requiredId)
+          continue;
+        AscensionCompatData::CoATalentEntry const* required = FindTalentEntry(requiredId);
+        bool const met = required && (AscensionCoATalentState::IsExtraTree(access, *required) ?
+            std::any_of(proposed.begin(), proposed.end(), [requiredId](AscensionCoATalentState::KnownEntry const& known)
+            {
+              return known.EntryId == requiredId && known.Rank;
+            }) : KnownRank(player, *required) > 0);
+        if (!met)
+        {
+          refusal = Acore::StringFormat("Talent entry {} requires entry {}.", item.EntryId, requiredId);
+          return false;
+        }
+      }
+
+    uint32 classBudget = 0;
+    uint32 specializationBudget = 0;
+    ExtraTreeBudget(player, classBudget, specializationBudget);
+    AscensionCoATalentState::SpentPoints const spent = AscensionCoATalentState::Spent(proposed);
+    if (spent.AE > classBudget || spent.TE > specializationBudget)
+    {
+      refusal = Acore::StringFormat(
+          "That build spends {} class and {} specialization point(s); level {} has {} and {}.",
+          spent.AE, spent.TE, uint32(player->GetLevel()), classBudget, specializationBudget);
+      return false;
+    }
+
+    for (auto const& [entry, rank] : changes)
+      if (!SetTalentRank(player, *entry, rank, refusal, false))
+        return false;
+    return true;
+  }
+
   bool ApplyKnownEntriesUpload(Player* player, std::vector<AscensionCoATalentState::KnownEntry> const& upload,
                                UpdateEntriesRefusal& refusal, std::optional<uint32> requestedSpec = std::nullopt)
   {
@@ -10422,6 +10525,12 @@ bool ApplyAscensionTalentBuild(Player* player, std::vector<AscensionCoATalentSta
         return false;
     }
     auto& service = AscensionClassService::Instance();
+    if (AscensionClassService::KeepsOwnBuildElsewhere(player))
+    {
+        bool const applied = service.ApplyExtraTreeBuild(player, build, refusal);
+        service.SendCharacterAdvancementKnownEntries(player);
+        return applied;
+    }
     UpdateEntriesRefusal result;
     bool const applied = service.ApplyKnownEntriesUpload(player, build, result);
     if (applied)
@@ -10437,10 +10546,15 @@ bool GetAscensionTalentPointsLeft(Player const* player, uint32& classPoints, uin
     uint32 classBudget = 0;
     uint32 specializationBudget = 0;
     std::string error;
-    if (!player || !AscensionClassService::Instance().TalentBudget(player, classBudget, specializationBudget, error))
+    if (!player)
         return false;
-    AscensionCoATalentState::SpentPoints const spent =
-        AscensionCoATalentState::Spent(AscensionClassService::KnownTalentEntries(player));
+    bool const extraTreesOnly = AscensionClassService::KeepsOwnBuildElsewhere(player);
+    if (extraTreesOnly)
+        AscensionClassService::ExtraTreeBudget(player, classBudget, specializationBudget);
+    else if (!AscensionClassService::Instance().TalentBudget(player, classBudget, specializationBudget, error))
+        return false;
+    AscensionCoATalentState::SpentPoints const spent = AscensionCoATalentState::Spent(extraTreesOnly ?
+        AscensionClassService::ExtraTreeEntries(player) : AscensionClassService::KnownTalentEntries(player));
     classPoints = classBudget > spent.AE ? classBudget - spent.AE : 0;
     specializationPoints = specializationBudget > spent.TE ? specializationBudget - spent.TE : 0;
     return true;
@@ -10449,6 +10563,12 @@ bool GetAscensionTalentPointsLeft(Player const* player, uint32& classPoints, uin
 std::vector<AscensionCoATalentState::KnownEntry> GetAscensionKnownTalentEntries(Player const* player)
 {
     return player ? AscensionClassService::KnownTalentEntries(player) :
+        std::vector<AscensionCoATalentState::KnownEntry>{};
+}
+
+std::vector<AscensionCoATalentState::KnownEntry> GetAscensionExtraTreeEntries(Player const* player)
+{
+    return player ? AscensionClassService::ExtraTreeEntries(player) :
         std::vector<AscensionCoATalentState::KnownEntry>{};
 }
 

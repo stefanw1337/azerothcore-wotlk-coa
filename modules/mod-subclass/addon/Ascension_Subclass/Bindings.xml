@@ -1,0 +1,14 @@
+<Bindings>
+    <Binding name="ASCENSION_SUBCLASS_BUTTON1" header="ASCENSION_SUBCLASS">Ascension_Subclass.PressBarButton(1)</Binding>
+    <Binding name="ASCENSION_SUBCLASS_BUTTON2">Ascension_Subclass.PressBarButton(2)</Binding>
+    <Binding name="ASCENSION_SUBCLASS_BUTTON3">Ascension_Subclass.PressBarButton(3)</Binding>
+    <Binding name="ASCENSION_SUBCLASS_BUTTON4">Ascension_Subclass.PressBarButton(4)</Binding>
+    <Binding name="ASCENSION_SUBCLASS_BUTTON5">Ascension_Subclass.PressBarButton(5)</Binding>
+    <Binding name="ASCENSION_SUBCLASS_BUTTON6">Ascension_Subclass.PressBarButton(6)</Binding>
+    <Binding name="ASCENSION_SUBCLASS_BUTTON7">Ascension_Subclass.PressBarButton(7)</Binding>
+    <Binding name="ASCENSION_SUBCLASS_BUTTON8">Ascension_Subclass.PressBarButton(8)</Binding>
+    <Binding name="ASCENSION_SUBCLASS_BUTTON9">Ascension_Subclass.PressBarButton(9)</Binding>
+    <Binding name="ASCENSION_SUBCLASS_BUTTON10">Ascension_Subclass.PressBarButton(10)</Binding>
+    <Binding name="ASCENSION_SUBCLASS_BUTTON11">Ascension_Subclass.PressBarButton(11)</Binding>
+    <Binding name="ASCENSION_SUBCLASS_BUTTON12">Ascension_Subclass.PressBarButton(12)</Binding>
+</Bindings>

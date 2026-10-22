@@ -1473,7 +1473,7 @@ bool CastsOwnSpell(Player const* player)
 bool CastsWithOtherHeadArmed(Player const* player, bool freeOffHand)
 {
     return freeOffHand && player->IsAlive() && OtherHalfAwake(player) && player->HasUnitState(UNIT_STATE_CASTING) &&
-        player->GetSheath() == SHEATH_STATE_MELEE && CastsOwnSpell(player);
+        player->IsInCombat() && CastsOwnSpell(player);
 }
 
 bool HoldsHerMaceForTheCast(Player const* player)
@@ -1488,7 +1488,7 @@ bool ShowsAsCopy(Player const* player, SpellInfo const* info)
     if (!info->HasAttribute(SPELL_ATTR0_USES_RANGED_SLOT))
         return true;
     Item const* gun = OwnBow(player);
-    return gun && !IsBow(gun) && GunInHand(player);
+    return gun && !IsBow(gun);
 }
 
 void HoldTheGun(Player* player, bool afar)
@@ -1713,28 +1713,14 @@ bool AimsFromAfar(Player* player)
 
 std::unordered_set<uint32>& drawnToAim = *new std::unordered_set<uint32>;
 
-constexpr uint32 SheathAnswerMs = 150;
-std::unordered_map<uint32, uint32>& sheathAskedAt = *new std::unordered_map<uint32, uint32>;
-
 void NoteSheathRequest(WorldSession* session, WorldPacket const& packet)
 {
     Player* player = session->GetPlayer();
     if (!player || packet.GetOpcode() != CMSG_SET_SHEATHED || packet.size() < sizeof(uint32) ||
         !HasSecondHead(player))
         return;
-    {
-        std::lock_guard<std::mutex> lock(twinMutex);
-        sheathAskedAt[player->GetGUID().GetCounter()] = GameTime::GetGameTimeMS().count();
-    }
     LOG_INFO("module", "mod-subclass: {} switches her own sheath to {} (server had {})", player->GetName(),
         packet.read<uint32>(0), uint32(player->GetSheath()));
-}
-
-bool AnswersOwnSheath(Player const* player)
-{
-    std::lock_guard<std::mutex> lock(twinMutex);
-    auto const itr = sheathAskedAt.find(player->GetGUID().GetCounter());
-    return itr != sheathAskedAt.end() && GameTime::GetGameTimeMS().count() < itr->second + SheathAnswerMs;
 }
 
 void DrawForTheFight(Player* player)
@@ -1755,9 +1741,10 @@ void DrawForTheFight(Player* player)
         else
             drawnToAim.erase(guid);
     }
-    if (fighting && player->GetSheath() != SHEATH_STATE_MELEE && !AnswersOwnSheath(player))
+    if (aimingOnly && !drewToAim && player->GetSheath() != SHEATH_STATE_MELEE &&
+        !player->IsNonMeleeSpellCast(false, true, true))
     {
-        NoteHands(player, "draws mace and gun");
+        NoteHands(player, "draws mace and gun to aim");
         player->SetSheath(SHEATH_STATE_MELEE);
     }
     else if (!fighting && drewToAim && !player->IsInCombat())
@@ -2408,7 +2395,7 @@ bool HideShotWithoutGun(WorldPacket const& packet)
     if (!info || !IsShot(info))
         return true;
     Player* shooter = ObjectAccessor::FindConnectedPlayer(caster);
-    if (!shooter || !HasSecondHead(shooter) || GunInHand(shooter))
+    if (!shooter || !HasSecondHead(shooter) || GunInHand(shooter) || ShowsAsCopy(shooter, info))
         return true;
     if (packet.GetOpcode() == SMSG_SPELL_GO)
         LOG_INFO("module", "mod-subclass: hides the shooting animation of {} ({}) without a gun in {}'s hand",
@@ -2952,6 +2939,39 @@ bool OrderBrother(Player* player, uint32 spellId, Unit* target)
             "Your brother can't reach that from where he stands." : "Your brother can't cast that right now.");
     }
     return true;
+}
+
+void PressForOtherHalf(Player* player, uint32 spellId)
+{
+    SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+    if (!info || !player->IsAlive() || !player->HasSpell(spellId) || !IsBorrowedSpell(player, spellId))
+        return;
+    Unit* selected = player->GetSelectedUnit();
+    Unit* target = player;
+    if (info->NeedsExplicitUnitTarget())
+    {
+        if (info->IsPositive())
+            target = selected && !player->IsValidAttackTarget(selected) ? selected : player;
+        else
+            target = selected && player->IsValidAttackTarget(selected) ? selected : nullptr;
+    }
+    ChatHandler chat(player->GetSession());
+    if (!target)
+    {
+        chat.SendNotification("That needs an enemy target.");
+        return;
+    }
+    if (HasTwin(player))
+    {
+        OrderBrother(player, spellId, target);
+        return;
+    }
+    if (!HasSecondHead(player))
+        return;
+    if (!Affordable(player, info))
+        chat.SendNotification("Your other head can't cast that yet.");
+    else if (!OrderOtherHalf(player, spellId, target, ManualPause))
+        chat.SendNotification("Your other head can't cast that right now.");
 }
 
 bool HasAnyAura(SpellInfo const* info, std::initializer_list<AuraType> types)
@@ -3749,8 +3769,15 @@ public:
         NoteHands(player, "shoots");
         if (!IsBow(gun))
         {
-            if (GunInHand(player) && player->GetSheath() == SHEATH_STATE_MELEE)
-                player->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_OFF_PIERCE);
+            if (CastsOwnSpell(player))
+                return;
+            if (player->GetSheath() != SHEATH_STATE_MELEE)
+            {
+                NoteHands(player, "draws mace and gun to shoot");
+                player->SetSheath(SHEATH_STATE_MELEE);
+                HoldTheGun(player, AimsFromAfar(player));
+            }
+            player->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_OFF_PIERCE);
         }
         else if (!target || !player->IsWithinMeleeRange(target))
             player->HandleEmoteCommand(RangedEmote(gun->GetTemplate()));

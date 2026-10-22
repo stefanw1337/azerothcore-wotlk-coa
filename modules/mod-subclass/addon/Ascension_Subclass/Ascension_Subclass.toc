@@ -5,3 +5,4 @@
 ## SavedVariables: Ascension_SubclassDump
 ## OptionalDeps: Bartender4
 Ascension_Subclass.lua
+SubclassBar.lua

@@ -11,6 +11,8 @@ FIRE_BOW, ATTACK_BOW = 47, 46
 RANGED_STANCE = {29: READY_1H, 48: READY_1H, 109: READY_1H, 110: READY_1H, 46: ATTACK_OFF, 47: ATTACK_OFF,
                  49: ATTACK_OFF}
 ONE_HANDED = {18: 17, 19: 17, 22: 21, 23: 21, 27: 26, 28: 26, 58: 57}
+RECLINED_MOUNT = 484
+RECLINED_WORDS = ("Reclined", "Chopper")
 RIDER_WORDS = ("Mount", "Carriage")
 STEED_WORDS = ("MountSelf",)
 
@@ -60,6 +62,9 @@ def relink(model_path: Path, dbc_path: Path) -> None:
             lookup.append(own[RANGED_STANCE[animation]])
         elif animation in KNEEL:
             lookup.append(own[KNEEL[animation]])
+        elif (animation in names and any(word in names[animation] for word in RECLINED_WORDS)
+              and RECLINED_MOUNT in own):
+            lookup.append(own[RECLINED_MOUNT])
         elif animation in SEATED and MOUNT in own:
             lookup.append(own[MOUNT])
         elif animation in names and rider_pose(names[animation]) and MOUNT in own:

@@ -21,6 +21,9 @@ local function Send(message)
     SendAddonMessage(PREFIX, message, "WHISPER", UnitName("player"))
 end
 
+Ascension_Subclass = Ascension_Subclass or {}
+Ascension_Subclass.Send = Send
+
 local function Split(text, separator)
     local parts = {}
     for part in string.gmatch(text, "([^" .. separator .. "]+)") do
@@ -1389,6 +1392,12 @@ end)
 
 local function Receive(message)
     local command, rest = string.match(message, "^(%S+)%s?(.*)$")
+    if command == "OTHERSPELLS" then
+        if Ascension_Subclass.OnOtherSpells then
+            Ascension_Subclass.OnOtherSpells(rest)
+        end
+        return
+    end
     if command == "TWINSTATE" then
         local has, out, split = string.match(rest, "^(%d) (%d) (%d)$")
         twinState = { has = has == "1", out = out == "1", split = split == "1" }
@@ -2103,15 +2112,31 @@ end
 local CORNER_REACH = 110
 local PORTRAIT_SQUARENESS, PORTRAIT_MIN, PORTRAIT_MAX = 4, 40, 90
 local CLASS_CIRCLES = "Interface\\TargetingFrame\\UI-Classes-Circles"
+local Portraits = {}
+Portraits.icons = {
+    WARRIOR = "Interface\\Icons\\INV_Sword_27", PALADIN = "Interface\\Icons\\INV_Hammer_01",
+    HUNTER = "Interface\\Icons\\INV_Weapon_Bow_07", ROGUE = "Interface\\Icons\\INV_ThrowingKnife_04",
+    PRIEST = "Interface\\Icons\\INV_Staff_30", DEATHKNIGHT = "Interface\\Icons\\Spell_Deathknight_ClassIcon",
+    SHAMAN = "Interface\\Icons\\Spell_Nature_BloodLust", MAGE = "Interface\\Icons\\INV_Staff_13",
+    WARLOCK = "Interface\\Icons\\Spell_Nature_FaerieFire", DRUID = "Interface\\Icons\\Ability_Druid_Maul",
+}
+
+function Portraits.InWindowSpace(region)
+    local ratio = region:GetEffectiveScale() / window:GetEffectiveScale()
+    return region:GetLeft() * ratio, region:GetTop() * ratio, region:GetRight() * ratio, region:GetBottom() * ratio,
+        region:GetWidth() * ratio, region:GetHeight() * ratio
+end
 
 local function CornerTextures(frame, page, found)
     local left, top = window:GetLeft(), window:GetTop()
     local pageLeft, pageTop = page:GetLeft(), page:GetTop()
     for _, region in ipairs({ frame:GetRegions() }) do
-        if region:GetObjectType() == "Texture" and region:IsVisible() and region:GetTexture()
-            and region:GetLeft() and region:GetRight() < left + CORNER_REACH and region:GetBottom() > top - CORNER_REACH
-            and (region:GetLeft() < pageLeft or region:GetTop() > pageTop) then
-            table.insert(found, region)
+        if region:GetObjectType() == "Texture" and region:IsVisible() and region:GetTexture() and region:GetLeft() then
+            local regionLeft, regionTop, regionRight, regionBottom = Portraits.InWindowSpace(region)
+            if regionRight < left + CORNER_REACH and regionBottom > top - CORNER_REACH
+                and (regionLeft < pageLeft or regionTop > pageTop) then
+                table.insert(found, region)
+            end
         end
     end
     for _, child in ipairs({ frame:GetChildren() }) do
@@ -2150,15 +2175,16 @@ local function LiftWindowCorner(page)
         copy:SetTexCoord(source:GetTexCoord())
         copy:SetVertexColor(source:GetVertexColor())
         copy:SetBlendMode(source:GetBlendMode())
-        copy:SetWidth(source:GetWidth())
-        copy:SetHeight(source:GetHeight())
-        copy:SetPoint("TOPLEFT", window, "TOPLEFT", source:GetLeft() - left, source:GetTop() - top)
-        copy.subclassSource = string.format("%s %dx%d at %d,%d layer %s level %d %s",
-            source:GetName() or "unnamed", source:GetWidth(), source:GetHeight(), source:GetLeft() - left,
-            source:GetTop() - top, tostring(source:GetDrawLayer()),
+        local sourceLeft, sourceTop, _, _, sourceWidth, sourceHeight = Portraits.InWindowSpace(source)
+        copy:SetWidth(sourceWidth)
+        copy:SetHeight(sourceHeight)
+        copy:SetPoint("TOPLEFT", window, "TOPLEFT", sourceLeft - left, sourceTop - top)
+        copy.subclassSource = string.format("%s %dx%d at %d,%d scale %.2f layer %s level %d %s",
+            source:GetName() or "unnamed", sourceWidth, sourceHeight, sourceLeft - left, sourceTop - top,
+            source:GetEffectiveScale() / window:GetEffectiveScale(), tostring(source:GetDrawLayer()),
             source:GetParent() and source:GetParent():GetFrameLevel() or -1, tostring(source:GetTexture()))
         table.insert(page.cornerCopies, copy)
-        local width, height = source:GetWidth(), source:GetHeight()
+        local width, height = sourceWidth, sourceHeight
         if math.abs(width - height) < PORTRAIT_SQUARENESS and width >= PORTRAIT_MIN and width <= PORTRAIT_MAX
             and (not page.portrait or width > page.portrait:GetWidth()) then
             page.portrait = copy
@@ -2176,8 +2202,15 @@ local function ShowSubclassPortrait(page)
         return
     end
     local token = state.subclass and string.upper(string.gsub(state.subclass, " ", ""))
+    local icon = token and Portraits.icons[token]
     local coords = token and CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[token]
-    if coords then
+    if icon then
+        if portrait.subclassIcon ~= icon then
+            SetPortraitToTexture(portrait, icon)
+            portrait:SetTexCoord(0, 1, 0, 1)
+            portrait.subclassIcon = icon
+        end
+    elseif coords then
         portrait:SetTexture(CLASS_CIRCLES)
         portrait:SetTexCoord(unpack(coords))
     else
@@ -3264,6 +3297,33 @@ GameTooltip:HookScript("OnShow", function()
         RecordHoveredNode()
     end
 end)
+
+StaticPopupDialogs["ASCENSION_SUBCLASS_TALENT_WIPE"] = {
+    text = "Do you want to unlearn all your talents? This will cost:",
+    button1 = YES,
+    button2 = NO,
+    hasMoneyFrame = 1,
+    OnAccept = function()
+        ConfirmTalentWipe()
+    end,
+    timeout = 0,
+    whileDead = 1,
+    hideOnEscape = 1,
+}
+
+do
+    local talentWipe = CreateFrame("Frame")
+    talentWipe:RegisterEvent("CONFIRM_TALENT_WIPE")
+    talentWipe:SetScript("OnEvent", function(_, _, cost)
+        if not IsStandardClass() then
+            return
+        end
+        local dialog = StaticPopup_Show("ASCENSION_SUBCLASS_TALENT_WIPE")
+        if dialog then
+            MoneyFrame_Update(dialog:GetName() .. "MoneyFrame", cost or 0)
+        end
+    end)
+end
 
 local tries = 0
 local quietened = false

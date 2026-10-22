@@ -43,6 +43,7 @@
 #include <atomic>
 #include <mutex>
 #include <optional>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -68,6 +69,8 @@ std::string ToggleTwin(Player* player);
 bool SubclassResting(Player const* player);
 bool LonelyTwin(Player const* player);
 bool OrderBrother(Player* player, uint32 spellId, Unit* target);
+void PressForOtherHalf(Player* player, uint32 spellId);
+std::vector<uint32> KnownBorrowedActives(Player const* player);
 bool OffersStandardMains();
 bool SubclassRaceEnabled(uint8 race);
 bool ForcedBot(Player const* player);
@@ -90,6 +93,8 @@ constexpr uint32 SenderTrainer = 9530011;
 constexpr uint32 SenderClass = 9530012;
 constexpr uint32 SenderSpec = 9530013;
 constexpr uint32 SenderSecondSpec = 9530014;
+constexpr uint32 SenderUnlearnBorrowed = 9530015;
+constexpr uint32 UntalentVisual = 14867;
 constexpr uint32 ActionAccept = 1;
 constexpr uint32 ActionLater = 2;
 constexpr char const* BookScriptName = "item_subclass_book_of_origins";
@@ -315,6 +320,7 @@ struct Voice
     std::string Used = "We read it together. Now we understand! Go to a class trainer, any of them, and we choose a "
         "second way.";
     std::string Unreadable = "The pages are full of ogre scribbles you cannot make sense of.";
+    std::string OneInsight = "One new way at a time. First we choose at a class trainer, then we read again.";
     std::string TrainerOption = "[Second head] We want to learn the way of another class.";
     std::string Chosen = "Ha! Now we know another way.";
     std::string Found = "Look! Another Book of Origins! We can choose again.";
@@ -540,7 +546,7 @@ Record RecordOf(Player const* player)
     {
         Field* fields = result->Fetch();
         record.Choice = { fields[0].Get<uint8>(), fields[1].Get<uint16>(), fields[2].Get<uint16>() };
-        record.Insights = fields[3].Get<uint32>();
+        record.Insights = std::min<uint32>(fields[3].Get<uint32>(), 1);
     }
 
     std::lock_guard<std::mutex> lock(subclassMutex);
@@ -858,10 +864,14 @@ void SendSubclassState(Player* player)
         SendAddonList(player, Acore::StringFormat("ABIL {}", index + 1), abilities);
     }
     std::vector<std::string> ranks;
-    for (AscensionCoATalentState::KnownEntry const& known : GetAscensionKnownTalentEntries(player))
-        if (AscensionCompatData::CoATalentEntry const* entry = FindCatalogEntry(known.EntryId);
-            known.Rank && entry && InTrees(open, *entry))
-            ranks.push_back(Acore::StringFormat("{}:{}", known.EntryId, known.Rank));
+    std::unordered_set<uint32> listed;
+    std::vector<AscensionCoATalentState::KnownEntry> known = GetAscensionExtraTreeEntries(player);
+    std::vector<AscensionCoATalentState::KnownEntry> const own = GetAscensionKnownTalentEntries(player);
+    known.insert(known.end(), own.begin(), own.end());
+    for (AscensionCoATalentState::KnownEntry const& item : known)
+        if (AscensionCompatData::CoATalentEntry const* entry = FindCatalogEntry(item.EntryId);
+            item.Rank && entry && InTrees(open, *entry) && listed.insert(item.EntryId).second)
+            ranks.push_back(Acore::StringFormat("{}:{}", item.EntryId, item.Rank));
     SendAddonList(player, "RANKS", ranks);
     uint32 classPoints = 0;
     uint32 specializationPoints = 0;
@@ -928,6 +938,10 @@ void HandleAddonMessage(Player* player, std::string_view message)
         SendAddon(player, TwinState(player));
         SendAddon(player, RelicState(player));
         SendAddon(player, CyclopsModelState(player));
+        std::vector<std::string> spells;
+        for (uint32 spellId : KnownBorrowedActives(player))
+            spells.push_back(std::to_string(spellId));
+        SendAddonList(player, "OTHERSPELLS", spells);
         return;
     }
     if (message == "AIM")
@@ -942,6 +956,12 @@ void HandleAddonMessage(Player* player, std::string_view message)
         return;
     }
     std::vector<std::string_view> const words = Acore::Tokenize(message, ' ', false);
+    if (words.size() == 2 && words[0] == "PRESS")
+    {
+        if (Optional<uint32> spellId = Acore::StringTo<uint32>(words[1]))
+            PressForOtherHalf(player, *spellId);
+        return;
+    }
     if (words.size() == 2 && words[0] == "LEFTHEAD")
     {
         DressLeftHead(player, words[1]);
@@ -1341,7 +1361,7 @@ uint32 ApplyChoice(Player* player, Subclass::Choice const& wanted)
 void AddInsight(Player* player)
 {
     Record record = RecordOf(player);
-    ++record.Insights;
+    record.Insights = 1;
     StoreRecord(player, record);
     SendSubclassState(player);
 }
@@ -1519,7 +1539,7 @@ void ChooseAtTrainer(Player* player, uint16 specId, uint16 secondSpecId)
 
 void GrantBook(Player* player, uint32 bookItemId)
 {
-    if (!player->AddItem(bookItemId, 1))
+    if (RecordOf(player).Insights || player->HasItemCount(bookItemId, 1, true) || !player->AddItem(bookItemId, 1))
         return;
     ChatHandler(player->GetSession()).SendSysMessage(VoiceOf(player).Says(VoiceOf(player).Found));
 }
@@ -2124,7 +2144,14 @@ public:
         if (status == QUEST_STATUS_COMPLETE && player->CanRewardQuest(quest, true))
             player->RewardQuest(quest, 0, player);
         else if (status == QUEST_STATUS_REWARDED)
+        {
+            if (RecordOf(player).Insights)
+            {
+                handler.SendSysMessage(voice.Says(voice.OneInsight));
+                return true;
+            }
             player->DestroyItemCount(bookItemId, 1, true);
+        }
         else
         {
             handler.SendSysMessage(voice.Says(voice.NotYet));
@@ -2137,6 +2164,94 @@ public:
     }
 };
 
+bool TeachesSubclass(Player const* player, Creature const* creature)
+{
+    Subclass::Choice const choice = ChoiceOf(player);
+    if (!choice.Complete() || OpenTreesOf(player).empty())
+        return false;
+    Trainer::Trainer const* trainer = sObjectMgr->GetTrainer(creature->GetEntry());
+    return trainer && trainer->GetTrainerType() == Trainer::Type::Class &&
+        trainer->GetTrainerRequirement() == PlayableClassOf(choice.SubClass);
+}
+
+bool PaidBorrowedEntry(Player const* player, AscensionCompatData::CoATalentEntry const& entry,
+    std::vector<Subclass::Tree> const& open)
+{
+    return (entry.AECost || entry.TECost) && InTrees(open, entry) && GetAscensionTalentRank(player, entry.EntryId);
+}
+
+bool SpendsBorrowedPoints(Player const* player)
+{
+    std::vector<Subclass::Tree> const open = OpenTreesOf(player);
+    return std::any_of(AscensionCompatData::CoATalentEntries.begin(), AscensionCompatData::CoATalentEntries.end(),
+        [player, &open](AscensionCompatData::CoATalentEntry const& entry)
+        {
+            return PaidBorrowedEntry(player, entry, open);
+        });
+}
+
+uint32 ForgetPaidBorrowedTalents(Player* player)
+{
+    std::vector<Subclass::Tree> const open = OpenTreesOf(player);
+    uint32 removed = 0;
+    for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
+    {
+        if (!(entry.AECost || entry.TECost) || !InTrees(open, entry))
+            continue;
+        for (uint32 spellId : entry.SpellIds)
+            if (spellId && player->HasSpell(spellId))
+            {
+                player->removeSpell(spellId, SPEC_MASK_ALL, false);
+                ++removed;
+            }
+    }
+    return removed;
+}
+
+void UnlearnBorrowedTalentsAt(Player* player, Creature* creature)
+{
+    uint32 const cost = player->resetTalentsCost();
+    if (!player->HasEnoughMoney(cost))
+    {
+        player->SendBuyError(BUY_ERR_NOT_ENOUGHT_MONEY, creature, 0, 0);
+        return;
+    }
+    uint32 const removed = ForgetPaidBorrowedTalents(player);
+    if (!removed)
+    {
+        ChatHandler(player->GetSession()).SendNotification("You have no subclass talents to unlearn.");
+        return;
+    }
+    player->ModifyMoney(-int32(cost));
+    SynchronizeAscensionTalentReplacements(player);
+    creature->CastSpell(player, UntalentVisual, true);
+    SendSubclassState(player);
+    LOG_INFO("module", "mod-subclass: {} unlearned the subclass talents at {} ({} rank spell(s), {} copper)",
+        player->GetName(), creature->GetName(), removed, cost);
+}
+
+void DropDualSpecOptions(Player* player)
+{
+    GossipMenu& menu = player->PlayerTalkClass->GetGossipMenu();
+    std::vector<std::tuple<uint32, GossipMenuItem, std::optional<GossipMenuItemData>>> kept;
+    for (auto const& [id, item] : menu.GetMenuItems())
+        if (item.OptionType != GOSSIP_OPTION_LEARNDUALSPEC && item.OptionType != GOSSIP_OPTION_DUALSPEC_INFO)
+        {
+            GossipMenuItemData const* data = menu.GetItemData(id);
+            kept.emplace_back(id, item, data ? std::optional<GossipMenuItemData>(*data) : std::nullopt);
+        }
+    if (kept.size() == menu.GetMenuItemCount())
+        return;
+    menu.ClearMenu();
+    for (auto const& [id, item, data] : kept)
+    {
+        menu.AddMenuItem(int32(id), item.MenuItemIcon, item.Message, item.Sender, item.OptionType, item.BoxMessage,
+            item.BoxMoney, item.IsCoded);
+        if (data)
+            menu.AddGossipMenuItemData(id, data->GossipActionMenuId, data->GossipActionPoi);
+    }
+}
+
 class mod_subclass_trainers : public AllCreatureScript
 {
 public:
@@ -2144,10 +2259,18 @@ public:
 
     bool CanCreatureGossipHello(Player* player, Creature* creature) override
     {
-        if (!creature->HasNpcFlag(UNIT_NPC_FLAG_TRAINER_CLASS) || !IsEligible(player) || !RecordOf(player).Insights)
+        if (!creature->HasNpcFlag(UNIT_NPC_FLAG_TRAINER_CLASS) || !IsEligible(player))
             return false;
+        bool const insight = RecordOf(player).Insights != 0;
+        bool const respec = TeachesSubclass(player, creature) && SpendsBorrowedPoints(player);
         player->PrepareGossipMenu(creature, creature->GetGossipMenuId(), true);
-        AddGossipItemFor(player, GOSSIP_ICON_TRAINER, VoiceOf(player).TrainerOption, SenderTrainer, 0);
+        DropDualSpecOptions(player);
+        if (insight)
+            AddGossipItemFor(player, GOSSIP_ICON_TRAINER, VoiceOf(player).TrainerOption, SenderTrainer, 0);
+        if (respec)
+            AddGossipItemFor(player, GOSSIP_ICON_CHAT, "I wish to unlearn my subclass Talents.", SenderUnlearnBorrowed,
+                0, "Do you want to unlearn all your subclass talents? Your subclass and its specialization stay.",
+                player->resetTalentsCost(), false);
         player->SendPreparedGossip(creature);
         return true;
     }
@@ -2170,6 +2293,11 @@ public:
                 return true;
             case SenderSecondSpec:
                 ChooseAtTrainer(player, uint16(action >> 16), uint16(action & 0xFFFF));
+                return true;
+            case SenderUnlearnBorrowed:
+                CloseGossipMenuFor(player);
+                if (TeachesSubclass(player, creature))
+                    UnlearnBorrowedTalentsAt(player, creature);
                 return true;
             default:
                 return false;
@@ -2500,6 +2628,69 @@ bool OpenStandardClassesAtCreation(WorldSession* session, WorldPacket const& pac
     return false;
 }
 
+bool IsRelic(Item const* item)
+{
+    if (!item)
+        return false;
+    std::string const& script = sObjectMgr->GetScriptName(item->GetTemplate()->ScriptId);
+    return script == BookScriptName || script == BadgeScriptName;
+}
+
+bool CarriesRelic(Item const* item)
+{
+    if (IsRelic(item))
+        return true;
+    Bag const* bag = item ? item->ToBag() : nullptr;
+    if (!bag)
+        return false;
+    for (uint32 slot = 0; slot < bag->GetBagSize(); ++slot)
+        if (IsRelic(bag->GetItemByPos(uint8(slot))))
+            return true;
+    return false;
+}
+
+bool IsBankBag(uint8 bag)
+{
+    return bag >= BANK_SLOT_BAG_START && bag < BANK_SLOT_BAG_END;
+}
+
+bool KeepsRelicOutOfBank(WorldSession* session, WorldPacket const& packet)
+{
+    Player* player = session->GetPlayer();
+    if (!player)
+        return true;
+    auto byte = [&packet](std::size_t at) { return packet.read<uint8>(at); };
+    auto movesRelicIn = [player](uint8 fromBag, uint8 fromSlot, uint8 toBag, uint8 toSlot)
+    {
+        return (CarriesRelic(player->GetItemByPos(fromBag, fromSlot)) && Player::IsBankPos(toBag, toSlot)) ||
+            (CarriesRelic(player->GetItemByPos(toBag, toSlot)) && Player::IsBankPos(fromBag, fromSlot));
+    };
+    bool refused = false;
+    switch (packet.GetOpcode())
+    {
+        case CMSG_AUTOBANK_ITEM:
+            refused = packet.size() >= 2 && CarriesRelic(player->GetItemByPos(byte(0), byte(1)));
+            break;
+        case CMSG_SWAP_INV_ITEM:
+            refused = packet.size() >= 2 && movesRelicIn(INVENTORY_SLOT_BAG_0, byte(1), INVENTORY_SLOT_BAG_0, byte(0));
+            break;
+        case CMSG_SWAP_ITEM:
+            refused = packet.size() >= 4 && movesRelicIn(byte(2), byte(3), byte(0), byte(1));
+            break;
+        case CMSG_AUTOSTORE_BAG_ITEM:
+            refused = packet.size() >= 3 && CarriesRelic(player->GetItemByPos(byte(0), byte(1))) && IsBankBag(byte(2));
+            break;
+        default:
+            return true;
+    }
+    if (refused)
+    {
+        player->SendEquipError(EQUIP_ERR_ITEM_DOESNT_GO_TO_SLOT, nullptr);
+        ChatHandler(session).SendNotification("This relic stays with you; it cannot go into the bank.");
+    }
+    return !refused;
+}
+
 bool AllowsCreation(WorldSession* session, WorldPacket const& packet)
 {
     if (packet.GetOpcode() != CMSG_CHAR_CREATE)
@@ -2535,7 +2726,7 @@ public:
 
     bool CanPacketReceive(WorldSession* session, WorldPacket const& packet) override
     {
-        return !session || AllowsCreation(session, packet);
+        return !session || (AllowsCreation(session, packet) && KeepsRelicOutOfBank(session, packet));
     }
 };
 

@@ -12,6 +12,7 @@ CLASS_FAMILIES = {3, 4, 5, 6, 7, 8, 9, 10, 11, 15}
 HUNTER_FAMILY = 9
 ATTRIBUTES, ATTRIBUTES_EX2 = 4, 6
 USES_RANGED_SLOT, AUTO_REPEAT = 0x2, 0x20
+KEEPS_SHEATH = 0x40000
 SPELL_VISUAL, SPELL_FAMILY, DAMAGE_CLASS = 131, 208, 213
 MELEE, RANGED = 2, 3
 VISUAL_ARM_KITS = (1, 2, 6)
@@ -113,6 +114,7 @@ def main(client_root, mapping_sql):
 
     def add(copy):
         copy[0] = FIRST_SPELL + len(new_spells)
+        copy[ATTRIBUTES] |= KEEPS_SHEATH
         new_spells.append(packed(copy))
         return copy[0]
 
