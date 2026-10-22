@@ -1324,14 +1324,15 @@ function Stances.BuildStanceBar()
     local shown = 0
     local named = {}
     for index, spellId in ipairs(Stances.spells) do
-        local name, _, icon = GetSpellInfo(spellId)
+        local name, rank, icon = GetSpellInfo(spellId)
         if name and not named[name] then
             named[name] = true
             shown = shown + 1
             local button = Stances.StanceButton(shown)
+            local cast = rank and rank ~= "" and name .. "(" .. rank .. ")" or name
             button:SetAttribute("type", "spell")
-            button:SetAttribute("spell", name)
-            button.spellId, button.spellName, button.spellIcon = spellId, name, icon
+            button:SetAttribute("spell", cast)
+            button.spellId, button.spellName, button.spellIcon, button.spellCast = spellId, name, icon, cast
             button.icon:SetTexture(icon)
             button:ClearAllPoints()
             button:SetPoint("LEFT", Stances.bar, "LEFT", (shown - 1) * (Stances.size + Stances.gap), 0)
@@ -1361,9 +1362,10 @@ function Stances.BuildStanceBar()
     end
 end
 
-function Stances.Borrowed(name)
+function Stances.Borrowed(name, texture)
     for _, spellId in ipairs(Stances.spells) do
-        if GetSpellInfo(spellId) == name then
+        local borrowed, _, icon = GetSpellInfo(spellId)
+        if borrowed == name or (texture and icon and string.lower(icon) == string.lower(texture)) then
             return true
         end
     end
@@ -1382,8 +1384,8 @@ function Stances.TidyMainBar()
     for index = 1, NUM_SHAPESHIFT_SLOTS or 10 do
         local button = _G["ShapeshiftButton" .. index]
         if button then
-            local _, name = GetShapeshiftFormInfo(index)
-            if index <= GetNumShapeshiftForms() and name and Stances.Borrowed(name) then
+            local texture, name = GetShapeshiftFormInfo(index)
+            if index <= GetNumShapeshiftForms() and name and Stances.Borrowed(name, texture) then
                 button:Hide()
             elseif button:IsShown() then
                 button:ClearAllPoints()
@@ -1506,12 +1508,12 @@ Stances.watch:SetScript("OnUpdate", function(self, elapsed)
         button.active = UnitBuff("player", button.spellName) ~= nil
         button:SetChecked(button.active)
         button.icon:SetTexture(button.active and "Interface\\Icons\\Spell_Nature_WispSplode" or button.spellIcon)
-        local start, duration, enabled = GetSpellCooldown(button.spellName)
+        local start, duration, enabled = GetSpellCooldown(button.spellCast or button.spellName)
         if start and duration and duration > 1.5 and enabled == 1 then
             button.cooldown:SetCooldown(start, duration)
         end
         button.icon:SetVertexColor(1, 1, 1)
-        if not IsUsableSpell(button.spellName) then
+        if not IsUsableSpell(button.spellCast or button.spellName) then
             button.icon:SetVertexColor(0.4, 0.4, 0.4)
         end
     end
