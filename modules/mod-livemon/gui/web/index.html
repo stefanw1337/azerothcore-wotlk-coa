@@ -133,6 +133,9 @@ nav.tabs button { font: 13px "Friz", Georgia, serif; color: var(--gold-dim); cur
   background: linear-gradient(#1c150c, #0b0806); text-shadow: 1px 1px 0 #000; }
 nav.tabs button:hover { color: #fff; }
 nav.tabs button.on { color: var(--gold); border-color: var(--metal); background: linear-gradient(#3a2a12, #160f06); }
+nav.tabs button[hidden] { display: none; }
+nav.tabs .close { margin-left: 10px; padding: 0 2px; color: var(--muted); font-size: 15px; line-height: 1; }
+nav.tabs .close:hover { color: #ff5a3c; }
 .tab { display: none; } .tab.on { display: grid; }
 button.act { font: 12px "Friz", Georgia, serif; color: var(--gold); padding: 4px 12px; border-radius: 4px; cursor: pointer;
   border: 1px solid #000; box-shadow: 0 0 0 1px var(--metal); background: linear-gradient(#8e1414, #4a0505 60%, #2b0202); }
@@ -188,7 +191,9 @@ tr.thin td { opacity: .45; }
 </header>
 <nav class="tabs" id="tabs">
   <button data-tab="characters" class="on">Characters</button><button data-tab="combos">Combos</button>
-  <button data-tab="records">Records</button><button data-tab="character" id="characterTab">Character</button>
+  <button data-tab="records">Records</button><button data-tab="character" id="characterTab" hidden><span
+    id="characterName">Character</span><span class="close" id="closeCharacter"
+    title="Close this tab">&times;</span></button>
 </nav>
 <main class="tab on" id="tab-characters">
   <section class="wide"><h2>Realm</h2><div class="tiles" id="tiles"></div></section>
@@ -528,12 +533,13 @@ function renderCharacter() {
   if (!state.selected || (!c && !data)) return;
   if (c) {
     $("charTitle").innerHTML = `${esc(c.name)} · ${colored(c.class, c.classId)}${c.subclass ? " + " + esc(c.subclass) : ""}`;
-    $("characterTab").textContent = c.name;
+    $("characterName").textContent = c.name;
     $("charHead").innerHTML = `Level ${c.level} ${esc(c.race)} · ${esc(specLabel(c) || "no spec")}` +
       (c.subclass ? ` · subclass ${esc(c.subclass)}${c.subSpecName ? " (" + esc(c.subSpecName) + ")" : ""}` : "") +
       ` · run speed ${speedText(c.runSpeed)} · ${c.online ? (c.inCombat ? '<span class="fight">in combat</span>' : "online") : "offline"}`;
   }
   if (!data) return;
+  if (!c && isGone(data)) return closeCharacter();
   const snapshot = data.snapshot, live = data.live;
   const talents = talentIndex(snapshot);
   const scope = state.scope === "allTime" ? data.allTime : live || data.allTime;
@@ -581,7 +587,24 @@ function showTab(tab) {
 function openCharacter(id) {
   if (state.selected !== id) state.character = null;
   state.selected = id;
+  const c = state.live && state.live.characters.find(x => String(x.guid) === id);
+  $("characterName").textContent = c ? c.name : "Character";
+  $("characterTab").hidden = false;
   showTab("character");
+}
+
+function closeCharacter() {
+  state.selected = null;
+  state.character = null;
+  $("characterTab").hidden = true;
+  $("characterName").textContent = "Character";
+  $("charTitle").textContent = "Pick a character on the Characters tab";
+  if (state.tab === "character") showTab("characters");
+}
+
+function isGone(data) {
+  return !data.snapshot && !data.live && !data.minutes.length && !data.allTime.spells.length &&
+    !data.allTime.heals.length;
 }
 
 async function pollLive() {
@@ -643,7 +666,10 @@ async function clearData(scope, question) {
   if (!confirm(question)) return;
   try { await getJson("feed/reset?scope=" + scope); } catch (e) { }
   state.previous = {}; state.rates = {}; state.character = null;
-  pollLive(); pollHistory(); pollRecords();
+  await pollLive();
+  if (state.selected && !(state.live && state.live.characters.some(x => String(x.guid) === state.selected)))
+    closeCharacter();
+  pollHistory(); pollRecords();
 }
 
 document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => b.dataset.tab === "character" && !state.selected ?
@@ -653,6 +679,7 @@ document.querySelectorAll("#scope button").forEach(b => b.onclick = () => {
   document.querySelectorAll("#scope button").forEach(x => x.classList.toggle("on", x === b));
   render();
 });
+$("closeCharacter").onclick = event => { event.stopPropagation(); closeCharacter(); };
 $("clearGone").onclick = () => clearData("gone", "Remove stored data of characters that no longer exist, and of everyone offline from this session's list?");
 $("clearAll").onclick = () => clearData("all", "Remove ALL stored LiveMon data and records? This cannot be undone.");
 $("window").onchange = pollHistory;

@@ -530,7 +530,8 @@ void SetCarry(Player* player, Creature* twin, Carry mode)
 Carry WantedCarry(Player const* player, Motion const& motion)
 {
     if (!player->IsAlive() || player->IsInCombat() || player->IsInWater() || !player->IsStandState() ||
-        player->HasStealthAura() || player->GetSheath() != SHEATH_STATE_UNARMED || InBorrowedShape(player))
+        player->HasStealthAura() || player->GetSheath() != SHEATH_STATE_UNARMED || InBorrowedShape(player) ||
+        player->GetDisplayId() != player->GetNativeDisplayId())
         return Carry::Beside;
     if (player->IsMounted())
         return (player->GetVehicleKit() && !OwnsKit(player)) || player->HasAuraType(SPELL_AURA_TRANSFORM) ||

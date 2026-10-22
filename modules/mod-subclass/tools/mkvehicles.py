@@ -10,7 +10,7 @@ TEMPLATE_VEHICLE, TEMPLATE_SEAT = 312, 2764
 SEAT_CAN_ENTER_OR_EXIT, SEAT_CAN_SWITCH = 0x02000000, 0x04000000
 CHEST_BACK_SEAT, MOUNT_RIDER_SEAT = 10, 21
 PIGGYBACK_OFFSET, PIGGYBACK_PITCH = (0.05, 0.0, -0.35), -0.35
-RIDER_BACK_OFFSET = (-0.145, -0.04, 0.23)
+RIDER_BEHIND_OFFSET = (-0.28, 0.0, 0.0)
 SEAT_COLUMNS = ("ID Flags AttachmentID AttachmentOffsetX AttachmentOffsetY AttachmentOffsetZ EnterPreDelay EnterSpeed "
     "EnterGravity EnterMinDuration EnterMaxDuration EnterMinArcHeight EnterMaxArcHeight EnterAnimStart EnterAnimLoop "
     "RideAnimStart RideAnimLoop RideUpperAnimStart RideUpperAnimLoop ExitPreDelay ExitSpeed ExitGravity ExitMinDuration "
@@ -96,7 +96,7 @@ def sql(table, columns, fmt, rows, strings):
 _, seat_fields, seat_size, seats, seat_strings = load(f"{SRC}/VehicleSeat.dbc")
 _, vehicle_fields, vehicle_size, vehicles, vehicle_strings = load(f"{SRC}/Vehicle.dbc")
 new_seats = [seat(seats, PIGGYBACK_SEAT, CHEST_BACK_SEAT, PIGGYBACK_OFFSET, PIGGYBACK_PITCH),
-             seat(seats, SADDLE_SEAT, MOUNT_RIDER_SEAT, RIDER_BACK_OFFSET)]
+             seat(seats, SADDLE_SEAT, MOUNT_RIDER_SEAT, RIDER_BEHIND_OFFSET)]
 new_vehicles = [vehicle(vehicles, PIGGYBACK, PIGGYBACK_SEAT), vehicle(vehicles, SADDLE, SADDLE_SEAT)]
 seats = [row for row in seats if struct.unpack_from("<I", row)[0] not in (PIGGYBACK_SEAT, SADDLE_SEAT)] + new_seats
 vehicles = [row for row in vehicles if struct.unpack_from("<I", row)[0] not in (PIGGYBACK, SADDLE)] + new_vehicles
