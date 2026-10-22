@@ -289,18 +289,103 @@ local function StandardTree(tree)
     return tree.className and STANDARD_CLASS_NAMES[tree.className]
 end
 
+local CoAArt = { prefix = "talents-background-", found = {} }
+
+function CoAArt.Key(text)
+    return text and string.lower(string.gsub(text, "[%s%-'_]", "")) or nil
+end
+
+function CoAArt.OfSpec(tree)
+    if not (tree.spec and tree.spec > 0 and C_ClassInfo and C_ClassInfo.GetSpecInfoByID) then
+        return nil
+    end
+    local ok, info = pcall(C_ClassInfo.GetSpecInfoByID, tree.spec)
+    if ok and type(info) == "table" and info.Class and info.Spec then
+        local atlas = CoAArt.prefix .. string.lower(info.Class) .. "-" .. string.lower(info.Spec)
+        return AtlasInfo[atlas] and atlas or nil
+    end
+end
+
+function CoAArt.OfNames(tree)
+    local class, spec = CoAArt.Key(tree.className), CoAArt.Key(tree.title)
+    local atlas = class and spec and CoAArt.prefix .. class .. "-" .. spec
+    return atlas and AtlasInfo[atlas] and atlas or nil
+end
+
+function CoAArt.OfClass(tree)
+    for _, other in ipairs(state.trees) do
+        if other ~= tree and other.className == tree.className and (other.spec or 0) > 0 then
+            local atlas = CoAArt.Find(other)
+            if atlas then
+                return atlas
+            end
+        end
+    end
+    local class = CoAArt.Key(tree.className)
+    local start = class and CoAArt.prefix .. class .. "-"
+    local first
+    for atlas in pairs(AtlasInfo) do
+        if start and string.find(atlas, start, 1, true) == 1 and (not first or atlas < first) then
+            first = atlas
+        end
+    end
+    return first
+end
+
+function CoAArt.Find(tree)
+    if type(AtlasInfo) ~= "table" or not tree.className then
+        return nil
+    end
+    local key = tree.className .. ":" .. (tree.spec or 0) .. ":" .. (tree.title or "")
+    if CoAArt.found[key] == nil then
+        CoAArt.found[key] = CoAArt.OfSpec(tree) or CoAArt.OfNames(tree) or ((tree.spec or 0) == 0 and
+            CoAArt.OfClass(tree)) or false
+    end
+    return CoAArt.found[key] or nil
+end
+
+function CoAArt.Show(texture, atlas, width, height)
+    local raw = AtlasInfo[atlas]
+    local ok, info = pcall(function() return AtlasUtil and AtlasUtil.GetAtlasInfo and AtlasUtil:GetAtlasInfo(atlas) end)
+    info = ok and type(info) == "table" and info or {}
+    local file = info.file or info.filename or raw[1]
+    local artWidth, artHeight = info.width or raw[2], info.height or raw[3]
+    local left, right = info.leftTexCoord or raw[4], info.rightTexCoord or raw[5]
+    local top, bottom = info.topTexCoord or raw[6], info.bottomTexCoord or raw[7]
+    local complete = type(file) == "string" and tonumber(artWidth) and tonumber(artHeight) and tonumber(left) and
+        tonumber(right) and tonumber(top) and tonumber(bottom)
+    if not complete or not texture:SetTexture(file) then
+        return texture.SetAtlas ~= nil and pcall(texture.SetAtlas, texture, atlas) or false
+    end
+    local wanted, shown = width / height, artWidth / artHeight
+    if shown > wanted then
+        local trim = (right - left) * (1 - wanted / shown) / 2
+        left, right = left + trim, right - trim
+    else
+        local trim = (bottom - top) * (1 - shown / wanted) / 2
+        top, bottom = top + trim, bottom - trim
+    end
+    texture:SetTexCoord(left, right, top, bottom)
+    return true
+end
+
 local function ShowTreeArt(tree, canvas)
     if not canvas.art then
         canvas.art = canvas:CreateTexture(nil, "BACKGROUND")
         canvas.art:SetAllPoints(canvas)
         canvas.art:SetAlpha(0.8)
     end
+    local width, height = canvas:GetWidth(), canvas:GetHeight()
     local art = tree.className and STANDARD_TREE_ART[tree.className .. ":" .. (tree.title or "")]
     if art and canvas.art:SetTexture(TREE_ART_FOLDER .. art) then
-        local width, height = canvas:GetWidth(), canvas:GetHeight()
         local shown = math.min(TREE_ART_WIDTH, TREE_ART_HEIGHT * width / height)
         local left = (TREE_ART_WIDTH - shown) / 2
         canvas.art:SetTexCoord(left / TREE_ART_SIZE, (left + shown) / TREE_ART_SIZE, 0, TREE_ART_HEIGHT / TREE_ART_SIZE)
+        canvas.art:Show()
+        return
+    end
+    local atlas = not StandardTree(tree) and height > 0 and CoAArt.Find(tree)
+    if atlas and CoAArt.Show(canvas.art, atlas, width, height) then
         canvas.art:Show()
     else
         canvas.art:Hide()
@@ -3264,6 +3349,11 @@ SlashCmdList.ASCENSIONSUBCLASS = function(message)
         local fit = SheetFit()
         DEFAULT_CHAT_FRAME:AddMessage(string.format("Subclass: character window model zoom %.2f, right %.2f, up %.2f "
             .. "(/subclass sheet <zoom> <right> <up>, /subclass sheet reset)", fit.zoom, fit.right, fit.up))
+    elseif message == "art" then
+        for index, tree in ipairs(state.trees) do
+            DEFAULT_CHAT_FRAME:AddMessage(string.format("Subclass tree %d: %s / %s (spec %s) -> %s", index,
+                tostring(tree.className), tostring(tree.title), tostring(tree.spec), tostring(CoAArt.Find(tree))))
+        end
     elseif message == "icons" then
         ShowIcons()
     elseif message == "applytwin" then
