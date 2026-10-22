@@ -6,6 +6,7 @@ void AddSC_mod_subclass();
 void AddSC_mod_subclass_twin();
 void AddSC_mod_subclass_relic();
 void AddSC_mod_subclass_bots();
+void AddSC_mod_subclass_quests();
 
 void Addmod_subclassScripts()
 {
@@ -13,4 +14,5 @@ void Addmod_subclassScripts()
     AddSC_mod_subclass_twin();
     AddSC_mod_subclass_relic();
     AddSC_mod_subclass_bots();
+    AddSC_mod_subclass_quests();
 }

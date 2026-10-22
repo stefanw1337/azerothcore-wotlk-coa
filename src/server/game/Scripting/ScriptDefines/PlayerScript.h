@@ -261,6 +261,7 @@ enum PlayerHook
     PLAYERHOOK_ON_COA_PRESTIGE,
     PLAYERHOOK_ON_COA_PRESTIGE_SAVED,
     PLAYERHOOK_ON_MASTER_LOOT_ITEM,
+    PLAYERHOOK_ON_GET_QUEST_RACE_MASK,
     PLAYERHOOK_END
 };
 
@@ -1141,6 +1142,15 @@ public:
      * @return true when the script resolved the mask
      */
     [[nodiscard]] virtual bool OnPlayerGetGameModeMask(Player const* /*player*/, uint32& /*mask*/) { return false; }
+
+    /**
+     * @brief This hook is called to resolve the race mask a character's quest race requirements are checked against.
+     *
+     * @param player Contains information about the Player
+     * @param mask Receives the race mask
+     * @return true when the script resolved the mask
+     */
+    [[nodiscard]] virtual bool OnPlayerGetQuestRaceMask(Player const* /*player*/, uint32& /*mask*/) { return false; }
 };
 
 #endif

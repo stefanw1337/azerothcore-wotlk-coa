@@ -122,7 +122,7 @@ constexpr uint32 MotionTick = 200;
 constexpr uint32 HopDelay = 1000;
 constexpr uint32 PointMin = 20000;
 constexpr uint32 PointMax = 45000;
-constexpr uint32 PointHold = 1000;
+constexpr uint32 PointHold = 2600;
 constexpr uint32 AfootStride = 2000;
 constexpr uint32 CallBackDelay = 5000;
 
@@ -585,9 +585,40 @@ void MirrorStealth(Player* player, Creature* twin)
     }
 }
 
+uint32 ReadyStateFor(Creature const* twin)
+{
+    if (twin->GetSheath() == SHEATH_STATE_RANGED)
+    {
+        ItemTemplate const* ranged = sObjectMgr->GetItemTemplate(twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID + 2));
+        if (!ranged)
+            return EMOTE_STATE_READY_UNARMED;
+        if (ranged->SubClass == ITEM_SUBCLASS_WEAPON_GUN)
+            return EMOTE_STATE_READY_RIFLE;
+        if (ranged->SubClass == ITEM_SUBCLASS_WEAPON_THROWN)
+            return EMOTE_STATE_READY_THROWN;
+        return EMOTE_STATE_READY_BOW;
+    }
+    ItemTemplate const* weapon = sObjectMgr->GetItemTemplate(twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID));
+    if (!weapon || twin->GetSheath() == SHEATH_STATE_UNARMED)
+        return EMOTE_STATE_READY_UNARMED;
+    return weapon->InventoryType == INVTYPE_2HWEAPON ? EMOTE_STATE_READY2H : EMOTE_STATE_READY1H;
+}
+
+void MirrorReadiness(Player* player, Creature* twin)
+{
+    bool const ready = player->IsAlive() && !twin->GetVehicle() && !player->HasStealthAura() &&
+        player->GetSheath() != SHEATH_STATE_UNARMED && (player->IsInCombat() || player->GetVictim());
+    if (ready && twin->GetSheath() == SHEATH_STATE_UNARMED)
+        twin->SetSheath(DrawnLike(player));
+    uint32 const wanted = ready ? ReadyStateFor(twin) : EMOTE_ONESHOT_NONE;
+    if (twin->GetUInt32Value(UNIT_NPC_EMOTESTATE) != wanted)
+        twin->SetUInt32Value(UNIT_NPC_EMOTESTATE, wanted);
+}
+
 void MirrorStance(Player* player, Creature* twin)
 {
     MirrorStealth(player, twin);
+    MirrorReadiness(player, twin);
     if (!player->IsInCombat())
     {
         SheathState const drawn = DrawnLike(player);

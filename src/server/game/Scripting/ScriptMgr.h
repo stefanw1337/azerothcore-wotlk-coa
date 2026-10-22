@@ -533,6 +533,7 @@ public: /* PlayerScript */
     void OnPlayerCoAPrestigeSaved(Player* player);
     void OnPlayerMasterLootItem(Player* player, Item* item, uint32 count, ObjectGuid lootguid);
     std::optional<uint32> OnPlayerGetGameModeMask(Player const* player);
+    std::optional<uint32> OnPlayerGetQuestRaceMask(Player const* player);
 
     // Anti cheat
     void AnticheatSetCanFlybyServer(Player* player, bool apply);

@@ -1163,6 +1163,16 @@ std::optional<uint32> ScriptMgr::OnPlayerGetGameModeMask(Player const* player)
     return std::nullopt;
 }
 
+std::optional<uint32> ScriptMgr::OnPlayerGetQuestRaceMask(Player const* player)
+{
+    uint32 mask = 0;
+    for (auto const& script : ScriptRegistry<PlayerScript>::EnabledHooks[PLAYERHOOK_ON_GET_QUEST_RACE_MASK])
+        if (script->OnPlayerGetQuestRaceMask(player, mask))
+            return mask;
+
+    return std::nullopt;
+}
+
 PlayerScript::PlayerScript(char const* name, std::vector<uint16> enabledHooks)
     : ScriptObject(name, PLAYERHOOK_END)
 {
