@@ -56,6 +56,7 @@ void HandWeaponsToBrother(Player* player);
 bool LendsTankSpecialization(Player const* player);
 bool LendsRangedSpecialization(Player const* player);
 bool SubclassRaceEnabled(uint8 race);
+bool TravelFormsShapeWholeBody();
 
 void SendSubclassMessage(Player* player, std::string const& message);
 uint32 StowBorrowedGear(Player* player);
@@ -117,6 +118,9 @@ constexpr float TwinFarAway = 40.0f;
 constexpr uint32 GhostSpell = 8326;
 constexpr uint32 PiggybackVehicle = 9530;
 constexpr uint32 SaddleVehicle = 9531;
+constexpr uint32 WolfBackVehicle = 9532;
+constexpr uint32 CatBackVehicle = 9533;
+constexpr std::array<uint32, 4> TwinVehicles = { PiggybackVehicle, SaddleVehicle, WolfBackVehicle, CatBackVehicle };
 constexpr int8 TwinSeat = 1;
 constexpr uint32 MotionTick = 200;
 constexpr uint32 HopDelay = 3500;
@@ -130,7 +134,9 @@ enum class Carry
 {
     Beside,
     Piggyback,
-    Saddle
+    Saddle,
+    WolfBack,
+    CatBack
 };
 
 struct Motion
@@ -374,10 +380,26 @@ bool BrotherTanks(Player const* player)
     return player->HasAura(RighteousFury) && IsBorrowedSpell(player, RighteousFury);
 }
 
+bool IsRiddenForm(uint32 form)
+{
+    return TravelFormsShapeWholeBody() && (form == FORM_GHOSTWOLF || form == FORM_TRAVEL);
+}
+
+bool ShapesWholeBody(uint32 spellId)
+{
+    SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+    if (!info)
+        return false;
+    for (SpellEffectInfo const& effect : info->GetEffects())
+        if (effect.ApplyAuraName == SPELL_AURA_MOD_SHAPESHIFT && IsRiddenForm(uint32(effect.MiscValue)))
+            return true;
+    return false;
+}
+
 bool InBorrowedShape(Player const* player)
 {
     for (AuraEffect const* effect : player->GetAuraEffectsByType(SPELL_AURA_MOD_SHAPESHIFT))
-        if (IsBorrowedSpell(player, effect->GetId()))
+        if (IsBorrowedSpell(player, effect->GetId()) && !IsRiddenForm(uint32(effect->GetMiscValue())))
             return true;
     for (AuraEffect const* effect : player->GetAuraEffectsByType(SPELL_AURA_TRANSFORM))
         if (effect->GetSpellInfo()->IsPositive() && IsBorrowedSpell(player, effect->GetId()))
@@ -403,7 +425,7 @@ uint32 BorrowedShape(Player* player)
                 if (CreatureModel const* model = shape->GetFirstValidModel())
                     return model->CreatureDisplayID;
     for (AuraEffect const* effect : player->GetAuraEffectsByType(SPELL_AURA_MOD_SHAPESHIFT))
-        if (IsBorrowedSpell(player, effect->GetId()))
+        if (IsBorrowedSpell(player, effect->GetId()) && !IsRiddenForm(uint32(effect->GetMiscValue())))
             if (uint32 model = FormModelFor(player, ShapeshiftForm(effect->GetMiscValue())))
                 return model;
     return 0;
@@ -471,7 +493,8 @@ Creature* TwinOf(Player const* player)
 bool OwnsKit(Player const* player)
 {
     Vehicle const* kit = player->GetVehicleKit();
-    return kit && (kit->GetVehicleInfo()->m_ID == PiggybackVehicle || kit->GetVehicleInfo()->m_ID == SaddleVehicle);
+    return kit &&
+        std::find(TwinVehicles.begin(), TwinVehicles.end(), kit->GetVehicleInfo()->m_ID) != TwinVehicles.end();
 }
 
 void SendVehicleData(Player* player, uint32 vehicleId)
@@ -508,6 +531,21 @@ bool GiveKit(Player* player, uint32 vehicleId)
     return true;
 }
 
+uint32 VehicleFor(Carry mode)
+{
+    switch (mode)
+    {
+        case Carry::Piggyback:
+            return PiggybackVehicle;
+        case Carry::WolfBack:
+            return WolfBackVehicle;
+        case Carry::CatBack:
+            return CatBackVehicle;
+        default:
+            return SaddleVehicle;
+    }
+}
+
 void SetCarry(Player* player, Creature* twin, Carry mode)
 {
     if (mode == Carry::Beside)
@@ -521,7 +559,7 @@ void SetCarry(Player* player, Creature* twin, Carry mode)
         motions[player->GetGUID().GetCounter()].Follow = TwinDistance;
         return;
     }
-    if (!GiveKit(player, mode == Carry::Piggyback ? PiggybackVehicle : SaddleVehicle))
+    if (!GiveKit(player, VehicleFor(mode)))
         return SetCarry(player, twin, Carry::Beside);
     twin->GetMotionMaster()->Clear();
     twin->EnterVehicle(player, TwinSeat);
@@ -530,9 +568,14 @@ void SetCarry(Player* player, Creature* twin, Carry mode)
 Carry WantedCarry(Player const* player, Motion const& motion)
 {
     if (!player->IsAlive() || player->IsInCombat() || player->IsInWater() || !player->IsStandState() ||
-        player->HasStealthAura() || player->GetSheath() != SHEATH_STATE_UNARMED || InBorrowedShape(player) ||
-        player->GetDisplayId() != player->GetNativeDisplayId())
+        player->HasStealthAura() || player->GetSheath() != SHEATH_STATE_UNARMED || InBorrowedShape(player))
         return Carry::Beside;
+    if (player->GetDisplayId() != player->GetNativeDisplayId())
+    {
+        if (!IsRiddenForm(player->GetShapeshiftForm()) || player->HasAuraType(SPELL_AURA_TRANSFORM))
+            return Carry::Beside;
+        return player->GetShapeshiftForm() == FORM_GHOSTWOLF ? Carry::WolfBack : Carry::CatBack;
+    }
     if (player->IsMounted())
         return (player->GetVehicleKit() && !OwnsKit(player)) || player->HasAuraType(SPELL_AURA_TRANSFORM) ||
             player->HasAuraType(SPELL_AURA_MOD_SHAPESHIFT) ? Carry::Beside : Carry::Saddle;
@@ -3866,7 +3909,8 @@ public:
     bool OnPlayerKeepsOwnLook(Player const* player, uint32 spellId) override
     {
         uint8 const race = player->getRace(true);
-        return (race == TwinRace || race == OgreRace) && SubclassRaceEnabled(race) && IsBorrowedSpell(player, spellId);
+        return (race == TwinRace || race == OgreRace) && SubclassRaceEnabled(race) &&
+            IsBorrowedSpell(player, spellId) && !ShapesWholeBody(spellId);
     }
 };
 

@@ -79,6 +79,16 @@ Subclass.StandardMains = 0
 Subclass.ThinHuman.Enable = 1
 Subclass.TwoHeadedOgre.Enable = 1
 
+#    Subclass.TravelForms.WholeBody
+#        Ghost Wolf, Wargstride and the druid's Travel Form turn the whole body, also for a Two-Headed
+#        Ogre using them from her subclass, and the Thin Twins brother rides on the beast's back. Off,
+#        a borrowed travel form keeps the ogre's own body and turns the brother instead, and he walks
+#        beside a shapeshifted twin. Takes effect after a restart; no client patch change is needed.
+#        Default: 1 - enabled
+#                 0 - disabled
+
+Subclass.TravelForms.WholeBody = 1
+
 #    Subclass.MainClasses
 #        Which main classes may take a subclass. A character whose main class is no longer allowed
 #        loses its subclass at the next login.

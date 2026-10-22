@@ -81,6 +81,7 @@ struct Settings
     bool ThinHuman = true;
     bool TwoHeadedOgre = true;
     bool ForceBots = false;
+    bool TravelFormsWholeBody = true;
 };
 
 constexpr std::uint8_t ThinHumanRace = 96;

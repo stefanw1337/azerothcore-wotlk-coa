@@ -303,6 +303,7 @@ Subclass::Settings settings;
 std::atomic<bool> thinHumanEnabled{ true };
 std::atomic<bool> twoHeadedOgreEnabled{ true };
 std::atomic<bool> forceBots{ false };
+std::atomic<bool> travelFormsWholeBody{ true };
 std::vector<Subclass::Pair> pairs;
 std::unordered_map<uint32, Record>& records = *new std::unordered_map<uint32, Record>;
 
@@ -1605,9 +1606,11 @@ public:
         loaded.ThinHuman = sConfigMgr->GetOption<bool>("Subclass.ThinHuman.Enable", true);
         loaded.TwoHeadedOgre = sConfigMgr->GetOption<bool>("Subclass.TwoHeadedOgre.Enable", true);
         loaded.ForceBots = sConfigMgr->GetOption<bool>("Subclass.Bots.Force", false);
+        loaded.TravelFormsWholeBody = sConfigMgr->GetOption<bool>("Subclass.TravelForms.WholeBody", true);
         thinHumanEnabled = loaded.ThinHuman;
         twoHeadedOgreEnabled = loaded.TwoHeadedOgre;
         forceBots = loaded.ForceBots;
+        travelFormsWholeBody = loaded.TravelFormsWholeBody;
         std::lock_guard<std::mutex> lock(subclassMutex);
         settings = loaded;
     }
@@ -2569,6 +2572,11 @@ constexpr std::size_t RealmCreationFlagsOffset = 36;
 constexpr std::size_t ConquestOfAzerothFlag = 6;
 constexpr std::size_t WarcraftRebornFlag = 7;
 thread_local bool resendingRealmInfo = false;
+
+bool TravelFormsShapeWholeBody()
+{
+    return travelFormsWholeBody;
+}
 
 bool SubclassRaceEnabled(uint8 race)
 {
