@@ -11,6 +11,7 @@
 #include "AscensionLiveBaselineData.h"
 #include "DBCStores.h"
 #include "AscensionSpecialization.h"
+#include "AscensionTaughtAbilityData.h"
 #include "Chat.h"
 #include "ClientDBC.h"
 #include "CoASpellbook.h"
@@ -81,6 +82,7 @@ void ForgetDeletedBot(uint32 guid);
 bool IsStandardMainClass(uint8 classId);
 Trainer::Trainer const* ClassTrainerOf(uint8 classId);
 bool IsBorrowedSpell(Player const* player, uint32 spellId);
+bool InBorrowedFamily(Player const* player, uint8 subClass, SpellInfo const* info);
 
 namespace
 {
@@ -1060,6 +1062,39 @@ uint32 ForgetStandardKit(Player* player, uint8 playableClass)
 void ForgetStandardWeapons(Player* player, uint8 playableClass);
 void ForgetCoAWeapons(Player* player, uint8 subClass);
 
+bool TaughtToSubclass(Player const* player, Subclass::Choice const& choice,
+    AscensionCompatData::TaughtAbility const& entry)
+{
+    return entry.ClassId == choice.SubClass && (entry.SpecId == choice.SubSpec || entry.SpecId == choice.SecondSpec) &&
+        player->GetLevel() >= entry.RequiredLevel && player->HasSpell(entry.ParentSpellId);
+}
+
+bool IsTaughtAbilityParent(uint32 spellId)
+{
+    return std::any_of(AscensionCompatData::TaughtAbilities.begin(), AscensionCompatData::TaughtAbilities.end(),
+        [spellId](AscensionCompatData::TaughtAbility const& entry) { return entry.ParentSpellId == spellId; });
+}
+
+uint32 SyncBorrowedTaughtAbilities(Player* player, uint8 subClass, Subclass::Choice const& choice)
+{
+    uint32 changed = 0;
+    for (AscensionCompatData::TaughtAbility const& entry : AscensionCompatData::TaughtAbilities)
+    {
+        if (entry.ClassId != subClass || entry.ClassId == player->getClass())
+            continue;
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(entry.SpellId);
+        bool const taught = TaughtToSubclass(player, choice, entry);
+        if (taught && info && !player->HasSpell(entry.SpellId))
+            player->learnSpell(entry.SpellId, false);
+        else if (!taught && player->HasSpell(entry.SpellId) && InBorrowedFamily(player, subClass, info))
+            player->removeSpell(entry.SpellId, SPEC_MASK_ALL, false);
+        else
+            continue;
+        ++changed;
+    }
+    return changed;
+}
+
 uint32 ForgetBorrowedBaseSpells(Player* player, uint8 subClass)
 {
     if (IsStandardCatalogClass(subClass))
@@ -1068,7 +1103,7 @@ uint32 ForgetBorrowedBaseSpells(Player* player, uint8 subClass)
         return ForgetStandardKit(player, PlayableClassOf(subClass));
     }
     ForgetCoAWeapons(player, subClass);
-    uint32 removed = 0;
+    uint32 removed = SyncBorrowedTaughtAbilities(player, subClass, {});
     for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)
         if (spell.ClassId == subClass && player->HasSpell(spell.SpellId) && !OwnClassGrants(player, spell.SpellId))
         {
@@ -1336,7 +1371,7 @@ uint32 SyncBorrowedBaseSpells(Player* player)
             player->learnSpell(spell.SpellId, false);
             ++learned;
         }
-    return learned;
+    return learned + SyncBorrowedTaughtAbilities(player, subClass, ChoiceOf(player));
 }
 
 uint32 ApplyChoice(Player* player, Subclass::Choice const& wanted)
@@ -2001,6 +2036,9 @@ public:
 
     void OnPlayerLearnSpell(Player* player, uint32 spellId) override
     {
+        if (IsTaughtAbilityParent(spellId))
+            if (Subclass::Choice const choice = ChoiceOf(player); choice.Complete())
+                SyncBorrowedTaughtAbilities(player, choice.SubClass, choice);
         if (player->IsInWorld() && StanceLike(sSpellMgr->GetSpellInfo(spellId)))
             SendAddon(player, BorrowedStances(player));
     }
