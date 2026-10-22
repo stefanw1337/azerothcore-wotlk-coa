@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionPrimalistSpiritBeast.h"
+#include "AscensionSpecialization.h"
 #include "Creature.h"
 #include "PetDefines.h"
 #include "Player.h"
@@ -159,7 +160,7 @@ class spell_ascension_primalist_harness_tame : public SpellScript
 
 bool HasAscensionPrimalistHunterPetContext(Player const* player)
 {
-    if (!player || player->getClass() != CLASS_WILDWALKER)
+    if (!player || !UsesAscensionClassMechanics(player, CLASS_WILDWALKER))
         return false;
     if (IsAscensionPrimalistTameEligible(player))
         return true;

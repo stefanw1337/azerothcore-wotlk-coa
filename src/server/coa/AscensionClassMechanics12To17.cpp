@@ -121,83 +121,75 @@ void HandleAscensionClassMechanics12To17Hit(Spell* spell, Player* player,
         return;
 
     std::uint32_t spellId = spell->GetSpellInfo()->Id;
-    switch (player->getClass())
+    if (UsesAscensionClassMechanics(player, CLASS_BARBARIAN))
     {
-        case CLASS_BARBARIAN:
-        {
-            if (player->HasAura(SPELL_BARBARIAN_THIRST_FOR_BATTLE) && IsSpellInRanges(spellId, BARBARIAN_SMASH))
-                player->CastSpell(player, SPELL_BARBARIAN_THIRST_ENERGIZE, true);
+        if (player->HasAura(SPELL_BARBARIAN_THIRST_FOR_BATTLE) && IsSpellInRanges(spellId, BARBARIAN_SMASH))
+            player->CastSpell(player, SPELL_BARBARIAN_THIRST_ENERGIZE, true);
 
-            if (IsSpellInRanges(spellId, BARBARIAN_HEADHUNTERS_SPEAR))
+        if (IsSpellInRanges(spellId, BARBARIAN_HEADHUNTERS_SPEAR))
+        {
+            player->CastSpell(player,
+                SPELL_BARBARIAN_HEADHUNTER_ENERGIZE, true);
+            if (player->HasAura(SPELL_BARBARIAN_GIANT_TOSSER) &&
+                player->GetDistance(target) >
+                    BARBARIAN_GIANT_TOSSER_MINIMUM_DISTANCE)
             {
                 player->CastSpell(player,
-                    SPELL_BARBARIAN_HEADHUNTER_ENERGIZE, true);
-                if (player->HasAura(SPELL_BARBARIAN_GIANT_TOSSER) &&
-                    player->GetDistance(target) >
-                        BARBARIAN_GIANT_TOSSER_MINIMUM_DISTANCE)
-                {
-                    player->CastSpell(player,
-                        SPELL_BARBARIAN_GIANT_TOSSER_ENERGIZE, true);
-                }
+                    SPELL_BARBARIAN_GIANT_TOSSER_ENERGIZE, true);
             }
-
-            if (critical && player->HasAura(SPELL_BARBARIAN_RELENTLESS) &&
-                (IsSpellInRanges(spellId, BARBARIAN_ANCESTRAL_STRIKE) ||
-                    IsSpellInRanges(spellId, BARBARIAN_BRUTAL_SWING)))
-            {
-                player->ModifyPower(POWER_ENERGY,
-                    BARBARIAN_RELENTLESS_ENERGY);
-            }
-
-            if (critical && player->HasAura(SPELL_BARBARIAN_BATTLE_RHYTHM))
-            {
-                player->CastSpell(player,
-                    SPELL_BARBARIAN_BATTLE_RHYTHM_ENERGIZE, true);
-            }
-
-            if (player->HasAura(SPELL_BARBARIAN_BEHEADER) &&
-                IsSpellInRanges(spellId, BARBARIAN_DECAPITATE) &&
-                !target->IsAlive())
-            {
-                RestoreAllEnergy(player);
-            }
-            break;
         }
-        case CLASS_DEMON_HUNTER:
+
+        if (critical && player->HasAura(SPELL_BARBARIAN_RELENTLESS) &&
+            (IsSpellInRanges(spellId, BARBARIAN_ANCESTRAL_STRIKE) ||
+                IsSpellInRanges(spellId, BARBARIAN_BRUTAL_SWING)))
         {
-            if (spellId == SPELL_FELSWORN_TYRANTS_GAZE)
-            {
-                player->CastSpell(player,
-                    SPELL_FELSWORN_TYRANTS_GAZE_HEAL, true);
-            }
-            break;
+            player->ModifyPower(POWER_ENERGY,
+                BARBARIAN_RELENTLESS_ENERGY);
         }
-        case CLASS_STORMBRINGER:
+
+        if (critical && player->HasAura(SPELL_BARBARIAN_BATTLE_RHYTHM))
         {
-            if (critical && player->HasAura(SPELL_STORMBRINGER_STATIC_ELECTRICITY) &&
-                IsSpellInRanges(spellId, STORMBRINGER_TORRENTIAL_WRATH) &&
-                !spell->GetScriptValue(SPELL_STORMBRINGER_STATIC_ELECTRICITY))
-            {
-                spell->SetScriptValue(SPELL_STORMBRINGER_STATIC_ELECTRICITY, 1);
-                player->SummonCreature(NPC_STORMBRINGER_ELECTRIFIED_WATER,
-                    player->GetPosition(), TEMPSUMMON_TIMED_DESPAWN,
-                    STORMBRINGER_ELECTRIFIED_WATER_DURATION);
-            }
-
-            if (IsSpellInRanges(spellId, STORMBRINGER_TORRENTIAL_WRATH) &&
-                target->HasAura(SPELL_STORMBRINGER_STORMCLOUD, player->GetGUID()))
-            {
-                player->CastSpell(target, SPELL_STORMBRINGER_GEYSER, true);
-            }
-
-            if (critical && player->HasAura(SPELL_STORMBRINGER_THUNDER_KING))
-            {
-                player->CastSpell(target, SPELL_STORMBRINGER_THUNDER_FIST, true);
-                player->CastSpell(player, SPELL_STORMBRINGER_RAGING_STORM, true);
-            }
-            break;
+            player->CastSpell(player,
+                SPELL_BARBARIAN_BATTLE_RHYTHM_ENERGIZE, true);
         }
-        default:
-            break;
+
+        if (player->HasAura(SPELL_BARBARIAN_BEHEADER) &&
+            IsSpellInRanges(spellId, BARBARIAN_DECAPITATE) &&
+            !target->IsAlive())
+        {
+            RestoreAllEnergy(player);
+        }
+    }
+    if (UsesAscensionClassMechanics(player, CLASS_DEMON_HUNTER))
+    {
+        if (spellId == SPELL_FELSWORN_TYRANTS_GAZE)
+        {
+            player->CastSpell(player,
+                SPELL_FELSWORN_TYRANTS_GAZE_HEAL, true);
+        }
+    }
+    if (UsesAscensionClassMechanics(player, CLASS_STORMBRINGER))
+    {
+        if (critical && player->HasAura(SPELL_STORMBRINGER_STATIC_ELECTRICITY) &&
+            IsSpellInRanges(spellId, STORMBRINGER_TORRENTIAL_WRATH) &&
+            !spell->GetScriptValue(SPELL_STORMBRINGER_STATIC_ELECTRICITY))
+        {
+            spell->SetScriptValue(SPELL_STORMBRINGER_STATIC_ELECTRICITY, 1);
+            player->SummonCreature(NPC_STORMBRINGER_ELECTRIFIED_WATER,
+                player->GetPosition(), TEMPSUMMON_TIMED_DESPAWN,
+                STORMBRINGER_ELECTRIFIED_WATER_DURATION);
+        }
+
+        if (IsSpellInRanges(spellId, STORMBRINGER_TORRENTIAL_WRATH) &&
+            target->HasAura(SPELL_STORMBRINGER_STORMCLOUD, player->GetGUID()))
+        {
+            player->CastSpell(target, SPELL_STORMBRINGER_GEYSER, true);
+        }
+
+        if (critical && player->HasAura(SPELL_STORMBRINGER_THUNDER_KING))
+        {
+            player->CastSpell(target, SPELL_STORMBRINGER_THUNDER_FIST, true);
+            player->CastSpell(player, SPELL_STORMBRINGER_RAGING_STORM, true);
+        }
     }
 }

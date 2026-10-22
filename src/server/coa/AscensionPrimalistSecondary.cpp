@@ -343,7 +343,7 @@ public:
 
     bool OnPlayerHasActivePowerType(Player const* player, Powers power) override
     {
-        return player && player->getClass() == CLASS_WILDWALKER && power == POWER_RAGE;
+        return player && power == POWER_RAGE && UsesAscensionClassMechanics(player, CLASS_WILDWALKER);
     }
 };
 }

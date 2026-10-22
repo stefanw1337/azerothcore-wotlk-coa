@@ -932,7 +932,7 @@ public:
     };
     reconcile(AscensionCompatData::LegacyGeneratedClassSpells);
     reconcile(AscensionCompatData::ClassSpells);
-    if (player->getClass() == CLASS_DEMON_HUNTER)
+    if (UsesAscensionClassMechanics(player, CLASS_DEMON_HUNTER))
       for (FelswornRiftGrant const& rift : FelswornHordeCapitalRifts)
         if (rift.RequiredLevel > player->GetLevel() && player->HasSpell(rift.SpellId))
         {
@@ -983,7 +983,7 @@ public:
       player->learnSpell(progressionSpell.SpellId, false);
       ++learned;
     }
-    if (player->getClass() == CLASS_DEMON_HUNTER)
+    if (UsesAscensionClassMechanics(player, CLASS_DEMON_HUNTER))
       for (FelswornRiftGrant const& rift : FelswornHordeCapitalRifts)
         if (automaticProgression && rift.RequiredLevel <= player->GetLevel() &&
             CanGrantAscensionRacialSpell(player, rift.SpellId) &&
@@ -8709,7 +8709,7 @@ public:
       uint8& err, uint16& dest) override
   {
       if (!ascensionCompatConfig.GetConfigValue<bool>(AscensionCompatConfig::ENABLED) ||
-          slot != EQUIPMENT_SLOT_OFFHAND || player->getClass() != CLASS_SON_OF_ARUGAL)
+          slot != EQUIPMENT_SLOT_OFFHAND || !UsesAscensionClassMechanics(player, CLASS_SON_OF_ARUGAL))
           return true;
 
       uint8 result = player->CanEquipItem(slot, dest, item, false, false);
@@ -10326,19 +10326,34 @@ namespace AscensionCompatData
     }
 }
 
+static bool UsesAscensionSpecialization(Player const* player, uint8 classId, uint32 specId)
+{
+    if (player->getClass() == classId)
+        return AscensionClassService::Instance().GetActiveSpecialization(player) == specId;
+    if (!UsesAscensionClassMechanics(player, classId))
+        return false;
+    AscensionCoATalentState::TalentAccess const access = GetAscensionTalentAccess(player);
+    return std::any_of(access.ExtraTrees.begin(), access.ExtraTrees.end(),
+        [classId, specId](AscensionCoATalentState::TalentTree const& tree)
+        {
+            return tree.ClassId == classId && tree.SpecId == specId;
+        });
+}
+
 bool IsAscensionPrimalistTameEligible(Player const* player)
 {
     return player && ascensionCompatConfig.GetConfigValue<bool>(AscensionCompatConfig::ENABLED) &&
-        player->getClass() == CLASS_WILDWALKER && player->GetLevel() >= 10 && player->HasSpell(92148) &&
-        AscensionClassService::Instance().GetActiveSpecialization(player) == 59;
+        player->GetLevel() >= 10 && player->HasSpell(92148) &&
+        UsesAscensionSpecialization(player, CLASS_WILDWALKER, 59);
 }
 
 bool IsAscensionPrimalistWeaponsEligible(Player const* player, bool allowUnconfirmed)
 {
     return player && ascensionCompatConfig.GetConfigValue<bool>(AscensionCompatConfig::ENABLED) &&
-        player->getClass() == CLASS_WILDWALKER && player->GetLevel() >= 20 && player->HasSpell(537218) &&
-        (AscensionClassService::Instance().GetActiveSpecialization(player) == 59 ||
-            (allowUnconfirmed && !AscensionClassService::Instance().GetActiveSpecialization(player)));
+        player->GetLevel() >= 20 && player->HasSpell(537218) &&
+        (UsesAscensionSpecialization(player, CLASS_WILDWALKER, 59) ||
+            (allowUnconfirmed && player->getClass() == CLASS_WILDWALKER &&
+                !AscensionClassService::Instance().GetActiveSpecialization(player)));
 }
 
 uint32 GetAscensionActiveSpecialization(Player const* player)

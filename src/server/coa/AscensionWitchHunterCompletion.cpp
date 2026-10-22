@@ -360,7 +360,7 @@ class witch_hunter_resources : public PlayerScript
 
     bool OnPlayerHasActivePowerType(Player const* player, Powers power) override
     {
-        return player && player->getClass() == CLASS_WITCH_HUNTER && power == POWER_RAGE;
+        return player && power == POWER_RAGE && UsesAscensionClassMechanics(player, CLASS_WITCH_HUNTER);
     }
 };
 

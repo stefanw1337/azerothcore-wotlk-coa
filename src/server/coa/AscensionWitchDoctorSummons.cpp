@@ -208,7 +208,7 @@ class npc_ascension_witch_doctor : public ScriptedAI
     void IsSummonedBy(WorldObject* summoner) override
     {
         Player* player = summoner ? summoner->ToPlayer() : nullptr;
-        if (player && player->getClass() == CLASS_REAPER && me->GetEntry() == NpcHauntVisage)
+        if (player && me->GetEntry() == NpcHauntVisage && UsesAscensionClassMechanics(player, CLASS_REAPER))
         {
             _owner = player->GetGUID();
             me->SetOwnerGUID(_owner);
