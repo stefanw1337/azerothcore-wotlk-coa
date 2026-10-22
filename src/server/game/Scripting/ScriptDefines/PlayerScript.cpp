@@ -1172,6 +1172,11 @@ bool ScriptMgr::OnPlayerKeepsOwnLook(Player const* player, uint32 spellId)
     return false;
 }
 
+void ScriptMgr::OnPlayerBeforeBoardedBy(Player* player, Unit* clicker)
+{
+    CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_BEFORE_BOARDED_BY, script->OnPlayerBeforeBoardedBy(player, clicker));
+}
+
 std::optional<uint32> ScriptMgr::OnPlayerGetQuestRaceMask(Player const* player)
 {
     uint32 mask = 0;

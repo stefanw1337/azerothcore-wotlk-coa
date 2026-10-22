@@ -1,4 +1,5 @@
 """Append the twin's vehicles to Vehicle.dbc / VehicleSeat.dbc and emit their SQL and the mount rider poses."""
+import os
 import struct
 import sys
 
@@ -12,7 +13,8 @@ CHEST_BACK_SEAT, MOUNT_RIDER_SEAT = 10, 21
 PIGGYBACK_OFFSET, PIGGYBACK_PITCH = (0.05, 0.0, -0.35), -0.35
 RIDER_BEHIND_OFFSET = (-0.28, 0.0, 0.0)
 WOLF_BACK_OFFSET, CAT_BACK_OFFSET = (-0.4, 0.0, 0.0), (0.0, 0.0, 0.04)
-FIRST_POSE_SEAT, MOUNT_POSE, NO_ANIMATION = 9534, 91, 0xFFFFFFFF
+FIRST_POSE_SEAT, MOUNT_POSE, RECLINED_POSE, NO_ANIMATION = 9534, 91, 484, 0xFFFFFFFF
+CAR_SEATS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "car_seats.tsv")
 SPELL_AURAS, SPELL_VISUALS, VISUAL_STATE_KIT, KIT_ANIMATION, MOUNTED_AURA = 95, 131, 4, 2, 78
 SEAT_COLUMNS = ("ID Flags AttachmentID AttachmentOffsetX AttachmentOffsetY AttachmentOffsetZ EnterPreDelay EnterSpeed "
     "EnterGravity EnterMinDuration EnterMaxDuration EnterMinArcHeight EnterMaxArcHeight EnterAnimStart EnterAnimLoop "
@@ -128,8 +130,20 @@ def pose_sql(seat_of):
             f"INSERT INTO `mod_subclass_rider_pose` (`SpellId`, `VehicleId`) VALUES\n{rows};\n")
 
 
+def car_seats():
+    seats = {}
+    for line in open(CAR_SEATS, encoding="utf-8"):
+        if line.strip() and not line.startswith("#"):
+            spell, x, y, z = line.split("\t")[:4]
+            seats[int(spell)] = (float(x), float(y), float(z))
+    return seats
+
+
 poses = rider_poses()
 pose_ids = {anim: FIRST_POSE_SEAT + index for index, anim in enumerate(sorted(set(poses.values())))}
+cars = car_seats()
+car_ids = {offset: FIRST_POSE_SEAT + len(pose_ids) + index
+           for index, offset in enumerate(sorted(set(cars.values())))}
 _, seat_fields, seat_size, seats, seat_strings = load(f"{SRC}/VehicleSeat.dbc")
 _, vehicle_fields, vehicle_size, vehicles, vehicle_strings = load(f"{SRC}/Vehicle.dbc")
 new_seats = [seat(seats, PIGGYBACK_SEAT, CHEST_BACK_SEAT, PIGGYBACK_OFFSET, PIGGYBACK_PITCH),
@@ -141,6 +155,9 @@ new_vehicles = [vehicle(vehicles, PIGGYBACK, PIGGYBACK_SEAT), vehicle(vehicles, 
 for anim, pose_id in pose_ids.items():
     new_seats.append(seat(seats, pose_id, MOUNT_RIDER_SEAT, RIDER_BEHIND_OFFSET, ride=anim))
     new_vehicles.append(vehicle(vehicles, pose_id, pose_id))
+for offset, car_id in car_ids.items():
+    new_seats.append(seat(seats, car_id, MOUNT_RIDER_SEAT, offset, ride=RECLINED_POSE))
+    new_vehicles.append(vehicle(vehicles, car_id, car_id))
 seat_ids = {struct.unpack_from("<I", row)[0] for row in new_seats}
 vehicle_ids = {struct.unpack_from("<I", row)[0] for row in new_vehicles}
 seats = [row for row in seats if struct.unpack_from("<I", row)[0] not in seat_ids] + new_seats
@@ -149,4 +166,6 @@ save(f"{OUT}/VehicleSeat.dbc", seat_fields, seat_size, seats, seat_strings)
 save(f"{OUT}/Vehicle.dbc", vehicle_fields, vehicle_size, vehicles, vehicle_strings)
 print(sql("vehicleseat_dbc", SEAT_COLUMNS, SEAT_FORMAT, new_seats, seat_strings))
 print(sql("vehicle_dbc", VEHICLE_COLUMNS, VEHICLE_FORMAT, new_vehicles, vehicle_strings))
-print(pose_sql({spell: pose_ids[anim] for spell, anim in poses.items()}))
+seat_of = {spell: pose_ids[anim] for spell, anim in poses.items()}
+seat_of.update({spell: car_ids[offset] for spell, offset in cars.items()})
+print(pose_sql(seat_of))

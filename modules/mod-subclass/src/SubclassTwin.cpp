@@ -120,7 +120,7 @@ constexpr uint32 PiggybackVehicle = 9530;
 constexpr uint32 SaddleVehicle = 9531;
 constexpr uint32 WolfBackVehicle = 9532;
 constexpr uint32 CatBackVehicle = 9533;
-constexpr uint32 LastTwinVehicle = 9549;
+constexpr uint32 LastTwinVehicle = 9599;
 constexpr int8 TwinSeat = 1;
 constexpr uint32 MotionTick = 200;
 constexpr uint32 HopDelay = 3500;
@@ -136,7 +136,8 @@ enum class Carry
     Piggyback,
     Saddle,
     WolfBack,
-    CatBack
+    CatBack,
+    Passenger
 };
 
 struct Motion
@@ -587,6 +588,12 @@ void SetCarry(Player* player, Creature* twin, Carry mode)
         motions[player->GetGUID().GetCounter()].Follow = TwinDistance;
         return;
     }
+    if (mode == Carry::Passenger)
+    {
+        twin->GetMotionMaster()->Clear();
+        twin->EnterVehicle(player, -1);
+        return;
+    }
     if (!GiveKit(player, VehicleFor(player, mode)))
         return SetCarry(player, twin, Carry::Beside);
     twin->GetMotionMaster()->Clear();
@@ -605,8 +612,13 @@ Carry WantedCarry(Player const* player, Motion const& motion)
         return player->GetShapeshiftForm() == FORM_GHOSTWOLF ? Carry::WolfBack : Carry::CatBack;
     }
     if (player->IsMounted())
-        return (player->GetVehicleKit() && !OwnsKit(player)) || player->HasAuraType(SPELL_AURA_TRANSFORM) ||
-            player->HasAuraType(SPELL_AURA_MOD_SHAPESHIFT) ? Carry::Beside : Carry::Saddle;
+    {
+        if (player->HasAuraType(SPELL_AURA_TRANSFORM) || player->HasAuraType(SPELL_AURA_MOD_SHAPESHIFT))
+            return Carry::Beside;
+        if (Vehicle const* kit = player->GetVehicleKit(); kit && !OwnsKit(player))
+            return motion.Mode == Carry::Passenger || kit->GetAvailableSeatCount() ? Carry::Passenger : Carry::Beside;
+        return Carry::Saddle;
+    }
     if (player->IsFlying())
         return Carry::Beside;
     if (motion.Afoot && motion.Afoot <= AfootStride)
@@ -3932,7 +3944,20 @@ public:
 class mod_subclass_own_look : public PlayerScript
 {
 public:
-    mod_subclass_own_look() : PlayerScript("mod_subclass_own_look", { PLAYERHOOK_ON_KEEPS_OWN_LOOK }) { }
+    mod_subclass_own_look() : PlayerScript("mod_subclass_own_look",
+        { PLAYERHOOK_ON_KEEPS_OWN_LOOK, PLAYERHOOK_ON_BEFORE_BOARDED_BY }) { }
+
+    void OnPlayerBeforeBoardedBy(Player* player, Unit* clicker) override
+    {
+        Vehicle const* kit = player->GetVehicleKit();
+        Creature* twin = TwinOf(player);
+        if (!clicker->IsPlayer() || clicker == player || !kit || OwnsKit(player) || !twin ||
+            twin->GetVehicleBase() != player || kit->GetAvailableSeatCount())
+            return;
+        SetCarry(player, twin, Carry::Beside);
+        std::lock_guard<std::mutex> lock(twinMutex);
+        motions[player->GetGUID().GetCounter()].Mode = Carry::Beside;
+    }
 
     bool OnPlayerKeepsOwnLook(Player const* player, uint32 spellId) override
     {

@@ -16808,6 +16808,9 @@ void Unit::JumpTo(WorldObject* obj, float speedZ)
 
 bool Unit::HandleSpellClick(Unit* clicker, int8 seatId)
 {
+    if (Player* player = ToPlayer())
+        sScriptMgr->OnPlayerBeforeBoardedBy(player, clicker);
+
     Creature* creature = ToCreature();
     if (creature && creature->IsAIEnabled)
     {

@@ -263,6 +263,7 @@ enum PlayerHook
     PLAYERHOOK_ON_MASTER_LOOT_ITEM,
     PLAYERHOOK_ON_GET_QUEST_RACE_MASK,
     PLAYERHOOK_ON_KEEPS_OWN_LOOK,
+    PLAYERHOOK_ON_BEFORE_BOARDED_BY,
     PLAYERHOOK_END
 };
 
@@ -1161,6 +1162,14 @@ public:
      * @return true to keep the character's own model while the spell's other effects apply
      */
     [[nodiscard]] virtual bool OnPlayerKeepsOwnLook(Player const* /*player*/, uint32 /*spellId*/) { return false; }
+
+    /**
+     * @brief Called when a unit clicks a player's vehicle to ride along, before a seat is chosen
+     *
+     * @param player Contains information about the Player whose vehicle is clicked
+     * @param clicker The unit that wants a seat
+     */
+    virtual void OnPlayerBeforeBoardedBy(Player* /*player*/, Unit* /*clicker*/) { }
 };
 
 #endif
