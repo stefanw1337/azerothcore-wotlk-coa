@@ -1228,6 +1228,7 @@ void SummonTwin(Player* player)
 
     Position position = player->GetPosition();
     player->MovePositionToFirstCollision(position, TwinDistance, TwinAngle);
+    position.Relocate(position.GetPositionX(), position.GetPositionY(), player->GetPositionZ());
     TempSummon* twin = player->SummonCreature(TwinEntry, position, TEMPSUMMON_MANUAL_DESPAWN);
     if (!twin)
         return;
