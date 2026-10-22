@@ -686,11 +686,16 @@ void BecomeGhost(Player* player, Creature* twin, bool ghost)
     twin->GetMotionMaster()->MoveFollow(player, TwinDistance, TwinAngle);
 }
 
+bool Clawing(Creature const* twin)
+{
+    return twin->GetDisplayId() != twin->GetNativeDisplayId();
+}
+
 bool FightsFromRange(Player const* player, Creature const* twin)
 {
     if (IsSplit(player))
-        return !BrotherTanks(player) && (OtherHalfShoots(player) || LendsRangedSpecialization(player) ||
-            !twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID));
+        return !BrotherTanks(player) && !Clawing(twin) && (OtherHalfShoots(player) ||
+            LendsRangedSpecialization(player) || !twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID));
     return RangedOf(player) != nullptr;
 }
 
@@ -1084,7 +1089,7 @@ void UpdateSwingPartner(Player* player, Creature* twin)
     if (twin && IsSplit(player))
     {
         uint32 const shot = twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID + 2);
-        if (twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID))
+        if (Clawing(twin) || twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID))
             partner = { twin->GetGUID(), Swing::Melee, 0 };
         else if (shot && OtherHalfShoots(player))
             partner = { twin->GetGUID(), Swing::Shot, shot };
@@ -1463,7 +1468,7 @@ void HandWeaponsToBrother(Player* player)
         if (Creature* twin = TwinOf(player))
         {
             Wardrobe const dressed = Dressed(player);
-            bool const clawing = twin->GetDisplayId() != twin->GetNativeDisplayId();
+            bool const clawing = Clawing(twin);
             std::array<std::size_t, 3> const slots = { MainHand, OffHand, Ranged };
             for (uint8 index = 0; index < slots.size(); ++index)
                 if (uint32 const shown = clawing ? 0 : dressed.Items[slots[index]];
