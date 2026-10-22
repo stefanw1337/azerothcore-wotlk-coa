@@ -1781,12 +1781,27 @@ local function KeepTabsInRow(first, gap)
             end
         end
     end
+    local function ShowSelection()
+        local active = panel:IsShown()
+        if tab.SetChecked then
+            tab:SetChecked(active)
+        end
+        local text = tab.GetFontString and tab:GetFontString()
+        if text then
+            local color = active and HIGHLIGHT_FONT_COLOR or NORMAL_FONT_COLOR
+            text:SetTextColor(color.r, color.g, color.b)
+        end
+        if active and advancementTab and advancementTab.SetChecked then
+            advancementTab:SetChecked(false)
+        end
+    end
     local keeper = CreateFrame("Frame", nil, tab)
     keeper:SetScript("OnUpdate", function(self, elapsed)
         self.wait = (self.wait or 0) + elapsed
         if self.wait >= 0.2 then
             self.wait = 0
             Arrange()
+            ShowSelection()
         end
     end)
     tab:SetPoint("LEFT", first, "RIGHT", gap, 0)
@@ -1844,6 +1859,10 @@ local function AttachToWindow()
         panel:Hide()
         if tab.SetChecked then
             tab:SetChecked(false)
+        end
+        if window.GetCurrentTabID and window.Tabs and advancementTab.SetChecked
+            and window:GetCurrentTabID() == window.Tabs.CharacterAdvancement then
+            advancementTab:SetChecked(true)
         end
     end
     for _, other in ipairs(tabs) do
@@ -2832,9 +2851,19 @@ local function ShowUndressMenu(anchor)
 end
 
 local function PlaceTwinApply()
-    local original = applyButtons[1]
+    local original
+    for _, button in ipairs(applyButtons) do
+        if not button.subclassCoverWatched then
+            button.subclassCoverWatched = true
+            button:HookScript("OnShow", function() ShowDressing() end)
+            button:HookScript("OnHide", function() ShowDressing() end)
+        end
+        if not original and button:IsVisible() then
+            original = button
+        end
+    end
     if not original then
-        return
+        return nil
     end
     if not twinApplyButton then
         twinApplyButton = CreateFrame("Button", "Ascension_SubclassTwinApply", original:GetParent(),
@@ -2846,16 +2875,18 @@ local function PlaceTwinApply()
                 or "|cffffd100Wardrobe:|r pick something first.")
         end)
     end
+    twinApplyButton:SetParent(original:GetParent())
     twinApplyButton:ClearAllPoints()
     twinApplyButton:SetAllPoints(original)
     twinApplyButton:SetFrameStrata(original:GetFrameStrata())
     twinApplyButton:SetFrameLevel(original:GetFrameLevel() + 10)
+    return original
 end
 
 function ShowDressing()
-    PlaceTwinApply()
+    local covered = PlaceTwinApply()
     if twinApplyButton then
-        if dressingTwin or DressesCyclops() then
+        if covered and (dressingTwin or DressesCyclops()) then
             twinApplyButton:Show()
         else
             twinApplyButton:Hide()
@@ -2887,7 +2918,8 @@ local function AttachTwinButton()
     if race ~= "ThinHuman" and not DressesCyclops() then
         return true
     end
-    local anchor = FindButton("Disable Transmog") or FindButton("Disable Spell Visuals")
+    local anchor = FindButton("Disable Transmog") or FindButton("Enable Transmog")
+        or FindButton("Disable Spell Visuals") or FindButton("Enable Spell Visuals")
     if not anchor then
         return false
     end
