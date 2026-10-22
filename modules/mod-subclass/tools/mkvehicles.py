@@ -1,4 +1,4 @@
-"""Append the twin's piggyback, saddle and beast-back vehicles to Vehicle.dbc / VehicleSeat.dbc and emit SQL."""
+"""Append the twin's vehicles to Vehicle.dbc / VehicleSeat.dbc and emit their SQL and the mount rider poses."""
 import struct
 import sys
 
@@ -12,6 +12,8 @@ CHEST_BACK_SEAT, MOUNT_RIDER_SEAT = 10, 21
 PIGGYBACK_OFFSET, PIGGYBACK_PITCH = (0.05, 0.0, -0.35), -0.35
 RIDER_BEHIND_OFFSET = (-0.28, 0.0, 0.0)
 WOLF_BACK_OFFSET, CAT_BACK_OFFSET = (0.0, 0.0, 0.0), (0.0, 0.0, 0.04)
+FIRST_POSE_SEAT, MOUNT_POSE, NO_ANIMATION = 9534, 91, 0xFFFFFFFF
+SPELL_AURAS, SPELL_VISUALS, VISUAL_STATE_KIT, KIT_ANIMATION, MOUNTED_AURA = 95, 131, 4, 2, 78
 SEAT_COLUMNS = ("ID Flags AttachmentID AttachmentOffsetX AttachmentOffsetY AttachmentOffsetZ EnterPreDelay EnterSpeed "
     "EnterGravity EnterMinDuration EnterMaxDuration EnterMinArcHeight EnterMaxArcHeight EnterAnimStart EnterAnimLoop "
     "RideAnimStart RideAnimLoop RideUpperAnimStart RideUpperAnimLoop ExitPreDelay ExitSpeed ExitGravity ExitMinDuration "
@@ -55,8 +57,9 @@ def column(name, columns):
     return columns.index(name) * 4
 
 
-def seat(rows, seat_id, attachment, offset, pitch=0.0):
+def seat(rows, seat_id, attachment, offset, pitch=0.0, ride=MOUNT_POSE):
     row = bytearray(find(rows, TEMPLATE_SEAT))
+    struct.pack_into("<i", row, column("RideAnimLoop", SEAT_COLUMNS), ride)
     struct.pack_into("<f", row, column("PassengerPitch", SEAT_COLUMNS), pitch)
     struct.pack_into("<I", row, 0, seat_id)
     struct.pack_into("<I", row, column("AttachmentID", SEAT_COLUMNS), attachment)
@@ -94,6 +97,39 @@ def sql(table, columns, fmt, rows, strings):
             ",\n".join(lines) + ";\n")
 
 
+def table(name):
+    _, fields, _, rows, _ = load(f"{SRC}/{name}.dbc")
+    return {values[0]: values for values in (struct.unpack(f"<{fields}I", row) for row in rows)}
+
+
+def rider_poses():
+    visuals, kits = table("SpellVisual"), table("SpellVisualKit")
+    poses = {}
+    for spell_id, spell in table("Spell").items():
+        if MOUNTED_AURA not in spell[SPELL_AURAS:SPELL_AURAS + 3]:
+            continue
+        for visual_id in spell[SPELL_VISUALS:SPELL_VISUALS + 2]:
+            kit = kits.get(visuals.get(visual_id, (0,) * 8)[VISUAL_STATE_KIT])
+            if kit and kit[KIT_ANIMATION] != NO_ANIMATION:
+                if kit[KIT_ANIMATION] != MOUNT_POSE:
+                    poses[spell_id] = kit[KIT_ANIMATION]
+                break
+    return poses
+
+
+def pose_sql(seat_of):
+    rows = ",\n".join(f"({spell}, {vehicle_id})" for spell, vehicle_id in sorted(seat_of.items()))
+    return ("CREATE TABLE IF NOT EXISTS `mod_subclass_rider_pose` (\n"
+            "    `SpellId` INT UNSIGNED NOT NULL,\n"
+            "    `VehicleId` INT UNSIGNED NOT NULL,\n"
+            "    PRIMARY KEY (`SpellId`)\n"
+            ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n\n"
+            "DELETE FROM `mod_subclass_rider_pose`;\n"
+            f"INSERT INTO `mod_subclass_rider_pose` (`SpellId`, `VehicleId`) VALUES\n{rows};\n")
+
+
+poses = rider_poses()
+pose_ids = {anim: FIRST_POSE_SEAT + index for index, anim in enumerate(sorted(set(poses.values())))}
 _, seat_fields, seat_size, seats, seat_strings = load(f"{SRC}/VehicleSeat.dbc")
 _, vehicle_fields, vehicle_size, vehicles, vehicle_strings = load(f"{SRC}/Vehicle.dbc")
 new_seats = [seat(seats, PIGGYBACK_SEAT, CHEST_BACK_SEAT, PIGGYBACK_OFFSET, PIGGYBACK_PITCH),
@@ -102,6 +138,9 @@ new_seats = [seat(seats, PIGGYBACK_SEAT, CHEST_BACK_SEAT, PIGGYBACK_OFFSET, PIGG
              seat(seats, CAT_BACK_SEAT, MOUNT_RIDER_SEAT, CAT_BACK_OFFSET)]
 new_vehicles = [vehicle(vehicles, PIGGYBACK, PIGGYBACK_SEAT), vehicle(vehicles, SADDLE, SADDLE_SEAT),
                 vehicle(vehicles, WOLF_BACK, WOLF_BACK_SEAT), vehicle(vehicles, CAT_BACK, CAT_BACK_SEAT)]
+for anim, pose_id in pose_ids.items():
+    new_seats.append(seat(seats, pose_id, MOUNT_RIDER_SEAT, RIDER_BEHIND_OFFSET, ride=anim))
+    new_vehicles.append(vehicle(vehicles, pose_id, pose_id))
 seat_ids = {struct.unpack_from("<I", row)[0] for row in new_seats}
 vehicle_ids = {struct.unpack_from("<I", row)[0] for row in new_vehicles}
 seats = [row for row in seats if struct.unpack_from("<I", row)[0] not in seat_ids] + new_seats
@@ -110,3 +149,4 @@ save(f"{OUT}/VehicleSeat.dbc", seat_fields, seat_size, seats, seat_strings)
 save(f"{OUT}/Vehicle.dbc", vehicle_fields, vehicle_size, vehicles, vehicle_strings)
 print(sql("vehicleseat_dbc", SEAT_COLUMNS, SEAT_FORMAT, new_seats, seat_strings))
 print(sql("vehicle_dbc", VEHICLE_COLUMNS, VEHICLE_FORMAT, new_vehicles, vehicle_strings))
+print(pose_sql({spell: pose_ids[anim] for spell, anim in poses.items()}))

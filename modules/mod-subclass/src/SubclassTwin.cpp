@@ -120,7 +120,7 @@ constexpr uint32 PiggybackVehicle = 9530;
 constexpr uint32 SaddleVehicle = 9531;
 constexpr uint32 WolfBackVehicle = 9532;
 constexpr uint32 CatBackVehicle = 9533;
-constexpr std::array<uint32, 4> TwinVehicles = { PiggybackVehicle, SaddleVehicle, WolfBackVehicle, CatBackVehicle };
+constexpr uint32 LastTwinVehicle = 9549;
 constexpr int8 TwinSeat = 1;
 constexpr uint32 MotionTick = 200;
 constexpr uint32 HopDelay = 3500;
@@ -493,8 +493,7 @@ Creature* TwinOf(Player const* player)
 bool OwnsKit(Player const* player)
 {
     Vehicle const* kit = player->GetVehicleKit();
-    return kit &&
-        std::find(TwinVehicles.begin(), TwinVehicles.end(), kit->GetVehicleInfo()->m_ID) != TwinVehicles.end();
+    return kit && kit->GetVehicleInfo()->m_ID >= PiggybackVehicle && kit->GetVehicleInfo()->m_ID <= LastTwinVehicle;
 }
 
 void SendVehicleData(Player* player, uint32 vehicleId)
@@ -531,7 +530,36 @@ bool GiveKit(Player* player, uint32 vehicleId)
     return true;
 }
 
-uint32 VehicleFor(Carry mode)
+std::unordered_map<uint32, uint32> const& RiderPoseVehicles()
+{
+    static std::unordered_map<uint32, uint32> const vehicles = []
+    {
+        std::unordered_map<uint32, uint32> loaded;
+        bool const present = bool(WorldDatabase.Query("SELECT 1 FROM information_schema.TABLES WHERE "
+            "TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mod_subclass_rider_pose'"));
+        if (QueryResult result = present ?
+                WorldDatabase.Query("SELECT `SpellId`, `VehicleId` FROM `mod_subclass_rider_pose`") : nullptr)
+            do
+            {
+                Field* fields = result->Fetch();
+                loaded[fields[0].Get<uint32>()] = fields[1].Get<uint32>();
+            } while (result->NextRow());
+        LOG_INFO("module", "mod-subclass: {} mounts seat the twin brother in their own rider pose", loaded.size());
+        return loaded;
+    }();
+    return vehicles;
+}
+
+uint32 SaddleFor(Player const* player)
+{
+    auto const& vehicles = RiderPoseVehicles();
+    for (AuraEffect const* mount : player->GetAuraEffectsByType(SPELL_AURA_MOUNTED))
+        if (auto const itr = vehicles.find(mount->GetId()); itr != vehicles.end())
+            return itr->second;
+    return SaddleVehicle;
+}
+
+uint32 VehicleFor(Player const* player, Carry mode)
 {
     switch (mode)
     {
@@ -542,7 +570,7 @@ uint32 VehicleFor(Carry mode)
         case Carry::CatBack:
             return CatBackVehicle;
         default:
-            return SaddleVehicle;
+            return SaddleFor(player);
     }
 }
 
@@ -559,7 +587,7 @@ void SetCarry(Player* player, Creature* twin, Carry mode)
         motions[player->GetGUID().GetCounter()].Follow = TwinDistance;
         return;
     }
-    if (!GiveKit(player, VehicleFor(mode)))
+    if (!GiveKit(player, VehicleFor(player, mode)))
         return SetCarry(player, twin, Carry::Beside);
     twin->GetMotionMaster()->Clear();
     twin->EnterVehicle(player, TwinSeat);
