@@ -375,7 +375,7 @@ void ForgetBotPlayer(Player const* player)
 
 void ForgetDeletedBot(uint32 guid)
 {
-    CharacterDatabase.Execute("DELETE FROM `mod_subclass_bot` WHERE `guid` = {}", guid);
+    CharacterDatabase.DirectExecute("DELETE FROM `mod_subclass_bot` WHERE `guid` = {}", guid);
     std::lock_guard<std::mutex> lock(botMutex);
     forcedBots.erase(guid);
     buildRolls.erase(guid);

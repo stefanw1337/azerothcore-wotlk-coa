@@ -196,7 +196,7 @@ class mod_subclass_relic_player : public PlayerScript
 {
 public:
     mod_subclass_relic_player() : PlayerScript("mod_subclass_relic_player", { PLAYERHOOK_ON_LOGIN,
-        PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_ON_UPDATE, PLAYERHOOK_ON_DELETE })
+        PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_ON_UPDATE, PLAYERHOOK_ON_CREATE, PLAYERHOOK_ON_DELETE })
     {
     }
 
@@ -224,11 +224,22 @@ public:
         heldRelics.erase(player->GetGUID().GetCounter());
     }
 
+    void OnPlayerCreate(Player* player) override
+    {
+        ForgetRelicOf(player->GetGUID().GetCounter());
+    }
+
     void OnPlayerDelete(ObjectGuid guid, uint32 /*accountId*/) override
     {
-        CharacterDatabase.Execute("DELETE FROM `mod_subclass_relic` WHERE `guid` = {}", guid.GetCounter());
+        ForgetRelicOf(guid.GetCounter());
+    }
+
+private:
+    static void ForgetRelicOf(uint32 guid)
+    {
+        CharacterDatabase.DirectExecute("DELETE FROM `mod_subclass_relic` WHERE `guid` = {}", guid);
         std::lock_guard<std::mutex> lock(relicMutex);
-        heldRelics.erase(guid.GetCounter());
+        heldRelics.erase(guid);
     }
 };
 

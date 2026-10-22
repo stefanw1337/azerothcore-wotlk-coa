@@ -1,3 +1,5 @@
+STANDARD = STANDARD or "Standard"
+
 local PREFIX = "SUBCLASS"
 local NODE = 34
 local LINE_TEXTURE = "Interface\\TaxiFrame\\UI-Taxi-Line"
@@ -344,6 +346,42 @@ function CoAArt.Find(tree)
     return CoAArt.found[key] or nil
 end
 
+function CoAArt.SharedAtlas()
+    local shared
+    for _, tree in ipairs(state.trees) do
+        if not StandardTree(tree) then
+            local atlas = CoAArt.Find(tree)
+            if atlas and (tree.spec or 0) > 0 then
+                return atlas
+            end
+            shared = shared or atlas
+        end
+    end
+    return shared
+end
+
+function CoAArt.ShowWide(first, last)
+    if not panel.art then
+        panel.art = panel:CreateTexture(nil, "BACKGROUND")
+        panel.art:SetAlpha(0.8)
+    end
+    local atlas = first and CoAArt.SharedAtlas()
+    local width, height = first and last and last:GetRight() and first:GetLeft() and last:GetRight() - first:GetLeft(),
+        first and first:GetHeight()
+    CoAArt.wide = nil
+    panel.art:ClearAllPoints()
+    if atlas and width and width > 0 and height > 0 then
+        panel.art:SetPoint("TOPLEFT", first, "TOPLEFT")
+        panel.art:SetPoint("BOTTOMRIGHT", last, "BOTTOMRIGHT")
+        if CoAArt.Show(panel.art, atlas, width, height) then
+            CoAArt.wide = atlas
+            panel.art:Show()
+            return
+        end
+    end
+    panel.art:Hide()
+end
+
 function CoAArt.Show(texture, atlas, width, height)
     local raw = AtlasInfo[atlas]
     local ok, info = pcall(function() return AtlasUtil and AtlasUtil.GetAtlasInfo and AtlasUtil:GetAtlasInfo(atlas) end)
@@ -384,7 +422,7 @@ local function ShowTreeArt(tree, canvas)
         canvas.art:Show()
         return
     end
-    local atlas = not StandardTree(tree) and height > 0 and CoAArt.Find(tree)
+    local atlas = not StandardTree(tree) and not CoAArt.wide and height > 0 and CoAArt.Find(tree)
     if atlas and CoAArt.Show(canvas.art, atlas, width, height) then
         canvas.art:Show()
     else
@@ -539,14 +577,17 @@ local function Render()
     end
     local count = #state.trees
     local inner = panel:GetWidth() - 40
-    for index, tree in ipairs(state.trees) do
+    for index in ipairs(state.trees) do
         local canvas = Canvas(index)
         canvas:ClearAllPoints()
         canvas:SetPoint("TOPLEFT", panel, "TOPLEFT", 20 + (index - 1) * inner / count, -40)
         canvas:SetWidth(inner / count - 10)
         canvas:SetHeight(panel:GetHeight() - 80)
         canvas:Show()
-        RenderTree(tree, canvas)
+    end
+    CoAArt.ShowWide(count > 0 and Canvas(1), count > 0 and Canvas(count))
+    for index, tree in ipairs(state.trees) do
+        RenderTree(tree, Canvas(index))
     end
     for index = count + 1, #treeFrames do
         treeFrames[index]:Hide()
@@ -1244,7 +1285,9 @@ function Stances.PlaceStanceBar()
         return
     end
     local anchor = Stances.StanceBarAnchor()
-    if anchor then
+    if Ascension_SubclassBar then
+        Stances.bar:SetPoint("BOTTOMLEFT", Ascension_SubclassBar, "TOPLEFT", 0, Stances.gap)
+    elseif anchor then
         Stances.bar:SetPoint("LEFT", anchor, "RIGHT", Stances.gap * 2, 0)
     elseif ShapeshiftBarFrame then
         Stances.bar:SetPoint("BOTTOMLEFT", ShapeshiftBarFrame, "BOTTOMLEFT", 0, 0)
@@ -2260,7 +2303,7 @@ end
 local CORNER_REACH = 110
 local PORTRAIT_SQUARENESS, PORTRAIT_MIN, PORTRAIT_MAX = 4, 40, 90
 local CLASS_CIRCLES = "Interface\\TargetingFrame\\UI-Classes-Circles"
-local Portraits = {}
+local Portraits = { roundIcons = "Interface\\Glues\\CHARACTERCREATE\\UI-CHARACTERCREATE-CLASSES-ROUND" }
 Portraits.icons = {
     WARRIOR = "Interface\\Icons\\INV_Sword_27", PALADIN = "Interface\\Icons\\INV_Hammer_01",
     HUNTER = "Interface\\Icons\\INV_Weapon_Bow_07", ROGUE = "Interface\\Icons\\INV_ThrowingKnife_04",
@@ -2355,9 +2398,14 @@ local function ShowSubclassPortrait(page)
         return
     end
     local token = state.subclass and string.upper(string.gsub(state.subclass, " ", ""))
+    local round = token and CLASS_ICON_TCOORDS_ROUND and CLASS_ICON_TCOORDS_ROUND[token]
     local icon = token and Portraits.icons[token]
     local coords = token and CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[token]
-    if icon then
+    if round and #round == 4 then
+        portrait:SetTexture(Portraits.roundIcons)
+        portrait:SetTexCoord(unpack(round))
+        portrait.subclassIcon = nil
+    elseif icon then
         if portrait.subclassIcon ~= icon then
             SetPortraitToTexture(portrait, icon)
             portrait:SetTexCoord(0, 1, 0, 1)

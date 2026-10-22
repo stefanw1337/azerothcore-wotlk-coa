@@ -582,6 +582,14 @@ void StoreRecord(Player const* player, Record const& record)
     records[guid] = record;
 }
 
+void ForgetSubclassOf(uint32 guid)
+{
+    CharacterDatabase.DirectExecute("DELETE FROM `mod_subclass_character` WHERE `guid` = {}", guid);
+    ForgetDeletedBot(guid);
+    std::lock_guard<std::mutex> lock(subclassMutex);
+    records.erase(guid);
+}
+
 bool MainMaySubclass(uint8 classId);
 
 bool MayCarrySubclass(Player const* player)
@@ -854,6 +862,10 @@ void SendSubclassState(Player* player)
         record.Insights));
     if (Subclass::Choice const choice = ChoiceOf(player); choice.Complete())
         SendAddon(player, Acore::StringFormat("SUBCLASS {}", PlainClassName(choice.SubClass)));
+    std::vector<std::string> otherSpells;
+    for (uint32 spellId : KnownBorrowedActives(player))
+        otherSpells.push_back(std::to_string(spellId));
+    SendAddonList(player, "OTHERSPELLS", otherSpells);
     SendAddon(player, RelicState(player));
     SendAddon(player, BorrowedStances(player));
     for (std::size_t index = 0; index < open.size(); ++index)
@@ -946,10 +958,6 @@ void HandleAddonMessage(Player* player, std::string_view message)
         SendAddon(player, TwinState(player));
         SendAddon(player, RelicState(player));
         SendAddon(player, CyclopsModelState(player));
-        std::vector<std::string> spells;
-        for (uint32 spellId : KnownBorrowedActives(player))
-            spells.push_back(std::to_string(spellId));
-        SendAddonList(player, "OTHERSPELLS", spells);
         return;
     }
     if (message == "AIM")
@@ -2024,7 +2032,7 @@ class mod_subclass_player : public PlayerScript
 {
 public:
     mod_subclass_player() : PlayerScript("mod_subclass_player", { PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_LOGOUT,
-        PLAYERHOOK_ON_DELETE, PLAYERHOOK_ON_LEVEL_CHANGED, PLAYERHOOK_ON_GOSSIP_SELECT,
+        PLAYERHOOK_ON_CREATE, PLAYERHOOK_ON_DELETE, PLAYERHOOK_ON_LEVEL_CHANGED, PLAYERHOOK_ON_GOSSIP_SELECT,
         PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT, PLAYERHOOK_ON_PLAYER_IS_CLASS,
         PLAYERHOOK_ON_PLAYER_HAS_ACTIVE_POWER_TYPE, PLAYERHOOK_ON_LEARN_SPELL, PLAYERHOOK_CAN_EQUIP_ITEM })
     {
@@ -2135,12 +2143,14 @@ public:
         runesLent.erase(player->GetGUID().GetCounter());
     }
 
+    void OnPlayerCreate(Player* player) override
+    {
+        ForgetSubclassOf(player->GetGUID().GetCounter());
+    }
+
     void OnPlayerDelete(ObjectGuid guid, uint32 /*accountId*/) override
     {
-        CharacterDatabase.Execute("DELETE FROM `mod_subclass_character` WHERE `guid` = {}", guid.GetCounter());
-        ForgetDeletedBot(guid.GetCounter());
-        std::lock_guard<std::mutex> lock(subclassMutex);
-        records.erase(guid.GetCounter());
+        ForgetSubclassOf(guid.GetCounter());
     }
 
 private:

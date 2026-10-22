@@ -3,6 +3,7 @@
  */
 
 #include "AllCreatureScript.h"
+#include "AllSpellScript.h"
 #include "AscensionAppearanceChanges.h"
 #include "CellImpl.h"
 #include "Chat.h"
@@ -226,11 +227,11 @@ uint64 CopyKey(ObjectGuid player, uint32 spellId)
     return (uint64(player.GetCounter()) << 32) | spellId;
 }
 
-void ShowCastAsCopy(Player const* player, uint32 spellId, bool shown)
+void ShowCastAsCopy(Player const* player, uint32 spellId, bool shown, uint32 castMs = 0)
 {
     std::lock_guard<std::mutex> lock(shownCopiesMutex);
     if (shown)
-        shownCopies[CopyKey(player->GetGUID(), spellId)] = GameTime::GetGameTimeMS().count() + CopyShownMs;
+        shownCopies[CopyKey(player->GetGUID(), spellId)] = GameTime::GetGameTimeMS().count() + castMs + CopyShownMs;
     else
         shownCopies.erase(CopyKey(player->GetGUID(), spellId));
 }
@@ -2604,17 +2605,6 @@ uint32 OtherHeadShownSpell(uint32 spellId)
     return itr == shown.end() ? 0 : itr->second;
 }
 
-constexpr std::array<uint32, 10> ClassSpellFamilies = { SPELLFAMILY_MAGE, SPELLFAMILY_WARRIOR, SPELLFAMILY_WARLOCK,
-    SPELLFAMILY_PRIEST, SPELLFAMILY_DRUID, SPELLFAMILY_ROGUE, SPELLFAMILY_HUNTER, SPELLFAMILY_PALADIN,
-    SPELLFAMILY_SHAMAN, SPELLFAMILY_DEATHKNIGHT };
-
-bool LeavesTheArmsAlone(uint32 spellId)
-{
-    SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
-    return info && std::find(ClassSpellFamilies.begin(), ClassSpellFamilies.end(), info->SpellFamilyName) !=
-        ClassSpellFamilies.end();
-}
-
 struct SpellPacket
 {
     ObjectGuid Caster;
@@ -2686,8 +2676,7 @@ bool ShowOtherHeadStrikeAsCopy(WorldSession* session, WorldPacket const& packet)
         return true;
     uint32 const shown = OtherHeadShownSpell(read->SpellId);
     if (!shown)
-        return (packet.GetOpcode() != SMSG_SPELL_START && packet.GetOpcode() != SMSG_SPELL_GO) ||
-            LeavesTheArmsAlone(read->SpellId);
+        return true;
     WorldPacket copy(packet);
     copy.put<uint32>(read->SpellAt, shown);
     session->SendPacket(&copy);
@@ -2793,8 +2782,8 @@ class mod_subclass_twin_player : public PlayerScript
 {
 public:
     mod_subclass_twin_player() : PlayerScript("mod_subclass_twin_player", { PLAYERHOOK_ON_LOGIN,
-        PLAYERHOOK_ON_BEFORE_LOGOUT, PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_ON_MAP_CHANGED, PLAYERHOOK_ON_DELETE,
-        PLAYERHOOK_ON_UPDATE,
+        PLAYERHOOK_ON_BEFORE_LOGOUT, PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_ON_MAP_CHANGED, PLAYERHOOK_ON_CREATE,
+        PLAYERHOOK_ON_DELETE, PLAYERHOOK_ON_UPDATE,
         PLAYERHOOK_ON_TEXT_EMOTE, PLAYERHOOK_ON_AFTER_SET_VISIBLE_ITEM_SLOT })
     {
     }
@@ -2850,11 +2839,22 @@ public:
         wardrobes.erase(player->GetGUID().GetCounter());
     }
 
+    void OnPlayerCreate(Player* player) override
+    {
+        ForgetTwinOf(player->GetGUID().GetCounter());
+    }
+
     void OnPlayerDelete(ObjectGuid guid, uint32 /*accountId*/) override
     {
-        CharacterDatabase.Execute("DELETE FROM `mod_subclass_twin` WHERE `guid` = {}", guid.GetCounter());
+        ForgetTwinOf(guid.GetCounter());
+    }
+
+private:
+    static void ForgetTwinOf(uint32 guid)
+    {
+        CharacterDatabase.DirectExecute("DELETE FROM `mod_subclass_twin` WHERE `guid` = {}", guid);
         std::lock_guard<std::mutex> lock(twinMutex);
-        wardrobes.erase(guid.GetCounter());
+        wardrobes.erase(guid);
     }
 };
 
@@ -3907,10 +3907,25 @@ bool SwingsAWeapon(SpellInfo const* info)
         info->HasEffect(SPELL_EFFECT_WEAPON_PERCENT_DAMAGE));
 }
 
-void HideOtherHeadsArm(Player* player, SpellInfo const* info)
+void HideOtherHeadsArm(Player* player, SpellInfo const* info, uint32 castMs = 0)
 {
-    ShowCastAsCopy(player, info->Id, IsBorrowedSpell(player, info->Id) && ShowsAsCopy(player, info));
+    ShowCastAsCopy(player, info->Id, IsBorrowedSpell(player, info->Id) && ShowsAsCopy(player, info), castMs);
 }
+
+class mod_subclass_other_head_cast_start : public AllSpellScript
+{
+public:
+    mod_subclass_other_head_cast_start() : AllSpellScript("mod_subclass_other_head_cast_start",
+        { ALLSPELLHOOK_CAN_PREPARE }) { }
+
+    bool CanPrepare(Spell* spell, SpellCastTargets const* /*targets*/, AuraEffect const* /*triggeredByAura*/) override
+    {
+        Player* player = spell->GetCaster()->ToPlayer();
+        if (player && HasSecondHead(player))
+            HideOtherHeadsArm(player, spell->GetSpellInfo(), spell->GetSpellInfo()->CalcCastTime(player, spell));
+        return true;
+    }
+};
 
 class mod_subclass_twin_shots : public PlayerScript
 {
@@ -3987,6 +4002,7 @@ void AddSC_mod_subclass_twin()
     new mod_subclass_own_look();
     new mod_subclass_hand_me_downs();
     new mod_subclass_twin_shots();
+    new mod_subclass_other_head_cast_start();
     RegisterSpellScript(spell_subclass_second_self);
     RegisterSpellScript(spell_subclass_easy);
     new mod_subclass_twin_packets();
