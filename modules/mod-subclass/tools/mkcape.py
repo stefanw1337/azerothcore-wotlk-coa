@@ -2,8 +2,10 @@ import json, math, struct, sys
 import numpy as np
 
 CAPE_GEOSETS = range(1502, 1511)
-SHOULDER_BONE = 25
-HANGING_BONE = 1
+CHEST_BONE, MIDDLE_SPINE_BONE, LOW_SPINE_BONE, PELVIS_BONE = 16, 9, 3, 2
+UPPER_BACK, MIDDLE_BACK, WAIST = 1.40, 1.30, 1.20
+MIDDLE_BACK_SHARES = {0: 42, 1: 85, 2: 128}
+CHEST, MIDDLE_SPINE, LOW_SPINE, CAPE_TOP, CAPE_LOW = range(5)
 SWING = {
     'Walk': (6, 4, 2), 'Run': (18, 14, 4), 'RunLeft': (15, 12, 4), 'RunRight': (15, 12, 4),
     'Sprint': (26, 20, 5), 'JumpStart': (20, 16, 3), 'Jump': (38, 28, 4), 'Fall': (58, 40, 6),
@@ -39,16 +41,29 @@ def back_profile(m2, skin):
         return float(window[:, 0].min()) if len(window) else -0.1
     return back
 
-def bone_weights(v):
-    if v <= 0.0:
-        return {0: 255}
-    if v < 0.15:
-        top = int(255 * v / 0.15)
-        return {0: 255 - top, 1: top} if top < 255 else {1: 255}
-    low = int(255 * min(1.0, max(0.0, (v - 0.35) / 0.4)))
-    if not low:
-        return {1: 255}
-    return {1: 255 - low, 2: low} if low < 255 else {2: 255}
+def mixed(first, second, share):
+    blend = {}
+    for slot in set(first) | set(second):
+        blend[slot] = first.get(slot, 0) * (1.0 - share) + second.get(slot, 0) * share
+    kept = sorted(((amount, slot) for slot, amount in blend.items() if amount > 0.5), reverse=True)[:4]
+    total = sum(amount for amount, _ in kept)
+    weights = {slot: int(round(255 * amount / total)) for amount, slot in kept}
+    largest = max(weights, key=weights.get)
+    weights[largest] += 255 - sum(weights.values())
+    return {slot: amount for slot, amount in weights.items() if amount}
+
+def hanging_weights(z):
+    v = (WAIST - z) / (WAIST - BOTTOM)
+    return mixed({CAPE_TOP: 255}, {CAPE_LOW: 255}, min(1.0, max(0.0, (v - 0.3) / 0.5)))
+
+def bone_weights(z):
+    if z >= UPPER_BACK:
+        return {CHEST: 255}
+    if z >= MIDDLE_BACK:
+        return mixed({CHEST: 255}, MIDDLE_BACK_SHARES, (UPPER_BACK - z) / (UPPER_BACK - MIDDLE_BACK))
+    if z >= WAIST:
+        return mixed(MIDDLE_BACK_SHARES, hanging_weights(WAIST), (MIDDLE_BACK - z) / (MIDDLE_BACK - WAIST))
+    return hanging_weights(z)
 
 def smooth_back(back):
     heights = np.linspace(BOTTOM, TOP, 40)
@@ -70,17 +85,17 @@ def cape_mesh(back):
             side = (u - 0.5) * 2
             y = -side * half
             x = centre + 0.05 * side * side
-            vertices.append(((x, y, z), (TEXTURE_LEFT + u * (TEXTURE_RIGHT - TEXTURE_LEFT), v), bone_weights(v)))
+            vertices.append(((x, y, z), (TEXTURE_LEFT + u * (TEXTURE_RIGHT - TEXTURE_LEFT), v), bone_weights(z)))
     triangles = []
     for row in range(ROWS - 1):
         for column in range(COLUMNS - 1):
             a = row * COLUMNS + column
             b, c, d = a + 1, a + COLUMNS, a + COLUMNS + 1
             triangles += [a, c, b, b, c, d]
-    top_pivot = (back(TOP) - 0.035, 0.0, TOP)
-    middle = TOP - 0.45 * (TOP - BOTTOM)
-    low_pivot = (back(middle) - 0.035 - 0.10 * 0.45 ** 1.6, 0.0, middle)
-    return vertices, triangles, top_pivot, low_pivot
+    def surface(z):
+        v = (TOP - z) / (TOP - BOTTOM)
+        return (back(z) - 0.035 - 0.10 * v ** 1.6, 0.0, z)
+    return vertices, triangles, surface(WAIST), surface(WAIST - 0.45 * (WAIST - BOTTOM))
 
 def compress(f):
     v = int(round(f * 32767))
@@ -152,8 +167,8 @@ def graft(m2_path, skin_path, out_m2, out_skin, names_path):
     names = {int(k): v for k, v in json.load(open(names_path)).items()}
     bone_count, bone_offset = arr(m2, 44)
     cape_top, cape_low = bone_count, bone_count + 1
-    CAPE_BONES = [SHOULDER_BONE, cape_top, cape_low]
-    new_bones = (cape_bone(blob, m2, HANGING_BONE, top_pivot, 0, names) +
+    CAPE_BONES = [CHEST_BONE, MIDDLE_SPINE_BONE, LOW_SPINE_BONE, cape_top, cape_low]
+    new_bones = (cape_bone(blob, m2, PELVIS_BONE, top_pivot, 0, names) +
                  cape_bone(blob, m2, cape_top, low_pivot, 1, names))
     offset = blob.append(m2[bone_offset:bone_offset + bone_count * 88] + new_bones)
     struct.pack_into('<II', blob.data, 44, bone_count + 2, offset)
@@ -200,6 +215,7 @@ def graft(m2_path, skin_path, out_m2, out_skin, names_path):
     submeshes = bytearray(skin[submesh_offset:submesh_offset + submesh_count * 48])
     batches = bytearray(skin[batch_offset:batch_offset + batch_count * 24])
     template = submeshes[-48:]
+    influences = max(len(weights) for _, _, weights in vertices)
     for copy, geoset in enumerate(CAPE_GEOSETS):
         first_vertex = vertex_count + copy * len(vertices)
         first_skin_vertex = len(skin_vertices) // 2
@@ -212,7 +228,7 @@ def graft(m2_path, skin_path, out_m2, out_skin, names_path):
         centre = np.mean([v[0] for v in vertices], axis=0)
         submesh = bytearray(template)
         struct.pack_into('<10H', submesh, 0, geoset, (first_triangle >> 16), first_skin_vertex, len(vertices),
-                         first_triangle & 0xFFFF, len(triangles), len(CAPE_BONES), cape_bone_combo, 2, 0)
+                         first_triangle & 0xFFFF, len(triangles), len(CAPE_BONES), cape_bone_combo, influences, 0)
         struct.pack_into('<3f', submesh, 20, *centre)
         struct.pack_into('<3f', submesh, 32, *centre)
         struct.pack_into('<f', submesh, 44, 0.8)
