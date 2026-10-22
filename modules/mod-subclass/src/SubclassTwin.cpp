@@ -1455,9 +1455,10 @@ void HandWeaponsToBrother(Player* player)
         if (Creature* twin = TwinOf(player))
         {
             Wardrobe const dressed = Dressed(player);
+            bool const clawing = twin->GetDisplayId() != twin->GetNativeDisplayId();
             std::array<std::size_t, 3> const slots = { MainHand, OffHand, Ranged };
             for (uint8 index = 0; index < slots.size(); ++index)
-                if (uint32 const shown = dressed.Items[slots[index]];
+                if (uint32 const shown = clawing ? 0 : dressed.Items[slots[index]];
                     twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID + index) != shown)
                     twin->SetVirtualItem(index, shown);
         }

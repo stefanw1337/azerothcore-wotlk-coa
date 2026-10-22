@@ -1302,6 +1302,7 @@ function Stances.BuildStanceBar()
         return
     end
     Stances.pending = false
+    Stances.TidyMainBar()
     if not Stances.bar then
         Stances.bar = CreateFrame("Frame", "Ascension_SubclassStanceBar", UIParent)
         Stances.bar:SetHeight(Stances.size)
@@ -1358,6 +1359,47 @@ function Stances.BuildStanceBar()
     else
         Stances.bar:Hide()
     end
+end
+
+function Stances.Borrowed(name)
+    for _, spellId in ipairs(Stances.spells) do
+        if GetSpellInfo(spellId) == name then
+            return true
+        end
+    end
+    return false
+end
+
+function Stances.TidyMainBar()
+    if InCombatLockdown() or not ShapeshiftButton1 then
+        return
+    end
+    if not Stances.mainFirst then
+        Stances.mainFirst = { ShapeshiftButton1:GetPoint(1) }
+        Stances.mainGap = 8
+    end
+    local previous
+    for index = 1, NUM_SHAPESHIFT_SLOTS or 10 do
+        local button = _G["ShapeshiftButton" .. index]
+        if button then
+            local _, name = GetShapeshiftFormInfo(index)
+            if index <= GetNumShapeshiftForms() and name and Stances.Borrowed(name) then
+                button:Hide()
+            elseif button:IsShown() then
+                button:ClearAllPoints()
+                if previous then
+                    button:SetPoint("LEFT", previous, "RIGHT", Stances.mainGap, 0)
+                else
+                    button:SetPoint(unpack(Stances.mainFirst))
+                end
+                previous = button
+            end
+        end
+    end
+end
+
+if ShapeshiftBar_Update then
+    hooksecurefunc("ShapeshiftBar_Update", Stances.TidyMainBar)
 end
 
 local function ClearSetPoint(button, ...)
