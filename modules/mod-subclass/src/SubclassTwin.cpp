@@ -533,7 +533,8 @@ Carry WantedCarry(Player const* player, Motion const& motion)
         player->HasStealthAura() || player->GetSheath() != SHEATH_STATE_UNARMED || InBorrowedShape(player))
         return Carry::Beside;
     if (player->IsMounted())
-        return player->GetVehicleKit() && !OwnsKit(player) ? Carry::Beside : Carry::Saddle;
+        return (player->GetVehicleKit() && !OwnsKit(player)) || player->HasAuraType(SPELL_AURA_TRANSFORM) ||
+            player->HasAuraType(SPELL_AURA_MOD_SHAPESHIFT) ? Carry::Beside : Carry::Saddle;
     if (player->IsFlying())
         return Carry::Beside;
     if (motion.Afoot && motion.Afoot <= AfootStride)
