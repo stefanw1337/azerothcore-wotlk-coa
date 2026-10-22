@@ -119,7 +119,7 @@ constexpr uint32 PiggybackVehicle = 9530;
 constexpr uint32 SaddleVehicle = 9531;
 constexpr int8 TwinSeat = 1;
 constexpr uint32 MotionTick = 200;
-constexpr uint32 HopDelay = 1000;
+constexpr uint32 HopDelay = 3500;
 constexpr uint32 PointMin = 20000;
 constexpr uint32 PointMax = 45000;
 constexpr uint32 PointHold = 2600;
@@ -1014,7 +1014,7 @@ void UpdateCarry(Player* player, uint32 diff)
             return;
         bool const moving = player->isMoving();
         stored.Swing = player->IsInCombat() ? stored.Swing + stored.Tick : 0;
-        stored.Moving = moving ? stored.Moving + stored.Tick : 0;
+        stored.Moving = moving && !player->IsInCombat() ? stored.Moving + stored.Tick : 0;
         pointNow = false;
         stored.Afoot = stored.Afoot > stored.Tick ? stored.Afoot - stored.Tick : 0;
         if (stored.Mode == Carry::Piggyback && moving && !stored.Afoot)
