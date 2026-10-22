@@ -13,7 +13,8 @@ CHEST_BACK_SEAT, MOUNT_RIDER_SEAT = 10, 21
 PIGGYBACK_OFFSET, PIGGYBACK_PITCH = (0.05, 0.0, -0.35), -0.35
 RIDER_BEHIND_OFFSET = (-0.28, 0.0, 0.0)
 WOLF_BACK_OFFSET, CAT_BACK_OFFSET = (-0.4, 0.0, 0.0), (0.0, 0.0, 0.04)
-FIRST_POSE_SEAT, MOUNT_POSE, RECLINED_POSE, NO_ANIMATION = 9534, 91, 484, 0xFFFFFFFF
+FIRST_POSE_SEAT, MOUNT_POSE, SIT_CHAIR_LOW, NO_ANIMATION = 9534, 91, 102, 0xFFFFFFFF
+CHAIR_FROM_RECLINED = (0.2, 0.0, -0.31)
 CAR_SEATS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "car_seats.tsv")
 SPELL_AURAS, SPELL_VISUALS, VISUAL_STATE_KIT, KIT_ANIMATION, MOUNTED_AURA = 95, 131, 4, 2, 78
 SEAT_COLUMNS = ("ID Flags AttachmentID AttachmentOffsetX AttachmentOffsetY AttachmentOffsetZ EnterPreDelay EnterSpeed "
@@ -156,7 +157,8 @@ for anim, pose_id in pose_ids.items():
     new_seats.append(seat(seats, pose_id, MOUNT_RIDER_SEAT, RIDER_BEHIND_OFFSET, ride=anim))
     new_vehicles.append(vehicle(vehicles, pose_id, pose_id))
 for offset, car_id in car_ids.items():
-    new_seats.append(seat(seats, car_id, MOUNT_RIDER_SEAT, offset, ride=RECLINED_POSE))
+    chair = tuple(round(value + shift, 3) for value, shift in zip(offset, CHAIR_FROM_RECLINED))
+    new_seats.append(seat(seats, car_id, MOUNT_RIDER_SEAT, chair, ride=SIT_CHAIR_LOW))
     new_vehicles.append(vehicle(vehicles, car_id, car_id))
 seat_ids = {struct.unpack_from("<I", row)[0] for row in new_seats}
 vehicle_ids = {struct.unpack_from("<I", row)[0] for row in new_vehicles}

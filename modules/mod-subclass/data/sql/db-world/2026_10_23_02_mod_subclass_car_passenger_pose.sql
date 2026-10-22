@@ -1,0 +1,47 @@
+-- mod-subclass: in cars the twin brother sits like a passenger, in the low chair pose (SitChairLow), instead
+-- of the reclined driving pose with his hands on a wheel that is not his. The seats move 0.2 forward and 0.31
+-- down so his hips stay where they were: that is where the chair pose puts them against the reclined one in
+-- the Thin Human model.
+
+DELETE FROM `vehicleseat_dbc` WHERE `ID` BETWEEN 9543 AND 9599;
+INSERT INTO `vehicleseat_dbc` (`ID`, `Flags`, `AttachmentID`, `AttachmentOffsetX`, `AttachmentOffsetY`,
+    `AttachmentOffsetZ`, `EnterPreDelay`, `EnterSpeed`, `EnterGravity`, `EnterMinDuration`, `EnterMaxDuration`,
+    `EnterMinArcHeight`, `EnterMaxArcHeight`, `EnterAnimStart`, `EnterAnimLoop`, `RideAnimStart`, `RideAnimLoop`,
+    `RideUpperAnimStart`, `RideUpperAnimLoop`, `ExitPreDelay`, `ExitSpeed`, `ExitGravity`, `ExitMinDuration`,
+    `ExitMaxDuration`, `ExitMinArcHeight`, `ExitMaxArcHeight`, `ExitAnimStart`, `ExitAnimLoop`, `ExitAnimEnd`,
+    `PassengerYaw`, `PassengerPitch`, `PassengerRoll`, `PassengerAttachmentID`, `VehicleEnterAnim`, `VehicleExitAnim`,
+    `VehicleRideAnimLoop`, `VehicleEnterAnimBone`, `VehicleExitAnimBone`, `VehicleRideAnimLoopBone`,
+    `VehicleEnterAnimDelay`, `VehicleExitAnimDelay`, `VehicleAbilityDisplay`, `EnterUISoundID`, `ExitUISoundID`,
+    `UiSkin`, `FlagsB`, `CameraEnteringDelay`, `CameraEnteringDuration`, `CameraExitingDelay`, `CameraExitingDuration`,
+    `CameraOffsetX`, `CameraOffsetY`, `CameraOffsetZ`, `CameraPosChaseRate`, `CameraFacingChaseRate`,
+    `CameraEnteringZoom`, `CameraSeatZoomMin`, `CameraSeatZoomMax`) VALUES
+(9543, -671055861, 21, -0.95, 0.0, -0.24, 0.0, 10.0, 19.290001, 0.6, 1.0, 1.5, 4.0, 37, 38, -1, 102, 128, 123, 0.0,
+    10.0, 19.290001, 0.6, 2.0, 1.5, 2.0, 37, 38, 39, 0.0, 0.0, 0.0, -1, 226, 107, 158, 1, 1, 1, 0.0, 0.0, 1, 0, 0, 0,
+    1073741872, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+(9544, -671055861, 21, -0.9, 0.0, 0.14, 0.0, 10.0, 19.290001, 0.6, 1.0, 1.5, 4.0, 37, 38, -1, 102, 128, 123, 0.0, 10.0,
+    19.290001, 0.6, 2.0, 1.5, 2.0, 37, 38, 39, 0.0, 0.0, 0.0, -1, 226, 107, 158, 1, 1, 1, 0.0, 0.0, 1, 0, 0, 0,
+    1073741872, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+(9545, -671055861, 21, -0.3, 0.8, 0.15, 0.0, 10.0, 19.290001, 0.6, 1.0, 1.5, 4.0, 37, 38, -1, 102, 128, 123, 0.0, 10.0,
+    19.290001, 0.6, 2.0, 1.5, 2.0, 37, 38, 39, 0.0, 0.0, 0.0, -1, 226, 107, 158, 1, 1, 1, 0.0, 0.0, 1, 0, 0, 0,
+    1073741872, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+(9546, -671055861, 21, -0.3, 1.0, -0.19, 0.0, 10.0, 19.290001, 0.6, 1.0, 1.5, 4.0, 37, 38, -1, 102, 128, 123, 0.0, 10.0,
+    19.290001, 0.6, 2.0, 1.5, 2.0, 37, 38, 39, 0.0, 0.0, 0.0, -1, 226, 107, 158, 1, 1, 1, 0.0, 0.0, 1, 0, 0, 0,
+    1073741872, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+(9547, -671055861, 21, -0.2, 0.6, 0.01, 0.0, 10.0, 19.290001, 0.6, 1.0, 1.5, 4.0, 37, 38, -1, 102, 128, 123, 0.0, 10.0,
+    19.290001, 0.6, 2.0, 1.5, 2.0, 37, 38, 39, 0.0, 0.0, 0.0, -1, 226, 107, 158, 1, 1, 1, 0.0, 0.0, 1, 0, 0, 0,
+    1073741872, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+(9548, -671055861, 21, 0.05, -0.6, 0.11, 0.0, 10.0, 19.290001, 0.6, 1.0, 1.5, 4.0, 37, 38, -1, 102, 128, 123, 0.0, 10.0,
+    19.290001, 0.6, 2.0, 1.5, 2.0, 37, 38, 39, 0.0, 0.0, 0.0, -1, 226, 107, 158, 1, 1, 1, 0.0, 0.0, 1, 0, 0, 0,
+    1073741872, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+(9549, -671055861, 21, 0.25, -0.6, -0.03, 0.0, 10.0, 19.290001, 0.6, 1.0, 1.5, 4.0, 37, 38, -1, 102, 128, 123, 0.0,
+    10.0, 19.290001, 0.6, 2.0, 1.5, 2.0, 37, 38, 39, 0.0, 0.0, 0.0, -1, 226, 107, 158, 1, 1, 1, 0.0, 0.0, 1, 0, 0, 0,
+    1073741872, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+(9550, -671055861, 21, 0.4, -0.8, -0.86, 0.0, 10.0, 19.290001, 0.6, 1.0, 1.5, 4.0, 37, 38, -1, 102, 128, 123, 0.0, 10.0,
+    19.290001, 0.6, 2.0, 1.5, 2.0, 37, 38, 39, 0.0, 0.0, 0.0, -1, 226, 107, 158, 1, 1, 1, 0.0, 0.0, 1, 0, 0, 0,
+    1073741872, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+(9551, -671055861, 21, 0.4, -0.8, 0.63, 0.0, 10.0, 19.290001, 0.6, 1.0, 1.5, 4.0, 37, 38, -1, 102, 128, 123, 0.0, 10.0,
+    19.290001, 0.6, 2.0, 1.5, 2.0, 37, 38, 39, 0.0, 0.0, 0.0, -1, 226, 107, 158, 1, 1, 1, 0.0, 0.0, 1, 0, 0, 0,
+    1073741872, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+(9552, -671055861, 21, 0.9, 1.2, -0.49, 0.0, 10.0, 19.290001, 0.6, 1.0, 1.5, 4.0, 37, 38, -1, 102, 128, 123, 0.0, 10.0,
+    19.290001, 0.6, 2.0, 1.5, 2.0, 37, 38, 39, 0.0, 0.0, 0.0, -1, 226, 107, 158, 1, 1, 1, 0.0, 0.0, 1, 0, 0, 0,
+    1073741872, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
