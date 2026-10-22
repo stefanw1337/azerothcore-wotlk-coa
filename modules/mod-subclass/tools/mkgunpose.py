@@ -49,16 +49,6 @@ KICKED = (49, ATTACK_OFF_PIERCE)
 LEFT_HAND_HOLDS = (17, 21, 26, 57, 31, 51, 52, 53, 54, 107, 108, 124, 125, 126)
 READY_1H = 26
 OFF_HAND_SWINGS = (87,)
-PISTOL_WHIP = 58
-PISTOL_WHIP_MS = 1000
-WHIP_RAISED = (0.15, 0.2, 0.75)
-WHIP_STRUCK = (0.85, 0.05, -0.15)
-WHIP_FOLLOWED = (0.7, 0.0, -0.45)
-BARREL_BEHIND = (-0.45, 0.55, 0.7)
-BARREL_BACK_ALONG_ARM = (-0.35, 0.75, 0.55)
-BARREL_UP = (-0.1, 0.7, 0.7)
-PISTOL_WHIP_FRAMES = ((0.0, None, None), (0.3, WHIP_RAISED, BARREL_BEHIND), (0.55, WHIP_STRUCK, BARREL_BACK_ALONG_ARM),
-                      (0.75, WHIP_FOLLOWED, BARREL_UP), (1.0, None, None))
 FIST_AT_HEART = (0.65, 0.52, -0.25)
 FIST_DIPPED = (0.62, 0.48, -0.32)
 TOSSED_UP = (0.5, -0.35, 0.8)
@@ -384,23 +374,6 @@ def kicked(ogre, ready, entries, chain):
     return entries
 
 
-def whipped(ogre, ready, chain, held):
-    base = {bone: frozen(own_keys(ogre, bone, ready), 0) for bone in chain}
-    base.update((bone, frozen(held[bone], 0)) for bone in chain if bone in held)
-    stamps, values = [], {bone: [] for bone in chain}
-    previous = dict.fromkeys(chain)
-    for fraction, reach, barrel in PISTOL_WHIP_FRAMES:
-        posed = base if reach is None else pointed(ogre, ready, base, chain, reach)
-        if barrel is not None:
-            posed[chain[3]] = aimed_joint(ogre, ready, chain[3:], posed, HELD_BARREL, barrel)
-        stamps.append(int(PISTOL_WHIP_MS * fraction))
-        for bone in chain:
-            previous[bone] = continuous(unpacked(posed[bone][2][:8]), previous[bone])
-            values[bone].append(packed(previous[bone], False))
-    times = struct.pack(f"<{len(stamps)}I", *stamps)
-    return {bone: (len(stamps), times, b"".join(values[bone])) for bone in chain}
-
-
 def angle_between(first, second):
     return float(np.arccos(np.clip(np.dot(unit(first), unit(second)), -1.0, 1.0)))
 
@@ -658,10 +631,6 @@ class Grafter:
         struct.pack_into("<II", self.blob.data, times + sequence * 8, keys, self.blob.append(stamps, 4))
         struct.pack_into("<II", self.blob.data, values + sequence * 8, keys, self.blob.append(packed_values, 4))
 
-    def set_length(self, sequence, length):
-        struct.pack_into("<I", self.blob.data, array(self.blob.data, SEQUENCES)[1] + sequence * SEQUENCE_SIZE + 4,
-                         length)
-
     def calm_body(self, sequence, ready, kept):
         data = self.blob.data
         bone_count, _ = array(data, BONES)
@@ -687,11 +656,6 @@ class Grafter:
                 self.calm_body(sequence, self.base, set())
             if animation in OFF_HAND_SWINGS:
                 self.calm_body(sequence, sequence_index(ogre, READY_1H), subtree_of(ogre, left_arm[0]))
-            if animation == PISTOL_WHIP:
-                self.calm_body(sequence, sequence_index(ogre, READY_1H), set())
-                self.set_length(sequence, PISTOL_WHIP_MS)
-                for bone, entry in whipped(ogre, self.base, left_arm, gun_hold).items():
-                    self.set_own_rotation(bone, sequence, entry)
             if animation in LEFT_HAND_HOLDS:
                 for bone in left_arm:
                     if bone in gun_hold:

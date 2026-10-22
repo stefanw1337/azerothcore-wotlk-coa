@@ -1,4 +1,4 @@
--- mod-subclass: copies of class spells the other head casts: their animation leaves the casting arm alone, and gun shots fly from her left hand without the ranged slot.
+-- mod-subclass: copies of class spells the other head casts: their animation leaves the casting arm alone, and gun shots fly from her left hand without the ranged slot. A melee strike's copy swings the weapon her left hand holds while she casts.
 
 DROP TABLE IF EXISTS `mod_subclass_other_head_spell`;
 CREATE TABLE `mod_subclass_other_head_spell` (

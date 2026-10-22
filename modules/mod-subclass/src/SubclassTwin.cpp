@@ -262,7 +262,6 @@ constexpr uint32 RighteousFury = 25780;
 constexpr uint32 SneakAlong = 1784;
 constexpr int32 TankThreatBonus = 40;
 constexpr uint32 AutoShotSpell = 75;
-constexpr uint32 PistolWhipEmote = 587;
 constexpr uint32 ArrowProjectileDisplay = 3482;
 constexpr uint32 BulletProjectileDisplay = 3483;
 constexpr uint32 SplitHitFlags = HITINFO_FULL_ABSORB | HITINFO_PARTIAL_ABSORB | HITINFO_FULL_RESIST |
@@ -1346,20 +1345,6 @@ void NoteGunInHand(Player const* player, bool held)
         gunsInHand.erase(player->GetGUID().GetCounter());
 }
 
-uint32 OffHandSwing(Player const* player)
-{
-    return GunInHand(player) && !player->IsNonMeleeSpellCast(false, true, true) ? PistolWhipEmote :
-        uint32(EMOTE_ONESHOT_ATTACK_OFF);
-}
-
-bool ShowsAsCopy(Player const* player, SpellInfo const* info)
-{
-    if (!info->HasAttribute(SPELL_ATTR0_USES_RANGED_SLOT))
-        return true;
-    Item const* gun = OwnBow(player);
-    return gun && !IsBow(gun) && GunInHand(player);
-}
-
 void ForgetStowedLook(Player const* player, uint8 slot)
 {
     std::lock_guard<std::mutex> lock(twinMutex);
@@ -1489,6 +1474,21 @@ bool CastsWithOtherHeadArmed(Player const* player, bool freeOffHand)
 {
     return freeOffHand && player->IsAlive() && OtherHalfAwake(player) && player->HasUnitState(UNIT_STATE_CASTING) &&
         player->GetSheath() == SHEATH_STATE_MELEE && CastsOwnSpell(player);
+}
+
+bool HoldsHerMaceForTheCast(Player const* player)
+{
+    return CastsWithOtherHeadArmed(player, !player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND));
+}
+
+bool ShowsAsCopy(Player const* player, SpellInfo const* info)
+{
+    if (info->DmgClass == SPELL_DAMAGE_CLASS_MELEE)
+        return HoldsHerMaceForTheCast(player);
+    if (!info->HasAttribute(SPELL_ATTR0_USES_RANGED_SLOT))
+        return true;
+    Item const* gun = OwnBow(player);
+    return gun && !IsBow(gun) && GunInHand(player);
 }
 
 void HoldTheGun(Player* player, bool afar)
@@ -1713,6 +1713,30 @@ bool AimsFromAfar(Player* player)
 
 std::unordered_set<uint32>& drawnToAim = *new std::unordered_set<uint32>;
 
+constexpr uint32 SheathAnswerMs = 150;
+std::unordered_map<uint32, uint32>& sheathAskedAt = *new std::unordered_map<uint32, uint32>;
+
+void NoteSheathRequest(WorldSession* session, WorldPacket const& packet)
+{
+    Player* player = session->GetPlayer();
+    if (!player || packet.GetOpcode() != CMSG_SET_SHEATHED || packet.size() < sizeof(uint32) ||
+        !HasSecondHead(player))
+        return;
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        sheathAskedAt[player->GetGUID().GetCounter()] = GameTime::GetGameTimeMS().count();
+    }
+    LOG_INFO("module", "mod-subclass: {} switches her own sheath to {} (server had {})", player->GetName(),
+        packet.read<uint32>(0), uint32(player->GetSheath()));
+}
+
+bool AnswersOwnSheath(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(twinMutex);
+    auto const itr = sheathAskedAt.find(player->GetGUID().GetCounter());
+    return itr != sheathAskedAt.end() && GameTime::GetGameTimeMS().count() < itr->second + SheathAnswerMs;
+}
+
 void DrawForTheFight(Player* player)
 {
     if (!HasSecondHead(player))
@@ -1731,8 +1755,11 @@ void DrawForTheFight(Player* player)
         else
             drawnToAim.erase(guid);
     }
-    if (fighting && player->GetSheath() != SHEATH_STATE_MELEE)
+    if (fighting && player->GetSheath() != SHEATH_STATE_MELEE && !AnswersOwnSheath(player))
+    {
+        NoteHands(player, "draws mace and gun");
         player->SetSheath(SHEATH_STATE_MELEE);
+    }
     else if (!fighting && drewToAim && !player->IsInCombat())
         player->SetSheath(SHEATH_STATE_UNARMED);
     HoldTheGun(player, fighting && AimsFromAfar(player));
@@ -2595,6 +2622,7 @@ public:
         {
             OrderCompanion(session, packet);
             NoteAttackIntent(session, packet);
+            NoteSheathRequest(session, packet);
         }
         return !session || AnswerMirrorImage(session, packet);
     }
@@ -3707,8 +3735,8 @@ public:
             return;
         if (!IsShot(info))
         {
-            if (SwingsAWeapon(info) && IsBorrowedSpell(player, info->Id))
-                player->HandleEmoteCommand(OffHandSwing(player));
+            if (SwingsAWeapon(info) && IsBorrowedSpell(player, info->Id) && !OtherHeadShownSpell(info->Id))
+                player->HandleEmoteCommand(EMOTE_ONESHOT_SPECIALATTACK1H);
             return;
         }
         if (!OtherHeadShoots(player))
@@ -3719,10 +3747,11 @@ public:
         if (!gun)
             return;
         NoteHands(player, "shoots");
-        if (!GunInHand(player) && !IsBow(gun))
-            return;
         if (!IsBow(gun))
-            player->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_OFF_PIERCE);
+        {
+            if (GunInHand(player) && player->GetSheath() == SHEATH_STATE_MELEE)
+                player->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_OFF_PIERCE);
+        }
         else if (!target || !player->IsWithinMeleeRange(target))
             player->HandleEmoteCommand(RangedEmote(gun->GetTemplate()));
     }
