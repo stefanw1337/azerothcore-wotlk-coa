@@ -1,7 +1,7 @@
 -- mod-subclass: cars, karts, trikes and the like get a seat of their own for the twin brother, found in each
--- model: the rear deck, a side pod or a shoulder that is free of the car and of the driver. They replace the
--- seat right behind the driver, which put him inside the backrest. The car mount spells now point at their
--- seat in mod_subclass_rider_pose, rebuilt here in full by tools/mkvehicles.py with tools/car_seats.tsv.
+-- model: a back seat, the rear deck, a side pod or a shoulder that is free of the car and of the driver. They
+-- replace the seat right behind the driver, which put him inside the backrest. The car mount spells point at
+-- their seat in mod_subclass_rider_pose, rebuilt here in full by tools/mkvehicles.py with tools/car_seats.tsv.
 
 DELETE FROM `vehicleseat_dbc` WHERE `ID` BETWEEN 9543 AND 9599;
 INSERT INTO `vehicleseat_dbc` (`ID`, `Flags`, `AttachmentID`, `AttachmentOffsetX`, `AttachmentOffsetY`,
@@ -15,10 +15,10 @@ INSERT INTO `vehicleseat_dbc` (`ID`, `Flags`, `AttachmentID`, `AttachmentOffsetX
     `UiSkin`, `FlagsB`, `CameraEnteringDelay`, `CameraEnteringDuration`, `CameraExitingDelay`, `CameraExitingDuration`,
     `CameraOffsetX`, `CameraOffsetY`, `CameraOffsetZ`, `CameraPosChaseRate`, `CameraFacingChaseRate`,
     `CameraEnteringZoom`, `CameraSeatZoomMin`, `CameraSeatZoomMax`) VALUES
-(9543, -671055861, 21, -1.1, 0.0, 0.45, 0.0, 10.0, 19.290001, 0.6, 1.0, 1.5, 4.0, 37, 38, -1, 484, 128, 123, 0.0, 10.0,
+(9543, -671055861, 21, -1.15, 0.0, 0.07, 0.0, 10.0, 19.290001, 0.6, 1.0, 1.5, 4.0, 37, 38, -1, 484, 128, 123, 0.0, 10.0,
     19.290001, 0.6, 2.0, 1.5, 2.0, 37, 38, 39, 0.0, 0.0, 0.0, -1, 226, 107, 158, 1, 1, 1, 0.0, 0.0, 1, 0, 0, 0,
     1073741872, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-(9544, -671055861, 21, -0.95, 0.6, 0.04, 0.0, 10.0, 19.290001, 0.6, 1.0, 1.5, 4.0, 37, 38, -1, 484, 128, 123, 0.0, 10.0,
+(9544, -671055861, 21, -1.1, 0.0, 0.45, 0.0, 10.0, 19.290001, 0.6, 1.0, 1.5, 4.0, 37, 38, -1, 484, 128, 123, 0.0, 10.0,
     19.290001, 0.6, 2.0, 1.5, 2.0, 37, 38, 39, 0.0, 0.0, 0.0, -1, 226, 107, 158, 1, 1, 1, 0.0, 0.0, 1, 0, 0, 0,
     1073741872, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
 (9545, -671055861, 21, -0.5, 0.8, 0.46, 0.0, 10.0, 19.290001, 0.6, 1.0, 1.5, 4.0, 37, 38, -1, 484, 128, 123, 0.0, 10.0,
@@ -358,7 +358,7 @@ INSERT INTO `mod_subclass_rider_pose` (`SpellId`, `VehicleId`) VALUES
 (364465, 9548),
 (364467, 9549),
 (364468, 9549),
-(364469, 9543),
+(364469, 9544),
 (364490, 9538),
 (364491, 9538),
 (364492, 9538),
@@ -467,11 +467,11 @@ INSERT INTO `mod_subclass_rider_pose` (`SpellId`, `VehicleId`) VALUES
 (800558, 9541),
 (900121, 9538),
 (900122, 9538),
-(908072, 9544),
-(908073, 9544),
-(908074, 9544),
-(908075, 9544),
-(908076, 9544),
+(908072, 9543),
+(908073, 9543),
+(908074, 9543),
+(908075, 9543),
+(908076, 9543),
 (911389, 9538),
 (911390, 9538),
 (911391, 9538),
