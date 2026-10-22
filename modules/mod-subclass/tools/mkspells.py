@@ -49,6 +49,8 @@ SPELLS = [
     (9530113, PASSIVE, 2364, "Hand-Me-Downs", "Racial Passive",
      "Growing up sharing everything with a brother taught you to check every pocket twice. You find 10% more "
      "gold, and 25% more in chests, lockboxes and other treasures.", ""),
+    (9530114, RACIAL, 1, "Pin the Badge", "", "Pin the badge on your brother's coat.", ""),
+    (9530115, RACIAL, 1, "Read Together", "", "Read the book together, two heads bent over one page.", ""),
 ]
 CASTER_AURA = {9530106: 9530102, 9530107: 9530105}
 

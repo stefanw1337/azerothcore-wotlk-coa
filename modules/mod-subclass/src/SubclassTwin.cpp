@@ -542,7 +542,12 @@ SheathState DrawnLike(Player const* player)
     SheathState const sheath = player->GetSheath();
     if (sheath == SHEATH_STATE_UNARMED || !IsSplit(player))
         return sheath;
-    return RangedOf(player) ? SHEATH_STATE_RANGED : SHEATH_STATE_MELEE;
+    Wardrobe const dressed = Dressed(player);
+    bool const melee = dressed.Items[MainHand] != 0;
+    bool const ranged = dressed.Items[Ranged] != 0;
+    if (sheath == SHEATH_STATE_RANGED)
+        return ranged || !melee ? SHEATH_STATE_RANGED : SHEATH_STATE_MELEE;
+    return melee || !ranged ? SHEATH_STATE_MELEE : SHEATH_STATE_RANGED;
 }
 
 void BecomeGhost(Player* player, Creature* twin, bool ghost)
@@ -709,7 +714,7 @@ bool EchoSwing(Player* player, Creature* twin, uint32 swing)
     if (IsSplit(player))
         return false;
     Unit* victim = TwinTarget(player);
-    ItemTemplate const* ranged = player->GetVictim() ? nullptr : RangedOf(player);
+    ItemTemplate const* ranged = victim && !player->IsWithinMeleeRange(victim) ? RangedOf(player) : nullptr;
     uint32 const pace = ranged && ranged->Delay ? ranged->Delay : player->GetAttackTime(BASE_ATTACK);
     if (!victim || twin->GetVehicle() || swing < std::max<uint32>(pace, MotionTick))
         return false;
@@ -950,10 +955,10 @@ void UpdateSwingPartner(Player* player, Creature* twin)
     if (twin && IsSplit(player))
     {
         uint32 const shot = twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID + 2);
-        if (shot && OtherHalfShoots(player))
-            partner = { twin->GetGUID(), Swing::Shot, shot };
-        else if (twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID))
+        if (twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID))
             partner = { twin->GetGUID(), Swing::Melee, 0 };
+        else if (shot && OtherHalfShoots(player))
+            partner = { twin->GetGUID(), Swing::Shot, shot };
         if (player->IsInCombat() && partner.Style != Swing::None)
         {
             SheathState const drawn = partner.Style == Swing::Shot ? SHEATH_STATE_RANGED : SHEATH_STATE_MELEE;
