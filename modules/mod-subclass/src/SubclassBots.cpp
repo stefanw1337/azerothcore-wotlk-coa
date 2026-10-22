@@ -33,6 +33,7 @@ std::string DescribeSubclassChoice(Subclass::Choice const& choice);
 std::string SubclassClassName(uint8 classId);
 std::vector<uint32> KnownBorrowedActives(Player const* player);
 uint8 SubclassMinLevel();
+uint8 StoryGenderOf(Player const* player);
 void SpendBotPoints(Player* player);
 
 namespace
@@ -92,7 +93,7 @@ void GiveTheStoryGender(Player* player)
     if (race != Subclass::TwoHeadedOgreRace && race != Subclass::ThinHumanRace)
         return;
     uint8 const gender = race == Subclass::TwoHeadedOgreRace ? GENDER_FEMALE : GENDER_MALE;
-    if (player->getGender() == gender)
+    if (StoryGenderOf(player) == gender)
         return;
     player->SetByteValue(UNIT_FIELD_BYTES_0, 2, gender);
     player->SetByteValue(PLAYER_BYTES_3, 0, gender);

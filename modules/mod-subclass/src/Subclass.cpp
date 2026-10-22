@@ -84,6 +84,11 @@ Trainer::Trainer const* ClassTrainerOf(uint8 classId);
 bool IsBorrowedSpell(Player const* player, uint32 spellId);
 bool InBorrowedFamily(Player const* player, uint8 subClass, SpellInfo const* info);
 
+uint8 StoryGenderOf(Player const* player)
+{
+    return player->GetByteValue(PLAYER_BYTES_3, 0);
+}
+
 namespace
 {
 constexpr uint32 PromptMenuId = 9530010;
@@ -346,7 +351,7 @@ Subclass::Settings CurrentSettings()
 
 Subclass::Character CharacterOf(Player const* player)
 {
-    return { player->getRace(), player->getGender(), player->getClass(), player->GetLevel() };
+    return { player->getRace(), StoryGenderOf(player), player->getClass(), player->GetLevel() };
 }
 
 uint8 PlayableClassOf(uint8 catalogClassId)
@@ -2648,7 +2653,7 @@ constexpr std::array<uint8, 10> StandardRaces = { RACE_HUMAN, RACE_ORC, RACE_DWA
 
 void LearnStandardMainWeaponSkills(Player* player)
 {
-    if (!IsStandardMainClass(player->getClass()) || !MayPlayStandardMain(player->getRace(), player->getGender()))
+    if (!IsStandardMainClass(player->getClass()) || !MayPlayStandardMain(player->getRace(), StoryGenderOf(player)))
         return;
     for (uint8 race : StandardRaces)
         if (PlayerInfo const* info = sObjectMgr->GetPlayerInfo(race, player->getClass()))

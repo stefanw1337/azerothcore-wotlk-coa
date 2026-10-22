@@ -57,6 +57,7 @@ bool LendsTankSpecialization(Player const* player);
 bool LendsRangedSpecialization(Player const* player);
 bool SubclassRaceEnabled(uint8 race);
 bool TravelFormsShapeWholeBody();
+uint8 StoryGenderOf(Player const* player);
 
 void SendSubclassMessage(Player* player, std::string const& message);
 uint32 StowBorrowedGear(Player* player);
@@ -468,7 +469,7 @@ Look LookOf(Player const* player, Wardrobe const& wardrobe)
     Look look;
     look.DisplayId = player->GetNativeDisplayId();
     look.Race = player->getRace();
-    look.Gender = player->getGender();
+    look.Gender = StoryGenderOf(player);
     look.Class = player->getClass();
     look.Features = { player->GetByteValue(PLAYER_BYTES, 0), player->GetByteValue(PLAYER_BYTES, 1),
         player->GetByteValue(PLAYER_BYTES, 2), player->GetByteValue(PLAYER_BYTES, 3),
@@ -1249,7 +1250,7 @@ void SummonTwin(Player* player)
 
 bool HasTwin(Player const* player)
 {
-    return player->getRace() == TwinRace && player->getGender() == GENDER_MALE && SubclassRaceEnabled(TwinRace);
+    return player->getRace() == TwinRace && StoryGenderOf(player) == GENDER_MALE && SubclassRaceEnabled(TwinRace);
 }
 
 void RefreshTwin(Player* player)
@@ -1330,7 +1331,7 @@ bool SubclassChosen(Player const* player);
 
 bool HasSecondHead(Player const* player)
 {
-    return player->getRace() == OgreRace && player->getGender() == GENDER_FEMALE && SubclassRaceEnabled(OgreRace);
+    return player->getRace() == OgreRace && StoryGenderOf(player) == GENDER_FEMALE && SubclassRaceEnabled(OgreRace);
 }
 
 bool LonelyTwin(Player const* player)
