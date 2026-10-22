@@ -759,7 +759,14 @@ void MirrorStance(Player* player, Creature* twin)
         return;
     if (player->HasStealthAura())
     {
-        if (twin->getStandState() != UNIT_STAND_STATE_KNEEL)
+        if (player->isMoving() || !twin->IsWithinDist(player, TwinDistance + TwinReach * 4))
+        {
+            if (twin->getStandState() != UNIT_STAND_STATE_STAND)
+                twin->SetStandState(UNIT_STAND_STATE_STAND);
+            if (twin->GetMotionMaster()->GetCurrentMovementGeneratorType() != FOLLOW_MOTION_TYPE)
+                twin->GetMotionMaster()->MoveFollow(player, TwinDistance, TwinAngle);
+        }
+        else if (twin->getStandState() != UNIT_STAND_STATE_KNEEL)
         {
             twin->GetMotionMaster()->Clear();
             twin->StopMoving();
@@ -789,7 +796,7 @@ void MirrorStance(Player* player, Creature* twin)
     {
         Position beside = player->GetPosition();
         player->MovePositionToFirstCollision(beside, TwinDistance, TwinAngle);
-        twin->NearTeleportTo(beside.GetPositionX(), beside.GetPositionY(), beside.GetPositionZ(),
+        twin->NearTeleportTo(beside.GetPositionX(), beside.GetPositionY(), player->GetPositionZ(),
             player->GetOrientation());
         twin->GetMotionMaster()->MoveFollow(player, TwinDistance, TwinAngle);
     }
