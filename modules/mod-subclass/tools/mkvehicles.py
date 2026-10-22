@@ -1,16 +1,17 @@
-"""Append the twin's piggyback and saddle vehicles to Vehicle.dbc / VehicleSeat.dbc and emit matching SQL."""
+"""Append the twin's piggyback, saddle and beast-back vehicles to Vehicle.dbc / VehicleSeat.dbc and emit SQL."""
 import struct
 import sys
 
 SRC = sys.argv[1]
 OUT = sys.argv[2]
-PIGGYBACK, SADDLE = 9530, 9531
-PIGGYBACK_SEAT, SADDLE_SEAT = 9530, 9531
+PIGGYBACK, SADDLE, WOLF_BACK, CAT_BACK = 9530, 9531, 9532, 9533
+PIGGYBACK_SEAT, SADDLE_SEAT, WOLF_BACK_SEAT, CAT_BACK_SEAT = 9530, 9531, 9532, 9533
 TEMPLATE_VEHICLE, TEMPLATE_SEAT = 312, 2764
 SEAT_CAN_ENTER_OR_EXIT, SEAT_CAN_SWITCH = 0x02000000, 0x04000000
 CHEST_BACK_SEAT, MOUNT_RIDER_SEAT = 10, 21
 PIGGYBACK_OFFSET, PIGGYBACK_PITCH = (0.05, 0.0, -0.35), -0.35
 RIDER_BEHIND_OFFSET = (-0.28, 0.0, 0.0)
+WOLF_BACK_OFFSET, CAT_BACK_OFFSET = (0.0, 0.0, 0.0), (0.0, 0.0, 0.04)
 SEAT_COLUMNS = ("ID Flags AttachmentID AttachmentOffsetX AttachmentOffsetY AttachmentOffsetZ EnterPreDelay EnterSpeed "
     "EnterGravity EnterMinDuration EnterMaxDuration EnterMinArcHeight EnterMaxArcHeight EnterAnimStart EnterAnimLoop "
     "RideAnimStart RideAnimLoop RideUpperAnimStart RideUpperAnimLoop ExitPreDelay ExitSpeed ExitGravity ExitMinDuration "
@@ -96,10 +97,15 @@ def sql(table, columns, fmt, rows, strings):
 _, seat_fields, seat_size, seats, seat_strings = load(f"{SRC}/VehicleSeat.dbc")
 _, vehicle_fields, vehicle_size, vehicles, vehicle_strings = load(f"{SRC}/Vehicle.dbc")
 new_seats = [seat(seats, PIGGYBACK_SEAT, CHEST_BACK_SEAT, PIGGYBACK_OFFSET, PIGGYBACK_PITCH),
-             seat(seats, SADDLE_SEAT, MOUNT_RIDER_SEAT, RIDER_BEHIND_OFFSET)]
-new_vehicles = [vehicle(vehicles, PIGGYBACK, PIGGYBACK_SEAT), vehicle(vehicles, SADDLE, SADDLE_SEAT)]
-seats = [row for row in seats if struct.unpack_from("<I", row)[0] not in (PIGGYBACK_SEAT, SADDLE_SEAT)] + new_seats
-vehicles = [row for row in vehicles if struct.unpack_from("<I", row)[0] not in (PIGGYBACK, SADDLE)] + new_vehicles
+             seat(seats, SADDLE_SEAT, MOUNT_RIDER_SEAT, RIDER_BEHIND_OFFSET),
+             seat(seats, WOLF_BACK_SEAT, MOUNT_RIDER_SEAT, WOLF_BACK_OFFSET),
+             seat(seats, CAT_BACK_SEAT, MOUNT_RIDER_SEAT, CAT_BACK_OFFSET)]
+new_vehicles = [vehicle(vehicles, PIGGYBACK, PIGGYBACK_SEAT), vehicle(vehicles, SADDLE, SADDLE_SEAT),
+                vehicle(vehicles, WOLF_BACK, WOLF_BACK_SEAT), vehicle(vehicles, CAT_BACK, CAT_BACK_SEAT)]
+seat_ids = {struct.unpack_from("<I", row)[0] for row in new_seats}
+vehicle_ids = {struct.unpack_from("<I", row)[0] for row in new_vehicles}
+seats = [row for row in seats if struct.unpack_from("<I", row)[0] not in seat_ids] + new_seats
+vehicles = [row for row in vehicles if struct.unpack_from("<I", row)[0] not in vehicle_ids] + new_vehicles
 save(f"{OUT}/VehicleSeat.dbc", seat_fields, seat_size, seats, seat_strings)
 save(f"{OUT}/Vehicle.dbc", vehicle_fields, vehicle_size, vehicles, vehicle_strings)
 print(sql("vehicleseat_dbc", SEAT_COLUMNS, SEAT_FORMAT, new_seats, seat_strings))
