@@ -2121,8 +2121,13 @@ Portraits.icons = {
     WARLOCK = "Interface\\Icons\\Spell_Nature_FaerieFire", DRUID = "Interface\\Icons\\Ability_Druid_Maul",
 }
 
+function Portraits.ScaleOf(region)
+    local owner = region.GetEffectiveScale and region or region:GetParent()
+    return owner and owner:GetEffectiveScale() or window:GetEffectiveScale()
+end
+
 function Portraits.InWindowSpace(region)
-    local ratio = region:GetEffectiveScale() / window:GetEffectiveScale()
+    local ratio = Portraits.ScaleOf(region) / window:GetEffectiveScale()
     return region:GetLeft() * ratio, region:GetTop() * ratio, region:GetRight() * ratio, region:GetBottom() * ratio,
         region:GetWidth() * ratio, region:GetHeight() * ratio
 end
@@ -2181,7 +2186,7 @@ local function LiftWindowCorner(page)
         copy:SetPoint("TOPLEFT", window, "TOPLEFT", sourceLeft - left, sourceTop - top)
         copy.subclassSource = string.format("%s %dx%d at %d,%d scale %.2f layer %s level %d %s",
             source:GetName() or "unnamed", sourceWidth, sourceHeight, sourceLeft - left, sourceTop - top,
-            source:GetEffectiveScale() / window:GetEffectiveScale(), tostring(source:GetDrawLayer()),
+            Portraits.ScaleOf(source) / window:GetEffectiveScale(), tostring(source:GetDrawLayer()),
             source:GetParent() and source:GetParent():GetFrameLevel() or -1, tostring(source:GetTexture()))
         table.insert(page.cornerCopies, copy)
         local width, height = sourceWidth, sourceHeight
@@ -3298,29 +3303,44 @@ GameTooltip:HookScript("OnShow", function()
     end
 end)
 
-StaticPopupDialogs["ASCENSION_SUBCLASS_TALENT_WIPE"] = {
-    text = "Do you want to unlearn all your talents? This will cost:",
-    button1 = YES,
-    button2 = NO,
-    hasMoneyFrame = 1,
-    OnAccept = function()
-        ConfirmTalentWipe()
-    end,
-    timeout = 0,
-    whileDead = 1,
-    hideOnEscape = 1,
-}
-
 do
-    local talentWipe = CreateFrame("Frame")
-    talentWipe:RegisterEvent("CONFIRM_TALENT_WIPE")
-    talentWipe:SetScript("OnEvent", function(_, _, cost)
-        if not IsStandardClass() then
-            return
+    local wipe = { event = "CONFIRM_TALENT_WIPE", frame = CreateFrame("Frame"), usual = {}, taken = {} }
+
+    function wipe.TakeOver()
+        for _, frame in ipairs({ GetFramesRegisteredForEvent(wipe.event) }) do
+            if frame ~= wipe.frame then
+                frame:UnregisterEvent(wipe.event)
+                if not wipe.taken[frame] then
+                    wipe.taken[frame] = true
+                    table.insert(wipe.usual, frame)
+                end
+            end
         end
-        local dialog = StaticPopup_Show("ASCENSION_SUBCLASS_TALENT_WIPE")
-        if dialog then
-            MoneyFrame_Update(dialog:GetName() .. "MoneyFrame", cost or 0)
+    end
+
+    function wipe.AsUsual(...)
+        for _, frame in ipairs(wipe.usual) do
+            local handler = frame:GetScript("OnEvent")
+            if handler then
+                handler(frame, wipe.event, ...)
+            end
+        end
+    end
+
+    wipe.frame:RegisterEvent("PLAYER_LOGIN")
+    wipe.frame:RegisterEvent("ADDON_LOADED")
+    wipe.frame:RegisterEvent(wipe.event)
+    wipe.frame:SetScript("OnEvent", function(_, event, ...)
+        if event ~= wipe.event then
+            wipe.TakeOver()
+        elseif not IsStandardClass() or not StaticPopupDialogs[wipe.event] then
+            wipe.AsUsual(...)
+        else
+            HideUIPanel(GossipFrame)
+            local dialog = StaticPopup_Show(wipe.event)
+            if dialog then
+                MoneyFrame_Update(dialog:GetName() .. "MoneyFrame", (...) or 0)
+            end
         end
     end)
 end
