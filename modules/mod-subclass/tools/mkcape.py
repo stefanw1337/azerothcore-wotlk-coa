@@ -3,16 +3,28 @@ import numpy as np
 
 CAPE_GEOSETS = range(1502, 1511)
 CHEST_BONE, MIDDLE_SPINE_BONE, LOW_SPINE_BONE, PELVIS_BONE = 16, 9, 3, 2
+LEFT_CLAVICLE_BONE, RIGHT_CLAVICLE_BONE = 21, 22
+SHOULDER_GIRDLE = {CHEST_BONE, MIDDLE_SPINE_BONE, LOW_SPINE_BONE, LEFT_CLAVICLE_BONE, RIGHT_CLAVICLE_BONE}
 UPPER_BACK, MIDDLE_BACK, WAIST = 1.40, 1.30, 1.20
-MIDDLE_BACK_SHARES = {0: 42, 1: 85, 2: 128}
-CHEST, MIDDLE_SPINE, LOW_SPINE, CAPE_TOP, CAPE_LOW = range(5)
+CHEST, MIDDLE_SPINE, LOW_SPINE, CAPE_TOP, CAPE_LOW = CHEST_BONE, MIDDLE_SPINE_BONE, LOW_SPINE_BONE, 'top', 'low'
+MIDDLE_BACK_SHARES = {CHEST: 42, MIDDLE_SPINE: 85, LOW_SPINE: 128}
+BODY_GEOSET = 10000
+BACK_SKIN_NEIGHBOURS = 8
 SWING = {
     'Walk': (6, 4, 2), 'Run': (18, 14, 4), 'RunLeft': (15, 12, 4), 'RunRight': (15, 12, 4),
     'Sprint': (26, 20, 5), 'JumpStart': (20, 16, 3), 'Jump': (38, 28, 4), 'Fall': (58, 40, 6),
     'JumpEnd': (0, -2, 1), 'JumpLandRun': (18, 14, 4), 'FlyRun': (28, 22, 5), 'SwimRun': (14, 10, 3),
     'ReadyUnarmed': (-2, -1, 1), 'Stand': (-3, -2, 1)}
 COLUMNS, ROWS = 9, 14
-TOP, BOTTOM = 1.60, 0.42
+TOP, BOTTOM = 1.62, 0.42
+HUG_GAP, CLEARANCE = 0.025, 0.012
+SURFACE_WINDOW_Y, SURFACE_WINDOW_Z = 0.06, 0.05
+COLLAR_V = 0.08
+STRAP_FROM = 0.12
+SHOULDER_GAP, CHEST_GAP = 0.02, 0.02
+CLASP_HEIGHT = 1.55
+NECK_TOP = 1.70
+BEHIND_NECK = (-0.10, 1.66)
 TEXTURE_CAPE = 2
 TEXTURE_LEFT, TEXTURE_RIGHT = 0.30, 0.99
 TWO_SIDED_MATERIAL = 0
@@ -41,11 +53,64 @@ def back_profile(m2, skin):
         return float(window[:, 0].min()) if len(window) else -0.1
     return back
 
+def back_surface(m2, skin):
+    vertex_count, vertex_offset = arr(m2, 60)
+    raw = np.frombuffer(m2, np.uint8, vertex_count * 48, vertex_offset).reshape(-1, 48)
+    positions = raw[:, :12].copy().view(np.float32).reshape(-1, 3)
+    index_count, index_offset = arr(skin, 4)
+    lookup = np.frombuffer(skin, np.uint16, index_count, index_offset)
+    count, offset = arr(skin, 28)
+    body = set()
+    for i in range(count):
+        geoset, level, start, size = struct.unpack_from('<4H', skin, offset + i * 48)
+        if geoset == BODY_GEOSET:
+            body.update(lookup[start:start + size].tolist())
+    p = positions[sorted(body)]
+    p = p[p[:, 0] < 0.05]
+    def surface(y, z):
+        window = p[(np.abs(p[:, 1] - y) < SURFACE_WINDOW_Y) & (np.abs(p[:, 2] - z) < SURFACE_WINDOW_Z)]
+        return float(window[:, 0].min()) if len(window) else None
+    return surface
+
+def body_points(m2, skin):
+    vertex_count, vertex_offset = arr(m2, 60)
+    raw = np.frombuffer(m2, np.uint8, vertex_count * 48, vertex_offset).reshape(-1, 48)
+    positions = raw[:, :12].copy().view(np.float32).reshape(-1, 3)
+    index_count, index_offset = arr(skin, 4)
+    lookup = np.frombuffer(skin, np.uint16, index_count, index_offset)
+    count, offset = arr(skin, 28)
+    body = set()
+    for i in range(count):
+        geoset, level, start, size = struct.unpack_from('<4H', skin, offset + i * 48)
+        if geoset == BODY_GEOSET:
+            body.update(lookup[start:start + size].tolist())
+    return positions[sorted(body)]
+
+def collar(points):
+    shoulders = points[(points[:, 2] < NECK_TOP) & (points[:, 2] > UPPER_BACK)]
+    def over_shoulder(y):
+        near = shoulders[np.abs(shoulders[:, 1] - y) < 0.03]
+        top = near[np.argmax(near[:, 2])]
+        return (float(top[0]), y, float(top[2]) + SHOULDER_GAP)
+    def on_chest(y):
+        near = points[(np.abs(points[:, 1] - y) < 0.04) & (np.abs(points[:, 2] - CLASP_HEIGHT) < 0.04)]
+        return (float(near[:, 0].max()) + CHEST_GAP, y, CLASP_HEIGHT)
+    def strap(y):
+        if abs(y) < STRAP_FROM:
+            behind = (BEHIND_NECK[0], y, BEHIND_NECK[1])
+            return behind, behind
+        return on_chest(y), over_shoulder(y)
+    return strap
+
+def hug_share(z):
+    return min(1.0, max(0.0, (z - WAIST) / (UPPER_BACK - WAIST)))
+
 def mixed(first, second, share):
     blend = {}
     for slot in set(first) | set(second):
         blend[slot] = first.get(slot, 0) * (1.0 - share) + second.get(slot, 0) * share
-    kept = sorted(((amount, slot) for slot, amount in blend.items() if amount > 0.5), reverse=True)[:4]
+    kept = sorted(((amount, slot) for slot, amount in blend.items() if amount > 0.5), key=lambda kept: kept[0],
+                  reverse=True)[:4]
     total = sum(amount for amount, _ in kept)
     weights = {slot: int(round(255 * amount / total)) for amount, slot in kept}
     largest = max(weights, key=weights.get)
@@ -56,11 +121,47 @@ def hanging_weights(z):
     v = (WAIST - z) / (WAIST - BOTTOM)
     return mixed({CAPE_TOP: 255}, {CAPE_LOW: 255}, min(1.0, max(0.0, (v - 0.3) / 0.5)))
 
-def bone_weights(z):
+def girdle_bone(bone, parents):
+    while bone >= 0 and bone not in SHOULDER_GIRDLE:
+        bone = parents[bone]
+    return bone if bone >= 0 else CHEST_BONE
+
+def back_skin(m2, skin):
+    vertex_count, vertex_offset = arr(m2, 60)
+    raw = np.frombuffer(m2, np.uint8, vertex_count * 48, vertex_offset).reshape(-1, 48)
+    positions = raw[:, :12].copy().view(np.float32).reshape(-1, 3)
+    index_count, index_offset = arr(skin, 4)
+    lookup = np.frombuffer(skin, np.uint16, index_count, index_offset)
+    count, offset = arr(skin, 28)
+    body = set()
+    for i in range(count):
+        geoset, level, start, size = struct.unpack_from('<4H', skin, offset + i * 48)
+        if geoset == BODY_GEOSET:
+            body.update(lookup[start:start + size].tolist())
+    body = np.array(sorted(body))
+    back = body[positions[body, 2] > WAIST]
+    bone_count, bone_offset = arr(m2, 44)
+    parents = [struct.unpack_from('<h', m2, bone_offset + i * 88 + 8)[0] for i in range(bone_count)]
+    return positions[back], raw[back, 16:20], raw[back, 12:16], parents
+
+def skin_weights(point, skin):
+    positions, bones, amounts, parents = skin
+    distances = np.linalg.norm(positions - np.array(point), axis=1)
+    blend = {}
+    for vertex in np.argsort(distances)[:BACK_SKIN_NEIGHBOURS]:
+        share = 1.0 / (distances[vertex] + 0.02)
+        for bone, amount in zip(bones[vertex], amounts[vertex]):
+            if amount:
+                girdle = girdle_bone(int(bone), parents)
+                blend[girdle] = blend.get(girdle, 0.0) + share * amount
+    return mixed(blend, blend, 0.0)
+
+def bone_weights(z, point=None, skin=None):
     if z >= UPPER_BACK:
-        return {CHEST: 255}
+        return skin_weights(point, skin) if skin else {CHEST: 255}
     if z >= MIDDLE_BACK:
-        return mixed({CHEST: 255}, MIDDLE_BACK_SHARES, (UPPER_BACK - z) / (UPPER_BACK - MIDDLE_BACK))
+        upper = skin_weights(point, skin) if skin else {CHEST: 255}
+        return mixed(upper, MIDDLE_BACK_SHARES, (UPPER_BACK - z) / (UPPER_BACK - MIDDLE_BACK))
     if z >= WAIST:
         return mixed(MIDDLE_BACK_SHARES, hanging_weights(WAIST), (MIDDLE_BACK - z) / (MIDDLE_BACK - WAIST))
     return hanging_weights(z)
@@ -72,9 +173,17 @@ def smooth_back(back):
     lowest = max(np.polyval(fit, z) - e for z, e in zip(heights, envelope))
     return lambda z: float(np.polyval(fit, z) - lowest)
 
-def cape_mesh(back):
+def cape_mesh(back, skin=None, surface=None, strap=None):
     back = smooth_back(back)
     vertices = []
+    if strap:
+        for row in range(2):
+            for column in range(COLUMNS):
+                u = column / (COLUMNS - 1)
+                y = -(u - 0.5) * 2 * 0.20
+                point = strap(y)[row]
+                vertices.append((point, (TEXTURE_LEFT + u * (TEXTURE_RIGHT - TEXTURE_LEFT), COLLAR_V * row / 2),
+                                 bone_weights(UPPER_BACK, point, skin) if skin else {CHEST: 255}))
     for row in range(ROWS):
         v = row / (ROWS - 1)
         z = TOP - v * (TOP - BOTTOM)
@@ -85,9 +194,15 @@ def cape_mesh(back):
             side = (u - 0.5) * 2
             y = -side * half
             x = centre + 0.05 * side * side
-            vertices.append(((x, y, z), (TEXTURE_LEFT + u * (TEXTURE_RIGHT - TEXTURE_LEFT), v), bone_weights(z)))
+            skin_x = surface(y, z) if surface else None
+            if skin_x is not None:
+                share = hug_share(z)
+                x = min(share * (skin_x - HUG_GAP) + (1.0 - share) * x, skin_x - CLEARANCE)
+            texture_v = COLLAR_V + v * (1.0 - COLLAR_V) if strap else v
+            vertices.append(((x, y, z), (TEXTURE_LEFT + u * (TEXTURE_RIGHT - TEXTURE_LEFT), texture_v),
+                             bone_weights(z, (x, y, z), skin)))
     triangles = []
-    for row in range(ROWS - 1):
+    for row in range(len(vertices) // COLUMNS - 1):
         for column in range(COLUMNS - 1):
             a = row * COLUMNS + column
             b, c, d = a + 1, a + COLUMNS, a + COLUMNS + 1
@@ -161,13 +276,19 @@ def seat_helmet(data):
 def graft(m2_path, skin_path, out_m2, out_skin, names_path):
     m2 = open(m2_path, 'rb').read()
     skin = open(skin_path, 'rb').read()
-    vertices, triangles, top_pivot, low_pivot = cape_mesh(back_profile(m2, skin))
+    vertices, triangles, top_pivot, low_pivot = cape_mesh(back_profile(m2, skin), back_skin(m2, skin),
+                                                          back_surface(m2, skin), collar(body_points(m2, skin)))
     vertex_normals = normals(vertices, triangles)
     blob = Blob(m2)
     names = {int(k): v for k, v in json.load(open(names_path)).items()}
     bone_count, bone_offset = arr(m2, 44)
     cape_top, cape_low = bone_count, bone_count + 1
-    CAPE_BONES = [CHEST_BONE, MIDDLE_SPINE_BONE, LOW_SPINE_BONE, cape_top, cape_low]
+    body_bones = sorted({bone for _, _, weights in vertices for bone in weights if isinstance(bone, int)})
+    CAPE_BONES = body_bones + [cape_top, cape_low]
+    slot_of = {bone: slot for slot, bone in enumerate(body_bones)}
+    slot_of.update({CAPE_TOP: len(body_bones), CAPE_LOW: len(body_bones) + 1})
+    vertices = [(position, uv, {slot_of[bone]: amount for bone, amount in weights.items()})
+                for position, uv, weights in vertices]
     new_bones = (cape_bone(blob, m2, PELVIS_BONE, top_pivot, 0, names) +
                  cape_bone(blob, m2, cape_top, low_pivot, 1, names))
     offset = blob.append(m2[bone_offset:bone_offset + bone_count * 88] + new_bones)
