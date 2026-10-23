@@ -1,7 +1,9 @@
 """Clone CoA Custom's race 32 into our Thin Human (96, male) and race 53 into our Two-Headed Ogre (85, female) in a
 set of client or server DBCs. The Two-Headed Ogre gets her own model path so her eyes never reach race 53.
     python mkraces.py <source folder> <output folder>
-Every table found in the source folder is written to the output folder with the new rows appended."""
+Every table found in the source folder is written to the output folder with the new rows appended.
+    python mkraces.py --eyes <CharSections.dbc>...
+rewrites only the Two-Headed Ogre's eye rows of finished tables in place."""
 import struct
 import sys
 from dataclasses import dataclass
@@ -280,5 +282,15 @@ def main(source, output):
         print("CharBaseInfo.dbc", clone_base_info(source / "CharBaseInfo.dbc", output / "CharBaseInfo.dbc"))
 
 
+def refresh_eyes(paths):
+    for path in paths:
+        dbc = Dbc(path)
+        print(path, "eye colours", eye_sections(dbc))
+        dbc.save(path)
+
+
 if __name__ == "__main__":
-    main(*sys.argv[1:3])
+    if sys.argv[1] == "--eyes":
+        refresh_eyes(sys.argv[2:])
+    else:
+        main(*sys.argv[1:3])

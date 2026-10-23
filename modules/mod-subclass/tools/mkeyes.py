@@ -2,7 +2,9 @@
 on the cyclops head. Every eyeball is drawn unlit so it glows a little and sits under a skin-coloured upper lid that
 drops over it to blink; the two heads blink out of step, and their irises glance around on their own.
 The eyeballs draw the character's hair texture, so CharSections hair colours choose the eyes: one atlas per eye set,
-stacked as the outer eye, the inner eye and the cyclops eye of that set, padded to a power-of-two height."""
+stacked as the outer eye, the inner eye and the cyclops eye of that set, padded to a power-of-two height.
+    python mkeyes.py <m2> <skin> <out m2> <out skin> <texture folder>
+    python mkeyes.py --atlases <texture folder> [first index]"""
 import math
 import struct
 import sys
@@ -70,21 +72,32 @@ TWO_BLIND = ((0, 1), (0, 2), (1, 2))
 ALL_BLIND = ((0, 1, 2),)
 
 
-def blinded(color, blind_eyes):
-    return tuple((color, eye in blind_eyes) for eye in range(3))
+BLIND_VARIANTS = ONE_BLIND + TWO_BLIND + ALL_BLIND
 
 
 def seeing(*colors):
     return tuple((color, False) for color in colors)
 
 
-EYE_SETS = (
-    tuple(seeing(name, name, name) for name in SIGHTED) +
-    tuple(blinded(name, eyes) for name in SIGHTED for eyes in ONE_BLIND + TWO_BLIND + ALL_BLIND) +
+def with_blind(eye_set, blind_eyes):
+    return tuple((color, eye in blind_eyes) for eye, (color, _) in enumerate(eye_set))
+
+
+def blinded(color, blind_eyes):
+    return with_blind(seeing(color, color, color), blind_eyes)
+
+
+MIXED = (
     tuple(seeing(name, name, glow) for name, glow in (("Brown", "FelGlow"), ("Grey", "ArcaneGlow"),
                                                       ("Black", "FireGlow"), ("Blue", "HolyGlow"),
                                                       ("Hazel", "ShadowGlow"))) +
     (seeing("Blue", "Brown", "Green"), seeing("Green", "Blue", "Brown"))
+)
+EYE_SETS = (
+    tuple(seeing(name, name, name) for name in SIGHTED) +
+    tuple(blinded(name, eyes) for name in SIGHTED for eyes in BLIND_VARIANTS) +
+    MIXED +
+    tuple(with_blind(eye_set, eyes) for eye_set in MIXED for eyes in BLIND_VARIANTS)
 )
 CLOUD = (226, 230, 234)
 CLOUD_STRENGTH = 0.68
@@ -487,5 +500,15 @@ def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
     print("eyes", len(eyes), "vertices", sum(len(m[0]) for m in meshes))
 
 
+def write_atlases(out_folder, first=0):
+    for index, eye_set in enumerate(EYE_SETS):
+        if index >= first:
+            eye_atlas(eye_set, Path(out_folder) / Path(eye_texture_name(index).replace("\\", "/")).name)
+    print("eye atlases", len(EYE_SETS) - first)
+
+
 if __name__ == "__main__":
-    graft(*sys.argv[1:6])
+    if sys.argv[1] == "--atlases":
+        write_atlases(sys.argv[2], int(sys.argv[3]) if len(sys.argv) > 3 else 0)
+    else:
+        graft(*sys.argv[1:6])

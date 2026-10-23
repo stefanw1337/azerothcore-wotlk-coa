@@ -133,17 +133,99 @@ end
 HAIR_EYES_STYLE = ""
 HAIR_EYES_COLOR = ""
 COA_SUBCLASS_EYE_RACES = { ["Two-Headed Ogre"] = true }
+COA_SUBCLASS_EYES = { plain = 15, mixed = 7, firstMixed = 120, firstMixedBlind = 127,
+	variants = { 4, 1, 2, 3, 5, 6, 7 }, blind = { "Left", "Middle", "Right" } }
 do
 	local CUSTOMIZE_FACE = 2
+	local EYES = COA_SUBCLASS_EYES
+	local LOOKS = EYES.plain + EYES.mixed
+	local VARIANTS = #EYES.variants
+	local cycle = C_CharacterCreate and C_CharacterCreate.CycleCustomizationSkipLocked
 	local function EyesInsteadOfFace()
 		if not (CharacterCreateFrame and CharacterCreateFrame:IsVisible()) then return end
 		local ok, name = pcall(GetNameForRace)
 		return ok and name and COA_SUBCLASS_EYE_RACES[name]
 	end
-	if C_CharacterCreate and C_CharacterCreate.CycleCustomizationSkipLocked then
-		local cycle = C_CharacterCreate.CycleCustomizationSkipLocked
+	local function Blind(mask, eye)
+		return mask % (eye * 2) >= eye
+	end
+	local function EyeIndex(look, mask)
+		local variant
+		for index, bits in ipairs(EYES.variants) do
+			if bits == mask then
+				variant = index - 1
+			end
+		end
+		if look < EYES.plain then
+			return variant and EYES.plain + look * VARIANTS + variant or look
+		end
+		if variant then
+			return EYES.firstMixedBlind + (look - EYES.plain) * VARIANTS + variant
+		end
+		return EYES.firstMixed + look - EYES.plain
+	end
+	local function EyeLook(index)
+		if index < EYES.plain then
+			return index, 0
+		elseif index < EYES.firstMixed then
+			local offset = index - EYES.plain
+			return math.floor(offset / VARIANTS), EYES.variants[offset % VARIANTS + 1]
+		elseif index < EYES.firstMixedBlind then
+			return EYES.plain + index - EYES.firstMixed, 0
+		end
+		local offset = index - EYES.firstMixedBlind
+		return EYES.plain + math.floor(offset / VARIANTS), EYES.variants[offset % VARIANTS + 1]
+	end
+	local function CurrentEyes()
+		local ok, value, count = pcall(CycleCharCustomization, "EA_STOCK_GET", CHAR_CUSTOMIZE_HAIR_COLOR)
+		if ok and type(value) == "number" and type(count) == "number" and count > 0 then
+			return value, count
+		end
+	end
+	local function StepEyes(direction)
+		if cycle then
+			cycle(CHAR_CUSTOMIZE_HAIR_COLOR, direction)
+		else
+			CycleCharCustomization(CHAR_CUSTOMIZE_HAIR_COLOR, direction)
+		end
+	end
+	local function WearEyes(target)
+		local value, count = CurrentEyes()
+		if not value then
+			return false
+		end
+		local direction = (target - value) % count <= count / 2 and 1 or -1
+		for _ = 1, count do
+			if value == target then
+				break
+			end
+			StepEyes(direction)
+			local now = CurrentEyes()
+			if not now or now == value then
+				break
+			end
+			value = now
+		end
+		return true
+	end
+	local function ChangeEyes(lookStep, eye)
+		local value = CurrentEyes()
+		if not value then
+			return false
+		end
+		local look, mask = EyeLook(value)
+		look = (look + lookStep) % LOOKS
+		if eye then
+			mask = Blind(mask, eye) and mask - eye or mask + eye
+		end
+		return WearEyes(EyeIndex(look, mask))
+	end
+	if cycle then
 		C_CharacterCreate.CycleCustomizationSkipLocked = function(id, direction, ...)
-			if id == CUSTOMIZE_FACE and EyesInsteadOfFace() then
+			if (id == CUSTOMIZE_FACE or id == CHAR_CUSTOMIZE_HAIR_COLOR) and EyesInsteadOfFace() then
+				if ChangeEyes((direction or 1) < 0 and -1 or 1) then
+					return
+				end
 				id = CHAR_CUSTOMIZE_HAIR_COLOR
 			end
 			return cycle(id, direction, ...)
@@ -160,18 +242,69 @@ do
 			end
 		end
 	end
+	local strip
+	local function BlindStrip(row)
+		if strip then
+			return strip
+		end
+		strip = CreateFrame("Frame", "CoASubclassBlindEyes", row:GetParent())
+		strip:SetSize(250, 24)
+		strip.label = strip:CreateFontString(nil, "ARTWORK", "GlueFontNormalSmall")
+		strip.label:SetPoint("LEFT", strip, "LEFT", 0, 0)
+		strip.label:SetText("Blind:")
+		strip.boxes = {}
+		local previous
+		for index, label in ipairs(EYES.blind) do
+			local box = CreateFrame("CheckButton", nil, strip)
+			box:SetSize(24, 24)
+			box:SetPoint("LEFT", previous and previous.text or strip.label, "RIGHT", 6, 0)
+			box:SetNormalTexture("Interface\\Buttons\\UI-CheckBox-Up")
+			box:SetPushedTexture("Interface\\Buttons\\UI-CheckBox-Down")
+			box:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight", "ADD")
+			box:SetCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check")
+			box.text = box:CreateFontString(nil, "ARTWORK", "GlueFontHighlightSmall")
+			box.text:SetPoint("LEFT", box, "RIGHT", 0, 1)
+			box.text:SetText(label)
+			box.eye = 2 ^ (index - 1)
+			box:SetScript("OnClick", function(self)
+				PlaySound("gsCharacterCreationLook")
+				ChangeEyes(0, self.eye)
+				local value = CurrentEyes()
+				local _, mask = EyeLook(value or 0)
+				self:SetChecked(value ~= nil and Blind(mask, self.eye))
+			end)
+			strip.boxes[index] = box
+			previous = box
+		end
+		strip:SetPoint("TOP", row, "BOTTOM", 0, -2)
+		return strip
+	end
 	local labels = CreateFrame("Frame")
 	labels:SetScript("OnUpdate", function(self, elapsed)
 		self.wait = (self.wait or 0) + elapsed
 		if self.wait < 0.2 then return end
 		self.wait = 0
 		local button = CharCreateCustomizationButton2
+		local eyes = EyesInsteadOfFace()
 		if button and button.text and button:IsVisible() then
-			local wanted = EyesInsteadOfFace() and "Eye Color" or "Face"
+			local wanted = eyes and "Eye Color" or "Face"
 			if button.text:GetText() ~= wanted then
 				button.text:SetText(wanted)
 			end
 		end
+		local value = eyes and button and button:IsVisible() and CurrentEyes()
+		if not value then
+			if strip then
+				strip:Hide()
+			end
+			return
+		end
+		local shown = BlindStrip(button)
+		local _, mask = EyeLook(value)
+		for _, box in ipairs(shown.boxes) do
+			box:SetChecked(Blind(mask, box.eye))
+		end
+		shown:Show()
 	end)
 end
 do
