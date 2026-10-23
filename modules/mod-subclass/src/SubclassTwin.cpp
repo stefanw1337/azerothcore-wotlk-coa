@@ -106,6 +106,9 @@ constexpr uint32 HandMeDownsPercent = 10;
 constexpr uint32 HandMeDownsTreasurePercent = 25;
 constexpr uint8 ToleratedDrunk = 89;
 constexpr uint32 EasyTick = 600;
+constexpr uint32 DefaultShotPace = 2000;
+constexpr uint32 CursedFormId = 57;
+constexpr uint32 CursedFormCreature = 56332;
 constexpr uint32 FirstCyclopsHelmet = 9531000;
 constexpr uint32 LastCyclopsHelmet = 9539999;
 constexpr std::size_t HeadSlot = 0;
@@ -214,6 +217,7 @@ struct Brain
     bool OrderedByHand = false;
     uint32 Order = 0;
     uint64 GlobalCooldownUntil = 0;
+    uint64 NextShotAt = 0;
     bool GlobalCooldownByHand = false;
     std::unordered_map<uint32, uint32> RefusedUntil;
 };
@@ -435,17 +439,34 @@ uint32 FormModelFor(Player* player, ShapeshiftForm form)
     return player->GetTeamId(true) == TEAM_HORDE && entry->modelID_H ? entry->modelID_H : entry->modelID_A;
 }
 
+uint32 CreatureShape(uint32 entry)
+{
+    if (CreatureTemplate const* shape = sObjectMgr->GetCreatureTemplate(entry))
+        if (CreatureModel const* model = shape->GetFirstValidModel())
+            return model->CreatureDisplayID;
+    return 0;
+}
+
+uint32 ModellessFormShape(uint32 form)
+{
+    return form == CursedFormId ? CreatureShape(CursedFormCreature) : 0;
+}
+
 uint32 BorrowedShape(Player* player)
 {
     for (AuraEffect const* effect : player->GetAuraEffectsByType(SPELL_AURA_TRANSFORM))
         if (effect->GetSpellInfo()->IsPositive() && IsBorrowedSpell(player, effect->GetId()))
-            if (CreatureTemplate const* shape = sObjectMgr->GetCreatureTemplate(effect->GetMiscValue()))
-                if (CreatureModel const* model = shape->GetFirstValidModel())
-                    return model->CreatureDisplayID;
+            if (uint32 model = CreatureShape(effect->GetMiscValue()))
+                return model;
     for (AuraEffect const* effect : player->GetAuraEffectsByType(SPELL_AURA_MOD_SHAPESHIFT))
         if (IsBorrowedSpell(player, effect->GetId()) && !IsRiddenForm(uint32(effect->GetMiscValue())))
-            if (uint32 model = FormModelFor(player, ShapeshiftForm(effect->GetMiscValue())))
+        {
+            uint32 const form = uint32(effect->GetMiscValue());
+            if (uint32 model = FormModelFor(player, ShapeshiftForm(form)))
                 return model;
+            if (uint32 model = ModellessFormShape(form))
+                return model;
+        }
     return 0;
 }
 
@@ -627,6 +648,27 @@ void ReturnFormsToPlayer(Player* player)
     for (uint32 spellId : returned)
         if (AuraApplication* application = player->GetAuraApplication(spellId))
             application->SetNeedClientUpdate();
+}
+
+bool TogglesOff(SpellInfo const* info)
+{
+    if (info->HasAttribute(SPELL_ATTR0_NO_AURA_CANCEL) || !info->IsPositive() || info->IsPassive())
+        return false;
+    for (SpellEffectInfo const& effect : info->GetEffects())
+        if (effect.ApplyAuraName == SPELL_AURA_MOD_SHAPESHIFT)
+            if (SpellShapeshiftFormEntry const* form = sSpellShapeshiftFormStore.LookupEntry(effect.MiscValue))
+                return !(form->flags1 & SHAPESHIFT_FLAG_NOT_TOGGLEABLE);
+    return false;
+}
+
+bool LeaveFormShownOnBrother(Player* player, SpellInfo const* info)
+{
+    if (!PlainFormShown(player->GetGUID(), info->Id) || !player->HasAura(info->Id) || !TogglesOff(info))
+        return false;
+    player->RemoveOwnedAura(info->Id, ObjectGuid::Empty, 0, AURA_REMOVE_BY_CANCEL);
+    LOG_INFO("module", "mod-subclass: {} leaves {} ({}) the brother wears", player->GetName(), info->SpellName[0],
+        info->Id);
+    return true;
 }
 
 void NoteFormCast(Player const* player, uint32 spellId)
@@ -3485,6 +3527,8 @@ bool OrderBrother(Player* player, uint32 spellId, Unit* target)
 {
     if (!HasTwin(player) || !IsSplit(player))
         return false;
+    if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId); info && LeaveFormShownOnBrother(player, info))
+        return true;
     bool const ordered = BrotherOut(player) && OrderOtherHalf(player, spellId, target, ManualPause);
     LOG_INFO("module", "{} presses {} for the brother at {}: {}", player->GetName(), spellId, target->GetName(),
         ordered ? "ordered" : "refused");
@@ -3627,7 +3671,8 @@ bool NeverAlone(SpellInfo const* info)
         SPELL_EFFECT_PROSPECTING, SPELL_EFFECT_MILLING, SPELL_EFFECT_DISENCHANT });
 }
 
-enum class Use { Never, Interrupt, Taunt, Heal, Shield, Cleanse, Purge, Defend, Attack, Energize, Cooldown, Buff };
+enum class Use { Never, Interrupt, Taunt, Heal, Shield, Cleanse, Purge, Defend, Attack, Shoot, Energize, Cooldown,
+    Buff };
 
 bool Heals(SpellInfo const* info)
 {
@@ -3639,6 +3684,8 @@ bool GivesManaBack(SpellInfo const* info, uint8 depth = 0);
 
 Use UseOf(SpellInfo const* info)
 {
+    if (info->IsAutoRepeatRangedSpell())
+        return Use::Shoot;
     if (NeverAlone(info))
         return Use::Never;
     if (info->HasEffect(SPELL_EFFECT_INTERRUPT_CAST) || info->HasAura(SPELL_AURA_MOD_SILENCE))
@@ -3935,6 +3982,23 @@ bool RecentlyRefused(Player const* player, uint32 spellId)
     return itr != refused.end() && itr->second > GameTime::GetGameTimeMS().count();
 }
 
+bool ShotReady(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(twinMutex);
+    return brains[player->GetGUID().GetCounter()].NextShotAt <= uint64(GameTime::GetGameTimeMS().count());
+}
+
+void NoteShot(Player const* player, uint32 spellId)
+{
+    SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+    if (!info || !info->IsAutoRepeatRangedSpell())
+        return;
+    uint32 const pace = player->GetAttackTime(RANGED_ATTACK);
+    std::lock_guard<std::mutex> lock(twinMutex);
+    brains[player->GetGUID().GetCounter()].NextShotAt = uint64(GameTime::GetGameTimeMS().count()) +
+        (pace ? pace : DefaultShotPace);
+}
+
 struct Pick
 {
     uint32 SpellId = 0;
@@ -3946,7 +4010,8 @@ struct Pick
 
 enum Tier : int32
 {
-    TierBuff = 1,
+    TierShot = 1,
+    TierBuff,
     TierCooldown,
     TierAttack,
     TierEnergize,
@@ -4109,6 +4174,19 @@ std::string_view ConsiderSpell(Player* player, SpellInfo const* info, Unit* foe,
             Consider(best, { info->Id, foe, GivesManaBack(info) && LowOnMana(player) ? TierEnergize : TierAttack,
                 100.0f, MarksTheFoe(info) ? MarkWeight : recovery });
             return {};
+        case Use::Shoot:
+            if (!foe || player->GetVictim() != foe)
+                return "shot: only while you attack from afar";
+            if (player->IsWithinMeleeRange(foe))
+                return "shot: the target is within reach of a blade";
+            if (Creature* twin = HasTwin(player) ? TwinOf(player) : nullptr; twin && Clawing(twin))
+                return "shot: no hands for a weapon in this shape";
+            if (!ShotReady(player))
+                return "shot: reloading";
+            if (!ReachesFoe(player, info, foe))
+                return "shot: out of reach";
+            Consider(best, { info->Id, foe, TierShot, 100.0f, recovery });
+            return {};
         case Use::Energize:
             if (info->PowerType == POWER_MANA || player->GetPowerPct(player->getPowerType()) >= LowPowerPct)
                 return "energize: power not low";
@@ -4211,8 +4289,8 @@ void PlayEasy(Player* player, uint32 diff)
         player->HasStealthAura() || !OtherHalfActs(player) || (!bot && HasTwin(player) && !BrotherOut(player)))
         return;
     auto const [spellId, target] = PickSpell(player);
-    if (spellId)
-        OrderOtherHalf(player, spellId, target, 0);
+    if (spellId && OrderOtherHalf(player, spellId, target, 0))
+        NoteShot(player, spellId);
 }
 
 std::string ToggleEasy(Player* player)
@@ -4247,6 +4325,132 @@ class spell_subclass_easy : public SpellScript
     void Register() override
     {
         OnEffectHitTarget += SpellEffectFn(spell_subclass_easy::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
+    }
+};
+
+void BrotherJumpSpeeds(Creature const* twin, SpellEffectInfo const& effect, float distance, float& speedXY,
+    float& speedZ)
+{
+    float const runSpeed = baseMoveSpeed[MOVE_RUN] * twin->GetCreatureTemplate()->speed_run;
+    float const multiplier = effect.ValueMultiplier > 0.0f ? effect.ValueMultiplier : 1.0f;
+    speedXY = std::min(runSpeed * 3.0f * multiplier, std::max(28.0f, twin->GetSpeed(MOVE_RUN) * 4.0f));
+    float const duration = distance / speedXY;
+    float const lowest = effect.MiscValue ? effect.MiscValue / 10.0f : 0.5f;
+    float const highest = effect.MiscValueB ? effect.MiscValueB / 10.0f : 1000.0f;
+    float const height = std::clamp(float(Movement::gravity * duration * duration / 8), lowest, highest);
+    speedZ = std::sqrt(2.0f * float(Movement::gravity) * height);
+}
+
+Creature* BrotherFree(Player* player)
+{
+    Creature* twin = TwinOf(player);
+    return twin && !twin->GetVehicle() && !twin->HasUnitFlag(UNIT_FLAG_STUNNED) ? twin : nullptr;
+}
+
+void BrotherLeapsTo(Player* player, Position const& where, SpellInfo const* info, SpellEffectInfo const& effect)
+{
+    Creature* twin = BrotherFree(player);
+    if (!twin)
+        return;
+    switch (effect.Effect)
+    {
+        case SPELL_EFFECT_CHARGE:
+        case SPELL_EFFECT_CHARGE_DEST:
+            twin->GetMotionMaster()->MoveCharge(where.GetPositionX(), where.GetPositionY(), where.GetPositionZ());
+            break;
+        case SPELL_EFFECT_LEAP:
+            twin->NearTeleportTo(where.GetPositionX(), where.GetPositionY(), where.GetPositionZ(),
+                where.GetOrientation());
+            break;
+        default:
+        {
+            float speedXY = 0.0f;
+            float speedZ = 0.0f;
+            BrotherJumpSpeeds(twin, effect, twin->GetExactDist2d(&where), speedXY, speedZ);
+            twin->GetMotionMaster()->MoveJump(where, speedXY, speedZ);
+            break;
+        }
+    }
+    LOG_INFO("module", "mod-subclass: {}'s brother moves for {} ({}) instead of him", player->GetName(),
+        info->SpellName[0], info->Id);
+}
+
+void BrotherLeapsBack(Player* player, SpellEffectInfo const& effect)
+{
+    if (Creature* twin = BrotherFree(player))
+        twin->JumpTo(effect.MiscValue / 10.0f, effect.CalcValue(player) / 10.0f, false);
+}
+
+Position NextTo(Unit* target, Unit const* mover)
+{
+    return target->GetFirstCollisionPosition(target->GetCombatReach(), target->GetRelativeAngle(mover));
+}
+
+class spell_subclass_brother_moves : public SpellScript
+{
+    PrepareSpellScript(spell_subclass_brother_moves);
+
+    Player* CastForBrother()
+    {
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        return player && castingAsBrother.Player == player->GetGUID() &&
+            castingAsBrother.Spell == GetSpellInfo()->Id ? player : nullptr;
+    }
+
+    SpellEffectInfo const& EffectAt(SpellEffIndex effIndex)
+    {
+        return GetSpellInfo()->Effects[effIndex];
+    }
+
+    void Launch(SpellEffIndex effIndex)
+    {
+        uint32 const effect = EffectAt(effIndex).Effect;
+        if (effect != SPELL_EFFECT_JUMP_DEST && effect != SPELL_EFFECT_CHARGE_DEST)
+            return;
+        Player* player = CastForBrother();
+        WorldLocation const* where = player ? GetHitDest() : nullptr;
+        if (!where)
+            return;
+        PreventHitDefaultEffect(effIndex);
+        BrotherLeapsTo(player, *where, GetSpellInfo(), EffectAt(effIndex));
+    }
+
+    void LaunchTarget(SpellEffIndex effIndex)
+    {
+        uint32 const effect = EffectAt(effIndex).Effect;
+        Player* player = CastForBrother();
+        Unit* target = GetHitUnit();
+        if (!player || !target)
+            return;
+        if (effect == SPELL_EFFECT_LEAP_BACK && target == player)
+        {
+            PreventHitDefaultEffect(effIndex);
+            BrotherLeapsBack(player, EffectAt(effIndex));
+            return;
+        }
+        if (effect != SPELL_EFFECT_JUMP && effect != SPELL_EFFECT_CHARGE)
+            return;
+        PreventHitDefaultEffect(effIndex);
+        if (Creature* twin = BrotherFree(player))
+            BrotherLeapsTo(player, NextTo(target, twin), GetSpellInfo(), EffectAt(effIndex));
+    }
+
+    void HitTarget(SpellEffIndex effIndex)
+    {
+        Player* player = CastForBrother();
+        WorldLocation const* where = player ? GetHitDest() : nullptr;
+        if (EffectAt(effIndex).Effect != SPELL_EFFECT_LEAP || !where || GetHitUnit() != player)
+            return;
+        PreventHitDefaultEffect(effIndex);
+        BrotherLeapsTo(player, *where, GetSpellInfo(), EffectAt(effIndex));
+    }
+
+    void Register() override
+    {
+        OnEffectLaunch += SpellEffectFn(spell_subclass_brother_moves::Launch, EFFECT_ALL, SPELL_EFFECT_ANY);
+        OnEffectLaunchTarget += SpellEffectFn(spell_subclass_brother_moves::LaunchTarget, EFFECT_ALL,
+            SPELL_EFFECT_ANY);
+        OnEffectHitTarget += SpellEffectFn(spell_subclass_brother_moves::HitTarget, EFFECT_ALL, SPELL_EFFECT_ANY);
     }
 };
 
@@ -4391,6 +4595,7 @@ void AddSC_mod_subclass_twin()
     new mod_subclass_twin_shots();
     new mod_subclass_other_head_cast_start();
     RegisterSpellScript(spell_subclass_second_self);
+    RegisterSpellScript(spell_subclass_brother_moves);
     RegisterSpellScript(spell_subclass_easy);
     new mod_subclass_twin_packets();
     new mod_subclass_twin_creatures();

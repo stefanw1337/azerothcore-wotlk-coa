@@ -213,6 +213,14 @@ bool HasCursedForm(Player const* player, Aura const* ignored)
     return false;
 }
 
+bool CursedFormHidesWeapons(Player const* player)
+{
+    for (uint32 form : CursedForms)
+        if (player->HasAura(form, player->GetGUID()) && !sScriptMgr->OnPlayerKeepsOwnLook(player, form))
+            return true;
+    return false;
+}
+
 bool HasCursedFormRestrictingMortalAbilities(Player const* player)
 {
     for (uint32 form : CursedForms)
@@ -526,7 +534,7 @@ public:
         if (!player || !UsesAscensionClassMechanics(player, CLASS_SON_OF_ARUGAL))
             return;
         if (std::find(std::begin(CursedFormWeaponSlots), std::end(CursedFormWeaponSlots), slot) ==
-            std::end(CursedFormWeaponSlots) || !HasCursedForm(player))
+            std::end(CursedFormWeaponSlots) || !CursedFormHidesWeapons(player))
             return;
         ClearVisibleWeapon(player, slot);
     }
