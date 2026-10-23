@@ -4,6 +4,7 @@
 
 #include "AscensionCoATalentData.h"
 #include "AscensionSpecialization.h"
+#include "ClientDBC.h"
 #include "Config.h"
 #include "DatabaseEnv.h"
 #include "DBCStores.h"
@@ -246,13 +247,27 @@ AscensionCompatData::CoATalentEntry const* FindEntry(uint32 entryId)
     return itr != entries.end() && itr->EntryId == entryId ? &*itr : nullptr;
 }
 
+constexpr uint32 ChrSpecsDisplayName = 29;
+std::unordered_map<uint16, std::string> specNames;
+
+void LoadSpecNames()
+{
+    ClientDBC specs;
+    if (!specs.Load(GetClientDBCPath("ChrSpecs.dbc"), ChrSpecsDisplayName + 1))
+        return;
+    for (uint32 row = 0; row < specs.GetRecordCount(); ++row)
+    {
+        ClientDBC::Record const record = specs.GetRecord(row);
+        if (std::string_view const name = record.GetString(ChrSpecsDisplayName); !name.empty())
+            specNames[uint16(record.GetUInt32(0))] = std::string(name);
+    }
+    LOG_INFO("module", "LiveMon: {} specialization names", specNames.size());
+}
+
 std::string CoASpecName(uint16 specId)
 {
-    for (AscensionCompatData::CoASpecialization const& spec : AscensionCompatData::CoASpecializations)
-        if (spec.SpecId == specId)
-            if (AscensionCompatData::CoATalentEntry const* identity = FindEntry(spec.IdentityEntryId))
-                if (std::string const name = SpellName(identity->SpellIds[0]); !name.empty())
-                    return name;
+    if (auto const itr = specNames.find(specId); itr != specNames.end())
+        return itr->second;
     return specId ? Acore::StringFormat("Spec {}", specId) : "";
 }
 
@@ -1001,6 +1016,7 @@ public:
         startedAt = NowSeconds();
         if (!settings.Enabled || serving.exchange(true))
             return;
+        LoadSpecNames();
         CreateTables();
         LoadRecords();
         std::thread(Serve).detach();
