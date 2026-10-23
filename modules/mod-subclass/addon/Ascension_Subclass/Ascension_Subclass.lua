@@ -1482,7 +1482,10 @@ function Stances.TidyMainBar()
         local button = _G["ShapeshiftButton" .. index]
         if button then
             local texture, name = GetShapeshiftFormInfo(index)
-            if index <= GetNumShapeshiftForms() and name and Stances.Borrowed(name, texture) then
+            local borrowed = index <= GetNumShapeshiftForms() and name and Stances.Borrowed(name, texture)
+            button:SetAlpha(borrowed and 0 or 1)
+            button:EnableMouse(not borrowed)
+            if borrowed then
                 button:Hide()
             elseif button:IsShown() then
                 button:ClearAllPoints()
@@ -1505,8 +1508,10 @@ function Stances.TidySoon()
     end)
 end
 
-if ShapeshiftBar_Update then
-    hooksecurefunc("ShapeshiftBar_Update", Stances.TidySoon)
+for _, update in ipairs({ "ShapeshiftBar_Update", "ShapeshiftBar_UpdateState" }) do
+    if _G[update] then
+        hooksecurefunc(update, Stances.TidySoon)
+    end
 end
 Stances.watcher = CreateFrame("Frame")
 for _, event in ipairs({ "UPDATE_SHAPESHIFT_FORMS", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED" }) do
