@@ -110,6 +110,8 @@ constexpr uint32 HeadCategory = 1;
 constexpr char const* CyclopsEchoRefusal = "Your heads still share one helmet. Your right head picks her own once "
     "your heads have each chosen their way.";
 constexpr uint32 ManualPause = 3000;
+constexpr uint32 LeftHandReadyAtTarget = 420;
+constexpr uint32 LeftHandReadyAround = 419;
 constexpr int32 LastingBuff = 10000;
 constexpr uint32 TwinQuest = 9530020;
 constexpr char const* EchoRefusal = "Your brother still wears whatever you wear. He will want his own clothes "
@@ -206,7 +208,10 @@ struct Brain
     uint32 Tick = 0;
     uint32 Pause = 0;
     bool Busy = false;
+    bool OrderedByHand = false;
+    uint32 Order = 0;
     uint64 GlobalCooldownUntil = 0;
+    bool GlobalCooldownByHand = false;
     std::unordered_map<uint32, uint32> RefusedUntil;
 };
 
@@ -3064,11 +3069,12 @@ uint32 OtherHalfGlobalCooldown(Player* player, SpellInfo const* info)
     return uint32(std::clamp(cooldown, ShortestGlobalCooldown, LongestGlobalCooldown));
 }
 
-bool OtherHalfOnGlobalCooldown(Player const* player)
+bool OtherHalfOnGlobalCooldown(Player const* player, bool byHand)
 {
     std::lock_guard<std::mutex> lock(twinMutex);
     auto const itr = brains.find(player->GetGUID().GetCounter());
-    return itr != brains.end() && itr->second.GlobalCooldownUntil > GameTime::GetGameTimeMS().count();
+    return itr != brains.end() && itr->second.GlobalCooldownUntil > GameTime::GetGameTimeMS().count() &&
+        (!byHand || itr->second.GlobalCooldownByHand);
 }
 
 void SendOtherHalfCooldown(Player* player, uint32 spellId)
@@ -3103,9 +3109,22 @@ void ActOutCast(Player* player, SpellInfo const* info, Unit* target)
 
 bool SwingsAWeapon(SpellInfo const* info);
 
-void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid)
+void LowerLeftHand(Player* player)
 {
+    uint32 const state = player->GetUInt32Value(UNIT_NPC_EMOTESTATE);
+    if (state == LeftHandReadyAtTarget || state == LeftHandReadyAround)
+        player->SetUInt32Value(UNIT_NPC_EMOTESTATE, 0);
+}
+
+void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid, uint32 order)
+{
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        if (brains[player->GetGUID().GetCounter()].Order != order)
+            return;
+    }
     SetBusy(player, false, 0);
+    LowerLeftHand(player);
     SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
     Unit* target = targetGuid == player->GetGUID() ? player : ObjectAccessor::GetUnit(*player, targetGuid);
     if (!info || !target || !player->IsInWorld() || !player->IsAlive() || !OtherHalfActs(player) ||
@@ -3154,22 +3173,30 @@ bool BrotherReaches(Player* player, SpellInfo const* info, Unit* target)
 
 bool OrderOtherHalf(Player* player, uint32 spellId, Unit* target, uint32 pause)
 {
+    bool const byHand = pause > 0;
     SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
     if (!info || !target || !OtherHalfActs(player) || !Affordable(player, info) || Helpless(player) ||
-        !BrotherReaches(player, info, target) || OtherHalfOnGlobalCooldown(player))
+        !BrotherReaches(player, info, target) || OtherHalfOnGlobalCooldown(player, byHand))
         return false;
     uint32 const globalCooldown = OtherHalfGlobalCooldown(player, info);
+    uint32 order = 0;
     {
         std::lock_guard<std::mutex> lock(twinMutex);
         Brain& brain = brains[player->GetGUID().GetCounter()];
-        if (brain.Busy)
-            return true;
+        if (brain.Busy && (!byHand || brain.OrderedByHand))
+            return !byHand;
         brain.Busy = true;
+        brain.OrderedByHand = byHand;
+        order = ++brain.Order;
         brain.Pause = std::max(brain.Pause, pause);
         brain.GlobalCooldownUntil = GameTime::GetGameTimeMS().count() + globalCooldown;
+        brain.GlobalCooldownByHand = byHand;
     }
     uint32 const castTime = info->CalcCastTime(player);
-    SendSubclassMessage(player, Acore::StringFormat("OTHERSTART {} {} {}", spellId, globalCooldown, castTime));
+    if (byHand)
+        SendSubclassMessage(player, Acore::StringFormat("OTHERSTART {} {} {}", spellId, globalCooldown, castTime));
+    if (castTime && HasSecondHead(player))
+        player->SetUInt32Value(UNIT_NPC_EMOTESTATE, target == player ? LeftHandReadyAround : LeftHandReadyAtTarget);
     if (castTime)
         if (Creature* twin = HasTwin(player) ? TwinOf(player) : nullptr)
         {
@@ -3178,9 +3205,9 @@ bool OrderOtherHalf(Player* player, uint32 spellId, Unit* target, uint32 pause)
             twin->HandleEmoteCommand(EMOTE_ONESHOT_SPELL_PRECAST);
         }
     ObjectGuid const targetGuid = target->GetGUID();
-    player->m_Events.AddEventAtOffset([player, spellId, targetGuid]()
+    player->m_Events.AddEventAtOffset([player, spellId, targetGuid, order]()
     {
-        ReleaseOtherHalf(player, spellId, targetGuid);
+        ReleaseOtherHalf(player, spellId, targetGuid, order);
     }, Milliseconds(std::max<uint32>(castTime, 1)));
     return true;
 }
@@ -3229,7 +3256,7 @@ void PressForOtherHalf(Player* player, uint32 spellId)
     }
     if (!HasSecondHead(player))
         return;
-    if (!Affordable(player, info) || OtherHalfOnGlobalCooldown(player))
+    if (!Affordable(player, info) || OtherHalfOnGlobalCooldown(player, true))
         chat.SendNotification("Your other head can't cast that yet.");
     else if (!OrderOtherHalf(player, spellId, target, ManualPause))
         chat.SendNotification("Your other head can't cast that right now.");
