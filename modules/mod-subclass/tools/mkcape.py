@@ -11,22 +11,25 @@ MIDDLE_BACK_SHARES = {CHEST: 42, MIDDLE_SPINE: 85, LOW_SPINE: 128}
 BODY_GEOSET = 10000
 BACK_SKIN_NEIGHBOURS = 8
 SWING = {
-    'Walk': (6, 4, 2), 'Run': (18, 14, 4), 'RunLeft': (15, 12, 4), 'RunRight': (15, 12, 4),
-    'Sprint': (26, 20, 5), 'JumpStart': (20, 16, 3), 'Jump': (38, 28, 4), 'Fall': (58, 40, 6),
-    'JumpEnd': (0, -2, 1), 'JumpLandRun': (18, 14, 4), 'FlyRun': (28, 22, 5), 'SwimRun': (14, 10, 3),
-    'ReadyUnarmed': (-2, -1, 1), 'Stand': (-3, -2, 1)}
+    'Stand': (6, 4, 1), 'StandWound': (8, 6, 1), 'ReadyUnarmed': (4, 3, 1), 'Ready1H': (6, 4, 1),
+    'Ready2H': (6, 4, 1), 'Ready2HL': (4, 3, 1), 'ReadyRifle': (12, 8, 1), 'ShuffleLeft': (8, 6, 2),
+    'ShuffleRight': (8, 6, 2), 'Walk': (20, 14, 2), 'Walkbackwards': (8, 6, 2), 'Run': (24, 17, 4),
+    'RunLeft': (22, 15, 4), 'RunRight': (22, 15, 4), 'Sprint': (28, 20, 5), 'JumpStart': (20, 16, 3),
+    'Jump': (38, 28, 4), 'Fall': (58, 40, 6), 'JumpEnd': (0, -2, 1), 'JumpLandRun': (22, 15, 4), 'FlyRun': (28, 22, 5),
+    'SwimRun': (14, 10, 3), 'ReadySpellDirected': (40, 28, 1), 'ReadySpellOmni': (40, 28, 1),
+    'SpellCastDirected': (30, 21, 1), 'SpellCastOmni': (30, 21, 1)}
 COLUMNS, ROWS = 9, 14
-TOP, BOTTOM = 1.62, 0.42
+TOP, BOTTOM = 1.62, 0.50
 HUG_GAP, CLEARANCE = 0.025, 0.012
 SURFACE_WINDOW_Y, SURFACE_WINDOW_Z = 0.06, 0.05
-COLLAR_V = 0.08
+COLLAR_V = 0.06
 STRAP_FROM = 0.12
-SHOULDER_GAP, CHEST_GAP = 0.02, 0.02
-CLASP_HEIGHT = 1.55
+SHOULDER_GAP = 0.02
+FLARE = 0.16
 NECK_TOP = 1.70
 BEHIND_NECK = (-0.10, 1.66)
 TEXTURE_CAPE = 2
-TEXTURE_LEFT, TEXTURE_RIGHT = 0.30, 0.99
+TEXTURE_EDGE, TEXTURE_MIDDLE = 0.258, 0.984
 TWO_SIDED_MATERIAL = 0
 HELMET_ATTACHMENT = 11
 HELMET_SHIFT = (0.07, 0.0, 0.18)
@@ -89,18 +92,15 @@ def body_points(m2, skin):
 def collar(points):
     shoulders = points[(points[:, 2] < NECK_TOP) & (points[:, 2] > UPPER_BACK)]
     def over_shoulder(y):
+        if abs(y) < STRAP_FROM:
+            return (BEHIND_NECK[0], y, BEHIND_NECK[1])
         near = shoulders[np.abs(shoulders[:, 1] - y) < 0.03]
         top = near[np.argmax(near[:, 2])]
         return (float(top[0]), y, float(top[2]) + SHOULDER_GAP)
-    def on_chest(y):
-        near = points[(np.abs(points[:, 1] - y) < 0.04) & (np.abs(points[:, 2] - CLASP_HEIGHT) < 0.04)]
-        return (float(near[:, 0].max()) + CHEST_GAP, y, CLASP_HEIGHT)
-    def strap(y):
-        if abs(y) < STRAP_FROM:
-            behind = (BEHIND_NECK[0], y, BEHIND_NECK[1])
-            return behind, behind
-        return on_chest(y), over_shoulder(y)
-    return strap
+    return over_shoulder
+
+def texture_u(side):
+    return TEXTURE_EDGE + (1.0 - abs(side)) * (TEXTURE_MIDDLE - TEXTURE_EDGE)
 
 def hug_share(z):
     return min(1.0, max(0.0, (z - WAIST) / (UPPER_BACK - WAIST)))
@@ -173,22 +173,20 @@ def smooth_back(back):
     lowest = max(np.polyval(fit, z) - e for z, e in zip(heights, envelope))
     return lambda z: float(np.polyval(fit, z) - lowest)
 
-def cape_mesh(back, skin=None, surface=None, strap=None):
+def cape_mesh(back, skin=None, surface=None, shoulder_line=None):
     back = smooth_back(back)
     vertices = []
-    if strap:
-        for row in range(2):
-            for column in range(COLUMNS):
-                u = column / (COLUMNS - 1)
-                y = -(u - 0.5) * 2 * 0.20
-                point = strap(y)[row]
-                vertices.append((point, (TEXTURE_LEFT + u * (TEXTURE_RIGHT - TEXTURE_LEFT), COLLAR_V * row / 2),
-                                 bone_weights(UPPER_BACK, point, skin) if skin else {CHEST: 255}))
+    if shoulder_line:
+        for column in range(COLUMNS):
+            side = (column / (COLUMNS - 1) - 0.5) * 2
+            point = shoulder_line(-side * 0.20)
+            vertices.append((point, (texture_u(side), 0.0),
+                             bone_weights(UPPER_BACK, point, skin) if skin else {CHEST: 255}))
     for row in range(ROWS):
         v = row / (ROWS - 1)
         z = TOP - v * (TOP - BOTTOM)
         half = 0.20 + 0.10 * v
-        centre = back(z) - 0.035 - 0.10 * v ** 1.6
+        centre = back(z) - 0.035 - FLARE * v ** 1.6
         for column in range(COLUMNS):
             u = column / (COLUMNS - 1)
             side = (u - 0.5) * 2
@@ -198,8 +196,8 @@ def cape_mesh(back, skin=None, surface=None, strap=None):
             if skin_x is not None:
                 share = hug_share(z)
                 x = min(share * (skin_x - HUG_GAP) + (1.0 - share) * x, skin_x - CLEARANCE)
-            texture_v = COLLAR_V + v * (1.0 - COLLAR_V) if strap else v
-            vertices.append(((x, y, z), (TEXTURE_LEFT + u * (TEXTURE_RIGHT - TEXTURE_LEFT), texture_v),
+            texture_v = COLLAR_V + v * (1.0 - COLLAR_V) if shoulder_line else v
+            vertices.append(((x, y, z), (texture_u(side), texture_v),
                              bone_weights(z, (x, y, z), skin)))
     triangles = []
     for row in range(len(vertices) // COLUMNS - 1):
@@ -209,7 +207,7 @@ def cape_mesh(back, skin=None, surface=None, strap=None):
             triangles += [a, c, b, b, c, d]
     def surface(z):
         v = (TOP - z) / (TOP - BOTTOM)
-        return (back(z) - 0.035 - 0.10 * v ** 1.6, 0.0, z)
+        return (back(z) - 0.035 - FLARE * v ** 1.6, 0.0, z)
     return vertices, triangles, surface(WAIST), surface(WAIST - 0.45 * (WAIST - BOTTOM))
 
 def compress(f):
