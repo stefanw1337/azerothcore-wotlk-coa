@@ -2204,7 +2204,8 @@ private:
 
         Subclass::Character const character = CharacterOf(player);
         Subclass::Choice kept;
-        if (MayCarrySubclass(player) && IsSpecializationOf(choice.SubClass, choice.SubSpec))
+        if (MayCarrySubclass(player) && IsSpecializationOf(choice.SubClass, choice.SubSpec) &&
+            PlayableClassOf(choice.SubClass) != character.Class)
         {
             std::lock_guard<std::mutex> lock(subclassMutex);
             kept = Subclass::Trimmed(pairs, character, choice);
@@ -2522,6 +2523,12 @@ public:
             {
                 handler->SendErrorMessage("Only CoA classes and standard mains of a subclass race can have a "
                     "subclass.");
+                return false;
+            }
+            if (PlayableClassOf(subClass) == character.Class)
+            {
+                handler->SendErrorMessage("{} is already that class; a subclass must be another class.",
+                    target->GetName());
                 return false;
             }
             if (!IsSpecializationOf(subClass, subSpec) ||
