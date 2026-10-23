@@ -44,6 +44,7 @@
 #include <mutex>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 
 using namespace Acore::ChatCommands;
 
@@ -505,6 +506,163 @@ Creature* TwinOf(Player const* player)
         guid = itr->second;
     }
     return ObjectAccessor::GetCreature(*player, guid);
+}
+
+struct TwinFormCopy
+{
+    uint32 Plain = 0;
+    uint32 Visual = 0;
+};
+
+struct TwinFormCopies
+{
+    std::unordered_map<uint32, TwinFormCopy> OfSpell;
+    std::unordered_map<uint32, uint32> SpellOfPlain;
+    std::unordered_set<uint32> Visuals;
+};
+
+TwinFormCopies const& TwinForms()
+{
+    static TwinFormCopies const copies = []
+    {
+        TwinFormCopies loaded;
+        bool const exists = bool(WorldDatabase.Query("SELECT 1 FROM information_schema.TABLES WHERE "
+            "TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mod_subclass_twin_form_spell'"));
+        if (exists)
+            if (QueryResult result = WorldDatabase.Query(
+                    "SELECT `SpellId`, `PlainId`, `VisualId` FROM `mod_subclass_twin_form_spell`"))
+                do
+                {
+                    Field* fields = result->Fetch();
+                    uint32 const spellId = fields[0].Get<uint32>();
+                    TwinFormCopy const copy = { fields[1].Get<uint32>(), fields[2].Get<uint32>() };
+                    if (!sSpellMgr->GetSpellInfo(copy.Visual))
+                        continue;
+                    loaded.OfSpell[spellId] = copy;
+                    loaded.SpellOfPlain[copy.Plain] = spellId;
+                    loaded.Visuals.insert(copy.Visual);
+                } while (result->NextRow());
+        LOG_INFO("module", "mod-subclass: {} class forms can show their visuals on the twin brother",
+            loaded.OfSpell.size());
+        return loaded;
+    }();
+    return copies;
+}
+
+TwinFormCopy TwinFormCopyOf(uint32 spellId)
+{
+    auto const& copies = TwinForms().OfSpell;
+    auto const itr = copies.find(spellId);
+    return itr == copies.end() ? TwinFormCopy() : itr->second;
+}
+
+uint32 FormOfPlainCopy(uint32 plainId)
+{
+    auto const& forms = TwinForms().SpellOfPlain;
+    auto const itr = forms.find(plainId);
+    return itr == forms.end() ? 0 : itr->second;
+}
+
+bool KeepsOwnLook(Player const* player, uint32 spellId)
+{
+    uint8 const race = player->getRace(true);
+    return (race == TwinRace || race == OgreRace) && SubclassRaceEnabled(race) &&
+        IsBorrowedSpell(player, spellId) && !ShapesWholeBody(spellId);
+}
+
+bool BrotherWearsForm(Player const* player, uint32 spellId)
+{
+    return TwinFormCopyOf(spellId).Visual && TwinOf(player) && KeepsOwnLook(player, spellId);
+}
+
+std::mutex& formsOnBrotherMutex = *new std::mutex;
+std::unordered_map<uint32, std::unordered_set<uint32>>& formsOnBrother =
+    *new std::unordered_map<uint32, std::unordered_set<uint32>>;
+
+bool ShowFormOnBrother(Player const* player, uint32 spellId, bool shown)
+{
+    std::lock_guard<std::mutex> lock(formsOnBrotherMutex);
+    uint32 const owner = player->GetGUID().GetCounter();
+    if (shown)
+        return formsOnBrother[owner].insert(spellId).second;
+    auto const itr = formsOnBrother.find(owner);
+    if (itr == formsOnBrother.end() || !itr->second.erase(spellId))
+        return false;
+    if (itr->second.empty())
+        formsOnBrother.erase(itr);
+    return true;
+}
+
+bool WearsAFormOnBrother(ObjectGuid player)
+{
+    if (!player.IsPlayer())
+        return false;
+    std::lock_guard<std::mutex> lock(formsOnBrotherMutex);
+    return formsOnBrother.count(player.GetCounter());
+}
+
+uint32 PlainFormShown(ObjectGuid caster, uint32 spellId)
+{
+    if (!caster.IsPlayer())
+        return 0;
+    uint32 const plain = TwinFormCopyOf(spellId).Plain;
+    if (!plain)
+        return 0;
+    std::lock_guard<std::mutex> lock(formsOnBrotherMutex);
+    auto const itr = formsOnBrother.find(caster.GetCounter());
+    return itr != formsOnBrother.end() && itr->second.count(spellId) ? plain : 0;
+}
+
+void ReturnFormsToPlayer(Player* player)
+{
+    std::unordered_set<uint32> returned;
+    {
+        std::lock_guard<std::mutex> lock(formsOnBrotherMutex);
+        auto const itr = formsOnBrother.find(player->GetGUID().GetCounter());
+        if (itr == formsOnBrother.end())
+            return;
+        returned = std::move(itr->second);
+        formsOnBrother.erase(itr);
+    }
+    for (uint32 spellId : returned)
+        if (AuraApplication* application = player->GetAuraApplication(spellId))
+            application->SetNeedClientUpdate();
+}
+
+void NoteFormCast(Player const* player, uint32 spellId)
+{
+    if (TwinFormCopyOf(spellId).Plain)
+        ShowFormOnBrother(player, spellId, BrotherWearsForm(player, spellId));
+}
+
+void FlashFormOnBrother(Player* player, uint32 spellId)
+{
+    if (!PlainFormShown(player->GetGUID(), spellId))
+        return;
+    if (Creature* twin = TwinOf(player))
+        twin->CastSpell(twin, TwinFormCopyOf(spellId).Visual, true);
+}
+
+void MirrorFormVisual(Player* player, Creature* twin)
+{
+    std::unordered_set<uint32> worn;
+    for (auto const& [spellId, application] : player->GetAppliedAuras())
+    {
+        TwinFormCopy const copy = TwinFormCopyOf(spellId);
+        if (!copy.Visual || !KeepsOwnLook(player, spellId))
+            continue;
+        worn.insert(copy.Visual);
+        if (ShowFormOnBrother(player, spellId, true))
+            application->SetNeedClientUpdate();
+        if (!twin->HasAura(copy.Visual))
+            twin->CastSpell(twin, copy.Visual, true);
+    }
+    std::vector<uint32> shed;
+    for (auto const& [spellId, application] : twin->GetAppliedAuras())
+        if (TwinForms().Visuals.count(spellId) && !worn.count(spellId))
+            shed.push_back(spellId);
+    for (uint32 spellId : shed)
+        twin->RemoveAurasDueToSpell(spellId);
 }
 
 bool OwnsKit(Player const* player)
@@ -1198,6 +1356,7 @@ void UpdateCarry(Player* player, uint32 diff)
     }
     MirrorStun(player, twin);
     MirrorShape(player, twin);
+    MirrorFormVisual(player, twin);
     UpdateCompanion(player, twin);
     HandWeaponsToBrother(player);
     UpdateShieldBearer(player, twin);
@@ -1231,6 +1390,7 @@ void DismissTwin(Player* player)
         shieldBearers.erase(player->GetGUID());
     }
     DismissCompanion(player);
+    ReturnFormsToPlayer(player);
     if (Creature* twin = ObjectAccessor::GetCreature(*player, guid))
     {
         if (twin->GetVehicle())
@@ -2765,6 +2925,91 @@ bool ShowOtherHeadStrikeAsCopy(WorldSession* session, WorldPacket const& packet)
     return false;
 }
 
+bool ShowFormCastPlain(WorldSession* session, WorldPacket const& packet)
+{
+    if (!CarriesASpell(packet.GetOpcode()))
+        return true;
+    std::optional<SpellPacket> const read = ReadSpellPacket(packet);
+    uint32 const plain = read ? PlainFormShown(read->Caster, read->SpellId) : 0;
+    if (!plain)
+        return true;
+    WorldPacket copy(packet);
+    copy.put<uint32>(read->SpellAt, plain);
+    session->SendPacket(&copy);
+    return false;
+}
+
+std::vector<std::pair<std::size_t, uint32>> PlainFormAuras(WorldPacket const& packet)
+{
+    std::vector<std::pair<std::size_t, uint32>> plains;
+    WorldPacket reader(packet);
+    reader.rpos(0);
+    ObjectGuid target;
+    reader >> target.ReadAsPacked();
+    if (!WearsAFormOnBrother(target))
+        return plains;
+    while (reader.rpos() < reader.size())
+    {
+        uint8 slot = 0;
+        uint32 spellId = 0;
+        reader >> slot >> spellId;
+        if (!spellId)
+            continue;
+        std::size_t const spellAt = reader.rpos() - sizeof(uint32);
+        uint8 flags = 0;
+        uint8 level = 0;
+        uint8 stacks = 0;
+        reader >> flags >> level >> stacks;
+        if (!(flags & AFLAG_CASTER))
+        {
+            ObjectGuid caster;
+            reader >> caster.ReadAsPacked();
+        }
+        if (flags & AFLAG_DURATION)
+            reader.read_skip(2 * sizeof(uint32));
+        if (uint32 const plain = PlainFormShown(target, spellId))
+            plains.emplace_back(spellAt, plain);
+    }
+    return plains;
+}
+
+bool ShowFormAuraPlain(WorldSession* session, WorldPacket const& packet)
+{
+    if (packet.GetOpcode() != SMSG_AURA_UPDATE && packet.GetOpcode() != SMSG_AURA_UPDATE_ALL)
+        return true;
+    std::vector<std::pair<std::size_t, uint32>> plains;
+    try
+    {
+        plains = PlainFormAuras(packet);
+    }
+    catch (ByteBufferException const&)
+    {
+        return true;
+    }
+    if (plains.empty())
+        return true;
+    WorldPacket copy(packet);
+    for (auto const& [spellAt, plain] : plains)
+        copy.put<uint32>(spellAt, plain);
+    session->SendPacket(&copy);
+    return false;
+}
+
+bool CancelFormByPlainCopy(WorldSession* session, WorldPacket const& packet)
+{
+    Player* player = session->GetPlayer();
+    if (packet.GetOpcode() != CMSG_CANCEL_AURA || !player || packet.size() < sizeof(uint32))
+        return true;
+    uint32 const form = FormOfPlainCopy(packet.read<uint32>(0));
+    if (!form)
+        return true;
+    SpellInfo const* info = sSpellMgr->GetSpellInfo(form);
+    if (info && !info->HasAttribute(SPELL_ATTR0_NO_AURA_CANCEL) && !info->IsChanneled() && info->IsPositive() &&
+        !info->IsPassive())
+        player->RemoveOwnedAura(form, ObjectGuid::Empty, 0, AURA_REMOVE_BY_CANCEL);
+    return false;
+}
+
 bool ShowCastOnBrother(WorldSession* session, WorldPacket const& packet)
 {
     if (resendingAsBrother || !castingAsBrother.Spell ||
@@ -2842,6 +3087,7 @@ public:
         if (session)
             NoteAttackStopped(session, packet);
         return !session || (HideShotWithoutGun(packet) && ShowOtherHeadStrikeAsCopy(session, packet) &&
+            ShowFormCastPlain(session, packet) && ShowFormAuraPlain(session, packet) &&
             ShowCastOnBrother(session, packet) &&
             ShareSwingWithBrother(session, packet) && ShowHitsOnBrother(session, packet));
     }
@@ -2854,7 +3100,7 @@ public:
             NoteAttackIntent(session, packet);
             NoteSheathRequest(session, packet);
         }
-        return !session || AnswerMirrorImage(session, packet);
+        return !session || (AnswerMirrorImage(session, packet) && CancelFormByPlainCopy(session, packet));
     }
 };
 
@@ -4062,6 +4308,8 @@ public:
         Player* player = spell->GetCaster()->ToPlayer();
         if (player && HasSecondHead(player))
             HideOtherHeadsArm(player, spell->GetSpellInfo(), spell->GetSpellInfo()->CalcCastTime(player, spell));
+        if (player && HasTwin(player))
+            NoteFormCast(player, spell->GetSpellInfo()->Id);
         return true;
     }
 };
@@ -4073,6 +4321,8 @@ public:
 
     void OnPlayerSpellCast(Player* player, Spell* spell, bool /*skipCheck*/) override
     {
+        if (spell && HasTwin(player))
+            FlashFormOnBrother(player, spell->GetSpellInfo()->Id);
         if (!spell || !HasSecondHead(player))
             return;
         SpellInfo const* info = spell->GetSpellInfo();
@@ -4130,9 +4380,7 @@ public:
 
     bool OnPlayerKeepsOwnLook(Player const* player, uint32 spellId) override
     {
-        uint8 const race = player->getRace(true);
-        return (race == TwinRace || race == OgreRace) && SubclassRaceEnabled(race) &&
-            IsBorrowedSpell(player, spellId) && !ShapesWholeBody(spellId);
+        return KeepsOwnLook(player, spellId);
     }
 };
 
