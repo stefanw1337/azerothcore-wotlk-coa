@@ -51,6 +51,11 @@ SPELLS = [
      "gold, and 25% more in chests, lockboxes and other treasures.", ""),
     (9530114, RACIAL, 1, "Pin the Badge", "", "Pin the badge on your brother's coat.", ""),
     (9530115, RACIAL, 1, "Read Together", "", "Read the book together, two heads bent over one page.", ""),
+    (9530116, RACIAL, 24897, "Agree again!", "Racial",
+     "Your two heads stop arguing for now. While they agree, the second head's class abilities stay quiet.", ""),
+    (9530117, RACIAL, 25332, "Me mad, disagree!", "Racial",
+     "Your two heads go back to arguing. The second head's class abilities wake up again, and half your stats "
+     "belong to her.", ""),
 ]
 CASTER_AURA = {9530106: 9530102, 9530107: 9530105}
 

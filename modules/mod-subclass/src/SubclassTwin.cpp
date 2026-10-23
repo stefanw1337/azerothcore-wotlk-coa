@@ -76,6 +76,8 @@ constexpr uint8 TwinRace = 96;
 constexpr uint8 OgreRace = 85;
 constexpr uint32 BrotherSpell = 9530100;
 constexpr uint32 HeadsSpell = 9530101;
+constexpr uint32 AgreeAgainSpell = 9530116;
+constexpr uint32 DisagreeSpell = 9530117;
 constexpr uint32 TeamingUpAura = 9530102;
 constexpr uint32 LonelyAura = 9530103;
 constexpr uint32 AgreedAura = 9530104;
@@ -2011,10 +2013,31 @@ void ShootAlong(Player* player)
     Unit::DealDamage(player, victim, damage, nullptr, DIRECT_DAMAGE, SPELL_SCHOOL_MASK_NORMAL, nullptr, true);
 }
 
+uint32 WantedHeadsChoice(Player const* player)
+{
+    if (!HasSecondHead(player) || !SubclassChosen(player) || !player->HasSpell(HeadsSpell))
+        return 0;
+    return WardrobeOf(player).Enabled ? DisagreeSpell : AgreeAgainSpell;
+}
+
+void ShowHeadsChoice(Player* player)
+{
+    uint32 const wanted = WantedHeadsChoice(player);
+    if (player->GetTemporarySpellReplacement(HeadsSpell) == (wanted ? wanted : HeadsSpell))
+        return;
+    if (wanted && !player->HasSpell(wanted))
+        player->learnSpell(wanted, true);
+    player->SetTemporarySpellReplacement(HeadsSpell, wanted);
+    for (uint32 choice : { AgreeAgainSpell, DisagreeSpell })
+        if (choice != wanted && player->HasSpell(choice))
+            player->removeSpell(choice, SPEC_MASK_ALL, true);
+}
+
 void UpdateSelfAura(Player* player)
 {
     if (!player->IsAlive())
         return;
+    ShowHeadsChoice(player);
     UpdateReach(player);
     StowBorrowedGear(player);
     HandWeaponsToBrother(player);
