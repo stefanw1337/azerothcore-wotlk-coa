@@ -1514,6 +1514,23 @@ for _, event in ipairs({ "UPDATE_SHAPESHIFT_FORMS", "PLAYER_ENTERING_WORLD", "PL
 end
 Stances.watcher:SetScript("OnEvent", Stances.TidySoon)
 
+function Ascension_Subclass.DescribeStances()
+    local say = function(text) DEFAULT_CHAT_FRAME:AddMessage(text, 0.8, 0.6, 1) end
+    local names = {}
+    for _, spellId in ipairs(Stances.spells) do
+        names[#names + 1] = (GetSpellInfo(spellId) or "?") .. " (" .. spellId .. ")"
+    end
+    say("Subclass stances from the server: " .. (#names > 0 and table.concat(names, ", ") or "none"))
+    for index = 1, GetNumShapeshiftForms() do
+        local texture, name = GetShapeshiftFormInfo(index)
+        local button = _G["ShapeshiftButton" .. index]
+        local parent = button and button:GetParent()
+        say(string.format("Own bar %d: %s, borrowed %s, shown %s, on %s", index, tostring(name),
+            tostring(Stances.Borrowed(name, texture)), tostring(button and button:IsShown()),
+            tostring(parent and parent:GetName())))
+    end
+end
+
 function Ascension_Subclass.ResetStanceBar()
     Ascension_SubclassDump = Ascension_SubclassDump or {}
     Ascension_SubclassDump.stanceBarPoint = nil

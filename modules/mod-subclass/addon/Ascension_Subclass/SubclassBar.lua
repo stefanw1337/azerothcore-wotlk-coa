@@ -488,6 +488,8 @@ SlashCmdList.ASCENSIONSUBCLASSBAR = function(message)
         for _, reset in ipairs({ Ascension_Subclass.ResetStanceBar, Ascension_Subclass.ResetOrbs }) do
             reset()
         end
+    elseif message == "stances" then
+        Ascension_Subclass.DescribeStances()
     elseif message == "clear" then
         Forget(Saved())
         RefreshAll()
