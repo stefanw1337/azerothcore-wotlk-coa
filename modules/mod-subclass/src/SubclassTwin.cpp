@@ -8,6 +8,7 @@
 #include "CellImpl.h"
 #include "Chat.h"
 #include "CommandScript.h"
+#include "CreatureScript.h"
 #include "DatabaseEnv.h"
 #include "GameTime.h"
 #include "GridNotifiersImpl.h"
@@ -24,6 +25,7 @@
 #include "Random.h"
 #include "StringConvert.h"
 #include "SubclassRules.h"
+#include "ScriptedGossip.h"
 #include "ServerScript.h"
 #include "SpellScript.h"
 #include "SpellScriptLoader.h"
@@ -59,6 +61,10 @@ bool LendsRangedSpecialization(Player const* player);
 bool SubclassRaceEnabled(uint8 race);
 bool TravelFormsShapeWholeBody();
 uint8 StoryGenderOf(Player const* player);
+bool SubclassQuestOffered(Player const* player);
+void ShowSubclassPrompt(Player* player, ObjectGuid source);
+bool AnswerSubclassPrompt(Player* player, uint32 sender, uint32 action);
+void ShowQuestOnTwin(Player* player, bool offered);
 
 void SendSubclassMessage(Player* player, std::string const& message);
 uint32 StowBorrowedGear(Player* player);
@@ -1260,6 +1266,7 @@ void SummonTwin(Player* player)
     twin->SetFaction(player->GetFaction());
     Arm(twin, dressed);
     twin->GetMotionMaster()->MoveFollow(player, TwinDistance, TwinAngle);
+    ShowQuestOnTwin(player, SubclassQuestOffered(player));
 }
 
 bool HasTwin(Player const* player)
@@ -1342,6 +1349,52 @@ std::string TwinState(Player const* player)
 }
 
 bool SubclassChosen(Player const* player);
+
+void ShowQuestOnTwin(Player* player, bool offered)
+{
+    constexpr uint32 Talks = UNIT_NPC_FLAG_GOSSIP | UNIT_NPC_FLAG_QUESTGIVER;
+    Creature* twin = HasTwin(player) ? TwinOf(player) : nullptr;
+    if (!twin)
+        return;
+    if (offered)
+    {
+        twin->SetNpcFlag(NPCFlags(Talks));
+        twin->RemoveUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
+    }
+    else
+    {
+        twin->RemoveNpcFlag(NPCFlags(Talks));
+        twin->SetUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
+    }
+    player->PlayerTalkClass->SendQuestGiverStatus(offered ? DIALOG_STATUS_AVAILABLE : DIALOG_STATUS_NONE,
+        twin->GetGUID());
+}
+
+class npc_subclass_twin : public CreatureScript
+{
+public:
+    npc_subclass_twin() : CreatureScript("npc_subclass_twin") { }
+
+    bool OnGossipHello(Player* player, Creature* creature) override
+    {
+        if (creature->GetOwnerGUID() == player->GetGUID() && SubclassQuestOffered(player))
+            ShowSubclassPrompt(player, creature->GetGUID());
+        else
+            CloseGossipMenuFor(player);
+        return true;
+    }
+
+    bool OnGossipSelect(Player* player, Creature* /*creature*/, uint32 sender, uint32 action) override
+    {
+        return AnswerSubclassPrompt(player, sender, action);
+    }
+
+    uint32 GetDialogStatus(Player* player, Creature* creature) override
+    {
+        return creature->GetOwnerGUID() == player->GetGUID() && SubclassQuestOffered(player) ?
+            DIALOG_STATUS_AVAILABLE : DIALOG_STATUS_NONE;
+    }
+};
 
 bool HasSecondHead(Player const* player)
 {
@@ -4008,6 +4061,7 @@ void AddSC_mod_subclass_twin()
     new mod_subclass_twin_packets();
     new mod_subclass_twin_creatures();
     new mod_subclass_twin_player();
+    new npc_subclass_twin();
 }
 
 ChatCommandTable const& SubclassTwinCommandTable()

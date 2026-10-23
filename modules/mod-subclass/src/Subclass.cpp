@@ -83,6 +83,7 @@ bool IsStandardMainClass(uint8 classId);
 Trainer::Trainer const* ClassTrainerOf(uint8 classId);
 bool IsBorrowedSpell(Player const* player, uint32 spellId);
 bool InBorrowedFamily(Player const* player, uint8 subClass, SpellInfo const* info);
+void ShowQuestOnTwin(Player* player, bool offered);
 
 uint8 StoryGenderOf(Player const* player)
 {
@@ -852,6 +853,9 @@ std::string BorrowedStances(Player const* player)
     return out;
 }
 
+bool OffersQuest(Player const* player);
+void ShowPrompt(Player* player, ObjectGuid source);
+
 void SendSubclassState(Player* player)
 {
     if (!player || !player->IsInWorld())
@@ -860,6 +864,7 @@ void SendSubclassState(Player* player)
     std::vector<Subclass::Tree> const open = OpenTreesOf(player);
     SendAddon(player, Acore::StringFormat("RESET {} {} {}", IsEligible(player) ? 1 : 0, open.size(),
         record.Insights));
+    SendAddon(player, Acore::StringFormat("QUESTOFFER {}", OffersQuest(player) ? 1 : 0));
     if (Subclass::Choice const choice = ChoiceOf(player); choice.Complete())
         SendAddon(player, Acore::StringFormat("SUBCLASS {}", PlainClassName(choice.SubClass)));
     std::vector<std::string> otherSpells;
@@ -958,6 +963,12 @@ void HandleAddonMessage(Player* player, std::string_view message)
         SendAddon(player, TwinState(player));
         SendAddon(player, RelicState(player));
         SendAddon(player, CyclopsModelState(player));
+        return;
+    }
+    if (message == "QUESTASK")
+    {
+        if (OffersQuest(player))
+            ShowPrompt(player, player->GetGUID());
         return;
     }
     if (message == "AIM")
@@ -1437,23 +1448,30 @@ bool OffersQuest(Player const* player)
     return Subclass::OffersQuest(current, pairs, CharacterOf(player), record.Choice, record.Insights, untouched);
 }
 
-void ShowPrompt(Player* player)
+void ShowPrompt(Player* player, ObjectGuid source)
 {
     Voice const voice = VoiceOf(player);
     ClearGossipMenuFor(player);
     AddGossipItemFor(player, GOSSIP_ICON_CHAT, voice.AcceptOption, SenderPrompt, ActionAccept);
     AddGossipItemFor(player, GOSSIP_ICON_CHAT, voice.LaterOption, SenderPrompt, ActionLater);
     player->PlayerTalkClass->GetGossipMenu().SetMenuId(PromptMenuId);
-    SendGossipMenuFor(player, voice.PromptText, player->GetGUID());
+    SendGossipMenuFor(player, voice.PromptText, source);
 }
 
-void SchedulePrompt(Player* player, Milliseconds delay)
+void NoteQuestOffer(Player* player)
+{
+    bool const offered = OffersQuest(player);
+    SendAddon(player, Acore::StringFormat("QUESTOFFER {}", offered ? 1 : 0));
+    ShowQuestOnTwin(player, offered);
+}
+
+void ScheduleQuestOffer(Player* player, Milliseconds delay)
 {
     ObjectGuid const guid = player->GetGUID();
     player->m_Events.AddEventAtOffset([player, guid]()
     {
-        if (player->IsInWorld() && player->GetGUID() == guid && OffersQuest(player))
-            ShowPrompt(player);
+        if (player->IsInWorld() && player->GetGUID() == guid)
+            NoteQuestOffer(player);
     }, delay);
 }
 
@@ -1465,6 +1483,7 @@ void AcceptQuest(Player* player)
         return;
     player->AddQuestAndCheckCompletion(quest, nullptr);
     ChatHandler(player->GetSession()).SendSysMessage(VoiceOf(player).Says(VoiceOf(player).Accepted));
+    NoteQuestOffer(player);
 }
 
 bool OfferedAsSubclass(uint8 mainClass, uint8 catalogClassId)
@@ -1804,7 +1823,31 @@ bool SubclassChosen(Player const* player)
 
 void OfferStoryLater(Player* player)
 {
-    SchedulePrompt(player, 2s);
+    ScheduleQuestOffer(player, 2s);
+}
+
+bool SubclassQuestOffered(Player const* player)
+{
+    return OffersQuest(player);
+}
+
+void ShowSubclassPrompt(Player* player, ObjectGuid source)
+{
+    ShowPrompt(player, source);
+}
+
+bool AnswerSubclassPrompt(Player* player, uint32 sender, uint32 action)
+{
+    if (sender != SenderPrompt)
+        return false;
+    if (action == ActionAccept)
+        AcceptQuest(player);
+    else
+    {
+        CloseGossipMenuFor(player);
+        ChatHandler(player->GetSession()).SendSysMessage(VoiceOf(player).Says(VoiceOf(player).Later));
+    }
+    return true;
 }
 
 bool UsesBow(SpellInfo const* info)
@@ -2033,7 +2076,7 @@ class mod_subclass_player : public PlayerScript
 public:
     mod_subclass_player() : PlayerScript("mod_subclass_player", { PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_LOGOUT,
         PLAYERHOOK_ON_CREATE, PLAYERHOOK_ON_DELETE, PLAYERHOOK_ON_LEVEL_CHANGED, PLAYERHOOK_ON_GOSSIP_SELECT,
-        PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT, PLAYERHOOK_ON_PLAYER_IS_CLASS,
+        PLAYERHOOK_ON_QUEST_ABANDON, PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT, PLAYERHOOK_ON_PLAYER_IS_CLASS,
         PLAYERHOOK_ON_PLAYER_HAS_ACTIVE_POWER_TYPE, PLAYERHOOK_ON_LEARN_SPELL, PLAYERHOOK_CAN_EQUIP_ITEM })
     {
     }
@@ -2097,13 +2140,13 @@ public:
         if (SubclassRaceEnabled(player->getRace()))
             DropUnwieldedGearSkills(player);
         RefreshPowerPools(player);
-        SchedulePrompt(player, 5s);
+        ScheduleQuestOffer(player, 5s);
     }
 
     void OnPlayerLevelChanged(Player* player, uint8 oldLevel) override
     {
         if (oldLevel < CurrentSettings().MinLevel)
-            SchedulePrompt(player, 1s);
+            ScheduleQuestOffer(player, 1s);
         SyncBorrowedBaseSpells(player);
         SpendBotPoints(player);
         SendSubclassState(player);
@@ -2123,15 +2166,14 @@ public:
 
     void OnPlayerGossipSelect(Player* player, uint32 menuId, uint32 sender, uint32 action) override
     {
-        if (menuId != PromptMenuId || sender != SenderPrompt)
-            return;
-        if (action == ActionAccept)
-            AcceptQuest(player);
-        else
-        {
-            CloseGossipMenuFor(player);
-            ChatHandler(player->GetSession()).SendSysMessage(VoiceOf(player).Says(VoiceOf(player).Later));
-        }
+        if (menuId == PromptMenuId)
+            AnswerSubclassPrompt(player, sender, action);
+    }
+
+    void OnPlayerQuestAbandon(Player* player, uint32 questId) override
+    {
+        if (questId == SettingsOf(player).QuestId)
+            ScheduleQuestOffer(player, 1s);
     }
 
     void OnPlayerLogout(Player* player) override
@@ -2558,7 +2600,7 @@ public:
                 "holds an insight, or has taken the quest).", target->GetName());
             return false;
         }
-        ShowPrompt(target);
+        ShowPrompt(target, target->GetGUID());
         return true;
     }
 

@@ -1647,6 +1647,12 @@ local function Receive(message)
         end
         return
     end
+    if command == "QUESTOFFER" then
+        if Ascension_Subclass.ShowQuestOffer then
+            Ascension_Subclass.ShowQuestOffer(rest == "1")
+        end
+        return
+    end
     if command == "RESET" then
         local eligible, _, insights = string.match(rest, "^(%d+) (%d+) (%d+)$")
         incoming = { eligible = eligible == "1", insights = tonumber(insights) or 0, trees = {}, ranks = {},
