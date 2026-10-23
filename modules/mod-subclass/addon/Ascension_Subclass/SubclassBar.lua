@@ -293,6 +293,39 @@ function Ascension_Subclass.OnOtherSpells(list)
     end
 end
 
+local function Forget(saved)
+    for index = 1, BUTTONS do
+        saved[index] = nil
+    end
+    saved.filled = nil
+    knownSpells = {}
+end
+
+local function HoldsKnownSpell(saved)
+    for index = 1, BUTTONS do
+        if saved[index] and SpellbookIndex(saved[index]) then
+            return true
+        end
+    end
+    return false
+end
+
+function Ascension_Subclass.OnSubclass(name)
+    local saved = Saved()
+    local key = name or "-"
+    if saved.subclass == key then
+        return
+    end
+    if saved.subclass or not HoldsKnownSpell(saved) then
+        Forget(saved)
+    end
+    saved.subclass = key
+    if bar then
+        RefreshAll()
+        UpdateShown()
+    end
+end
+
 SLASH_ASCENSIONSUBCLASSBAR1 = "/subclassbar"
 SlashCmdList.ASCENSIONSUBCLASSBAR = function(message)
     if message == "reset" then
@@ -301,14 +334,14 @@ SlashCmdList.ASCENSIONSUBCLASSBAR = function(message)
         bar:ClearAllPoints()
         bar:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 170)
     elseif message == "clear" then
-        local saved = Saved()
-        for index = 1, BUTTONS do
-            saved[index] = nil
-        end
+        Forget(Saved())
         RefreshAll()
+        UpdateShown()
+        Ascension_Subclass.Send("SYNC")
     else
-        DEFAULT_CHAT_FRAME:AddMessage("Subclass Bar 1: /subclassbar reset (position), /subclassbar clear (buttons). "
-            .. "Bind keys under Key Bindings > Subclass Bar 1.")
+        DEFAULT_CHAT_FRAME:AddMessage("Subclass Bar 1: /subclassbar reset (position), /subclassbar clear (refill "
+            .. "the buttons with your subclass spells). Shift-drag a button to move the bar. Bind keys under "
+            .. "Key Bindings > Subclass Bar 1.")
     end
 end
 

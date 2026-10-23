@@ -1653,12 +1653,15 @@ local function Receive(message)
         end
         return
     end
+    if command == "SUBCLASS" and Ascension_Subclass.OnSubclass then
+        Ascension_Subclass.OnSubclass(rest ~= "-" and rest or nil)
+    end
     if command == "RESET" then
         local eligible, _, insights = string.match(rest, "^(%d+) (%d+) (%d+)$")
         incoming = { eligible = eligible == "1", insights = tonumber(insights) or 0, trees = {}, ranks = {},
             classPoints = 0, specPoints = 0, resources = {}, powers = {}, runes = false }
     elseif command == "SUBCLASS" and incoming then
-        incoming.subclass = rest
+        incoming.subclass = rest ~= "-" and rest or nil
     elseif not incoming then
         return
     elseif command == "TREE" then

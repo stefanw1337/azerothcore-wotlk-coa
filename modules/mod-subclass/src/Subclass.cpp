@@ -865,8 +865,8 @@ void SendSubclassState(Player* player)
     SendAddon(player, Acore::StringFormat("RESET {} {} {}", IsEligible(player) ? 1 : 0, open.size(),
         record.Insights));
     SendAddon(player, Acore::StringFormat("QUESTOFFER {}", OffersQuest(player) ? 1 : 0));
-    if (Subclass::Choice const choice = ChoiceOf(player); choice.Complete())
-        SendAddon(player, Acore::StringFormat("SUBCLASS {}", PlainClassName(choice.SubClass)));
+    Subclass::Choice const choice = ChoiceOf(player);
+    SendAddon(player, "SUBCLASS " + (choice.Complete() ? PlainClassName(choice.SubClass) : std::string("-")));
     std::vector<std::string> otherSpells;
     for (uint32 spellId : KnownBorrowedActives(player))
         otherSpells.push_back(std::to_string(spellId));
