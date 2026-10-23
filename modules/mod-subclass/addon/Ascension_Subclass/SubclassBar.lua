@@ -10,6 +10,7 @@ end
 local bar
 local buttons = {}
 local knownSpells = {}
+local lent
 
 local function Saved()
     Ascension_SubclassDump = Ascension_SubclassDump or {}
@@ -115,17 +116,24 @@ local function OnClick(button, mouse)
     button:SetChecked(false)
 end
 
+local function BarsLocked()
+    return LOCK_ACTIONBAR == "1" or GetCVar("lockActionBars") == "1"
+end
+
 local function OnDragStart(button)
-    if InCombatLockdown() and not IsShiftKeyDown() then
+    if BarsLocked() and not IsShiftKeyDown() then
         return
     end
     local spellId = Saved()[button:GetID()]
-    local index = spellId and SpellbookIndex(spellId)
-    if index then
-        Saved()[button:GetID()] = nil
-        PickupSpell(index, BOOKTYPE_SPELL)
-        Refresh(button)
+    if not spellId then
+        return
     end
+    Saved()[button:GetID()] = nil
+    local index = SpellbookIndex(spellId)
+    if index then
+        PickupSpell(index, BOOKTYPE_SPELL)
+    end
+    Refresh(button)
 end
 
 local function OnReceiveDrag(button)
@@ -145,7 +153,8 @@ local function OnEnter(button)
         GameTooltip:AddLine("Subclass Bar 1")
         GameTooltip:AddLine("Drop a subclass spell from your spellbook here.", 1, 1, 1)
     end
-    GameTooltip:AddLine("Shift-right-click clears, shift-drag moves the bar.", 0.6, 0.6, 0.6)
+    GameTooltip:AddLine(BarsLocked() and "Shift-drag takes the spell off, alt-drag moves the bar." or
+        "Drag takes the spell off, alt-drag moves the bar.", 0.6, 0.6, 0.6)
     GameTooltip:Show()
 end
 
@@ -193,15 +202,19 @@ local function CreateButton(index)
     button:RegisterForDrag("LeftButton")
     button:SetScript("OnClick", OnClick)
     button:SetScript("OnDragStart", function(self)
-        if IsShiftKeyDown() then
-            bar:StartMoving()
+        if IsAltKeyDown() then
+            if not lent then
+                bar:StartMoving()
+            end
         else
             OnDragStart(self)
         end
     end)
     button:SetScript("OnDragStop", function()
-        bar:StopMovingOrSizing()
-        SavePosition()
+        if not lent then
+            bar:StopMovingOrSizing()
+            SavePosition()
+        end
     end)
     button:SetScript("OnReceiveDrag", OnReceiveDrag)
     button:SetScript("OnEnter", OnEnter)
@@ -221,11 +234,44 @@ local function HasAnything()
 end
 
 local function UpdateShown()
-    if bar and HasAnything() then
+    if bar and HasAnything() and not lent then
         bar:Show()
     elseif bar then
         bar:Hide()
     end
+end
+
+local function ClearSetPoint(button, ...)
+    button:ClearAllPoints()
+    button:SetPoint(...)
+end
+
+local function Lend(btBar)
+    lent = btBar
+    if not btBar or not bar then
+        return
+    end
+    btBar.buttons = {}
+    for index, button in ipairs(buttons) do
+        button:SetParent(btBar)
+        button.ClearSetPoint = ClearSetPoint
+        btBar.buttons[index] = button
+    end
+    bar:Hide()
+    btBar:UpdateButtonLayout()
+end
+
+local function TakeBack()
+    lent = nil
+    if not bar then
+        return
+    end
+    for index, button in ipairs(buttons) do
+        button:SetParent(bar)
+        button:ClearAllPoints()
+        button:SetPoint("LEFT", bar, "LEFT", (index - 1) * (SIZE + GAP), 0)
+    end
+    UpdateShown()
 end
 
 local function CreateBar()
@@ -243,8 +289,9 @@ local function CreateBar()
     for index = 1, BUTTONS do
         CreateButton(index)
     end
-    bar.wait = 0
-    bar:SetScript("OnUpdate", function(self, elapsed)
+    bar.ticker = CreateFrame("Frame", nil, UIParent)
+    bar.ticker.wait = 0
+    bar.ticker:SetScript("OnUpdate", function(self, elapsed)
         self.wait = self.wait + elapsed
         if self.wait < UPDATE_EVERY then
             return
@@ -256,6 +303,9 @@ local function CreateBar()
     end)
     RefreshAll()
     UpdateShown()
+    if lent then
+        Lend(lent)
+    end
 end
 
 function Ascension_Subclass.PressBarButton(index)
@@ -301,13 +351,13 @@ local function Forget(saved)
     knownSpells = {}
 end
 
-local function HoldsKnownSpell(saved)
+local function HoldsOnlyKnownSpells(saved)
     for index = 1, BUTTONS do
-        if saved[index] and SpellbookIndex(saved[index]) then
-            return true
+        if saved[index] and not SpellbookIndex(saved[index]) then
+            return false
         end
     end
-    return false
+    return true
 end
 
 function Ascension_Subclass.OnSubclass(name)
@@ -316,7 +366,7 @@ function Ascension_Subclass.OnSubclass(name)
     if saved.subclass == key then
         return
     end
-    if saved.subclass or not HoldsKnownSpell(saved) then
+    if saved.subclass or not HoldsOnlyKnownSpells(saved) then
         Forget(saved)
     end
     saved.subclass = key
@@ -333,6 +383,9 @@ SlashCmdList.ASCENSIONSUBCLASSBAR = function(message)
         Ascension_SubclassDump.subclassBarPoint = nil
         bar:ClearAllPoints()
         bar:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 170)
+        for _, reset in ipairs({ Ascension_Subclass.ResetStanceBar, Ascension_Subclass.ResetOrbs }) do
+            reset()
+        end
     elseif message == "clear" then
         Forget(Saved())
         RefreshAll()
@@ -340,7 +393,7 @@ SlashCmdList.ASCENSIONSUBCLASSBAR = function(message)
         Ascension_Subclass.Send("SYNC")
     else
         DEFAULT_CHAT_FRAME:AddMessage("Subclass Bar 1: /subclassbar reset (position), /subclassbar clear (refill "
-            .. "the buttons with your subclass spells). Shift-drag a button to move the bar. Bind keys under "
+            .. "the buttons with your subclass spells). Alt-drag a button to move the bar. Bind keys under "
             .. "Key Bindings > Subclass Bar 1.")
     end
 end
@@ -357,3 +410,63 @@ events:SetScript("OnEvent", function(_, event)
         UpdateShown()
     end
 end)
+
+if Bartender4 and Bartender4.ButtonBar and Bartender4.NewModule then
+    local module = Bartender4:NewModule("SubclassBar")
+    local defaults = { profile = Bartender4:Merge({ enabled = true, visibility = { possess = false } },
+        Bartender4.ButtonBar.defaults) }
+    function module:OnInitialize()
+        self.db = Bartender4.db:RegisterNamespace("SubclassBar", defaults)
+        self:SetEnabledState(self.db.profile.enabled)
+    end
+    function module:SetupOptions()
+        if not self.options then
+            self.optionobject = Bartender4.ButtonBar.prototype:GetOptionObject()
+            self.optionobject.table.general.args.rows.max = BUTTONS
+            local enabled = {
+                type = "toggle",
+                order = 1,
+                name = "Enabled",
+                desc = "Show Subclass Bar 1, the spells your other head or twin casts",
+                get = function() return self.db.profile.enabled end,
+                set = "ToggleModule",
+                handler = self,
+            }
+            self.optionobject:AddElement("general", "enabled", enabled)
+            self.disabledoptions = { general = { type = "group", name = "General Settings", cmdInline = true,
+                order = 1, args = { enabled = enabled } } }
+            self.options = { order = 30, type = "group", name = "Subclass Bar 1",
+                desc = "Configure Subclass Bar 1", childGroups = "tab" }
+            Bartender4:RegisterBarOptions("SubclassBar", self.options)
+        end
+        self.options.args = self:IsEnabled() and self.optionobject.table or self.disabledoptions
+    end
+    function module:OnEnable()
+        if not self.bar then
+            self.bar = Bartender4.ButtonBar:Create("SubclassBar", self.db.profile, "Subclass Bar 1")
+            self.bar.button_width, self.bar.button_height = SIZE, SIZE
+        end
+        self.bar:Enable()
+        if self.ToggleOptions then
+            self:ToggleOptions()
+        end
+        self:ApplyConfig()
+    end
+    function module:ApplyConfig()
+        self.bar:ApplyConfig(self.db.profile)
+        if not self.db.profile.position.x then
+            self.bar:ClearSetPoint("CENTER", 0, -200)
+            self.bar:SavePosition()
+        end
+        Lend(self.bar)
+    end
+    function module:OnDisable()
+        if self.bar then
+            self.bar:Disable()
+        end
+        if self.ToggleOptions then
+            self:ToggleOptions()
+        end
+        TakeBack()
+    end
+end

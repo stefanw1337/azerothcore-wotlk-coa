@@ -1427,7 +1427,8 @@ function Stances.TidyMainBar()
     end
     if not Stances.mainFirst then
         Stances.mainFirst = { ShapeshiftButton1:GetPoint(1) }
-        Stances.mainGap = 8
+        local _, relative, _, x = ShapeshiftButton2 and ShapeshiftButton2:GetPoint(1)
+        Stances.mainGap = relative == ShapeshiftButton1 and x or 8
     end
     local previous
     for index = 1, NUM_SHAPESHIFT_SLOTS or 10 do
@@ -1449,8 +1450,28 @@ function Stances.TidyMainBar()
     end
 end
 
+function Stances.TidySoon()
+    Stances.tidier = Stances.tidier or CreateFrame("Frame")
+    Stances.tidier:SetScript("OnUpdate", function(self)
+        self:SetScript("OnUpdate", nil)
+        Stances.TidyMainBar()
+    end)
+end
+
 if ShapeshiftBar_Update then
-    hooksecurefunc("ShapeshiftBar_Update", Stances.TidyMainBar)
+    hooksecurefunc("ShapeshiftBar_Update", Stances.TidySoon)
+end
+Stances.watcher = CreateFrame("Frame")
+for _, event in ipairs({ "UPDATE_SHAPESHIFT_FORMS", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED" }) do
+    Stances.watcher:RegisterEvent(event)
+end
+Stances.watcher:SetScript("OnEvent", Stances.TidySoon)
+
+function Ascension_Subclass.ResetStanceBar()
+    Ascension_SubclassDump = Ascension_SubclassDump or {}
+    Ascension_SubclassDump.stanceBarPoint = nil
+    Stances.placed = false
+    Stances.BuildStanceBar()
 end
 
 local function ClearSetPoint(button, ...)
@@ -3440,10 +3461,7 @@ SlashCmdList.ASCENSIONSUBCLASS = function(message)
         DEFAULT_CHAT_FRAME:AddMessage("Subclass: failed casts of the other half are "
             .. (Ascension_SubclassDump.debugCasts and "shown" or "hidden") .. ".")
     elseif message == "stancebar reset" then
-        Ascension_SubclassDump = Ascension_SubclassDump or {}
-        Ascension_SubclassDump.stanceBarPoint = nil
-        Stances.placed = false
-        Stances.BuildStanceBar()
+        Ascension_Subclass.ResetStanceBar()
     elseif message:find("^sheet") then
         local zoom, right, up = message:match("^sheet%s+(%S+)%s+(%S+)%s+(%S+)$")
         Ascension_SubclassDump = Ascension_SubclassDump or {}

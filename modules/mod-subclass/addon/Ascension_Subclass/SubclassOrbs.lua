@@ -217,4 +217,18 @@ function Orbs.Refresh(resources, stacksOf)
     return handled
 end
 
+function Ascension_Subclass.ResetOrbs()
+    if Ascension_SubclassDump then
+        Ascension_SubclassDump.orbPoint = nil
+    end
+    if Orbs.container then
+        Orbs.container:ClearAllPoints()
+        if Ascension_SubclassBar then
+            Orbs.container:SetPoint("LEFT", Ascension_SubclassBar, "RIGHT", 70, 10)
+        else
+            Orbs.container:SetPoint("BOTTOM", UIParent, "BOTTOM", 260, 190)
+        end
+    end
+end
+
 Ascension_Subclass.RefreshOrbs = Orbs.Refresh
