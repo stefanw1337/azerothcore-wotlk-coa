@@ -418,6 +418,21 @@ inline std::vector<Rank> PlanRanks(std::vector<Offer> const& offers, std::vector
     return planned;
 }
 
+inline float SplitShare(float his, std::uint32_t before, std::uint32_t total, float half, bool hisSpend)
+{
+    if (his < 0.0f)
+        his = float(total) / 2.0f;
+    else if (total > before)
+        his += float(total - before) / 2.0f;
+    else if (total < before)
+    {
+        float const spent = float(before - total);
+        float const mine = float(before) - his;
+        his -= hisSpend ? std::min(spent, his) : std::max(0.0f, spent - mine);
+    }
+    return std::clamp(his, std::max(0.0f, float(total) - half), std::min(half, float(total)));
+}
+
 inline Choice Trimmed(std::vector<Pair> const& pairs, Character const& character, Choice const& choice)
 {
     if (!choice.Complete() || !AllowsChoice(pairs, character, choice))

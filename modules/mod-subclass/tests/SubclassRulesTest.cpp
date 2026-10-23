@@ -340,3 +340,14 @@ TEST(Subclass, ABotOnlySpendsWhereTheTreeIsOpen)
     EXPECT_EQ(RankIn(planned, 2), 1u);
     EXPECT_EQ(RankIn(planned, 3), 0u);
 }
+
+TEST(Subclass, TheTwinsSplitOnePoolIntoTwoHalves)
+{
+    EXPECT_FLOAT_EQ(SplitShare(-1.0f, 0, 1000, 500.0f, false), 500.0f);
+    EXPECT_FLOAT_EQ(SplitShare(500.0f, 1000, 800, 500.0f, true), 300.0f);
+    EXPECT_FLOAT_EQ(SplitShare(300.0f, 800, 600, 500.0f, false), 300.0f);
+    EXPECT_FLOAT_EQ(SplitShare(300.0f, 600, 700, 500.0f, false), 350.0f);
+    EXPECT_FLOAT_EQ(SplitShare(350.0f, 700, 100, 500.0f, false), 100.0f);
+    EXPECT_FLOAT_EQ(SplitShare(100.0f, 100, 0, 500.0f, true), 0.0f);
+    EXPECT_FLOAT_EQ(SplitShare(450.0f, 900, 1000, 500.0f, false), 500.0f);
+}

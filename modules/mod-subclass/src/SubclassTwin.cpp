@@ -23,6 +23,7 @@
 #include "Player.h"
 #include "PlayerScript.h"
 #include "Random.h"
+#include "ScriptMgr.h"
 #include "StringConvert.h"
 #include "SubclassRules.h"
 #include "ScriptedGossip.h"
@@ -57,6 +58,7 @@ bool BrotherOut(Player const* player);
 void RefreshSubclassResources(Player* player);
 bool IsBorrowedSpell(Player const* player, uint32 spellId);
 void SyncBorrowedMana(Player* player, uint32 milliseconds);
+Powers PowerBothHalvesUse(Player const* player);
 void HandWeaponsToBrother(Player* player);
 bool LendsTankSpecialization(Player const* player);
 bool LendsRangedSpecialization(Player const* player);
@@ -2481,6 +2483,140 @@ void HoldYourDrink(Player* player)
         player->SetDrunkValue(tolerated);
 }
 
+namespace
+{
+struct SharedPool
+{
+    Powers Power = MAX_POWERS;
+    bool Split = false;
+    float HisShare = -1.0f;
+    uint32 LastTotal = 0;
+    float Carried = 0.0f;
+    int32 SentShare = -1;
+    uint32 SentHalf = 0;
+};
+
+std::mutex& poolMutex = *new std::mutex;
+std::unordered_map<uint32, SharedPool>& sharedPools = *new std::unordered_map<uint32, SharedPool>;
+
+Powers DoubledPower(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(poolMutex);
+    auto const itr = sharedPools.find(player->GetGUID().GetCounter());
+    return itr == sharedPools.end() ? MAX_POWERS : itr->second.Power;
+}
+
+bool SplitsPower(Player const* player, Powers power)
+{
+    std::lock_guard<std::mutex> lock(poolMutex);
+    auto const itr = sharedPools.find(player->GetGUID().GetCounter());
+    return itr != sharedPools.end() && itr->second.Split && itr->second.Power == power;
+}
+
+float BrotherShare(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(poolMutex);
+    auto const itr = sharedPools.find(player->GetGUID().GetCounter());
+    return itr == sharedPools.end() ? 0.0f : std::max(itr->second.HisShare, 0.0f);
+}
+
+void SettleBrotherShare(Player* player, bool brotherSpent)
+{
+    std::string message;
+    {
+        std::lock_guard<std::mutex> lock(poolMutex);
+        SharedPool& pool = sharedPools[player->GetGUID().GetCounter()];
+        if (!pool.Split || pool.Power == MAX_POWERS)
+            return;
+        float const half = float(player->GetMaxPower(pool.Power)) / 2.0f;
+        uint32 const total = player->GetPower(pool.Power);
+        pool.HisShare = Subclass::SplitShare(pool.HisShare, pool.LastTotal, total, half, brotherSpent);
+        pool.LastTotal = total;
+        int32 const share = int32(pool.HisShare + 0.5f);
+        if (share == pool.SentShare && uint32(half) == pool.SentHalf)
+            return;
+        pool.SentShare = share;
+        pool.SentHalf = uint32(half);
+        message = Acore::StringFormat("OTHERPOWER {} {} {}", uint32(pool.Power), share, uint32(half));
+    }
+    SendSubclassMessage(player, message);
+}
+
+void RegenerateSecondHalf(Player* player, Powers power, uint32 milliseconds)
+{
+    if (!milliseconds || !player->IsAlive() || player->GetPower(power) >= player->GetMaxPower(power) ||
+        player->HasAuraTypeWithMiscvalue(SPELL_AURA_PREVENT_REGENERATE_POWER, power + 1) ||
+        !sScriptMgr->OnPlayerCanRegenerate(player, power))
+        return;
+    float perSecond = 0.0f;
+    if (power == POWER_MANA)
+        perSecond = player->GetFloatValue(player->IsUnderLastManaUseEffect() ?
+            UNIT_FIELD_POWER_REGEN_INTERRUPTED_FLAT_MODIFIER : UNIT_FIELD_POWER_REGEN_FLAT_MODIFIER) *
+            sWorld->getRate(RATE_POWER_MANA);
+    else if (power == POWER_ENERGY)
+        perSecond = (player->GetFloatValue(UNIT_FIELD_POWER_REGEN_FLAT_MODIFIER + AsUnderlyingType(POWER_ENERGY)) +
+            10.0f) * sWorld->getRate(RATE_POWER_ENERGY);
+    if (perSecond <= 0.0f)
+        return;
+    int32 gained = 0;
+    {
+        std::lock_guard<std::mutex> lock(poolMutex);
+        float& carried = sharedPools[player->GetGUID().GetCounter()].Carried;
+        carried += perSecond * float(milliseconds) / float(IN_MILLISECONDS);
+        gained = int32(carried);
+        carried -= float(gained);
+    }
+    if (gained > 0)
+        player->ModifyPower(power, gained);
+}
+
+void TickSharedPool(Player* player, uint32 milliseconds)
+{
+    Powers const wanted = HasSecondHead(player) || HasTwin(player) ? PowerBothHalvesUse(player) : MAX_POWERS;
+    bool const split = wanted != MAX_POWERS && HasTwin(player);
+    Powers previous = MAX_POWERS;
+    bool ended = false;
+    {
+        std::lock_guard<std::mutex> lock(poolMutex);
+        SharedPool& pool = sharedPools[player->GetGUID().GetCounter()];
+        previous = pool.Power;
+        if (previous != wanted || pool.Split != split)
+        {
+            ended = pool.Split && !split;
+            pool = SharedPool{ wanted, split };
+        }
+    }
+    if (previous != wanted)
+    {
+        if (previous != MAX_POWERS)
+            player->UpdateMaxPower(previous);
+        if (wanted != MAX_POWERS)
+            player->UpdateMaxPower(wanted);
+    }
+    if (ended)
+        SendSubclassMessage(player, "OTHERPOWER -");
+    if (wanted == MAX_POWERS)
+        return;
+    RegenerateSecondHalf(player, wanted, milliseconds);
+    SettleBrotherShare(player, false);
+}
+
+}
+
+void ResendBrotherShare(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(poolMutex);
+    auto const itr = sharedPools.find(player->GetGUID().GetCounter());
+    if (itr != sharedPools.end())
+        itr->second.SentShare = -1;
+}
+
+void ForgetSharedPool(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(poolMutex);
+    sharedPools.erase(player->GetGUID().GetCounter());
+}
+
 void TickSelfAura(Player* player, uint32 diff)
 {
     if (player->IsAlive())
@@ -2502,6 +2638,7 @@ void TickSelfAura(Player* player, uint32 diff)
     }
     UpdateSelfAura(player);
     SyncBorrowedMana(player, ticked);
+    TickSharedPool(player, ticked);
     UpdateCyclopsHelmet(player);
     OneSipTooMany(player);
     HoldYourDrink(player);
@@ -3163,8 +3300,14 @@ public:
     mod_subclass_twin_player() : PlayerScript("mod_subclass_twin_player", { PLAYERHOOK_ON_LOGIN,
         PLAYERHOOK_ON_BEFORE_LOGOUT, PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_ON_MAP_CHANGED, PLAYERHOOK_ON_CREATE,
         PLAYERHOOK_ON_DELETE, PLAYERHOOK_ON_UPDATE,
-        PLAYERHOOK_ON_TEXT_EMOTE, PLAYERHOOK_ON_AFTER_SET_VISIBLE_ITEM_SLOT })
+        PLAYERHOOK_ON_TEXT_EMOTE, PLAYERHOOK_ON_AFTER_SET_VISIBLE_ITEM_SLOT, PLAYERHOOK_ON_AFTER_UPDATE_MAX_POWER })
     {
+    }
+
+    void OnPlayerAfterUpdateMaxPower(Player* player, Powers& power, float& value) override
+    {
+        if (power == DoubledPower(player))
+            value *= 2.0f;
     }
 
     void OnPlayerUpdate(Player* player, uint32 diff) override
@@ -3216,6 +3359,7 @@ public:
     void OnPlayerLogout(Player* player) override
     {
         ClearCastingGlows(player);
+        ForgetSharedPool(player);
         DismissTwin(player);
         std::lock_guard<std::mutex> lock(twinMutex);
         wardrobes.erase(player->GetGUID().GetCounter());
@@ -3550,9 +3694,14 @@ void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid, uin
         castingAsBrother = { player->GetGUID(), twin->GetGUID(), spellId };
     else if (HasSecondHead(player))
         ShowCastAsCopy(player, spellId, ShowsAsCopy(player, info));
+    bool const brotherPays = twin && info->PowerType < MAX_POWERS && SplitsPower(player, Powers(info->PowerType));
+    if (brotherPays)
+        SettleBrotherShare(player, false);
     SpellCastResult const result = player->CastSpell(target, spellId, TriggerCastFlags(TRIGGERED_IGNORE_GCD |
         TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_CAST_DIRECTLY | TRIGGERED_IGNORE_SET_FACING |
         TRIGGERED_DONT_REPORT_CAST_ERROR));
+    if (brotherPays)
+        SettleBrotherShare(player, true);
     LOG_INFO("module", "The other half of {} casts {} ({}) at {}: result {}, {} cast packet(s) shown on the twin",
         player->GetName(), info->SpellName[0], spellId, target->GetName(), uint32(result), castingAsBrother.Shown);
     SendSubclassMessage(player, Acore::StringFormat("OTHERCAST {} {}", spellId, uint32(result)));
@@ -4085,9 +4234,15 @@ bool LowOnMana(Player const* player)
 
 bool LeavesManaForTheMain(Player const* player, SpellInfo const* info, bool emergency)
 {
-    if (info->PowerType != POWER_MANA || emergency || GivesManaBack(info))
+    if (emergency || info->PowerType >= MAX_POWERS || GivesManaBack(info))
         return true;
+    Powers const power = Powers(info->PowerType);
     int32 const cost = info->CalcPowerCost(player, info->GetSchoolMask());
+    if (DoubledPower(player) == power)
+        return HasTwin(player) ? BrotherShare(player) >= float(cost) :
+            int64(player->GetPower(power)) - cost >= int64(player->GetMaxPower(power) / 2);
+    if (power != POWER_MANA)
+        return true;
     return int64(player->GetPower(POWER_MANA)) - cost >=
         int64(player->GetMaxPower(POWER_MANA) * ManaKeptForTheMain);
 }

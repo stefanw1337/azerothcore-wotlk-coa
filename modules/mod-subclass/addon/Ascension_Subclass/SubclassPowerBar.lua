@@ -6,6 +6,8 @@ local LEFT, BOTTOM, STEP = 114, 23, 14
 
 local bars = {}
 local wanted = {}
+local split
+local brotherBar
 
 local function Native()
     local native = PlayerFrameAlternateManaBar
@@ -62,12 +64,69 @@ local function BarFor(power)
     return bar
 end
 
+local function BrotherBar()
+    if brotherBar or not (PlayerFrame and AlternatePowerBar_OnLoad) then
+        return brotherBar
+    end
+    local ok, bar = pcall(CreateFrame, "StatusBar", "Ascension_SubclassBrotherPowerBar", PlayerFrame,
+        "AlternatePowerBarTemplate")
+    if not ok or not bar then
+        return nil
+    end
+    bar:UnregisterAllEvents()
+    bar:RegisterEvent("CVAR_UPDATE")
+    bar:EnableMouse(true)
+    bar:SetScript("OnUpdate", nil)
+    bar:SetScript("OnEvent", TextStatusBar_OnEvent)
+    bar:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(string.format("Your brother's %s", string.lower(_G[self.powerName] or self.powerName)))
+        GameTooltip:AddLine("One pool for both of you, shown in two halves.", 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end)
+    bar:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    bar:Hide()
+    brotherBar = bar
+    return bar
+end
+
+local function ShowOwnShare()
+    local bar = PlayerFrameManaBar
+    if not split or not bar or bar.powerType ~= split.power then
+        return
+    end
+    local mine = math.max(0, math.min(split.half, UnitPower("player", split.power) - split.share))
+    bar:SetMinMaxValues(0, math.max(split.half, 1))
+    bar:SetValue(mine)
+    if TextStatusBar_UpdateTextString then
+        TextStatusBar_UpdateTextString(bar)
+    end
+end
+
 local function Layout()
     local native = Native()
     if native and AlternatePowerBar_UpdatePowerType then
         AlternatePowerBar_UpdatePowerType(native)
     end
     local slot = native and native:IsShown() and 1 or 0
+    local brother = split and BrotherBar()
+    if brother then
+        local token = TOKENS[split.power]
+        brother.powerName, brother.powerIndex = token, split.power
+        local color = PowerBarColor and PowerBarColor[token]
+        if color then
+            brother:SetStatusBarColor(color.r, color.g, color.b)
+        end
+        brother:SetMinMaxValues(0, math.max(split.half, 1))
+        brother:SetValue(split.share)
+        brother:ClearAllPoints()
+        brother:SetPoint("BOTTOMLEFT", PlayerFrame, "BOTTOMLEFT", LEFT, BOTTOM - slot * STEP)
+        brother:Show()
+        slot = slot + 1
+    elseif brotherBar then
+        brotherBar:Hide()
+    end
+    ShowOwnShare()
     for _, power in ipairs(ORDER) do
         local bar = bars[power]
         if bar and Lent(power) then
@@ -99,7 +158,34 @@ function Ascension_Subclass.UpdatePowerBars(powers)
     Layout()
 end
 
+local messages = Ascension_Subclass.BarMessages or {}
+Ascension_Subclass.BarMessages = messages
+
+messages.OTHERPOWER = function(rest)
+    local power, share, half = string.match(rest, "^(%d+) (%d+) (%d+)$")
+    local ended = split and not power
+    split = power and TOKENS[tonumber(power)] and
+        { power = tonumber(power), share = tonumber(share), half = tonumber(half) } or nil
+    if ended and PlayerFrameManaBar and UnitFrameManaBar_Update then
+        UnitFrameManaBar_Update(PlayerFrameManaBar, "player")
+    end
+    Layout()
+end
+
+if UnitFrameManaBar_Update then
+    hooksecurefunc("UnitFrameManaBar_Update", function(bar)
+        if bar == PlayerFrameManaBar then
+            ShowOwnShare()
+        end
+    end)
+end
+
 local watcher = CreateFrame("Frame")
+watcher:SetScript("OnUpdate", function()
+    if split then
+        ShowOwnShare()
+    end
+end)
 watcher:RegisterEvent("PLAYER_ENTERING_WORLD")
 watcher:RegisterEvent("UNIT_DISPLAYPOWER")
 for _, power in ipairs(ORDER) do

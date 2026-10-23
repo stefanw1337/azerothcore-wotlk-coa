@@ -87,6 +87,7 @@ bool InBorrowedFamily(Player const* player, uint8 subClass, SpellInfo const* inf
 void ShowQuestOnTwin(Player* player, bool offered);
 Subclass::Offer BorrowedOffer(AscensionCompatData::CoATalentEntry const& entry);
 void SyncBorrowedMana(Player* player, uint32 milliseconds);
+void ResendBrotherShare(Player const* player);
 
 uint8 StoryGenderOf(Player const* player)
 {
@@ -1185,6 +1186,7 @@ void HandleAddonMessage(Player* player, std::string_view message)
 {
     if (message == "SYNC")
     {
+        ResendBrotherShare(player);
         SendSubclassState(player);
         SendAddon(player, TwinState(player));
         SendAddon(player, RelicState(player));
@@ -2185,6 +2187,15 @@ Subclass::Offer BorrowedOffer(AscensionCompatData::CoATalentEntry const& entry)
         { entry.RequiredEntryIds[0], entry.RequiredEntryIds[1], entry.RequiredEntryIds[2] }, entry.SpecId };
     LinkOffer(offer);
     return offer;
+}
+
+Powers PowerBothHalvesUse(Player const* player)
+{
+    Subclass::Choice const choice = ChoiceOf(player);
+    if (!choice.Complete() || SubclassResting(player) || OpenTreesOf(player).empty())
+        return MAX_POWERS;
+    Powers const borrowed = SubclassPower(choice.SubClass);
+    return borrowed == player->getPowerType() ? borrowed : MAX_POWERS;
 }
 
 bool LendsMana(Player const* player)
