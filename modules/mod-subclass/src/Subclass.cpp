@@ -799,7 +799,8 @@ bool StanceLike(SpellInfo const* info)
         return false;
     SpellSpecificType const specific = info->GetSpellSpecific();
     return specific == SPELL_SPECIFIC_AURA || specific == SPELL_SPECIFIC_ASPECT ||
-        specific == SPELL_SPECIFIC_PRESENCE || info->HasAura(SPELL_AURA_MOD_SHAPESHIFT);
+        specific == SPELL_SPECIFIC_PRESENCE || info->HasAura(SPELL_AURA_MOD_SHAPESHIFT) ||
+        (info->HasAttribute(SPELL_ATTR2_USE_SHAPESHIFT_BAR) && !info->HasAttribute(SPELL_ATTR2_NO_SHAPESHIFT_UI));
 }
 
 uint32 SpellFamilyOfClass(uint8 classId)
