@@ -290,6 +290,12 @@ struct Offer
     std::uint8_t SpecCost = 0;
     std::uint8_t RequiredLevel = 0;
     std::array<std::uint32_t, 3> Requires{};
+    std::uint16_t SpecId = 0;
+    std::uint32_t ClassInvestment = 0;
+    std::uint32_t SpecInvestment = 0;
+    std::uint32_t Group = 0;
+    bool LinksMustBeMaxed = false;
+    std::vector<std::uint32_t> Links;
 };
 
 struct Rank
@@ -309,16 +315,86 @@ inline std::uint32_t RankIn(std::vector<Rank> const& ranks, std::uint32_t entryI
     return found == ranks.end() ? 0 : found->Value;
 }
 
+enum class Gate : std::uint8_t
+{
+    Open,
+    Level,
+    Link,
+    Requirement,
+    Investment,
+    Group,
+};
+
+constexpr std::uint32_t SharedGroup = 1;
+
+inline Offer const* OfferIn(std::vector<Offer> const& offers, std::uint32_t entryId)
+{
+    auto const found = std::find_if(offers.begin(), offers.end(), [entryId](Offer const& offer)
+    {
+        return offer.EntryId == entryId;
+    });
+    return found == offers.end() ? nullptr : &*found;
+}
+
+inline std::uint32_t InvestedBelow(std::vector<Offer> const& offers, std::vector<Rank> const& ranks,
+    std::uint16_t specId, std::uint32_t requirement, bool classPoints)
+{
+    std::uint32_t invested = 0;
+    for (Offer const& other : offers)
+        if (other.SpecId == specId && (classPoints ? other.ClassInvestment : other.SpecInvestment) < requirement)
+            invested += RankIn(ranks, other.EntryId) * (classPoints ? other.ClassCost : other.SpecCost);
+    return invested;
+}
+
+inline bool Linked(std::vector<Offer> const& offers, std::vector<Rank> const& ranks, Offer const& offer)
+{
+    return offer.Links.empty() || std::any_of(offer.Links.begin(), offer.Links.end(), [&](std::uint32_t link)
+    {
+        std::uint32_t const rank = RankIn(ranks, link);
+        Offer const* linked = OfferIn(offers, link);
+        return rank && (!offer.LinksMustBeMaxed || !linked || rank >= linked->MaxRank);
+    });
+}
+
+inline Gate GateOf(std::vector<Offer> const& offers, std::vector<Rank> const& ranks, Offer const& offer,
+    std::uint8_t level)
+{
+    if (offer.RequiredLevel > level)
+        return Gate::Level;
+    if (!Linked(offers, ranks, offer))
+        return Gate::Link;
+    if (!std::all_of(offer.Requires.begin(), offer.Requires.end(),
+            [&](std::uint32_t required) { return !required || RankIn(ranks, required); }))
+        return Gate::Requirement;
+    if ((offer.ClassInvestment &&
+            InvestedBelow(offers, ranks, offer.SpecId, offer.ClassInvestment, true) < offer.ClassInvestment) ||
+        (offer.SpecInvestment &&
+            InvestedBelow(offers, ranks, offer.SpecId, offer.SpecInvestment, false) < offer.SpecInvestment))
+        return Gate::Investment;
+    if (offer.Group > SharedGroup && std::any_of(offers.begin(), offers.end(), [&](Offer const& other)
+        {
+            return other.EntryId != offer.EntryId && other.Group == offer.Group && RankIn(ranks, other.EntryId);
+        }))
+        return Gate::Group;
+    return Gate::Open;
+}
+
+inline std::uint32_t StrandedBy(std::vector<Offer> const& offers, std::vector<Rank> const& before,
+    std::vector<Rank> const& after, std::uint8_t level)
+{
+    for (Offer const& offer : offers)
+        if (RankIn(after, offer.EntryId) && GateOf(offers, before, offer, level) == Gate::Open &&
+            GateOf(offers, after, offer, level) != Gate::Open)
+            return offer.EntryId;
+    return 0;
+}
+
 inline std::vector<Rank> PlanRanks(std::vector<Offer> const& offers, std::vector<Rank> const& known,
     std::uint8_t level, std::uint32_t classPoints, std::uint32_t specPoints)
 {
     std::vector<Rank> planned;
     for (Offer const& offer : offers)
         planned.push_back({ offer.EntryId, RankIn(known, offer.EntryId) });
-    auto held = [&](std::uint32_t entryId)
-    {
-        return RankIn(planned, entryId) > 0 || RankIn(known, entryId) > 0;
-    };
     bool raised = true;
     while (raised)
     {
@@ -326,12 +402,12 @@ inline std::vector<Rank> PlanRanks(std::vector<Offer> const& offers, std::vector
         for (std::size_t index = 0; index < offers.size(); ++index)
         {
             Offer const& offer = offers[index];
-            if (planned[index].Value >= offer.MaxRank || offer.RequiredLevel > level ||
-                (!offer.ClassCost && !offer.SpecCost) || offer.ClassCost > classPoints ||
-                offer.SpecCost > specPoints)
+            if (planned[index].Value >= offer.MaxRank || (!offer.ClassCost && !offer.SpecCost) ||
+                offer.ClassCost > classPoints || offer.SpecCost > specPoints)
                 continue;
-            if (!std::all_of(offer.Requires.begin(), offer.Requires.end(),
-                    [&](std::uint32_t required) { return !required || held(required); }))
+            std::vector<Rank> held = planned;
+            held.insert(held.end(), known.begin(), known.end());
+            if (GateOf(offers, held, offer, level) != Gate::Open)
                 continue;
             ++planned[index].Value;
             classPoints -= offer.ClassCost;

@@ -26,6 +26,7 @@
 #include "Player.h"
 #include "PlayerScript.h"
 #include "Random.h"
+#include "ScriptMgr.h"
 #include "ScriptedGossip.h"
 #include "ServerScript.h"
 #include "Spell.h"
@@ -84,6 +85,8 @@ Trainer::Trainer const* ClassTrainerOf(uint8 classId);
 bool IsBorrowedSpell(Player const* player, uint32 spellId);
 bool InBorrowedFamily(Player const* player, uint8 subClass, SpellInfo const* info);
 void ShowQuestOnTwin(Player* player, bool offered);
+Subclass::Offer BorrowedOffer(AscensionCompatData::CoATalentEntry const& entry);
+void SyncBorrowedMana(Player* player, uint32 milliseconds);
 
 uint8 StoryGenderOf(Player const* player)
 {
@@ -756,6 +759,62 @@ void LoadSpecializationRoles()
     tankSpecializations = std::move(tanks);
     distantSpecializations = std::move(distant);
 }
+
+constexpr uint32 AdvancementFields = 121;
+constexpr uint32 AdvancementGroup = 29;
+constexpr uint32 AdvancementTabClassInvestment = 38;
+constexpr uint32 AdvancementTabSpecInvestment = 39;
+constexpr uint32 AdvancementLinksAt = 415;
+constexpr uint32 AdvancementLinkCount = 15;
+constexpr uint32 AdvancementFlagsAt = 479;
+constexpr uint32 AdvancementLinksMustBeMaxed = 0x200000;
+
+struct TalentLinks
+{
+    std::vector<uint32> Links;
+    uint32 ClassInvestment = 0;
+    uint32 SpecInvestment = 0;
+    uint32 Group = 0;
+    bool LinksMustBeMaxed = false;
+};
+
+std::unordered_map<uint32, TalentLinks> talentLinks;
+
+void LoadTalentLinks()
+{
+    ClientDBC advancement;
+    std::unordered_map<uint32, TalentLinks> loaded;
+    if (advancement.Load(GetClientDBCPath("CharacterAdvancement.dbc"), AdvancementFields))
+        for (uint32 row = 0; row < advancement.GetRecordCount(); ++row)
+        {
+            ClientDBC::Record record = advancement.GetRecord(row);
+            TalentLinks links;
+            for (uint32 index = 0; index < AdvancementLinkCount; ++index)
+                if (uint32 const link = record.GetUInt32At(AdvancementLinksAt + index * sizeof(uint32)))
+                    links.Links.push_back(link);
+            links.ClassInvestment = record.GetUInt32(AdvancementTabClassInvestment);
+            links.SpecInvestment = record.GetUInt32(AdvancementTabSpecInvestment);
+            links.Group = record.GetUInt32(AdvancementGroup);
+            links.LinksMustBeMaxed = (record.GetUInt32At(AdvancementFlagsAt) & AdvancementLinksMustBeMaxed) != 0;
+            loaded[record.GetUInt32(0)] = std::move(links);
+        }
+    LOG_INFO("module", "mod-subclass: talent links for {} advancement entries", loaded.size());
+    std::lock_guard<std::mutex> lock(subclassMutex);
+    talentLinks = std::move(loaded);
+}
+
+void LinkOffer(Subclass::Offer& offer)
+{
+    std::lock_guard<std::mutex> lock(subclassMutex);
+    auto const found = talentLinks.find(offer.EntryId);
+    if (found == talentLinks.end())
+        return;
+    offer.Links = found->second.Links;
+    offer.ClassInvestment = found->second.ClassInvestment;
+    offer.SpecInvestment = found->second.SpecInvestment;
+    offer.Group = found->second.Group;
+    offer.LinksMustBeMaxed = found->second.LinksMustBeMaxed;
+}
 thread_local bool raisingRunes = false;
 
 bool BorrowsDeathKnight(Player const* player)
@@ -791,6 +850,14 @@ Powers StandardClassPower(uint8 catalogClassId)
         case CLASS_DEATH_KNIGHT: return POWER_RUNIC_POWER;
         default: return MAX_POWERS;
     }
+}
+
+Powers SubclassPower(uint8 catalogClassId)
+{
+    if (Powers const standard = StandardClassPower(catalogClassId); standard != MAX_POWERS)
+        return standard;
+    ChrClassesEntry const* entry = sChrClassesStore.LookupEntry(PlayableClassOf(catalogClassId));
+    return entry && entry->powerType == POWER_MANA ? POWER_MANA : MAX_POWERS;
 }
 
 bool StanceLike(SpellInfo const* info)
@@ -857,6 +924,128 @@ std::string BorrowedStances(Player const* player)
 bool OffersQuest(Player const* player);
 void ShowPrompt(Player* player, ObjectGuid source);
 
+std::vector<Subclass::Offer> BorrowedOffers(std::vector<Subclass::Tree> const& open)
+{
+    std::vector<Subclass::Offer> offers;
+    for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
+        if ((entry.AECost || entry.TECost) && InTrees(open, entry))
+            offers.push_back(BorrowedOffer(entry));
+    return offers;
+}
+
+std::vector<AscensionCoATalentState::KnownEntry> KnownBuild(Player const* player)
+{
+    std::vector<AscensionCoATalentState::KnownEntry> known = GetAscensionExtraTreeEntries(player);
+    std::vector<AscensionCoATalentState::KnownEntry> const own = GetAscensionKnownTalentEntries(player);
+    known.insert(known.end(), own.begin(), own.end());
+    return known;
+}
+
+std::vector<Subclass::Rank> RanksOf(std::vector<AscensionCoATalentState::KnownEntry> const& build)
+{
+    std::vector<Subclass::Rank> ranks;
+    for (AscensionCoATalentState::KnownEntry const& item : build)
+        ranks.push_back({ item.EntryId, item.Rank });
+    return ranks;
+}
+
+std::vector<uint32> PresetEntriesOf(Player const* player)
+{
+    Subclass::Choice const choice = ChoiceOf(player);
+    std::vector<uint32> presets;
+    if (!choice.Complete() || !IsAscensionCustomClassId(choice.SubClass))
+        return presets;
+    std::vector<Subclass::Tree> const open = OpenTreesOf(player);
+    for (AscensionCompatData::CoASpecialization const& specialization : AscensionCompatData::CoASpecializations)
+        if (specialization.SpecId && (specialization.SpecId == choice.SubSpec ||
+                specialization.SpecId == choice.SecondSpec))
+            if (AscensionCompatData::CoATalentEntry const* signature =
+                    FindCatalogEntry(specialization.SignatureEntryId);
+                signature && signature->SpellCount && InTrees(open, *signature) &&
+                std::find(presets.begin(), presets.end(), signature->EntryId) == presets.end())
+                presets.push_back(signature->EntryId);
+    return presets;
+}
+
+bool IsPresetEntry(Player const* player, uint32 entryId)
+{
+    std::vector<uint32> const presets = PresetEntriesOf(player);
+    return std::find(presets.begin(), presets.end(), entryId) != presets.end();
+}
+
+uint32 GrantSpecializationPresets(Player* player)
+{
+    uint32 granted = 0;
+    for (uint32 entryId : PresetEntriesOf(player))
+        if (AscensionCompatData::CoATalentEntry const* entry = FindCatalogEntry(entryId);
+            entry && !GetAscensionTalentRank(player, entryId) && sSpellMgr->GetSpellInfo(entry->SpellIds[0]))
+        {
+            player->learnSpell(entry->SpellIds[0], false);
+            ++granted;
+        }
+    return granted;
+}
+
+std::string TalentName(uint32 entryId)
+{
+    AscensionCompatData::CoATalentEntry const* entry = FindCatalogEntry(entryId);
+    SpellInfo const* info = entry && entry->SpellCount ? sSpellMgr->GetSpellInfo(entry->SpellIds[0]) : nullptr;
+    return info ? std::string(info->SpellName[0]) : Acore::StringFormat("talent {}", entryId);
+}
+
+std::string GateRefusal(Subclass::Offer const& offer, Subclass::Gate gate, std::vector<Subclass::Offer> const& offers,
+    std::vector<Subclass::Rank> const& ranks)
+{
+    switch (gate)
+    {
+        case Subclass::Gate::Level:
+            return Acore::StringFormat("{} requires level {}.", TalentName(offer.EntryId), offer.RequiredLevel);
+        case Subclass::Gate::Link:
+        {
+            std::string links;
+            for (uint32 link : offer.Links)
+                links += (links.empty() ? "" : " or ") + TalentName(link);
+            return Acore::StringFormat("Learn {} first.", links);
+        }
+        case Subclass::Gate::Requirement:
+        {
+            std::string required;
+            for (uint32 entryId : offer.Requires)
+                if (entryId && !Subclass::RankIn(ranks, entryId))
+                    required += (required.empty() ? "" : " and ") + TalentName(entryId);
+            return Acore::StringFormat("Learn {} first.", required);
+        }
+        case Subclass::Gate::Investment:
+            return Acore::StringFormat("Spend {} point(s) in this tree before {}.",
+                std::max(offer.ClassInvestment, offer.SpecInvestment), TalentName(offer.EntryId));
+        case Subclass::Gate::Group:
+            for (Subclass::Offer const& other : offers)
+                if (other.EntryId != offer.EntryId && other.Group == offer.Group &&
+                    Subclass::RankIn(ranks, other.EntryId))
+                    return Acore::StringFormat("You already chose {} instead.", TalentName(other.EntryId));
+            return "You already chose another talent of this choice.";
+        default:
+            return {};
+    }
+}
+
+void SendTalentGates(Player* player, std::vector<Subclass::Tree> const& open,
+    std::vector<AscensionCoATalentState::KnownEntry> const& known)
+{
+    std::vector<Subclass::Offer> const offers = BorrowedOffers(open);
+    std::vector<Subclass::Rank> const ranks = RanksOf(known);
+    std::vector<std::string> gates;
+    for (Subclass::Offer const& offer : offers)
+        if (Subclass::Gate const gate = Subclass::GateOf(offers, ranks, offer, player->GetLevel());
+            gate != Subclass::Gate::Open)
+            gates.push_back(Acore::StringFormat("{}:{}", offer.EntryId, uint32(gate)));
+    SendAddonList(player, "GATES", gates);
+    std::vector<std::string> presets;
+    for (uint32 entryId : PresetEntriesOf(player))
+        presets.push_back(std::to_string(entryId));
+    SendAddonList(player, "PRESET", presets);
+}
+
 void SendSubclassState(Player* player)
 {
     if (!player || !player->IsInWorld())
@@ -899,14 +1088,14 @@ void SendSubclassState(Player* player)
     }
     std::vector<std::string> ranks;
     std::unordered_set<uint32> listed;
-    std::vector<AscensionCoATalentState::KnownEntry> known = GetAscensionExtraTreeEntries(player);
-    std::vector<AscensionCoATalentState::KnownEntry> const own = GetAscensionKnownTalentEntries(player);
-    known.insert(known.end(), own.begin(), own.end());
+    std::vector<AscensionCoATalentState::KnownEntry> const known = KnownBuild(player);
     for (AscensionCoATalentState::KnownEntry const& item : known)
         if (AscensionCompatData::CoATalentEntry const* entry = FindCatalogEntry(item.EntryId);
             item.Rank && entry && InTrees(open, *entry) && listed.insert(item.EntryId).second)
             ranks.push_back(Acore::StringFormat("{}:{}", item.EntryId, item.Rank));
     SendAddonList(player, "RANKS", ranks);
+    if (!open.empty())
+        SendTalentGates(player, open, known);
     uint32 classPoints = 0;
     uint32 specializationPoints = 0;
     GetAscensionTalentPointsLeft(player, classPoints, specializationPoints);
@@ -925,9 +1114,10 @@ void SendSubclassState(Player* player)
                 powers.push_back(rule.PowerType);
         if (subClass == CLASS_RANGER && player->getPowerType() != POWER_FOCUS)
             powers.push_back(POWER_FOCUS);
-        if (Powers const standard = StandardClassPower(subClass); standard != MAX_POWERS &&
-            player->getPowerType() != standard)
-            powers.push_back(standard);
+        if (Powers const borrowed = SubclassPower(subClass); borrowed != MAX_POWERS &&
+            player->getPowerType() != borrowed &&
+            std::find(powers.begin(), powers.end(), uint32(borrowed)) == powers.end())
+            powers.push_back(borrowed);
         if (!SubclassResting(player))
         {
             for (uint32 power : powers)
@@ -939,6 +1129,27 @@ void SendSubclassState(Player* player)
     SendAddon(player, "DONE");
 }
 
+std::string TalentChangeRefusal(Player* player, uint32 entryId, uint32 rank)
+{
+    std::vector<Subclass::Offer> const offers = BorrowedOffers(OpenTreesOf(player));
+    Subclass::Offer const* offer = Subclass::OfferIn(offers, entryId);
+    if (!offer)
+        return "That talent is not in your borrowed trees.";
+    std::vector<Subclass::Rank> const before = RanksOf(KnownBuild(player));
+    uint32 const current = Subclass::RankIn(before, entryId);
+    if (rank < current && IsPresetEntry(player, entryId))
+        return Acore::StringFormat("{} comes with your specialization and stays learned.", TalentName(entryId));
+    if (rank > current)
+        if (Subclass::Gate const gate = Subclass::GateOf(offers, before, *offer, player->GetLevel());
+            gate != Subclass::Gate::Open)
+            return GateRefusal(*offer, gate, offers, before);
+    std::vector<Subclass::Rank> after = { { entryId, rank } };
+    after.insert(after.end(), before.begin(), before.end());
+    if (uint32 const stranded = Subclass::StrandedBy(offers, before, after, player->GetLevel()))
+        return Acore::StringFormat("Unlearn {} first, it builds on this talent.", TalentName(stranded));
+    return {};
+}
+
 void LearnFromAddon(Player* player, uint32 entryId, uint32 rank)
 {
     AscensionCompatData::CoATalentEntry const* entry = FindCatalogEntry(entryId);
@@ -946,6 +1157,12 @@ void LearnFromAddon(Player* player, uint32 entryId, uint32 rank)
         rank > entry->SpellCount)
     {
         SendAddon(player, "RESULT 0 That talent is not in your borrowed trees.");
+        SendSubclassState(player);
+        return;
+    }
+    if (std::string const refusal = TalentChangeRefusal(player, entryId, rank); !refusal.empty())
+    {
+        SendAddon(player, "RESULT 0 " + refusal);
         SendSubclassState(player);
         return;
     }
@@ -1193,6 +1410,7 @@ void RefreshPowerPools(Player* player)
         player->HandleStatFlatModifier(UNIT_MOD_FOCUS, TOTAL_VALUE, BorrowedFocus, lend);
     for (Powers power : { POWER_FOCUS, POWER_ENERGY, POWER_RUNIC_POWER, POWER_RAGE })
         player->UpdateMaxPower(power);
+    SyncBorrowedMana(player, 0);
 }
 
 constexpr uint32 KitPasses = 8;
@@ -1396,7 +1614,7 @@ uint32 SyncBorrowedBaseSpells(Player* player)
         return learned;
     }
     LearnCoAWeapons(player, subClass);
-    uint32 learned = 0;
+    uint32 learned = GrantSpecializationPresets(player);
     for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)
         if (spell.ClassId == subClass && spell.RequiredLevel <= player->GetLevel() &&
             !player->HasSpell(spell.SpellId) && sSpellMgr->GetSpellInfo(spell.SpellId))
@@ -1423,6 +1641,7 @@ uint32 ApplyChoice(Player* player, Subclass::Choice const& wanted)
     RefreshPowerPools(player);
     if (uint32 const active = GetAscensionActiveSpecialization(player))
         SwitchAscensionSpecialization(player, active);
+    GrantSpecializationPresets(player);
     SendSubclassState(player);
     return removed;
 }
@@ -1696,6 +1915,7 @@ public:
         LoadPairs();
         LoadStories();
         LoadSpecializationRoles();
+        LoadTalentLinks();
     }
 };
 
@@ -1959,6 +2179,86 @@ bool InBorrowedFamily(Player const* player, uint8 subClass, SpellInfo const* inf
     return info && family && info->SpellFamilyName == family && family != ClassFamily(player->getClass());
 }
 
+Subclass::Offer BorrowedOffer(AscensionCompatData::CoATalentEntry const& entry)
+{
+    Subclass::Offer offer{ entry.EntryId, entry.SpellCount, entry.AECost, entry.TECost, entry.RequiredLevel,
+        { entry.RequiredEntryIds[0], entry.RequiredEntryIds[1], entry.RequiredEntryIds[2] }, entry.SpecId };
+    LinkOffer(offer);
+    return offer;
+}
+
+bool LendsMana(Player const* player)
+{
+    Subclass::Choice const choice = ChoiceOf(player);
+    return choice.Complete() && SubclassPower(choice.SubClass) == POWER_MANA &&
+        player->getPowerType() != POWER_MANA && !SubclassResting(player);
+}
+
+uint32 ClassBaseMana(uint8 classId, uint8 level)
+{
+    PlayerClassLevelInfo info;
+    if (classId && classId < MAX_CLASSES && sChrClassesStore.LookupEntry(classId))
+        sObjectMgr->GetPlayerClassLevelInfo(classId, level, &info);
+    return info.basemana;
+}
+
+namespace
+{
+float SpiritRegenRatio(uint8 classId, uint8 level)
+{
+    if (!classId || !level)
+        return 0.0f;
+    GtRegenMPPerSptEntry const* entry = sGtRegenMPPerSptStore.LookupEntry((uint32(classId) - 1) * GT_MAX_LEVEL +
+        std::min<uint32>(level, GT_MAX_LEVEL) - 1);
+    return entry ? entry->ratio : 0.0f;
+}
+
+std::unordered_map<uint32, float> lentManaCarried;
+
+void RegenerateLentMana(Player* player, uint32 milliseconds)
+{
+    uint8 const level = player->GetLevel();
+    float const ratio = SpiritRegenRatio(PlayableClassOf(ChoiceOf(player).SubClass), level) -
+        SpiritRegenRatio(player->getClass(), level);
+    if (ratio <= 0.0f || !milliseconds || !player->IsAlive() ||
+        player->GetPower(POWER_MANA) >= player->GetMaxPower(POWER_MANA) ||
+        player->HasAuraTypeWithMiscvalue(SPELL_AURA_PREVENT_REGENERATE_POWER, POWER_MANA + 1) ||
+        !sScriptMgr->OnPlayerCanRegenerate(player, POWER_MANA))
+        return;
+    float perSecond = std::sqrt(player->GetStat(STAT_INTELLECT)) * player->GetStat(STAT_SPIRIT) * ratio *
+        player->GetTotalAuraMultiplierByMiscValue(SPELL_AURA_MOD_POWER_REGEN_PERCENT, POWER_MANA);
+    if (player->IsUnderLastManaUseEffect())
+        perSecond = CalculatePct(perSecond, std::min(player->GetTotalAuraModifier(SPELL_AURA_MOD_MANA_REGEN_INTERRUPT),
+            100));
+    int32 gained = 0;
+    {
+        std::lock_guard<std::mutex> lock(subclassMutex);
+        float& carried = lentManaCarried[player->GetGUID().GetCounter()];
+        carried += perSecond * sWorld->getRate(RATE_POWER_MANA) * milliseconds / IN_MILLISECONDS;
+        gained = int32(carried);
+        carried -= float(gained);
+    }
+    if (gained > 0)
+        player->ModifyPower(POWER_MANA, gained);
+}
+}
+
+void SyncBorrowedMana(Player* player, uint32 milliseconds)
+{
+    bool const lends = LendsMana(player);
+    uint8 const classId = lends ? PlayableClassOf(ChoiceOf(player).SubClass) : player->getClass();
+    uint32 const wanted = ClassBaseMana(classId, player->GetLevel());
+    if (player->GetCreateMana() != wanted)
+    {
+        player->SetCreateMana(wanted);
+        player->UpdateMaxPower(POWER_MANA);
+        if (player->GetPower(POWER_MANA) > player->GetMaxPower(POWER_MANA))
+            player->SetPower(POWER_MANA, player->GetMaxPower(POWER_MANA));
+    }
+    if (lends)
+        RegenerateLentMana(player, milliseconds);
+}
+
 bool IsBorrowedSpell(Player const* player, uint32 spellId)
 {
     Record const record = RecordOf(player);
@@ -2111,7 +2411,7 @@ public:
     bool OnPlayerHasActivePowerType(Player const* player, Powers power) override
     {
         Subclass::Choice const choice = ChoiceOf(player);
-        return choice.Complete() && StandardClassPower(choice.SubClass) == power && player->getPowerType() != power &&
+        return choice.Complete() && SubclassPower(choice.SubClass) == power && player->getPowerType() != power &&
             !SubclassResting(player);
     }
 
@@ -2191,6 +2491,7 @@ public:
         std::lock_guard<std::mutex> lock(subclassMutex);
         records.erase(player->GetGUID().GetCounter());
         focusLent.erase(player->GetGUID().GetCounter());
+        lentManaCarried.erase(player->GetGUID().GetCounter());
         runesLent.erase(player->GetGUID().GetCounter());
     }
 
@@ -2285,7 +2586,8 @@ bool TeachesSubclass(Player const* player, Creature const* creature)
 bool PaidBorrowedEntry(Player const* player, AscensionCompatData::CoATalentEntry const& entry,
     std::vector<Subclass::Tree> const& open)
 {
-    return (entry.AECost || entry.TECost) && InTrees(open, entry) && GetAscensionTalentRank(player, entry.EntryId);
+    return (entry.AECost || entry.TECost) && InTrees(open, entry) && GetAscensionTalentRank(player, entry.EntryId) &&
+        !IsPresetEntry(player, entry.EntryId);
 }
 
 bool SpendsBorrowedPoints(Player const* player)
@@ -2301,10 +2603,12 @@ bool SpendsBorrowedPoints(Player const* player)
 uint32 ForgetPaidBorrowedTalents(Player* player)
 {
     std::vector<Subclass::Tree> const open = OpenTreesOf(player);
+    std::vector<uint32> const presets = PresetEntriesOf(player);
     uint32 removed = 0;
     for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
     {
-        if (!(entry.AECost || entry.TECost) || !InTrees(open, entry))
+        if (!(entry.AECost || entry.TECost) || !InTrees(open, entry) ||
+            std::find(presets.begin(), presets.end(), entry.EntryId) != presets.end())
             continue;
         for (uint32 spellId : entry.SpellIds)
             if (spellId && player->HasSpell(spellId))
@@ -2638,6 +2942,7 @@ public:
         LoadPairs();
         LoadStories();
         LoadSpecializationRoles();
+        LoadTalentLinks();
         handler->SendSysMessage("Reloaded mod_subclass_pair and mod_subclass_story.");
         return true;
     }

@@ -259,3 +259,84 @@ TEST(Subclass, ABotSpreadsItsBorrowedPointsRankByRank)
     EXPECT_EQ(RankIn(planned, 5), 0u);
     EXPECT_EQ(RankIn(planned, 6), 1u);
 }
+
+TEST(Subclass, ABorrowedTalentOpensFromAnyLinkedTalent)
+{
+    std::vector<Offer> offers = {
+        { 1, 1, 1, 0, 10, {} },
+        { 2, 2, 1, 0, 10, {} },
+        { 3, 1, 1, 0, 10, {} },
+        { 4, 1, 1, 0, 10, {} },
+    };
+    offers[2].Links = { 1, 2 };
+    offers[3].Links = { 2 };
+    offers[3].LinksMustBeMaxed = true;
+    EXPECT_EQ(GateOf(offers, {}, offers[2], 20), Gate::Link);
+    EXPECT_EQ(GateOf(offers, { { 2, 1 } }, offers[2], 20), Gate::Open);
+    EXPECT_EQ(GateOf(offers, { { 2, 1 } }, offers[3], 20), Gate::Link);
+    EXPECT_EQ(GateOf(offers, { { 2, 2 } }, offers[3], 20), Gate::Open);
+    EXPECT_EQ(GateOf(offers, { { 2, 2 } }, offers[3], 9), Gate::Level);
+}
+
+TEST(Subclass, ABorrowedTalentRowOpensWithPointsSpentInLowerRows)
+{
+    std::vector<Offer> offers = {
+        { 1, 5, 1, 0, 10, {} },
+        { 2, 5, 1, 0, 10, {} },
+        { 3, 1, 1, 0, 10, {} },
+        { 4, 1, 0, 1, 10, {} },
+    };
+    offers[1].ClassInvestment = 5;
+    offers[2].ClassInvestment = 9;
+    offers[3].SpecId = 7;
+    offers[3].SpecInvestment = 1;
+    EXPECT_EQ(GateOf(offers, { { 1, 4 } }, offers[1], 20), Gate::Investment);
+    EXPECT_EQ(GateOf(offers, { { 1, 5 } }, offers[1], 20), Gate::Open);
+    EXPECT_EQ(GateOf(offers, { { 1, 5 }, { 2, 3 } }, offers[2], 20), Gate::Investment);
+    EXPECT_EQ(GateOf(offers, { { 1, 5 }, { 2, 4 } }, offers[2], 20), Gate::Open);
+    EXPECT_EQ(GateOf(offers, { { 1, 5 } }, offers[3], 20), Gate::Investment);
+}
+
+TEST(Subclass, OnlyOneTalentOfAChoiceGroupIsHeld)
+{
+    std::vector<Offer> offers = {
+        { 1, 1, 1, 0, 10, {} },
+        { 2, 1, 1, 0, 10, {} },
+        { 3, 1, 1, 0, 10, {} },
+    };
+    offers[0].Group = offers[1].Group = 681436;
+    offers[2].Group = SharedGroup;
+    EXPECT_EQ(GateOf(offers, { { 1, 1 } }, offers[1], 20), Gate::Group);
+    EXPECT_EQ(GateOf(offers, { { 1, 1 } }, offers[0], 20), Gate::Open);
+    EXPECT_EQ(GateOf(offers, { { 1, 1 } }, offers[2], 20), Gate::Open);
+    EXPECT_EQ(GateOf(offers, {}, { 9, 1, 1, 0, 10, { 5 } }, 20), Gate::Requirement);
+}
+
+TEST(Subclass, UnlearningATalentMayNotStrandTheTalentsBuiltOnIt)
+{
+    std::vector<Offer> offers = {
+        { 1, 1, 1, 0, 10, {} },
+        { 2, 1, 1, 0, 10, {} },
+        { 3, 1, 1, 0, 10, {} },
+    };
+    offers[1].Links = { 1 };
+    offers[2].Links = { 9 };
+    std::vector<Rank> const before = { { 1, 1 }, { 2, 1 }, { 3, 1 } };
+    EXPECT_EQ(StrandedBy(offers, before, { { 1, 0 }, { 2, 1 }, { 3, 1 } }, 20), 2u);
+    EXPECT_EQ(StrandedBy(offers, before, { { 1, 1 }, { 2, 0 }, { 3, 1 } }, 20), 0u);
+}
+
+TEST(Subclass, ABotOnlySpendsWhereTheTreeIsOpen)
+{
+    std::vector<Offer> offers = {
+        { 1, 1, 1, 0, 10, {} },
+        { 2, 1, 1, 0, 10, {} },
+        { 3, 1, 1, 0, 10, {} },
+    };
+    offers[0].Links = { 2 };
+    offers[2].Links = { 9 };
+    std::vector<Rank> const planned = PlanRanks(offers, {}, 40, 5, 0);
+    EXPECT_EQ(RankIn(planned, 1), 1u);
+    EXPECT_EQ(RankIn(planned, 2), 1u);
+    EXPECT_EQ(RankIn(planned, 3), 0u);
+}

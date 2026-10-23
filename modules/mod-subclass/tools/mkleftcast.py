@@ -11,6 +11,8 @@ READY_1H = 26
 MIRROR_REACH = 0.08
 CENTERED = 0.05
 QUATERNION_SIZE, VECTOR_SIZE = 8, 12
+SPINE_TWIST_KEPT = 0.5
+STILL_ROTATION = (0.0, 0.0, 0.0, 1.0)
 
 
 def mirrored_rotations(values):
@@ -26,6 +28,71 @@ def mirrored_places(values):
 
 
 MIRRORS = {g.ROTATION: mirrored_rotations, g.TRANSLATION: mirrored_places}
+
+
+def slerp(first, second, share):
+    first, second = np.array(first), np.array(second)
+    dot = float(first @ second)
+    if dot < 0.0:
+        second, dot = -second, -dot
+    if dot > 0.9995:
+        blend = first + share * (second - first)
+        return tuple(blend / np.linalg.norm(blend))
+    angle = np.arccos(dot)
+    blend = (np.sin((1.0 - share) * angle) * first + np.sin(share * angle) * second) / np.sin(angle)
+    return tuple(blend / np.linalg.norm(blend))
+
+
+def calmed(track, values, rest, kept):
+    if track == g.ROTATION:
+        count = len(values) // QUATERNION_SIZE
+        return b"".join(g.packed(slerp(rest, g.unpacked(values[index * 8:index * 8 + 8]), kept), False)
+                        for index in range(count))
+    if track == g.TRANSLATION:
+        count = len(values) // VECTOR_SIZE
+        places = [np.array(struct.unpack_from("<3f", values, index * 12)) for index in range(count)]
+        return b"".join(struct.pack("<3f", *(np.array(rest) + kept * (place - np.array(rest))))
+                        for place in places)
+    return values
+
+
+def keyed_sequences(data, place):
+    return struct.unpack_from("<I", data, place + 12)[0]
+
+
+def rest_of(data, bone, track, size, ready_sequence):
+    place = g.bone_offset(data, bone) + track
+    entry = g.own_track(data, place, ready_sequence, size) if ready_sequence < keyed_sequences(data, place) else None
+    if entry and entry[0]:
+        if track == g.ROTATION:
+            return g.unpacked(entry[2][:8])
+        return struct.unpack_from("<3f", entry[2], 0)
+    return STILL_ROTATION if track == g.ROTATION else (0.0, 0.0, 0.0)
+
+
+def spine_bones(data):
+    left_arm = g.arm_chain(data, g.KEY_ARM_LEFT)
+    return {bone for bone in g.spine_of(data, left_arm) if abs(g.pivot(data, bone)[1]) < CENTERED}
+
+
+def calm_left_casts(data, kept=SPINE_TWIST_KEPT):
+    data = bytearray(data)
+    ready_sequence = g.sequence_index(data, READY_1H)
+    for _, animation in LEFT_CASTS:
+        sequence = g.sequence_index(data, animation)
+        for bone in spine_bones(data):
+            for track, size in ((g.ROTATION, QUATERNION_SIZE), (g.TRANSLATION, VECTOR_SIZE)):
+                place = g.bone_offset(data, bone) + track
+                if struct.unpack_from("<h", data, place + 2)[0] != -1 or sequence >= keyed_sequences(data, place):
+                    continue
+                values = struct.unpack_from("<I", data, place + 16)[0]
+                count, values_at = g.array(data, values + sequence * 8)
+                if not count:
+                    continue
+                old = bytes(data[values_at:values_at + count * size])
+                data[values_at:values_at + count * size] = calmed(track, old, rest_of(data, bone, track, size,
+                                                                                      ready_sequence), kept)
+    return bytes(data)
 
 
 def mirror_partners(data, left_root, right_root):
@@ -100,7 +167,8 @@ class LeftCaster:
             source = self.track_entry(place, cast, size)
             if source is not None:
                 keys, stamps, values = source
-                return keys, stamps, MIRRORS[track](values)
+                rest = rest_of(self.blob.data, bone, track, size, self.ready_sequence)
+                return keys, stamps, calmed(track, MIRRORS[track](values), rest, SPINE_TWIST_KEPT)
         return cast
 
     def cast(self):
@@ -110,7 +178,8 @@ class LeftCaster:
         swapped = mirror_partners(ogre, left_arm[0], right_arm[0])
         right_side = g.subtree_of(ogre, right_arm[0])
         ready_sequence = g.sequence_index(ogre, READY_1H)
-        spine = {bone for bone in g.spine_of(ogre, left_arm) if abs(g.pivot(ogre, bone)[1]) < CENTERED}
+        self.ready_sequence = ready_sequence
+        spine = spine_bones(ogre)
         casts = [g.sequence_index(ogre, animation) for animation, _ in LEFT_CASTS]
         bone_count, _ = g.array(ogre, g.BONES)
         for bone in range(bone_count):
@@ -143,10 +212,13 @@ class LeftCaster:
                          self.blob.append(bytes(records), 16))
 
 
-def main(model_path):
+def main(model_path, mode="cast"):
     model = Path(model_path)
-    model.write_bytes(LeftCaster(model.read_bytes()).cast())
+    if mode == "calm":
+        model.write_bytes(calm_left_casts(model.read_bytes()))
+    else:
+        model.write_bytes(LeftCaster(model.read_bytes()).cast())
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    main(*sys.argv[1:])

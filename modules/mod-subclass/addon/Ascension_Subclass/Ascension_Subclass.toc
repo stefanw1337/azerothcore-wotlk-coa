@@ -6,6 +6,8 @@
 ## OptionalDeps: Bartender4
 Ascension_Subclass.lua
 SubclassBar.lua
+SubclassCastBar.lua
+SubclassPowerBar.lua
 SubclassOrbs.lua
 SubclassQuest.lua
 SubclassNodes.lua

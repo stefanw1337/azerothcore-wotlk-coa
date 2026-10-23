@@ -56,6 +56,7 @@ bool MainHalfShoots(Player const* player);
 bool BrotherOut(Player const* player);
 void RefreshSubclassResources(Player* player);
 bool IsBorrowedSpell(Player const* player, uint32 spellId);
+void SyncBorrowedMana(Player* player, uint32 milliseconds);
 void HandWeaponsToBrother(Player* player);
 bool LendsTankSpecialization(Player const* player);
 bool LendsRangedSpecialization(Player const* player);
@@ -218,6 +219,9 @@ struct Brain
     uint32 Order = 0;
     uint64 GlobalCooldownUntil = 0;
     uint64 NextShotAt = 0;
+    uint32 CastingSpell = 0;
+    bool StopsOnMove = false;
+    uint32 Glow = 0;
     bool GlobalCooldownByHand = false;
     std::unordered_map<uint32, uint32> RefusedUntil;
 };
@@ -2228,7 +2232,7 @@ void ShowHeadsChoice(Player* player)
     if (player->GetTemporarySpellReplacement(HeadsSpell) == (wanted ? wanted : HeadsSpell))
         return;
     if (wanted && !player->HasSpell(wanted))
-        player->learnSpell(wanted, true);
+        player->learnSpellWithoutAnnouncement(wanted, true);
     player->SetTemporarySpellReplacement(HeadsSpell, wanted);
     for (uint32 choice : { AgreeAgainSpell, DisagreeSpell })
         if (choice != wanted && player->HasSpell(choice))
@@ -2486,15 +2490,18 @@ void TickSelfAura(Player* player, uint32 diff)
         HoldTheGun(player, false);
         AimFromAfar(player);
     }
+    uint32 ticked = 0;
     {
         std::lock_guard<std::mutex> lock(twinMutex);
         uint32& elapsed = auraTicks[player->GetGUID().GetCounter()];
         elapsed += diff;
         if (elapsed < SelfAuraTick)
             return;
+        ticked = elapsed;
         elapsed = 0;
     }
     UpdateSelfAura(player);
+    SyncBorrowedMana(player, ticked);
     UpdateCyclopsHelmet(player);
     OneSipTooMany(player);
     HoldYourDrink(player);
@@ -3147,6 +3154,8 @@ public:
 };
 
 void PlayEasy(Player* player, uint32 diff);
+void StopOtherHalfOnTheMove(Player* player);
+void ClearCastingGlows(Player* player);
 
 class mod_subclass_twin_player : public PlayerScript
 {
@@ -3160,6 +3169,7 @@ public:
 
     void OnPlayerUpdate(Player* player, uint32 diff) override
     {
+        StopOtherHalfOnTheMove(player);
         if (Arrives(player, diff))
             RefreshTwin(player);
         UpdateCarry(player, diff);
@@ -3180,6 +3190,7 @@ public:
 
     void OnPlayerLogin(Player* player) override
     {
+        ClearCastingGlows(player);
         ArriveLater(player, LoginArrivalDelay);
         LearnRacials(player);
         {
@@ -3204,6 +3215,7 @@ public:
 
     void OnPlayerLogout(Player* player) override
     {
+        ClearCastingGlows(player);
         DismissTwin(player);
         std::lock_guard<std::mutex> lock(twinMutex);
         wardrobes.erase(player->GetGUID().GetCounter());
@@ -3427,15 +3439,106 @@ void LowerLeftHand(Player* player)
         player->SetUInt32Value(UNIT_NPC_EMOTESTATE, 0);
 }
 
+struct OtherHeadGlowTable
+{
+    std::unordered_map<uint32, uint32> OfCopy;
+    std::unordered_set<uint32> Glows;
+};
+
+OtherHeadGlowTable const& OtherHeadGlows()
+{
+    static OtherHeadGlowTable const table = []
+    {
+        OtherHeadGlowTable loaded;
+        bool const exists = bool(WorldDatabase.Query("SELECT 1 FROM information_schema.TABLES WHERE "
+            "TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mod_subclass_other_head_glow'"));
+        if (exists)
+            if (QueryResult result =
+                    WorldDatabase.Query("SELECT `ShownId`, `GlowId` FROM `mod_subclass_other_head_glow`"))
+                do
+                {
+                    Field* fields = result->Fetch();
+                    uint32 const glow = fields[1].Get<uint32>();
+                    if (!sSpellMgr->GetSpellInfo(glow))
+                        continue;
+                    loaded.OfCopy[fields[0].Get<uint32>()] = glow;
+                    loaded.Glows.insert(glow);
+                } while (result->NextRow());
+        LOG_INFO("module", "mod-subclass: {} spell copies light the other head's hand while she casts",
+            loaded.OfCopy.size());
+        return loaded;
+    }();
+    return table;
+}
+
+void DimCastingGlow(Player* player)
+{
+    uint32 glow = 0;
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        auto const itr = brains.find(player->GetGUID().GetCounter());
+        if (itr == brains.end())
+            return;
+        glow = itr->second.Glow;
+        itr->second.Glow = 0;
+    }
+    if (glow)
+        player->RemoveAurasDueToSpell(glow);
+}
+
+void ShowCastingGlow(Player* player, uint32 spellId)
+{
+    DimCastingGlow(player);
+    auto const& glows = OtherHeadGlows().OfCopy;
+    auto const itr = glows.find(OtherHeadShownSpell(spellId));
+    if (itr == glows.end() || !player->AddAura(itr->second, player))
+        return;
+    std::lock_guard<std::mutex> lock(twinMutex);
+    brains[player->GetGUID().GetCounter()].Glow = itr->second;
+}
+
+void ClearCastingGlows(Player* player)
+{
+    std::vector<uint32> lit;
+    for (auto const& [spellId, application] : player->GetAppliedAuras())
+        if (OtherHeadGlows().Glows.count(spellId))
+            lit.push_back(spellId);
+    for (uint32 spellId : lit)
+        player->RemoveAurasDueToSpell(spellId);
+}
+
+void StopOtherHalfOnTheMove(Player* player)
+{
+    if (!player->isMoving())
+        return;
+    uint32 spellId = 0;
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        auto const itr = brains.find(player->GetGUID().GetCounter());
+        if (itr == brains.end() || !itr->second.Busy || !itr->second.CastingSpell || !itr->second.StopsOnMove)
+            return;
+        spellId = itr->second.CastingSpell;
+        itr->second.CastingSpell = 0;
+        itr->second.Busy = false;
+        ++itr->second.Order;
+    }
+    LowerLeftHand(player);
+    DimCastingGlow(player);
+    SendSubclassMessage(player, Acore::StringFormat("OTHERSTOP {}", spellId));
+}
+
 void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid, uint32 order)
 {
     {
         std::lock_guard<std::mutex> lock(twinMutex);
-        if (brains[player->GetGUID().GetCounter()].Order != order)
+        Brain& brain = brains[player->GetGUID().GetCounter()];
+        if (brain.Order != order)
             return;
+        brain.CastingSpell = 0;
     }
     SetBusy(player, false, 0);
     LowerLeftHand(player);
+    DimCastingGlow(player);
     SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
     Unit* target = targetGuid == player->GetGUID() ? player : ObjectAccessor::GetUnit(*player, targetGuid);
     if (!info || !target || !player->IsInWorld() || !player->IsAlive() || !OtherHalfActs(player) ||
@@ -3490,6 +3593,15 @@ bool OrderOtherHalf(Player* player, uint32 spellId, Unit* target, uint32 pause)
         !BrotherReaches(player, info, target) || OtherHalfOnGlobalCooldown(player, byHand))
         return false;
     uint32 const globalCooldown = OtherHalfGlobalCooldown(player, info);
+    uint32 const castTime = info->CalcCastTime(player);
+    bool const stopsOnMove = castTime && (info->InterruptFlags & SPELL_INTERRUPT_FLAG_MOVEMENT);
+    if (stopsOnMove && player->isMoving())
+    {
+        if (byHand)
+            ChatHandler(player->GetSession()).SendNotification(HasTwin(player) ?
+                "Your brother can't cast that while you move." : "Your other head can't cast that while you move.");
+        return byHand;
+    }
     uint32 order = 0;
     {
         std::lock_guard<std::mutex> lock(twinMutex);
@@ -3502,12 +3614,18 @@ bool OrderOtherHalf(Player* player, uint32 spellId, Unit* target, uint32 pause)
         brain.Pause = std::max(brain.Pause, pause);
         brain.GlobalCooldownUntil = GameTime::GetGameTimeMS().count() + globalCooldown;
         brain.GlobalCooldownByHand = byHand;
+        brain.CastingSpell = castTime ? spellId : 0;
+        brain.StopsOnMove = stopsOnMove;
     }
-    uint32 const castTime = info->CalcCastTime(player);
     if (byHand)
         SendSubclassMessage(player, Acore::StringFormat("OTHERSTART {} {} {}", spellId, globalCooldown, castTime));
+    if (castTime)
+        SendSubclassMessage(player, Acore::StringFormat("OTHERCASTING {} {}", spellId, castTime));
     if (castTime && HasSecondHead(player))
+    {
         player->SetUInt32Value(UNIT_NPC_EMOTESTATE, target == player ? LeftHandReadyAround : LeftHandReadyAtTarget);
+        ShowCastingGlow(player, spellId);
+    }
     if (castTime)
         if (Creature* twin = HasTwin(player) ? TwinOf(player) : nullptr)
         {

@@ -5,8 +5,9 @@ local NODE = 34
 local LINE_TEXTURE = "Interface\\TaxiFrame\\UI-Taxi-Line"
 local STRATA_ABOVE = { BACKGROUND = "LOW", LOW = "MEDIUM", MEDIUM = "HIGH", HIGH = "DIALOG", DIALOG = "FULLSCREEN" }
 
-local state = { eligible = false, insights = 0, trees = {}, ranks = {}, classPoints = 0, specPoints = 0,
-    resources = {}, powers = {} }
+local state = { eligible = false, insights = 0, trees = {}, ranks = {}, gates = {}, presets = {}, classPoints = 0,
+    specPoints = 0, resources = {}, powers = {} }
+local Gates = { LEVEL = 1, LINK = 2, REQUIREMENT = 3, INVESTMENT = 4, GROUP = 5 }
 local POWER_NAMES = { [0] = "Mana", [1] = "Rage", [2] = "Focus", [3] = "Energy", [6] = "Runic Power" }
 local POWER_COLORS = { [0] = { 0, 0, 1 }, [1] = { 1, 0, 0 }, [2] = { 1, 0.5, 0.25 }, [3] = { 1, 1, 0 },
     [6] = { 0, 0.82, 1 } }
@@ -103,27 +104,59 @@ local function SpentIn(tree)
     return ae, te
 end
 
-local function Locked(tree, node)
-    local entry = node.entry
-    if (entry.RequiredLevel or 0) > UnitLevel("player") then
-        return true
+function Gates.Of(node)
+    if (node.entry.RequiredLevel or 0) > UnitLevel("player") then
+        return Gates.LEVEL
     end
-    if node.ability then
-        return false
-    end
-    local ae, te = SpentIn(tree)
-    if (entry.RequiredTabAEInvestment or 0) > ae or (entry.RequiredTabTEInvestment or 0) > te then
-        return true
-    end
-    for _, required in ipairs(entry.RequiredIDs or {}) do
-        if RankOf(required) == 0 then
-            return true
-        end
-    end
-    return false
+    return state.gates[node.id]
 end
 
-local function GrantedByLevel(entry)
+function Gates.Locked(tree, node)
+    return Gates.Of(node) ~= nil
+end
+
+function Gates.EntryName(id)
+    local entry = Entry(id)
+    return entry and entry.Name or ("talent " .. id)
+end
+
+function Gates.NamesOf(ids, missingOnly, separator)
+    local names = {}
+    for _, id in ipairs(ids or {}) do
+        if not missingOnly or RankOf(id) == 0 then
+            names[#names + 1] = Gates.EntryName(id)
+        end
+    end
+    return table.concat(names, separator)
+end
+
+function Gates.ChosenInstead(tree, node)
+    for _, other in ipairs(tree.nodes) do
+        if other.id ~= node.id and other.entry.Group == node.entry.Group and RankOf(other.id) > 0 then
+            return Gates.EntryName(other.id)
+        end
+    end
+    return "another talent"
+end
+
+function Gates.Reason(tree, node)
+    local gate, entry = Gates.Of(node), node.entry
+    if gate == Gates.LEVEL then
+        return string.format("Requires level %d.", entry.RequiredLevel or 0)
+    elseif gate == Gates.LINK then
+        return string.format("Learn %s first.", Gates.NamesOf(entry.ConnectedNodes, false, " or "))
+    elseif gate == Gates.REQUIREMENT then
+        return string.format("Learn %s first.", Gates.NamesOf(entry.RequiredIDs, true, " and "))
+    elseif gate == Gates.INVESTMENT then
+        local ae, te = SpentIn(tree)
+        return string.format("Spend %d point(s) in this tree first (%d spent).",
+            math.max(entry.RequiredTabAEInvestment or 0, entry.RequiredTabTEInvestment or 0), ae + te)
+    elseif gate == Gates.GROUP then
+        return string.format("You chose %s instead.", Gates.ChosenInstead(tree, node))
+    end
+end
+
+function Gates.Free(entry)
     return (entry.AECost or 0) == 0 and (entry.TECost or 0) == 0
 end
 
@@ -147,31 +180,24 @@ local function NodeEnter(button)
     if (entry.TECost or 0) > 0 then
         GameTooltip:AddLine(string.format("Costs %d specialization point(s) per rank", entry.TECost), 0.8, 0.8, 0.8)
     end
-    if (entry.RequiredLevel or 0) > UnitLevel("player") then
-        GameTooltip:AddLine(string.format("Requires level %d", entry.RequiredLevel), 1, 0.3, 0.3)
-    elseif Locked(button.tree, node) then
-        local ae, te = SpentIn(button.tree)
-        if (entry.RequiredTabTEInvestment or 0) > te or (entry.RequiredTabAEInvestment or 0) > ae then
-            GameTooltip:AddLine(string.format("Locked: needs %d point(s) spent in this tree (%d now).",
-                math.max(entry.RequiredTabTEInvestment or 0, entry.RequiredTabAEInvestment or 0), ae + te), 1, 0.3, 0.3,
-                true)
-        end
-        for _, required in ipairs(entry.RequiredIDs or {}) do
-            if RankOf(required) == 0 then
-                local needed = C_CharacterAdvancement and C_CharacterAdvancement.GetEntryByInternalID
-                    and C_CharacterAdvancement.GetEntryByInternalID(required)
-                GameTooltip:AddLine(string.format("Locked: needs %s first (entry %d).",
-                    needed and needed.Name or "another talent", required), 1, 0.3, 0.3, true)
-            end
-        end
+    local reason = Gates.Reason(button.tree, node)
+    if reason and rank > 0 then
+        GameTooltip:AddLine("Out of reach: " .. reason, 1, 0.3, 0.3, true)
+    elseif reason then
+        GameTooltip:AddLine("Locked: " .. reason, 1, 0.3, 0.3, true)
     end
-    if GrantedByLevel(entry) then
+    if state.presets[node.id] then
+        GameTooltip:AddLine("Comes with your specialization and can't be unlearned.", 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+        return
+    end
+    if Gates.Free(entry) then
         GameTooltip:AddLine(string.format("Learned automatically at level %d", math.max(entry.RequiredLevel or 0, 1)),
             0.8, 0.8, 0.8)
         GameTooltip:Show()
         return
     end
-    if rank < maxRank then
+    if rank < maxRank and not reason then
         GameTooltip:AddLine("Left-click: learn the next rank", 0, 1, 0)
     end
     if rank > 0 then
@@ -185,15 +211,24 @@ local function NodeClick(button, mouse)
         return
     end
     local node = button.node
-    if GrantedByLevel(node.entry) then
+    if Gates.Free(node.entry) then
         return
     end
     local rank = RankOf(node.id)
     local maxRank = #(node.entry.Spells or {})
     local wanted
     if mouse == "RightButton" then
+        if state.presets[node.id] then
+            UIErrorsFrame:AddMessage("That talent comes with your specialization.", 1, 0.1, 0.1)
+            return
+        end
         wanted = rank > 0 and rank - 1 or nil
     else
+        local reason = rank < maxRank and Gates.Reason(button.tree, node)
+        if reason then
+            UIErrorsFrame:AddMessage(reason, 1, 0.1, 0.1)
+            return
+        end
         wanted = rank < maxRank and rank + 1 or nil
     end
     if wanted then
@@ -428,19 +463,18 @@ function CoAArt.Node(canvas, index, entry)
 end
 
 function CoAArt.Gated(tree, node)
-    local ae, te = SpentIn(tree)
-    return (node.entry.RequiredTabAEInvestment or 0) > ae or (node.entry.RequiredTabTEInvestment or 0) > te
+    return Gates.Of(node) == Gates.INVESTMENT or (RankOf(node.id) > 0 and Gates.Locked(tree, node))
 end
 
 function CoAArt.CanLearn(node, rank, maxRank, locked)
     local entry = node.entry
-    return not locked and rank < maxRank and not GrantedByLevel(entry) and
+    return not locked and rank < maxRank and not Gates.Free(entry) and
         (entry.AECost or 0) <= state.classPoints and (entry.TECost or 0) <= state.specPoints
 end
 
 function CoAArt.Style(button, coa, tree, node, desaturateWhenEmpty)
     local rank, maxRank = RankOf(node.id), #(node.entry.Spells or {})
-    local locked = Locked(tree, node)
+    local locked = Gates.Locked(tree, node)
     if coa then
         Ascension_Subclass.ShowCoANode(button, node.entry, rank, maxRank, CoAArt.CanLearn(node, rank, maxRank, locked),
             CoAArt.Gated(tree, node))
@@ -449,7 +483,10 @@ function CoAArt.Style(button, coa, tree, node, desaturateWhenEmpty)
     button.icon:SetTexture(IconPath(node.entry.Icon))
     button.rank:SetText(rank .. "/" .. maxRank)
     button.icon:SetDesaturated(rank == 0 and (locked or desaturateWhenEmpty))
-    if rank >= maxRank and maxRank > 0 then
+    if rank > 0 and locked then
+        button.border:SetVertexColor(1, 0.1, 0.1)
+        button.border:Show()
+    elseif rank >= maxRank and maxRank > 0 then
         button.border:SetVertexColor(1, 0.82, 0)
         button.border:Show()
     elseif not locked then
@@ -530,10 +567,19 @@ local function RenderTree(tree, canvas)
     local strip = abilityRows * (NODE + 6) + (abilityRows > 0 and 18 or 0)
     local width, height = canvas:GetWidth() - NODE * 2, canvas:GetHeight() - NODE * 2 - 50 - strip
     local spanX, spanY = (maxX or 0) - (minX or 0), (maxY or 0) - (minY or 0)
-    local centers = {}
+    local centers, sharing = {}, {}
+    for _, node in ipairs(tree.nodes) do
+        local x, y = Position(node.entry, grid)
+        local spot = x .. ":" .. y
+        sharing[spot] = sharing[spot] or {}
+        node.choice = #sharing[spot] + 1
+        table.insert(sharing[spot], node)
+    end
     for index, node in ipairs(tree.nodes) do
         local x, y = Position(node.entry, grid)
-        local px = NODE + (spanX > 0 and (x - minX) / spanX * width or width / 2)
+        local shared = #sharing[x .. ":" .. y]
+        local px = NODE + (spanX > 0 and (x - minX) / spanX * width or width / 2) +
+            (node.choice - (shared + 1) / 2) * (NODE + 6)
         local py = strip + NODE + (spanY > 0 and (maxY - y) / spanY * height or height / 2)
         centers[node.id] = { px, py }
         local button, coa = CoAArt.Node(canvas, index, node.entry)
@@ -724,17 +770,19 @@ local function RefreshResources()
         end
     end
     for _, power in ipairs(state.powers) do
-        index = index + 1
-        local row = ResourceRow(index)
-        local value, maximum = UnitPower("player", power), UnitPowerMax("player", power)
-        local color = POWER_COLORS[power] or { 0.7, 0.7, 0.7 }
-        row:SetMinMaxValues(0, math.max(maximum, 1))
-        row:SetValue(value)
-        row:SetStatusBarColor(color[1], color[2], color[3])
-        local divisor = (power == 1 or power == 6) and 10 or 1
-        row.text:SetText(string.format("%s %d/%d", POWER_NAMES[power] or ("Power " .. power), value / divisor,
-            maximum / divisor))
-        row:Show()
+        if not (Ascension_Subclass.ShowsPowerBar and Ascension_Subclass.ShowsPowerBar(power)) then
+            index = index + 1
+            local row = ResourceRow(index)
+            local value, maximum = UnitPower("player", power), UnitPowerMax("player", power)
+            local color = POWER_COLORS[power] or { 0.7, 0.7, 0.7 }
+            row:SetMinMaxValues(0, math.max(maximum, 1))
+            row:SetValue(value)
+            row:SetStatusBarColor(color[1], color[2], color[3])
+            local divisor = (power == 1 or power == 6) and 10 or 1
+            row.text:SetText(string.format("%s %d/%d", POWER_NAMES[power] or ("Power " .. power), value / divisor,
+                maximum / divisor))
+            row:Show()
+        end
     end
     for extra = index + 1, #resourceFrame.rows do
         resourceFrame.rows[extra]:Hide()
@@ -1756,7 +1804,7 @@ local function Receive(message)
     if command == "RESET" then
         local eligible, _, insights = string.match(rest, "^(%d+) (%d+) (%d+)$")
         incoming = { eligible = eligible == "1", insights = tonumber(insights) or 0, trees = {}, ranks = {},
-            classPoints = 0, specPoints = 0, resources = {}, powers = {}, runes = false }
+            gates = {}, presets = {}, classPoints = 0, specPoints = 0, resources = {}, powers = {}, runes = false }
     elseif command == "SUBCLASS" and incoming then
         incoming.subclass = rest ~= "-" and rest or nil
     elseif not incoming then
@@ -1794,6 +1842,17 @@ local function Receive(message)
                 incoming.ranks[tonumber(id)] = tonumber(rank)
             end
         end
+    elseif command == "GATES" then
+        for _, pair in ipairs(Split(rest, ",")) do
+            local id, gate = string.match(pair, "^(%d+):(%d+)$")
+            if id then
+                incoming.gates[tonumber(id)] = tonumber(gate)
+            end
+        end
+    elseif command == "PRESET" then
+        for _, id in ipairs(Split(rest, ",")) do
+            incoming.presets[tonumber(id)] = true
+        end
     elseif command == "POINTS" then
         local ae, te = string.match(rest, "^(%d+) (%d+)$")
         incoming.classPoints, incoming.specPoints = tonumber(ae) or 0, tonumber(te) or 0
@@ -1813,6 +1872,9 @@ local function Receive(message)
         pending = false
         BuildTrees()
         Render()
+        if Ascension_Subclass.UpdatePowerBars then
+            Ascension_Subclass.UpdatePowerBars(state.powers)
+        end
         UpdateResourceFrame()
         UpdateLentRunes()
         ShowSubclassInLevelLine()

@@ -478,6 +478,8 @@ function Ascension_Subclass.OnSubclass(name)
     end
 end
 
+local castBarUnlocked = false
+
 SLASH_ASCENSIONSUBCLASSBAR1 = "/subclassbar"
 SlashCmdList.ASCENSIONSUBCLASSBAR = function(message)
     if message == "reset" then
@@ -485,11 +487,15 @@ SlashCmdList.ASCENSIONSUBCLASSBAR = function(message)
         Ascension_SubclassDump.subclassBarPoint = nil
         bar:ClearAllPoints()
         bar:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 170)
-        for _, reset in ipairs({ Ascension_Subclass.ResetStanceBar, Ascension_Subclass.ResetOrbs }) do
+        for _, reset in ipairs({ Ascension_Subclass.ResetStanceBar, Ascension_Subclass.ResetOrbs,
+            Ascension_Subclass.ResetCastBar }) do
             reset()
         end
     elseif message == "stances" then
         Ascension_Subclass.DescribeStances()
+    elseif message == "castbar" then
+        castBarUnlocked = not castBarUnlocked
+        Ascension_Subclass.UnlockCastBar(castBarUnlocked)
     elseif message == "clear" then
         Forget(Saved())
         RefreshAll()
@@ -497,8 +503,9 @@ SlashCmdList.ASCENSIONSUBCLASSBAR = function(message)
         Ascension_Subclass.Send("SYNC")
     else
         DEFAULT_CHAT_FRAME:AddMessage("Subclass Bar 1: /subclassbar reset (position), /subclassbar clear (refill "
-            .. "the buttons with your subclass spells). Alt-drag a button to move the bar. Bind keys under "
-            .. "Key Bindings > Subclass Bar 1.")
+            .. "the buttons with your subclass spells), /subclassbar castbar (show the subclass cast bar to Alt-drag "
+            .. "it, again to lock it). Alt-drag a button to move the bar. Bind keys under Key Bindings > Subclass "
+            .. "Bar 1.")
     end
 end
 

@@ -29,6 +29,7 @@ bool SubclassEligible(Player const* player);
 Subclass::Choice SubclassChoiceOf(Player const* player);
 void ApplySubclassChoice(Player* player, Subclass::Choice const& choice);
 std::vector<AscensionCompatData::CoATalentEntry const*> OpenBorrowedEntries(Player const* player);
+Subclass::Offer BorrowedOffer(AscensionCompatData::CoATalentEntry const& entry);
 std::string DescribeSubclassChoice(Subclass::Choice const& choice);
 std::string SubclassClassName(uint8 classId);
 std::vector<uint32> KnownBorrowedActives(Player const* player);
@@ -176,8 +177,7 @@ std::vector<Subclass::Offer> OffersOf(std::vector<AscensionCompatData::CoATalent
     std::shuffle(entries.begin(), entries.end(), std::mt19937(seed));
     std::vector<Subclass::Offer> offers;
     for (AscensionCompatData::CoATalentEntry const* entry : entries)
-        offers.push_back({ entry->EntryId, entry->SpellCount, entry->AECost, entry->TECost, entry->RequiredLevel,
-            { entry->RequiredEntryIds[0], entry->RequiredEntryIds[1], entry->RequiredEntryIds[2] } });
+        offers.push_back(BorrowedOffer(*entry));
     return offers;
 }
 

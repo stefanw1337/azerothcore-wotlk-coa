@@ -27,6 +27,7 @@ function Ascension_Subclass.CoANode(canvas, entry, previous, handlers)
         return nil
     end
     button.coaTemplate = template
+    button.showZeroMultiRanks = true
     button:SetScript("OnEnter", handlers.enter)
     button:SetScript("OnLeave", handlers.leave)
     button:SetScript("OnClick", handlers.click)
