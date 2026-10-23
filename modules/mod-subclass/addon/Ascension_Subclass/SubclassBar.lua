@@ -1,6 +1,8 @@
 local BUTTONS, SIZE, GAP = 12, 36, 4
 local BINDING = "ASCENSION_SUBCLASS_BUTTON"
-local UPDATE_EVERY = 0.2
+local UPDATE_EVERY = 0.1
+local OWN_GLOBAL_COOLDOWN = 1.5
+local CHARGED_COOLDOWN_ALPHA = 0.3
 
 BINDING_HEADER_ASCENSION_SUBCLASS = "Subclass Bar 1"
 for index = 1, BUTTONS do
@@ -11,6 +13,8 @@ local bar
 local buttons = {}
 local knownSpells = {}
 local lent
+local subclassName
+local timers = { cooldowns = {}, casting = {}, offGlobal = {}, global = { start = 0, duration = 0 } }
 
 local function Saved()
     Ascension_SubclassDump = Ascension_SubclassDump or {}
@@ -72,6 +76,7 @@ local function Refresh(button)
     else
         button.icon:Hide()
         button.cooldown:Hide()
+        button.shownStart, button.shownDuration = nil, nil
     end
     button.hotkey:SetText(ShortKey(GetBindingKey(BINDING .. button:GetID())))
 end
@@ -158,19 +163,67 @@ local function OnEnter(button)
     GameTooltip:Show()
 end
 
-local function UpdateButton(button)
-    local name = button.spellName
-    if not name then
+local function LaterOf(start, duration, otherStart, otherDuration)
+    if otherDuration > 0 and otherStart + otherDuration > start + duration then
+        return otherStart, otherDuration
+    end
+    return start, duration
+end
+
+local function CooldownOf(spellId, name)
+    local start, duration = 0, 0
+    local clientStart, clientDuration, enabled = GetSpellCooldown(name)
+    if clientStart and clientDuration and clientDuration > OWN_GLOBAL_COOLDOWN and enabled == 1 then
+        start, duration = clientStart, clientDuration
+    end
+    local tracked = timers.cooldowns[spellId]
+    if tracked then
+        start, duration = LaterOf(start, duration, tracked.start, tracked.duration)
+    end
+    if not timers.offGlobal[spellId] then
+        start, duration = LaterOf(start, duration, timers.global.start, timers.global.duration)
+    end
+    if start + duration <= GetTime() then
+        return 0, 0
+    end
+    return start, duration
+end
+
+local function ShowCooldown(button, start, duration, alpha)
+    button.cooldown:SetAlpha(alpha)
+    if button.shownStart == start and button.shownDuration == duration then
         return
     end
-    local start, duration, enabled = GetSpellCooldown(name)
-    if start and duration and duration > 1.5 and enabled == 1 then
-        button.cooldown:SetCooldown(start, duration)
-        button.cooldown:Show()
-    else
-        button.cooldown:Hide()
+    button.shownStart, button.shownDuration = start, duration
+    CooldownFrame_SetTimer(button.cooldown, start, duration, duration > 0 and 1 or 0)
+end
+
+local function UpdateButton(button)
+    local name = button.spellName
+    local spellId = Saved()[button:GetID()]
+    if not name or not spellId then
+        button.count:SetText("")
+        button:SetChecked(false)
+        ShowCooldown(button, 0, 0, 1)
+        return
     end
+    local start, duration = CooldownOf(spellId, name)
+    local charges, maxCharges, chargeStart, chargeDuration
+    if GetSpellCharges then
+        charges, maxCharges, chargeStart, chargeDuration = GetSpellCharges(spellId)
+    end
+    local charged = maxCharges and maxCharges > 0
+    if charged and charges < maxCharges and chargeStart and chargeStart > 0 then
+        start, duration = chargeStart, chargeDuration
+    end
+    ShowCooldown(button, start, duration, charged and charges > 0 and CHARGED_COOLDOWN_ALPHA or 1)
+    button.count:SetText(charged and charges or "")
+    local castUntil = timers.casting[spellId]
+    button:SetChecked(castUntil ~= nil and castUntil > GetTime())
     local usable, noMana = IsUsableSpell(name)
+    if charged and charges == 0 then
+        usable = false
+    end
     local inRange = IsSpellInRange(name, "target")
     if inRange == 0 then
         button.icon:SetVertexColor(0.8, 0.1, 0.1)
@@ -198,6 +251,7 @@ local function CreateButton(index)
     button.icon = _G[button:GetName() .. "Icon"]
     button.cooldown = _G[button:GetName() .. "Cooldown"]
     button.hotkey = _G[button:GetName() .. "HotKey"]
+    button.count = _G[button:GetName() .. "Count"]
     button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     button:RegisterForDrag("LeftButton")
     button:SetScript("OnClick", OnClick)
@@ -308,11 +362,52 @@ local function CreateBar()
     end
 end
 
-function Ascension_Subclass.PressBarButton(index)
-    if buttons[index] then
-        Press(buttons[index])
+function Ascension_Subclass.PressBarButton(index, keystate)
+    local button = buttons[index]
+    if not button then
+        return
     end
+    if keystate == "up" then
+        button:SetButtonState("NORMAL")
+        return
+    end
+    button:SetButtonState("PUSHED")
+    Press(button)
 end
+
+function Ascension_Subclass.GetSubclass()
+    return subclassName
+end
+
+Ascension_Subclass.BarMessages = {
+    OTHERSTART = function(rest)
+        local spellId, global, cast = string.match(rest, "^(%d+) (%d+) (%d+)$")
+        if not spellId then
+            return
+        end
+        timers.global = { start = GetTime(), duration = tonumber(global) / 1000 }
+        if tonumber(cast) > 0 then
+            timers.casting[tonumber(spellId)] = GetTime() + tonumber(cast) / 1000
+        end
+    end,
+    OTHERCAST = function(rest)
+        local spellId = tonumber(string.match(rest, "^(%d+)"))
+        if spellId then
+            timers.casting[spellId] = nil
+        end
+    end,
+    OTHERCD = function(rest)
+        local spellId, remaining = string.match(rest, "^(%d+) (%d+)$")
+        if spellId then
+            timers.cooldowns[tonumber(spellId)] = { start = GetTime(), duration = tonumber(remaining) / 1000 }
+        end
+    end,
+    OFFGCD = function(rest)
+        for id in string.gmatch(rest, "%d+") do
+            timers.offGlobal[tonumber(id)] = true
+        end
+    end,
+}
 
 function Ascension_Subclass.OnOtherSpells(list)
     local fresh = {}
@@ -361,6 +456,13 @@ local function HoldsOnlyKnownSpells(saved)
 end
 
 function Ascension_Subclass.OnSubclass(name)
+    timers.offGlobal = {}
+    if subclassName ~= name then
+        subclassName = name
+        if WeakAuras and WeakAuras.ScanEvents then
+            WeakAuras.ScanEvents("ASCENSION_SUBCLASS_CHANGED", name)
+        end
+    end
     local saved = Saved()
     local key = name or "-"
     if saved.subclass == key then

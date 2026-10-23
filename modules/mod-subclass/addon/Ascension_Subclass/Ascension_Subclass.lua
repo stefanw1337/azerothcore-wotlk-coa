@@ -1638,6 +1638,13 @@ end)
 
 local function Receive(message)
     local command, rest = string.match(message, "^(%S+)%s?(.*)$")
+    local barMessage = Ascension_Subclass.BarMessages and Ascension_Subclass.BarMessages[command]
+    if barMessage then
+        barMessage(rest)
+        if command ~= "OTHERCAST" then
+            return
+        end
+    end
     if command == "OTHERSPELLS" then
         if Ascension_Subclass.OnOtherSpells then
             Ascension_Subclass.OnOtherSpells(rest)

@@ -206,6 +206,7 @@ struct Brain
     uint32 Tick = 0;
     uint32 Pause = 0;
     bool Busy = false;
+    uint64 GlobalCooldownUntil = 0;
     std::unordered_map<uint32, uint32> RefusedUntil;
 };
 
@@ -3046,6 +3047,36 @@ bool Affordable(Player const* player, SpellInfo const* info)
     return cost <= 0 || info->PowerType >= MAX_POWERS || player->GetPower(Powers(info->PowerType)) >= cost;
 }
 
+constexpr int32 ShortestGlobalCooldown = 1000;
+constexpr int32 LongestGlobalCooldown = 1500;
+constexpr uint32 SharedGlobalCooldownCategory = 133;
+
+uint32 OtherHalfGlobalCooldown(Player* player, SpellInfo const* info)
+{
+    int32 cooldown = int32(info->StartRecoveryTime);
+    if (cooldown < ShortestGlobalCooldown || cooldown > LongestGlobalCooldown)
+        return uint32(std::max(cooldown, 0));
+    player->ApplySpellMod(info->Id, SPELLMOD_GLOBAL_COOLDOWN, cooldown);
+    if (info->StartRecoveryCategory == SharedGlobalCooldownCategory && info->StartRecoveryTime == 1500 &&
+        info->DmgClass != SPELL_DAMAGE_CLASS_MELEE && info->DmgClass != SPELL_DAMAGE_CLASS_RANGED &&
+        !info->HasAttribute(SPELL_ATTR0_USES_RANGED_SLOT) && !info->HasAttribute(SPELL_ATTR0_IS_ABILITY))
+        cooldown = int32(float(cooldown) * player->GetFloatValue(UNIT_MOD_CAST_SPEED));
+    return uint32(std::clamp(cooldown, ShortestGlobalCooldown, LongestGlobalCooldown));
+}
+
+bool OtherHalfOnGlobalCooldown(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(twinMutex);
+    auto const itr = brains.find(player->GetGUID().GetCounter());
+    return itr != brains.end() && itr->second.GlobalCooldownUntil > GameTime::GetGameTimeMS().count();
+}
+
+void SendOtherHalfCooldown(Player* player, uint32 spellId)
+{
+    if (uint32 const remaining = player->GetSpellCooldownDelay(spellId))
+        SendSubclassMessage(player, Acore::StringFormat("OTHERCD {} {}", spellId, remaining));
+}
+
 void SetBusy(Player const* player, bool busy, uint32 pause)
 {
     std::lock_guard<std::mutex> lock(twinMutex);
@@ -3092,6 +3123,8 @@ void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid)
     LOG_INFO("module", "The other half of {} casts {} ({}) at {}: result {}, {} cast packet(s) shown on the twin",
         player->GetName(), info->SpellName[0], spellId, target->GetName(), uint32(result), castingAsBrother.Shown);
     SendSubclassMessage(player, Acore::StringFormat("OTHERCAST {} {}", spellId, uint32(result)));
+    if (result == SPELL_CAST_OK)
+        SendOtherHalfCooldown(player, spellId);
     NoteBotCast(player, spellId, uint32(result));
     if (result != SPELL_CAST_OK)
     {
@@ -3123,8 +3156,9 @@ bool OrderOtherHalf(Player* player, uint32 spellId, Unit* target, uint32 pause)
 {
     SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
     if (!info || !target || !OtherHalfActs(player) || !Affordable(player, info) || Helpless(player) ||
-        !BrotherReaches(player, info, target))
+        !BrotherReaches(player, info, target) || OtherHalfOnGlobalCooldown(player))
         return false;
+    uint32 const globalCooldown = OtherHalfGlobalCooldown(player, info);
     {
         std::lock_guard<std::mutex> lock(twinMutex);
         Brain& brain = brains[player->GetGUID().GetCounter()];
@@ -3132,8 +3166,10 @@ bool OrderOtherHalf(Player* player, uint32 spellId, Unit* target, uint32 pause)
             return true;
         brain.Busy = true;
         brain.Pause = std::max(brain.Pause, pause);
+        brain.GlobalCooldownUntil = GameTime::GetGameTimeMS().count() + globalCooldown;
     }
     uint32 const castTime = info->CalcCastTime(player);
+    SendSubclassMessage(player, Acore::StringFormat("OTHERSTART {} {} {}", spellId, globalCooldown, castTime));
     if (castTime)
         if (Creature* twin = HasTwin(player) ? TwinOf(player) : nullptr)
         {
@@ -3193,7 +3229,7 @@ void PressForOtherHalf(Player* player, uint32 spellId)
     }
     if (!HasSecondHead(player))
         return;
-    if (!Affordable(player, info))
+    if (!Affordable(player, info) || OtherHalfOnGlobalCooldown(player))
         chat.SendNotification("Your other head can't cast that yet.");
     else if (!OrderOtherHalf(player, spellId, target, ManualPause))
         chat.SendNotification("Your other head can't cast that right now.");

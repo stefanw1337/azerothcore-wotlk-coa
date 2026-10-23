@@ -869,9 +869,17 @@ void SendSubclassState(Player* player)
     Subclass::Choice const choice = ChoiceOf(player);
     SendAddon(player, "SUBCLASS " + (choice.Complete() ? PlainClassName(choice.SubClass) : std::string("-")));
     std::vector<std::string> otherSpells;
+    std::vector<std::string> offGlobalCooldown;
     for (uint32 spellId : KnownBorrowedActives(player))
+    {
         otherSpells.push_back(std::to_string(spellId));
+        if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId); info && !info->StartRecoveryTime)
+            offGlobalCooldown.push_back(std::to_string(spellId));
+        if (uint32 const remaining = player->GetSpellCooldownDelay(spellId))
+            SendAddon(player, Acore::StringFormat("OTHERCD {} {}", spellId, remaining));
+    }
     SendAddonList(player, "OTHERSPELLS", otherSpells);
+    SendAddonList(player, "OFFGCD", offGlobalCooldown);
     SendAddon(player, RelicState(player));
     SendAddon(player, BorrowedStances(player));
     for (std::size_t index = 0; index < open.size(); ++index)
