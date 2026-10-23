@@ -2809,16 +2809,11 @@ bool AllowsCreation(WorldSession* session, WorldPacket const& packet)
     reader.rpos(0);
     std::string name;
     uint8 race = 0;
-    uint8 classId = 0;
-    uint8 gender = 0;
-    reader >> name >> race >> classId >> gender;
-    ResponseCodes refusalCode = CHAR_CREATE_RESTRICTED_RACECLASS;
-    if (!SubclassRaceEnabled(race))
-        refusalCode = CHAR_CREATE_DISABLED;
-    else if (!OffersStandardMains() || !IsStandardMainClass(classId) || MayPlayStandardMain(race, gender))
+    reader >> name >> race;
+    if (SubclassRaceEnabled(race))
         return true;
     WorldPacket refusal(SMSG_CHAR_CREATE, 1);
-    refusal << uint8(refusalCode);
+    refusal << uint8(CHAR_CREATE_DISABLED);
     session->SendPacket(&refusal);
     return false;
 }
