@@ -418,7 +418,7 @@ public:
             SyncCursedFormRequirement(player);
             SyncDarkFrenzy(player);
         }
-        if (IsCursedForm(aura->GetId()))
+        if (IsCursedForm(aura->GetId()) && !sScriptMgr->OnPlayerKeepsOwnLook(player, aura->GetId()))
             UpdateCursedFormWeapons(player, true);
         if (aura->GetId() == SPELL_ETERNAL_CURSE)
         {
