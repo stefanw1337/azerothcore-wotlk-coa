@@ -23,11 +23,20 @@ from client_data import dbc_dir  # noqa: E402
 MAIN = r"""
 #include "AscensionCoATalentData.h"
 #include "AscensionCoATalentState.h"
+#include "AscensionFreepick.h"
 #include "DBCStores.h"
 #include <algorithm>
 #include <cstdio>
 #include <map>
 #include <set>
+
+namespace AscensionFreepick
+{
+Realm ReadRealm()
+{
+    return {};
+}
+}
 
 using namespace AscensionCompatData;
 using namespace AscensionCoATalentState;
@@ -399,6 +408,23 @@ int main(int, char** argv)
         Check(SpecializationOf(upload).Mixed, "identities of three specializations mix a plain upload");
         UploadedSpecialization const own = SpecializationOf(WithoutExtraTrees(hybrid, upload));
         Check(!own.Mixed && own.SpecId == active, "without the extra trees the upload names the active specialization");
+
+        CoATalentEntry const* ownPaid = FirstPaid(mainId, true);
+        CoATalentEntry const* borrowedPaid = nullptr;
+        for (CoATalentEntry const& entry : CoATalentEntries)
+            if (!borrowedPaid && entry.ClassId == subId && entry.SpecId == borrowed && (entry.AECost || entry.TECost))
+                borrowedPaid = &entry;
+        if (ownPaid && borrowedPaid)
+        {
+            std::vector<KnownEntry> const both = { { ownPaid->EntryId, 1 }, { borrowedPaid->EntryId, 1 } };
+            SpentPoints const all = Spent(both);
+            SpentPoints const mainOnly = Spent({ { ownPaid->EntryId, 1 } });
+            SpentPoints const charged = OwnSpent(hybrid, both);
+            Check(charged.AE == mainOnly.AE && charged.TE == mainOnly.TE && all.AE + all.TE > charged.AE + charged.TE,
+                  "points spent in a borrowed tree are not charged to the own budget");
+        }
+        else
+            Check(false, "a paid entry exists in the own class tree and in the borrowed specialization");
 
         HasSpell const none = [](std::uint32_t) { return false; };
         CoATalentEntry const* granted = nullptr;

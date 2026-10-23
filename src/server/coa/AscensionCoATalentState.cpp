@@ -319,6 +319,11 @@ SpentPoints Spent(std::vector<KnownEntry> const& known)
     return spent;
 }
 
+SpentPoints OwnSpent(TalentAccess const& access, std::vector<KnownEntry> const& known)
+{
+    return Spent(WithoutExtraTrees(access, known));
+}
+
 std::vector<std::uint8_t> KnownEntriesPayload(std::vector<KnownEntry> const& known)
 {
     std::vector<std::uint8_t> out;

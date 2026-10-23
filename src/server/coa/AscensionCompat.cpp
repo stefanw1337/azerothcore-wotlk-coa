@@ -2269,7 +2269,7 @@ public:
       refusal.Result = "CA_UPDATE_ENTRIES_UNKNOWN";
       return false;
     }
-    AscensionCoATalentState::SpentPoints const spent = AscensionCoATalentState::Spent(priced);
+    AscensionCoATalentState::SpentPoints const spent = AscensionCoATalentState::OwnSpent(access, priced);
     if (spent.AE > classBudget || spent.TE > specializationBudget)
     {
       refusal = { "CA_UPDATE_ENTRIES_NOT_TRAVERSIBLE",
