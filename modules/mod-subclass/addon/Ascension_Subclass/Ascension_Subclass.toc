@@ -8,3 +8,4 @@ Ascension_Subclass.lua
 SubclassBar.lua
 SubclassOrbs.lua
 SubclassQuest.lua
+SubclassNodes.lua

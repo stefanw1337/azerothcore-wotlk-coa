@@ -407,6 +407,75 @@ function CoAArt.Show(texture, atlas, width, height)
     return true
 end
 
+function CoAArt.Node(canvas, index, entry)
+    canvas.coaButtons = canvas.coaButtons or {}
+    CoAArt.handlers = CoAArt.handlers or { enter = NodeEnter, click = NodeClick,
+        leave = function() GameTooltip:Hide() end }
+    local previous = canvas.coaButtons[index]
+    local button = Ascension_Subclass.CoANode and Ascension_Subclass.CoANode(canvas, entry, previous, CoAArt.handlers)
+    if not button then
+        return NodeButton(canvas, index), false
+    end
+    if previous and previous ~= button then
+        previous:Hide()
+    end
+    canvas.coaButtons[index] = button
+    button:SetSize(NODE + 2, NODE + 2)
+    if canvas.buttons[index] then
+        canvas.buttons[index]:Hide()
+    end
+    return button, true
+end
+
+function CoAArt.Gated(tree, node)
+    local ae, te = SpentIn(tree)
+    return (node.entry.RequiredTabAEInvestment or 0) > ae or (node.entry.RequiredTabTEInvestment or 0) > te
+end
+
+function CoAArt.CanLearn(node, rank, maxRank, locked)
+    local entry = node.entry
+    return not locked and rank < maxRank and not GrantedByLevel(entry) and
+        (entry.AECost or 0) <= state.classPoints and (entry.TECost or 0) <= state.specPoints
+end
+
+function CoAArt.Style(button, coa, tree, node, desaturateWhenEmpty)
+    local rank, maxRank = RankOf(node.id), #(node.entry.Spells or {})
+    local locked = Locked(tree, node)
+    if coa then
+        Ascension_Subclass.ShowCoANode(button, node.entry, rank, maxRank, CoAArt.CanLearn(node, rank, maxRank, locked),
+            CoAArt.Gated(tree, node))
+        return
+    end
+    button.icon:SetTexture(IconPath(node.entry.Icon))
+    button.rank:SetText(rank .. "/" .. maxRank)
+    button.icon:SetDesaturated(rank == 0 and (locked or desaturateWhenEmpty))
+    if rank >= maxRank and maxRank > 0 then
+        button.border:SetVertexColor(1, 0.82, 0)
+        button.border:Show()
+    elseif not locked then
+        button.border:SetVertexColor(0, 1, 0)
+        button.border:Show()
+    else
+        button.border:Hide()
+    end
+    button:Show()
+end
+
+function CoAArt.Link(canvas, index, from, to, node, target)
+    canvas.coaLines = canvas.coaLines or {}
+    local line = Ascension_Subclass.CoALine and Ascension_Subclass.CoALine(canvas, canvas.coaLines[index])
+    if not line then
+        return false
+    end
+    canvas.coaLines[index] = line
+    if canvas.lines[index] then
+        canvas.lines[index]:Hide()
+    end
+    local radius = (canvas.coaButtons and canvas.coaButtons[1] and canvas.coaButtons[1]:GetWidth() or NODE) / 2
+    Ascension_Subclass.DrawCoALine(line, from[1], from[2], to[1], to[2], radius, RankOf(target) > 0)
+    return true
+end
+
 local function ShowTreeArt(tree, canvas)
     if not canvas.art then
         canvas.art = canvas:CreateTexture(nil, "BACKGROUND")
@@ -467,49 +536,21 @@ local function RenderTree(tree, canvas)
         local px = NODE + (spanX > 0 and (x - minX) / spanX * width or width / 2)
         local py = strip + NODE + (spanY > 0 and (maxY - y) / spanY * height or height / 2)
         centers[node.id] = { px, py }
-        local button = NodeButton(canvas, index)
+        local button, coa = CoAArt.Node(canvas, index, node.entry)
         button.node, button.tree = node, tree
         button:ClearAllPoints()
         button:SetPoint("CENTER", canvas, "BOTTOMLEFT", px, py)
-        button.icon:SetTexture(IconPath(node.entry.Icon))
-        local rank, maxRank = RankOf(node.id), #(node.entry.Spells or {})
-        button.rank:SetText(rank .. "/" .. maxRank)
-        local locked = Locked(tree, node)
-        button.icon:SetDesaturated(rank == 0 and locked)
-        if rank >= maxRank and maxRank > 0 then
-            button.border:SetVertexColor(1, 0.82, 0)
-            button.border:Show()
-        elseif not locked then
-            button.border:SetVertexColor(0, 1, 0)
-            button.border:Show()
-        else
-            button.border:Hide()
-        end
-        button:Show()
+        CoAArt.Style(button, coa, tree, node, false)
     end
     for index, node in ipairs(tree.abilities) do
         local slot = index - 1
         local px = 4 + NODE / 2 + (slot % perRow) * (NODE + 6)
         local py = NODE / 2 + 2 + (abilityRows - 1 - math.floor(slot / perRow)) * (NODE + 6)
-        local button = NodeButton(canvas, #tree.nodes + index)
+        local button, coa = CoAArt.Node(canvas, #tree.nodes + index, node.entry)
         button.node, button.tree = node, tree
         button:ClearAllPoints()
         button:SetPoint("CENTER", canvas, "BOTTOMLEFT", px, py)
-        button.icon:SetTexture(IconPath(node.entry.Icon))
-        local rank, maxRank = RankOf(node.id), #(node.entry.Spells or {})
-        button.rank:SetText(rank .. "/" .. maxRank)
-        local locked = Locked(tree, node)
-        button.icon:SetDesaturated(rank == 0)
-        if rank >= maxRank and maxRank > 0 then
-            button.border:SetVertexColor(1, 0.82, 0)
-            button.border:Show()
-        elseif not locked then
-            button.border:SetVertexColor(0, 1, 0)
-            button.border:Show()
-        else
-            button.border:Hide()
-        end
-        button:Show()
+        CoAArt.Style(button, coa, tree, node, true)
     end
     if not canvas.abilityLabel then
         canvas.abilityLabel = canvas:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
@@ -517,8 +558,10 @@ local function RenderTree(tree, canvas)
     canvas.abilityLabel:ClearAllPoints()
     canvas.abilityLabel:SetPoint("BOTTOMLEFT", canvas, "BOTTOMLEFT", 4, strip - 14)
     canvas.abilityLabel:SetText(abilityRows > 0 and "Abilities" or "")
-    for index = #tree.nodes + #tree.abilities + 1, #canvas.buttons do
-        canvas.buttons[index]:Hide()
+    for _, pool in ipairs({ canvas.buttons, canvas.coaButtons or {} }) do
+        for index = #tree.nodes + #tree.abilities + 1, #pool do
+            pool[index]:Hide()
+        end
     end
     local lineCount = 0
     for _, node in ipairs(tree.nodes) do
@@ -527,12 +570,16 @@ local function RenderTree(tree, canvas)
             local to = centers[target]
             if to then
                 lineCount = lineCount + 1
-                DrawLine(Line(canvas, lineCount), canvas, from[1], from[2], to[1], to[2], 24)
+                if not CoAArt.Link(canvas, lineCount, from, to, node, target) then
+                    DrawLine(Line(canvas, lineCount), canvas, from[1], from[2], to[1], to[2], 24)
+                end
             end
         end
     end
-    for index = lineCount + 1, #canvas.lines do
-        canvas.lines[index]:Hide()
+    for _, pool in ipairs({ canvas.lines, canvas.coaLines or {} }) do
+        for index = lineCount + 1, #pool do
+            pool[index]:Hide()
+        end
     end
 end
 
