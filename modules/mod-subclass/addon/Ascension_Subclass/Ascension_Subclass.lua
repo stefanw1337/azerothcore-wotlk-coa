@@ -660,17 +660,21 @@ local function RefreshResources()
         return
     end
     local index = 0
+    local handled = Ascension_Subclass.RefreshOrbs and Ascension_Subclass.RefreshOrbs(state.resources, AuraStacks) or {}
     for _, resource in ipairs(state.resources) do
-        index = index + 1
-        local row = ResourceRow(index)
-        local stacks = AuraStacks(resource.spell)
-        local maximum = resource.maximum > 0 and resource.maximum or math.max(stacks, 1)
-        row:SetMinMaxValues(0, maximum)
-        row:SetValue(stacks)
-        row:SetStatusBarColor(0.6, 0.3, 0.9)
-        row.text:SetText(resource.maximum > 0 and string.format("%s %d/%d", resource.name, stacks, resource.maximum)
-            or string.format("%s %d", resource.name, stacks))
-        row:Show()
+        if not handled[resource.spell] then
+            index = index + 1
+            local row = ResourceRow(index)
+            local stacks = AuraStacks(resource.spell)
+            local maximum = resource.maximum > 0 and resource.maximum or math.max(stacks, 1)
+            row:SetMinMaxValues(0, maximum)
+            row:SetValue(stacks)
+            row:SetStatusBarColor(0.6, 0.3, 0.9)
+            row.text:SetText(resource.maximum > 0 and
+                string.format("%s %d/%d", resource.name, stacks, resource.maximum) or
+                string.format("%s %d", resource.name, stacks))
+            row:Show()
+        end
     end
     for _, power in ipairs(state.powers) do
         index = index + 1
@@ -689,6 +693,8 @@ local function RefreshResources()
         resourceFrame.rows[extra]:Hide()
     end
     resourceFrame:SetHeight(16 + index * 18)
+    resourceFrame:SetAlpha(index > 0 and 1 or 0)
+    resourceFrame:EnableMouse(index > 0)
 end
 
 UpdateResourceFrame = function()
