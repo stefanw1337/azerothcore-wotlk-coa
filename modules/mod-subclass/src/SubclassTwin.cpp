@@ -1001,15 +1001,15 @@ Carry WantedCarry(Player const* player, Motion const& motion)
     if (motion.Riding)
         return player->IsAlive() && !player->IsInWater() && !player->HasStealthAura() ? Carry::Piggyback :
             Carry::Beside;
+    bool const shaped = player->GetDisplayId() != player->GetNativeDisplayId();
+    bool const ridden = shaped && IsRiddenForm(player->GetShapeshiftForm()) && !TransformedPastTheForm(player);
     if (!player->IsAlive() || player->IsInCombat() || player->IsInWater() || !player->IsStandState() ||
-        player->HasStealthAura() || player->GetSheath() != SHEATH_STATE_UNARMED || InBorrowedShape(player))
+        player->HasStealthAura() || (!ridden && player->GetSheath() != SHEATH_STATE_UNARMED) ||
+        InBorrowedShape(player))
         return Carry::Beside;
-    if (player->GetDisplayId() != player->GetNativeDisplayId())
-    {
-        if (!IsRiddenForm(player->GetShapeshiftForm()) || TransformedPastTheForm(player))
-            return Carry::Beside;
-        return player->GetShapeshiftForm() == FORM_GHOSTWOLF ? Carry::WolfBack : Carry::CatBack;
-    }
+    if (shaped)
+        return !ridden ? Carry::Beside :
+            player->GetShapeshiftForm() == FORM_GHOSTWOLF ? Carry::WolfBack : Carry::CatBack;
     if (player->IsMounted())
     {
         if (player->HasAuraType(SPELL_AURA_TRANSFORM) || player->HasAuraType(SPELL_AURA_MOD_SHAPESHIFT))
@@ -4023,6 +4023,18 @@ public:
                 worn += Acore::StringFormat(" {}={}", Slots[slot].Name, wardrobe.Items[slot]);
         handler->PSendSysMessage("Twin: {}, {}. Wears:{}", wardrobe.Enabled ? "out" : "away",
             TwinOf(player) ? "spawned" : "not spawned", worn.empty() ? " nothing" : worn);
+        Creature const* twin = TwinOf(player);
+        Vehicle const* ride = twin ? twin->GetVehicle() : nullptr;
+        Motion motion;
+        {
+            std::lock_guard<std::mutex> lock(twinMutex);
+            motion = motions[player->GetGUID().GetCounter()];
+        }
+        handler->PSendSysMessage("Carry {} (wanted {}), on vehicle {} seat {}; you: form {}, display {} (own {}), "
+            "sheath {}, combat {}", uint32(motion.Mode), uint32(WantedCarry(player, motion)),
+            ride ? ride->GetVehicleInfo()->m_ID : 0, twin && ride ? int32(twin->GetTransSeat()) : -1,
+            uint32(player->GetShapeshiftForm()), player->GetDisplayId(), player->GetNativeDisplayId(),
+            uint32(player->GetSheath()), player->IsInCombat());
         return true;
     }
 };
