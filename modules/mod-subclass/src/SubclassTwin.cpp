@@ -72,6 +72,8 @@ bool SubclassRaceEnabled(uint8 race);
 bool TravelFormsShapeWholeBody();
 uint8 StoryGenderOf(Player const* player);
 bool SubclassQuestOffered(Player const* player);
+bool SubclassOfferPostponed(Player const* player);
+void PostponeOffer(Player const* player, bool postponed);
 void ShowSubclassPrompt(Player* player, ObjectGuid source);
 bool AnswerSubclassPrompt(Player* player, uint32 sender, uint32 action);
 void ShowQuestOnTwin(Player* player, bool offered);
@@ -1956,9 +1958,66 @@ std::string TwinState(Player const* player)
 
 bool SubclassChosen(Player const* player);
 
+struct QuestMark
+{
+    uint32 Flash = 0;
+    bool Resting = false;
+};
+
+constexpr uint32 QuestMarkFlash = 5000;
+std::unordered_map<uint32, QuestMark>& questMarks = *new std::unordered_map<uint32, QuestMark>;
+
+void FlashQuestOffer(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(twinMutex);
+    questMarks[player->GetGUID().GetCounter()].Flash = QuestMarkFlash;
+}
+
+bool QuestMarkFlashing(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(twinMutex);
+    auto const itr = questMarks.find(player->GetGUID().GetCounter());
+    return itr != questMarks.end() && itr->second.Flash;
+}
+
+bool MarksOffer(Player const* player, bool offered)
+{
+    return offered && !SubclassOfferPostponed(player) &&
+        (player->HasPlayerFlag(PLAYER_FLAGS_RESTING) || QuestMarkFlashing(player));
+}
+
+void TickQuestMark(Player* player, uint32 ticked)
+{
+    if (!HasTwin(player) && !HasSecondHead(player))
+        return;
+    bool const resting = player->HasPlayerFlag(PLAYER_FLAGS_RESTING);
+    bool changed = false;
+    bool arrived = false;
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        QuestMark& mark = questMarks[player->GetGUID().GetCounter()];
+        if (mark.Flash)
+        {
+            mark.Flash = mark.Flash > ticked ? mark.Flash - ticked : 0;
+            changed = !mark.Flash;
+        }
+        if (mark.Resting != resting)
+        {
+            mark.Resting = resting;
+            arrived = resting;
+            changed = true;
+        }
+    }
+    if (arrived)
+        PostponeOffer(player, false);
+    if (changed)
+        ShowQuestOnTwin(player, SubclassQuestOffered(player));
+}
+
 void ShowQuestOnSecondHead(Player* player, bool offered)
 {
     bool const marked = player->HasAura(QuestMarkAura);
+    offered = MarksOffer(player, offered);
     if (offered && !marked && player->IsAlive())
     {
         player->AddAura(QuestMarkAura, player);
@@ -1987,8 +2046,8 @@ void ShowQuestOnTwin(Player* player, bool offered)
         twin->RemoveNpcFlag(NPCFlags(Talks));
         twin->SetUnitFlag(UNIT_FLAG_NOT_SELECTABLE);
     }
-    player->PlayerTalkClass->SendQuestGiverStatus(offered ? DIALOG_STATUS_AVAILABLE : DIALOG_STATUS_NONE,
-        twin->GetGUID());
+    player->PlayerTalkClass->SendQuestGiverStatus(
+        MarksOffer(player, offered) ? DIALOG_STATUS_AVAILABLE : DIALOG_STATUS_NONE, twin->GetGUID());
 }
 
 class npc_subclass_twin : public CreatureScript
@@ -2012,7 +2071,7 @@ public:
 
     uint32 GetDialogStatus(Player* player, Creature* creature) override
     {
-        return creature->GetOwnerGUID() == player->GetGUID() && SubclassQuestOffered(player) ?
+        return creature->GetOwnerGUID() == player->GetGUID() && MarksOffer(player, SubclassQuestOffered(player)) ?
             DIALOG_STATUS_AVAILABLE : DIALOG_STATUS_NONE;
     }
 };
@@ -3215,6 +3274,7 @@ void TickSelfAura(Player* player, uint32 diff)
         elapsed = 0;
     }
     UpdateSelfAura(player);
+    TickQuestMark(player, ticked);
     KeepHalfForm(player);
     SyncBorrowedMana(player, ticked);
     TickSharedPool(player, ticked);
@@ -3960,6 +4020,7 @@ public:
         DismissTwin(player);
         std::lock_guard<std::mutex> lock(twinMutex);
         wardrobes.erase(player->GetGUID().GetCounter());
+        questMarks.erase(player->GetGUID().GetCounter());
     }
 
     void OnPlayerCreate(Player* player) override

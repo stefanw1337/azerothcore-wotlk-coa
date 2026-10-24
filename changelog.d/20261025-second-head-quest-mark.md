@@ -2,6 +2,7 @@
 area: modules
 type: changed
 audience: players
-title: The Two-Headed Ogre's second head shows a floating quest mark when she wants a word
+title: The second head's quest mark floats over her head in cities and inns
 ---
-The yellow mark floats over her second head instead of sitting on your portrait. Use Agree or Disagree to hear her out.
+When she first wants a word it shows for a few seconds, then only while you rest. Answer "not now" and it stays away
+until you next reach a city or inn. Agree or Disagree, or talking to your brother, still opens her question.

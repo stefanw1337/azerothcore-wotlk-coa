@@ -86,6 +86,7 @@ Trainer::Trainer const* ClassTrainerOf(uint8 classId);
 bool IsBorrowedSpell(Player const* player, uint32 spellId);
 bool InBorrowedFamily(Player const* player, uint8 subClass, SpellInfo const* info);
 void ShowQuestOnTwin(Player* player, bool offered);
+void FlashQuestOffer(Player const* player);
 Subclass::Offer BorrowedOffer(AscensionCompatData::CoATalentEntry const& entry);
 void SyncBorrowedMana(Player* player, uint32 milliseconds);
 void ResendBrotherShare(Player const* player);
@@ -1747,6 +1748,8 @@ void ShowPrompt(Player* player, ObjectGuid source)
 void NoteQuestOffer(Player* player)
 {
     bool const offered = OffersQuest(player);
+    if (offered)
+        FlashQuestOffer(player);
     SendAddon(player, Acore::StringFormat("QUESTOFFER {}", offered ? 1 : 0));
     ShowQuestOnTwin(player, offered);
 }
@@ -2122,6 +2125,23 @@ bool SubclassQuestOffered(Player const* player)
     return OffersQuest(player);
 }
 
+std::unordered_set<uint32>& postponedOffers = *new std::unordered_set<uint32>;
+
+void PostponeOffer(Player const* player, bool postponed)
+{
+    std::lock_guard<std::mutex> lock(subclassMutex);
+    if (postponed)
+        postponedOffers.insert(player->GetGUID().GetCounter());
+    else
+        postponedOffers.erase(player->GetGUID().GetCounter());
+}
+
+bool SubclassOfferPostponed(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(subclassMutex);
+    return postponedOffers.count(player->GetGUID().GetCounter());
+}
+
 void ShowSubclassPrompt(Player* player, ObjectGuid source)
 {
     ShowPrompt(player, source);
@@ -2137,6 +2157,8 @@ bool AnswerSubclassPrompt(Player* player, uint32 sender, uint32 action)
     {
         CloseGossipMenuFor(player);
         ChatHandler(player->GetSession()).SendSysMessage(VoiceOf(player).Says(VoiceOf(player).Later));
+        PostponeOffer(player, true);
+        NoteQuestOffer(player);
     }
     return true;
 }
@@ -2643,6 +2665,7 @@ public:
 
     void OnPlayerLogin(Player* player) override
     {
+        PostponeOffer(player, false);
         TrimChoice(player);
         AssignBotSubclass(player);
         LearnStandardMainWeaponSkills(player);
