@@ -1431,6 +1431,22 @@ void RefreshPowerPools(Player* player)
     SyncBorrowedMana(player, 0);
 }
 
+void RestoreSavedPowers(Player* player)
+{
+    QueryResult result = CharacterDatabase.Query("SELECT `power1`, `power2`, `power3`, `power4`, `power5`, `power6`, "
+        "`power7` FROM `characters` WHERE `guid` = {}", player->GetGUID().GetCounter());
+    if (!result)
+        return;
+    Field* fields = result->Fetch();
+    for (uint8 index = 0; index < MAX_POWERS; ++index)
+    {
+        Powers const power = Powers(index);
+        uint32 const saved = std::min(fields[index].Get<uint32>(), player->GetMaxPower(power));
+        if (saved > player->GetPower(power))
+            player->SetPower(power, saved);
+    }
+}
+
 constexpr uint32 KitPasses = 8;
 
 std::vector<uint16> ClassSkillLinesOf(std::vector<uint32> const& spells)
@@ -2601,6 +2617,7 @@ public:
         if (SubclassRaceEnabled(player->getRace()))
             DropUnwieldedGearSkills(player);
         RefreshPowerPools(player);
+        RestoreSavedPowers(player);
         ScheduleQuestOffer(player, 5s);
     }
 

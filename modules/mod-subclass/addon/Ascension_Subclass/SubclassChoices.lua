@@ -96,6 +96,13 @@ local function NewFace(canvas, entry, handlers)
     if not face then
         return nil
     end
+    for _, inset in ipairs({ { "SetBackgroundInset", -20, -20, -20, -20 }, { "SetBorderInset", -10, -10, -7, -7 },
+        { "SetOverlayInset", -10, -10, -7, -7 }, { "SetHighlightInset", -10, -10, -7, -7 } }) do
+        local method = face.Icon[inset[1]]
+        if method then
+            pcall(method, face.Icon, inset[2], inset[3], inset[4], inset[5])
+        end
+    end
     face:SetScript("OnEnter", Enter)
     face:SetScript("OnClick", Click)
     face.watcher = CreateFrame("Frame", nil, face)

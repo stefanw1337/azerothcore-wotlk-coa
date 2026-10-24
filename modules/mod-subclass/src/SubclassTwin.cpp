@@ -269,6 +269,25 @@ HalfForm HalfFormOf(Player const* player)
     return itr == halfForms.end() ? HalfForm{} : itr->second;
 }
 
+constexpr std::array<uint8, 3> RiderWeaponSlots = { EQUIPMENT_SLOT_MAINHAND, EQUIPMENT_SLOT_OFFHAND,
+    EQUIPMENT_SLOT_RANGED };
+
+struct RiderWeapons
+{
+    std::array<uint32, 3> Entries{};
+    std::array<uint32, 3> Enchants{};
+};
+
+std::mutex& riderMutex = *new std::mutex;
+std::unordered_map<uint32, RiderWeapons>& riderWeapons = *new std::unordered_map<uint32, RiderWeapons>;
+
+Optional<RiderWeapons> WeaponsOfTheRider(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(riderMutex);
+    auto const itr = riderWeapons.find(player->GetGUID().GetCounter());
+    return itr == riderWeapons.end() ? Optional<RiderWeapons>() : Optional<RiderWeapons>(itr->second);
+}
+
 constexpr uint32 CopyShownMs = 4000;
 std::mutex shownCopiesMutex;
 std::unordered_map<uint64, uint32>& shownCopies = *new std::unordered_map<uint64, uint32>;
@@ -610,6 +629,12 @@ Wardrobe Dressed(Player const* player)
     if (!IsSplit(player) || RidesTheBrother(player))
     {
         wardrobe.Items = Worn(player).Items;
+        if (Optional<RiderWeapons> const held = WeaponsOfTheRider(player))
+        {
+            wardrobe.Items[MainHand] = held->Entries[0];
+            wardrobe.Items[OffHand] = held->Entries[1];
+            wardrobe.Items[Ranged] = held->Entries[2];
+        }
         return wardrobe;
     }
     if (OtherHalfShoots(player))
@@ -954,7 +979,7 @@ void SetCarry(Player* player, Creature* twin, Carry mode)
 Carry WantedCarry(Player const* player, Motion const& motion)
 {
     if (motion.Riding)
-        return player->IsAlive() && !player->IsInWater() && !player->HasStealthAura() ? Carry::CatBack :
+        return player->IsAlive() && !player->IsInWater() && !player->HasStealthAura() ? Carry::Piggyback :
             Carry::Beside;
     if (!player->IsAlive() || player->IsInCombat() || player->IsInWater() || !player->IsStandState() ||
         player->HasStealthAura() || player->GetSheath() != SHEATH_STATE_UNARMED || InBorrowedShape(player))
@@ -1553,9 +1578,59 @@ void FightAtTheFoe(Player* player, Creature* twin, Unit* foe, Motion const& moti
         stored.BrotherSwing = std::max<uint32>(player->GetAttackTime(BASE_ATTACK), MotionTick);
 }
 
+constexpr uint32 SpawnSmokeSpell = 10389;
+
+uint32 VisibleWeaponField(uint8 slot)
+{
+    return PLAYER_VISIBLE_ITEM_1_ENTRYID + slot * 2;
+}
+
+void HandWeaponsToRider(Player* player)
+{
+    RiderWeapons held;
+    for (std::size_t index = 0; index < RiderWeaponSlots.size(); ++index)
+    {
+        uint32 const field = VisibleWeaponField(RiderWeaponSlots[index]);
+        held.Entries[index] = player->GetUInt32Value(field);
+        held.Enchants[index] = player->GetUInt32Value(field + 1);
+        player->SetUInt32Value(field, 0);
+        player->SetUInt32Value(field + 1, 0);
+    }
+    std::lock_guard<std::mutex> lock(riderMutex);
+    riderWeapons[player->GetGUID().GetCounter()] = held;
+}
+
+void TakeWeaponsBack(Player* player)
+{
+    Optional<RiderWeapons> held;
+    {
+        std::lock_guard<std::mutex> lock(riderMutex);
+        auto const itr = riderWeapons.find(player->GetGUID().GetCounter());
+        if (itr == riderWeapons.end())
+            return;
+        held = itr->second;
+        riderWeapons.erase(itr);
+    }
+    for (std::size_t index = 0; index < RiderWeaponSlots.size(); ++index)
+    {
+        uint32 const field = VisibleWeaponField(RiderWeaponSlots[index]);
+        if (player->GetUInt32Value(field))
+            continue;
+        player->SetUInt32Value(field, held->Entries[index]);
+        player->SetUInt32Value(field + 1, held->Enchants[index]);
+    }
+}
+
 void SwapRider(Player* player, bool riding)
 {
+    if (riding)
+        HandWeaponsToRider(player);
+    else
+        TakeWeaponsBack(player);
     SummonTwin(player);
+    player->CastSpell(player, SpawnSmokeSpell, true);
+    if (Creature* twin = TwinOf(player))
+        twin->CastSpell(twin, SpawnSmokeSpell, true);
     std::lock_guard<std::mutex> lock(twinMutex);
     motions[player->GetGUID().GetCounter()].Riding = riding;
 }
@@ -3738,6 +3813,10 @@ public:
         ClearCastingGlows(player);
         ForgetSharedPool(player);
         ForgetHalfForm(player);
+        {
+            std::lock_guard<std::mutex> lock(riderMutex);
+            riderWeapons.erase(player->GetGUID().GetCounter());
+        }
         DismissTwin(player);
         std::lock_guard<std::mutex> lock(twinMutex);
         wardrobes.erase(player->GetGUID().GetCounter());
@@ -4196,11 +4275,20 @@ bool OrderBrother(Player* player, uint32 spellId, Unit* target)
     return true;
 }
 
+bool CancelsOnSecondPress(Player* player, SpellInfo const* info)
+{
+    if (!player->HasAura(info->Id) || info->HasAttribute(SPELL_ATTR0_NO_AURA_CANCEL) ||
+        !(CarriesTheMain(info) || info->HasAura(SPELL_AURA_MOUNTED) || TogglesOff(info)))
+        return false;
+    player->RemoveOwnedAura(info->Id, ObjectGuid::Empty, 0, AURA_REMOVE_BY_CANCEL);
+    return true;
+}
+
 void PressForOtherHalf(Player* player, uint32 spellId)
 {
     SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
     if (!info || !player->IsAlive() || !player->HasSpell(spellId) || !IsBorrowedSpell(player, spellId) ||
-        TakeHalfForm(player, info))
+        TakeHalfForm(player, info) || CancelsOnSecondPress(player, info))
         return;
     Unit* selected = player->GetSelectedUnit();
     Unit* target = player;
