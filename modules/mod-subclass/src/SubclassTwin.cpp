@@ -147,6 +147,7 @@ constexpr uint32 PiggybackVehicle = 9530;
 constexpr uint32 SaddleVehicle = 9531;
 constexpr uint32 WolfBackVehicle = 9532;
 constexpr uint32 CatBackVehicle = 9533;
+constexpr uint32 ShoulderRideVehicle = 9598;
 constexpr uint32 LastTwinVehicle = 9599;
 constexpr int8 TwinSeat = 1;
 constexpr uint32 MotionTick = 200;
@@ -164,6 +165,7 @@ enum class Carry
     Saddle,
     WolfBack,
     CatBack,
+    Shoulders,
     Passenger
 };
 
@@ -960,6 +962,8 @@ uint32 VehicleFor(Player const* player, Carry mode)
             return WolfBackVehicle;
         case Carry::CatBack:
             return CatBackVehicle;
+        case Carry::Shoulders:
+            return ShoulderRideVehicle;
         default:
             return SaddleFor(player);
     }
@@ -1001,7 +1005,7 @@ bool TransformedPastTheForm(Player const* player)
 Carry WantedCarry(Player const* player, Motion const& motion)
 {
     if (motion.Riding)
-        return player->IsAlive() && !player->IsInWater() && !player->HasStealthAura() ? Carry::Piggyback :
+        return player->IsAlive() && !player->IsInWater() && !player->HasStealthAura() ? Carry::Shoulders :
             Carry::Beside;
     bool const shaped = player->GetDisplayId() != player->GetNativeDisplayId();
     bool const ridden = shaped && IsRiddenForm(player->GetShapeshiftForm()) && !TransformedPastTheForm(player);

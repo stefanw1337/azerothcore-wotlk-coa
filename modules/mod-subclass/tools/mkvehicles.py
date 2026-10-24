@@ -7,12 +7,14 @@ SRC = sys.argv[1]
 OUT = sys.argv[2]
 PIGGYBACK, SADDLE, WOLF_BACK, CAT_BACK = 9530, 9531, 9532, 9533
 PIGGYBACK_SEAT, SADDLE_SEAT, WOLF_BACK_SEAT, CAT_BACK_SEAT = 9530, 9531, 9532, 9533
+SHOULDER_RIDE = SHOULDER_RIDE_SEAT = 9598
 TEMPLATE_VEHICLE, TEMPLATE_SEAT = 312, 2764
 SEAT_CAN_ENTER_OR_EXIT, SEAT_CAN_SWITCH = 0x02000000, 0x04000000
 CHEST_BACK_SEAT, CHEST_SEAT, MOUNT_RIDER_SEAT = 10, 1, 21
 PIGGYBACK_OFFSET, PIGGYBACK_PITCH = (0.05, 0.0, -0.35), -0.35
 RIDER_BEHIND_OFFSET = (-0.28, 0.0, 0.0)
 WOLF_BACK_OFFSET, CAT_BACK_OFFSET, CAT_BACK_PITCH = (-0.4, 0.0, 0.0), (-0.53, 0.0, 0.81), 0.55
+SHOULDER_RIDE_OFFSET = (0.04, 0.02, 0.44)
 FIRST_POSE_SEAT, MOUNT_POSE, SIT_CHAIR_LOW, NO_ANIMATION = 9534, 91, 102, 0xFFFFFFFF
 CHAIR_FROM_RECLINED = (0.2, 0.0, -0.31)
 CAR_SEATS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "car_seats.tsv")
@@ -150,9 +152,11 @@ _, vehicle_fields, vehicle_size, vehicles, vehicle_strings = load(f"{SRC}/Vehicl
 new_seats = [seat(seats, PIGGYBACK_SEAT, CHEST_BACK_SEAT, PIGGYBACK_OFFSET, PIGGYBACK_PITCH),
              seat(seats, SADDLE_SEAT, MOUNT_RIDER_SEAT, RIDER_BEHIND_OFFSET),
              seat(seats, WOLF_BACK_SEAT, MOUNT_RIDER_SEAT, WOLF_BACK_OFFSET),
-             seat(seats, CAT_BACK_SEAT, CHEST_SEAT, CAT_BACK_OFFSET, CAT_BACK_PITCH)]
+             seat(seats, CAT_BACK_SEAT, CHEST_SEAT, CAT_BACK_OFFSET, CAT_BACK_PITCH),
+             seat(seats, SHOULDER_RIDE_SEAT, CHEST_BACK_SEAT, SHOULDER_RIDE_OFFSET)]
 new_vehicles = [vehicle(vehicles, PIGGYBACK, PIGGYBACK_SEAT), vehicle(vehicles, SADDLE, SADDLE_SEAT),
-                vehicle(vehicles, WOLF_BACK, WOLF_BACK_SEAT), vehicle(vehicles, CAT_BACK, CAT_BACK_SEAT)]
+                vehicle(vehicles, WOLF_BACK, WOLF_BACK_SEAT), vehicle(vehicles, CAT_BACK, CAT_BACK_SEAT),
+                vehicle(vehicles, SHOULDER_RIDE, SHOULDER_RIDE_SEAT)]
 for anim, pose_id in pose_ids.items():
     new_seats.append(seat(seats, pose_id, MOUNT_RIDER_SEAT, RIDER_BEHIND_OFFSET, ride=anim))
     new_vehicles.append(vehicle(vehicles, pose_id, pose_id))
