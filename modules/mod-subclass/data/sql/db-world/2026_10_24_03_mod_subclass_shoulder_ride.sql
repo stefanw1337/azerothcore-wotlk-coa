@@ -1,6 +1,7 @@
 -- mod-subclass: Running Wild shoulder ride. On the worgen the main sits on the brother's shoulders behind his head,
 -- legs down his chest, instead of low on his back behind the hump. Seat 9598 hangs from the worgen's upper back
--- (seat attachment 10, M2 attachment 16, a chest bone) 0.44 higher, so it moves with his chest as he runs.
+-- (seat attachment 10, M2 attachment 16, a chest bone) 0.26 higher, so it moves with his chest as he runs. That bone
+-- leans about 46 degrees forward while the worgen stands, so a -0.8 pitch keeps the rider upright.
 
 DELETE FROM `vehicleseat_dbc` WHERE `ID` IN (9598);
 INSERT INTO `vehicleseat_dbc` (`ID`, `Flags`, `AttachmentID`, `AttachmentOffsetX`, `AttachmentOffsetY`,
@@ -15,8 +16,8 @@ INSERT INTO `vehicleseat_dbc` (`ID`, `Flags`, `AttachmentID`, `AttachmentOffsetX
     `CameraExitingDelay`, `CameraExitingDuration`, `CameraOffsetX`, `CameraOffsetY`, `CameraOffsetZ`,
     `CameraPosChaseRate`, `CameraFacingChaseRate`, `CameraEnteringZoom`, `CameraSeatZoomMin`, `CameraSeatZoomMax`)
     VALUES
-(9598, -671055861, 10, 0.04, 0.02, 0.44, 0.0, 10.0, 19.290001, 0.6, 1.0, 1.5, 4.0, 37, 38, -1, 91, 128, 123, 0.0,
-    10.0, 19.290001, 0.6, 2.0, 1.5, 2.0, 37, 38, 39, 0.0, 0.0, 0.0, -1, 226, 107, 158, 1, 1, 1, 0.0, 0.0, 1, 0, 0,
+(9598, -671055861, 10, 0.02, 0.01, 0.26, 0.0, 10.0, 19.290001, 0.6, 1.0, 1.5, 4.0, 37, 38, -1, 91, 128, 123, 0.0,
+    10.0, 19.290001, 0.6, 2.0, 1.5, 2.0, 37, 38, 39, 0.0, -0.8, 0.0, -1, 226, 107, 158, 1, 1, 1, 0.0, 0.0, 1, 0, 0,
     0, 1073741872, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
 
 DELETE FROM `vehicle_dbc` WHERE `ID` IN (9598);
