@@ -598,6 +598,50 @@ SlashCmdList.ASCENSIONSUBCLASSBAR = function(message)
     end
 end
 
+local AUTO_PLACEMENT_DELAY = 0.5
+
+local function IsBorrowedSpellName(spellName)
+    for spellId in pairs(knownSpells) do
+        if GetSpellInfo(spellId) == spellName then
+            return true
+        end
+    end
+    return false
+end
+
+local function KeepBorrowedSpellsOffOwnBars()
+    local placeOnOwnBar = C_Spell and C_Spell.PlaceSpellOnActionBar
+    if not placeOnOwnBar then
+        return
+    end
+    local pending = {}
+    local placer = CreateFrame("Frame")
+    placer:Hide()
+    placer:SetScript("OnUpdate", function(self)
+        if GetCursorInfo() then
+            return
+        end
+        local now = GetTime()
+        for spellName, due in pairs(pending) do
+            if now >= due then
+                pending[spellName] = nil
+                if not IsBorrowedSpellName(spellName) then
+                    placeOnOwnBar(C_Spell, spellName)
+                end
+            end
+        end
+        if not next(pending) then
+            self:Hide()
+        end
+    end)
+    C_Spell.PlaceSpellOnActionBar = function(_, spellName)
+        pending[spellName] = GetTime() + AUTO_PLACEMENT_DELAY
+        placer:Show()
+    end
+end
+
+KeepBorrowedSpellsOffOwnBars()
+
 local events = CreateFrame("Frame")
 events:RegisterEvent("PLAYER_LOGIN")
 events:RegisterEvent("UPDATE_BINDINGS")
