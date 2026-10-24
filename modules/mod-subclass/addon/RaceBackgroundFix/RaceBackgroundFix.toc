@@ -1,0 +1,6 @@
+## Interface: 30300
+## Title: Race Background Fix
+## Notes: Uses a fallback dress-up background for races without their own artwork (e.g. Ogre).
+## Author: stefanw1337
+## Version: 0.1
+RaceBackgroundFix.lua

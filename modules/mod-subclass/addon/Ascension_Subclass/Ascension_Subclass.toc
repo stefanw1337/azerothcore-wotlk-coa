@@ -4,6 +4,7 @@
 ## Version: 0.1.0
 ## SavedVariables: Ascension_SubclassDump
 ## OptionalDeps: Bartender4, SpellActivationOverlay-for-CoA
+SubclassRaceBackground.lua
 Ascension_Subclass.lua
 SubclassBar.lua
 SubclassCastBar.lua
