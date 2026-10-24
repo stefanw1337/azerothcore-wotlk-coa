@@ -379,6 +379,22 @@ inline Gate GateOf(std::vector<Offer> const& offers, std::vector<Rank> const& ra
     return Gate::Open;
 }
 
+struct HeldWeapons
+{
+    std::array<std::uint32_t, 3> Entries{};
+    std::array<std::uint32_t, 3> Enchants{};
+};
+
+inline void HoldShownWeapons(HeldWeapons& held, HeldWeapons const& shown)
+{
+    for (std::size_t index = 0; index < held.Entries.size(); ++index)
+        if (shown.Entries[index])
+        {
+            held.Entries[index] = shown.Entries[index];
+            held.Enchants[index] = shown.Enchants[index];
+        }
+}
+
 inline bool Affords(Offer const& offer, std::uint32_t current, std::uint32_t rank, std::uint32_t classPointsLeft,
     std::uint32_t specPointsLeft)
 {

@@ -363,3 +363,16 @@ TEST(Subclass, ABorrowedRankCostsPointsFromItsOwnPool)
     EXPECT_FALSE(Affords(specNode, 0, 1, 5, 0));
     EXPECT_TRUE(Affords(specNode, 2, 1, 0, 0));
 }
+
+TEST(Subclass, ARiderKeepsTheWeaponsHeHoldsWhenHandedBlankSlots)
+{
+    HeldWeapons held;
+    HoldShownWeapons(held, { { 5200, 0, 125796 }, { 7, 0, 0 } });
+    HoldShownWeapons(held, { { 0, 0, 125796 }, { 0, 0, 0 } });
+    EXPECT_EQ(held.Entries[0], 5200u);
+    EXPECT_EQ(held.Enchants[0], 7u);
+    EXPECT_EQ(held.Entries[2], 125796u);
+    HoldShownWeapons(held, { { 3441, 0, 0 }, { 0, 0, 0 } });
+    EXPECT_EQ(held.Entries[0], 3441u);
+    EXPECT_EQ(held.Enchants[0], 0u);
+}

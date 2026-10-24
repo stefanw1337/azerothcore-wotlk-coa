@@ -278,11 +278,7 @@ HalfForm HalfFormOf(Player const* player)
 constexpr std::array<uint8, 3> RiderWeaponSlots = { EQUIPMENT_SLOT_MAINHAND, EQUIPMENT_SLOT_OFFHAND,
     EQUIPMENT_SLOT_RANGED };
 
-struct RiderWeapons
-{
-    std::array<uint32, 3> Entries{};
-    std::array<uint32, 3> Enchants{};
-};
+using RiderWeapons = Subclass::HeldWeapons;
 
 std::mutex& riderMutex = *new std::mutex;
 std::unordered_map<uint32, RiderWeapons>& riderWeapons = *new std::unordered_map<uint32, RiderWeapons>;
@@ -1637,17 +1633,17 @@ uint32 VisibleWeaponField(uint8 slot)
 
 void HandWeaponsToRider(Player* player)
 {
-    RiderWeapons held;
+    RiderWeapons shown;
     for (std::size_t index = 0; index < RiderWeaponSlots.size(); ++index)
     {
         uint32 const field = VisibleWeaponField(RiderWeaponSlots[index]);
-        held.Entries[index] = player->GetUInt32Value(field);
-        held.Enchants[index] = player->GetUInt32Value(field + 1);
+        shown.Entries[index] = player->GetUInt32Value(field);
+        shown.Enchants[index] = player->GetUInt32Value(field + 1);
         player->SetUInt32Value(field, 0);
         player->SetUInt32Value(field + 1, 0);
     }
     std::lock_guard<std::mutex> lock(riderMutex);
-    riderWeapons[player->GetGUID().GetCounter()] = held;
+    Subclass::HoldShownWeapons(riderWeapons[player->GetGUID().GetCounter()], shown);
 }
 
 void TakeWeaponsBack(Player* player)
@@ -1720,8 +1716,15 @@ void StopFighting(Player const* player)
     motions[player->GetGUID().GetCounter()].Chasing = ObjectGuid::Empty;
 }
 
+void ReturnWeaponsAfterTheRide(Player* player)
+{
+    if (WeaponsOfTheRider(player) && !RidesTheBrother(player))
+        TakeWeaponsBack(player);
+}
+
 void UpdateCarry(Player* player, uint32 diff)
 {
+    ReturnWeaponsAfterTheRide(player);
     Motion motion;
     bool pointNow = false;
     uint32 const guid = player->GetGUID().GetCounter();
@@ -3890,6 +3893,7 @@ public:
 
     void OnPlayerBeforeLogout(Player* player) override
     {
+        TakeWeaponsBack(player);
         ShowCharacterSelectJaws(player);
     }
 
