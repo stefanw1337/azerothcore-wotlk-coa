@@ -41,8 +41,8 @@ SPELLS = [
     (9530109, MODE, 25225, "Two Heads, Half a Brain", "", "", "Your other head does what she likes."),
     (9530110, REACH, 3609, "Brother's Reach", "", "", "Your brother shoots from where he stands."),
     (9530111, PASSIVE, 18227, "Twin-Linked", "Racial Passive",
-     "You and your brother share one health and mana pool, and whatever befalls you befalls him too: "
-     "stuns, fears and even sheep.", ""),
+     "You and your brother share one health pool, and whatever befalls you befalls him too: stuns, fears and "
+     "even sheep. Any stat his class relies on rises to match your main stat, so your gear serves you both.", ""),
     (9530112, PASSIVE, 1513, "Tolerance", "Racial Passive",
      "Ogres were weaned on Gordok grog. Drinks make you half as drunk, the haze wears off twice as fast, "
      "and you never get past merely drunk.", ""),
@@ -56,6 +56,14 @@ SPELLS = [
     (9530117, RACIAL, 25332, "Me mad, disagree!", "Racial",
      "Your two heads go back to arguing. The second head's class abilities wake up again, and half your stats "
      "belong to her.", ""),
+    (9530118, PASSIVE, 1870, "Brother from the Same Mother", "Racial Passive",
+     "Your brother has a resource pool of his own. When both of you use the same resource, the pool is twice as "
+     "big and split in two: each of you spends his own half first, and whatever refills it fills both halves.",
+     ""),
+    (9530119, PASSIVE, 2636, "Shared Blood", "Racial Passive",
+     "Your heads share one blood. When both heads use the same resource, they share one pool of it, twice as big "
+     "and refilling twice as fast. Any stat the second head's class relies on rises to match your main stat, so "
+     "your gear serves you both.", ""),
 ]
 CASTER_AURA = {9530106: 9530102, 9530107: 9530105}
 

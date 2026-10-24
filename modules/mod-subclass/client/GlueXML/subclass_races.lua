@@ -11,7 +11,8 @@ end
 if CHAR_CREATE_COA_RACIALS then
 	CHAR_CREATE_COA_RACIALS[96] = {
 		{"Brother, Where Art Thou?", "Spell_Holy_PrayerOfSpirit", "active", "Call your twin brother to your side, or send him home. From level 20 he can follow a class of his own."},
-		{"Twin-Linked", "Spell_Holy_SealOfSacrifice", "passive", "You and your brother share one health and mana pool, and whatever befalls you befalls him too."},
+		{"Twin-Linked", "Spell_Holy_SealOfSacrifice", "passive", "You and your brother share one health pool, and whatever befalls you befalls him too. Any stat his class relies on rises to match your main stat."},
+		{"Brother from the Same Mother", "Spell_Holy_PrayerofSpirit", "passive", "Your brother has a resource pool of his own: when you both use the same resource, the pool is twice as big and split in two."},
 		{"Desperate Flight", "Ability_Rogue_Sprint", "active", "Removes roots and snares and increases movement speed by 20% for 6 sec."},
 		{"Wiry Frame", "Ability_Racial_ShadowMeld", "passive", "Dodge chance increased by 1%."},
 		{"Nervous Energy", "Ability_Rogue_Sprint", "passive", "Haste increased by 1%."},
@@ -20,6 +21,7 @@ if CHAR_CREATE_COA_RACIALS then
 	}
 	CHAR_CREATE_COA_RACIALS[85] = {
 		{"Agree or Disagree", "Spell_Shadow_BrainWash", "active", "Your two heads agree for once, or go back to arguing. From level 20 the second head can follow a class of its own."},
+		{"Shared Blood", "Spell_Deathknight_BloodPresence", "passive", "Your heads share one blood: when both use the same resource, they share one pool twice as big. Any stat the second head's class relies on rises to match your main stat."},
 		{"Tolerance", "INV_Drink_05", "passive", "Drinks make you half as drunk, the haze wears off twice as fast, and you never get past merely drunk."},
 		{"Headbutt", "Ability_Warrior_DecisiveStrike", "active", "Stuns a nearby enemy for 2 sec."},
 		{"Brute Strength", "Spell_Nature_UnyeildingStamina", "passive", "Strength increased by 2%."},

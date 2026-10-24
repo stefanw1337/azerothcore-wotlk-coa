@@ -105,6 +105,8 @@ constexpr uint32 EndlessShot = 2516;
 constexpr uint32 TwinLinkedSpell = 9530111;
 constexpr uint32 ToleranceSpell = 9530112;
 constexpr uint32 HandMeDownsSpell = 9530113;
+constexpr uint32 OwnPoolSpell = 9530118;
+constexpr uint32 SharedBloodSpell = 9530119;
 constexpr uint32 HandMeDownsPercent = 10;
 constexpr uint32 HandMeDownsTreasurePercent = 25;
 constexpr uint8 ToleratedDrunk = 89;
@@ -2656,6 +2658,10 @@ void LearnRacials(Player* player)
         player->learnSpell(HalfBrainSpell, false);
     if (HasTwin(player) && !player->HasSpell(TwinLinkedSpell))
         player->learnSpell(TwinLinkedSpell, false);
+    if (HasTwin(player) && !player->HasSpell(OwnPoolSpell))
+        player->learnSpell(OwnPoolSpell, false);
+    if (HasSecondHead(player) && !player->HasSpell(SharedBloodSpell))
+        player->learnSpell(SharedBloodSpell, false);
     if (player->getRace() == OgreRace && SubclassRaceEnabled(OgreRace) && !player->HasSpell(ToleranceSpell))
         player->learnSpell(ToleranceSpell, false);
     if (player->getRace() == TwinRace && SubclassRaceEnabled(TwinRace) && !player->HasSpell(HandMeDownsSpell))
