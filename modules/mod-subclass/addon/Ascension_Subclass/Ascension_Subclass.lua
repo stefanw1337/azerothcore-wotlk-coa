@@ -3006,6 +3006,7 @@ local function HookApplyButton(wardrobe)
     local frame = EnumerateFrames()
     while frame do
         if frame.GetObjectType and frame:GetObjectType() == "Button" and TextOf(frame) == "Apply"
+            and frame:GetName() ~= "Ascension_SubclassTwinApply"
             and IsInside(frame, wardrobe) and not frame.subclassTwinHooked then
             applyButtons[#applyButtons + 1] = frame
             local original = frame:GetScript("OnClick")
@@ -3264,7 +3265,7 @@ local function PlaceTwinApply()
             button:HookScript("OnShow", function() ShowDressing() end)
             button:HookScript("OnHide", function() ShowDressing() end)
         end
-        if not original and button:IsVisible() then
+        if not original and button ~= twinApplyButton and button:IsVisible() then
             original = button
         end
     end

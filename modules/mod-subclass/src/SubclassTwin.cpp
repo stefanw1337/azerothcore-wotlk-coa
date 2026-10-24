@@ -77,6 +77,7 @@ void ShowQuestOnTwin(Player* player, bool offered);
 
 void SendSubclassMessage(Player* player, std::string const& message);
 uint32 StowBorrowedGear(Player* player);
+WorldPacket ProjectilePacket(ObjectGuid shooter, uint32 spellId, uint32 shotItem, ObjectGuid target, bool ammo = true);
 
 namespace
 {
@@ -174,6 +175,7 @@ struct Motion
     uint32 Swing = 0;
     uint32 Afoot = 0;
     uint32 BrotherSwing = 0;
+    uint32 CloseBy = 0;
     float Follow = 0.0f;
     ObjectGuid Engaged;
     ObjectGuid Chasing;
@@ -1095,12 +1097,21 @@ bool MeleesHimself(Player const* player)
     return victim && player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) && player->IsWithinMeleeRange(victim);
 }
 
+constexpr uint32 StaysCloseAfterMelee = 4000;
+
+bool StaysClose(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(twinMutex);
+    auto const itr = motions.find(player->GetGUID().GetCounter());
+    return itr != motions.end() && itr->second.CloseBy;
+}
+
 bool FightsFromRange(Player const* player, Creature const* twin)
 {
     if (IsSplit(player))
         return !BrotherTanks(player) && !Clawing(twin) && (OtherHalfShoots(player) ||
             LendsRangedSpecialization(player) || !twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID));
-    return RangedOf(player) != nullptr && !MeleesHimself(player);
+    return RangedOf(player) != nullptr && !MeleesHimself(player) && !StaysClose(player);
 }
 
 float FollowDistanceFor(Player const* player, Creature const* twin)
@@ -1267,6 +1278,8 @@ bool EchoSwing(Player* player, Creature* twin, uint32 swing)
     {
         twin->SetSheath(SHEATH_STATE_RANGED);
         twin->HandleEmoteCommand(RangedEmote(ranged));
+        WorldPacket shot = ProjectilePacket(twin->GetGUID(), AutoShotSpell, ranged->ItemId, victim->GetGUID());
+        twin->SendMessageToSet(&shot, true);
         return true;
     }
     twin->SetSheath(SHEATH_STATE_MELEE);
@@ -1722,6 +1735,8 @@ void UpdateCarry(Player* player, uint32 diff)
         pointNow = false;
         stored.Afoot = stored.Afoot > stored.Tick ? stored.Afoot - stored.Tick : 0;
         stored.BrotherSwing = stored.BrotherSwing > stored.Tick ? stored.BrotherSwing - stored.Tick : 0;
+        stored.CloseBy = MeleesHimself(player) ? StaysCloseAfterMelee :
+            stored.CloseBy > stored.Tick ? stored.CloseBy - stored.Tick : 0;
         if (!player->IsInCombat())
             stored.Engaged = ObjectGuid::Empty;
         if (stored.Mode == Carry::Piggyback && moving && !stored.Afoot)
@@ -2512,7 +2527,7 @@ void HoldTheGun(Player* player, bool afar)
 
 constexpr float AlongShotRange = 35.0f;
 
-WorldPacket ProjectilePacket(ObjectGuid shooter, uint32 spellId, uint32 shotItem, ObjectGuid target, bool ammo = true)
+WorldPacket ProjectilePacket(ObjectGuid shooter, uint32 spellId, uint32 shotItem, ObjectGuid target, bool ammo)
 {
     ItemTemplate const* item = sObjectMgr->GetItemTemplate(shotItem);
     bool const gun = item && item->SubClass == ITEM_SUBCLASS_WEAPON_GUN;
