@@ -1175,6 +1175,12 @@ std::string TalentChangeRefusal(Player* player, uint32 entryId, uint32 rank)
         if (Subclass::Gate const gate = Subclass::GateOf(offers, before, *offer, player->GetLevel());
             gate != Subclass::Gate::Open)
             return GateRefusal(*offer, gate, offers, before);
+    uint32 classPointsLeft = 0;
+    uint32 specPointsLeft = 0;
+    if (rank > current && (!GetAscensionTalentPointsLeft(player, classPointsLeft, specPointsLeft) ||
+            !Subclass::Affords(*offer, current, rank, classPointsLeft, specPointsLeft)))
+        return Acore::StringFormat("Not enough borrowed {} points for {}.",
+            offer->SpecId ? "specialization" : "class", TalentName(entryId));
     std::vector<Subclass::Rank> after = { { entryId, rank } };
     after.insert(after.end(), before.begin(), before.end());
     if (uint32 const stranded = Subclass::StrandedBy(offers, before, after, player->GetLevel()))

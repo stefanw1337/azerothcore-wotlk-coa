@@ -351,3 +351,15 @@ TEST(Subclass, TheTwinsSplitOnePoolIntoTwoHalves)
     EXPECT_FLOAT_EQ(SplitShare(100.0f, 100, 0, 500.0f, true), 0.0f);
     EXPECT_FLOAT_EQ(SplitShare(450.0f, 900, 1000, 500.0f, false), 500.0f);
 }
+
+TEST(Subclass, ABorrowedRankCostsPointsFromItsOwnPool)
+{
+    Offer const classNode = { 1, 2, 1, 0, 10, {}, 0 };
+    Offer const specNode = { 2, 3, 0, 1, 10, {}, 99 };
+    EXPECT_TRUE(Affords(classNode, 0, 1, 1, 0));
+    EXPECT_FALSE(Affords(classNode, 0, 1, 0, 5));
+    EXPECT_FALSE(Affords(classNode, 0, 2, 1, 0));
+    EXPECT_TRUE(Affords(specNode, 1, 3, 0, 2));
+    EXPECT_FALSE(Affords(specNode, 0, 1, 5, 0));
+    EXPECT_TRUE(Affords(specNode, 2, 1, 0, 0));
+}

@@ -379,6 +379,15 @@ inline Gate GateOf(std::vector<Offer> const& offers, std::vector<Rank> const& ra
     return Gate::Open;
 }
 
+inline bool Affords(Offer const& offer, std::uint32_t current, std::uint32_t rank, std::uint32_t classPointsLeft,
+    std::uint32_t specPointsLeft)
+{
+    if (rank <= current)
+        return true;
+    std::uint32_t const cost = (rank - current) * (offer.SpecId ? offer.SpecCost : offer.ClassCost);
+    return cost <= (offer.SpecId ? specPointsLeft : classPointsLeft);
+}
+
 inline std::uint32_t StrandedBy(std::vector<Offer> const& offers, std::vector<Rank> const& before,
     std::vector<Rank> const& after, std::uint8_t level)
 {
