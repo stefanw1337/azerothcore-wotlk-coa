@@ -11,8 +11,8 @@ end
 if CHAR_CREATE_COA_RACIALS then
 	CHAR_CREATE_COA_RACIALS[96] = {
 		{"Brother, Where Art Thou?", "Spell_Holy_PrayerOfSpirit", "active", "Call your twin brother to your side, or send him home. From level 20 he can follow a class of his own."},
-		{"Twin-Linked", "Spell_Holy_SealOfSacrifice", "passive", "You and your brother share one health pool, and whatever befalls you befalls him too. Any stat his class relies on rises to match your main stat."},
-		{"Brother from the Same Mother", "Spell_Holy_PrayerofSpirit", "passive", "Your brother has a resource pool of his own: when you both use the same resource, the pool is twice as big and split in two."},
+		{"Twin-Linked", "Spell_Holy_SealOfSacrifice", "passive", "Twin-Link powers ensure they have one shared health pool. All crowd control effects will affect both at the same time. If resource pools are of different types, Twin-Link powers will make sure they are equal in power."},
+		{"Brother from the Same Mother", "Spell_Holy_PrayerofSpirit", "passive", "Your brother has a resource pool of his own. If you both use the same resource type, the pool is twice as big, like your Mother. But it is split in two, like her behind. Each Thin Twin spends from his own half, and buffs and effects that refill the pool fill both halves."},
 		{"Desperate Flight", "Ability_Rogue_Sprint", "active", "Removes roots and snares and increases movement speed by 20% for 6 sec."},
 		{"Wiry Frame", "Ability_Racial_ShadowMeld", "passive", "Dodge chance increased by 1%."},
 		{"Nervous Energy", "Ability_Rogue_Sprint", "passive", "Haste increased by 1%."},

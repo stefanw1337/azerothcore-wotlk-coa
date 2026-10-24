@@ -157,11 +157,11 @@ INSERT INTO `spell_dbc` (
     0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 18227, 0, 0, 'Twin-Linked', '', '', '', '',
     '', '', '', '', '', '', '', '', '', '', '', 16777198, 'Racial Passive', '', '', '', '', '', '', '', '', '', '', '',
     '', '', '', '', 16777198,
-    'You and your brother share one health pool, and whatever befalls you befalls him too: stuns, '
-    'fears and even sheep. Any stat his class relies on rises to match your main stat, so your gear '
-    'serves you both.', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 16777198, '', '', '', '', '', '',
-    '', '', '', '', '', '', '', '', '', '', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 1,
-    0, 0, 0, 1.0, 1.0, 1.0, 0, 0),
+    'Twin-Link powers ensure they have one shared health pool. All crowd control effects will affect '
+    'both at the same time. If resource pools are of different types, Twin-Link powers will make sure '
+    'they are equal in power.', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 16777198, '', '', '', '',
+    '', '', '', '', '', '', '', '', '', '', '', '', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0,
+    0, 1, 0, 0, 0, 1.0, 1.0, 1.0, 0, 0),
 (9530112, 0, 0, 0, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 21, 0, 0, 0, 0, 0, 1, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 6, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 0,
@@ -222,11 +222,11 @@ INSERT INTO `spell_dbc` (
     0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1870, 0, 0, 'Brother from the Same Mother',
     '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 16777198, 'Racial Passive', '', '', '', '', '', '', '',
     '', '', '', '', '', '', '', '', 16777198,
-    'Your brother has a resource pool of his own. When both of you use the same resource, the pool is '
-    'twice as big and split in two: each of you spends his own half first, and whatever refills it '
-    'fills both halves.', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 16777198, '', '', '', '', '', '',
-    '', '', '', '', '', '', '', '', '', '', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 1,
-    0, 0, 0, 1.0, 1.0, 1.0, 0, 0),
+    'Your brother has a resource pool of his own. If you both use the same resource type, the pool is '
+    'twice as big, like your Mother. But it is split in two, like her behind. Each Thin Twin spends '
+    'from his own half, and buffs and effects that refill the pool fill both halves.', '', '', '', '', '', '', '', '',
+    '', '', '', '', '', '', '', 16777198, '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0, 1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1.0, 1.0, 1.0, 0, 0),
 (9530119, 0, 0, 0, 64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 21, 0, 0, 0, 0, 0, 1, 0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -1, 0, 0, 6, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0.0, 0.0, 0.0, 0, 0, 0, 0, 0, 0, 0,
