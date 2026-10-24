@@ -62,9 +62,9 @@ SPELLS = [
      "big, like your Mother. But it is split in two, like her behind. Each Thin Twin spends from his own half, and "
      "buffs and effects that refill the pool fill both halves.", ""),
     (9530119, PASSIVE, 2636, "Shared Blood", "Racial Passive",
-     "Your heads share one blood. When both heads use the same resource, they share one pool of it, twice as big "
-     "and refilling twice as fast. Any stat the second head's class relies on rises to match your main stat, so "
-     "your gear serves you both.", ""),
+     "Your body shares blood, one health pool. When both heads use the same resource pool type, they will share one "
+     "bigger pool of it. It will be twice as big and refill twice as fast. If the resource pools are of different "
+     "types, they will also share their strength with each other.", ""),
 ]
 CASTER_AURA = {9530106: 9530102, 9530107: 9530105}
 

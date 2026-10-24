@@ -21,7 +21,7 @@ if CHAR_CREATE_COA_RACIALS then
 	}
 	CHAR_CREATE_COA_RACIALS[85] = {
 		{"Agree or Disagree", "Spell_Shadow_BrainWash", "active", "Your two heads agree for once, or go back to arguing. From level 20 the second head can follow a class of its own."},
-		{"Shared Blood", "Spell_Deathknight_BloodPresence", "passive", "Your heads share one blood: when both use the same resource, they share one pool twice as big. Any stat the second head's class relies on rises to match your main stat."},
+		{"Shared Blood", "Spell_Deathknight_BloodPresence", "passive", "Your body shares blood, one health pool. When both heads use the same resource pool type, they will share one bigger pool of it. It will be twice as big and refill twice as fast. If the resource pools are of different types, they will also share their strength with each other."},
 		{"Tolerance", "INV_Drink_05", "passive", "Drinks make you half as drunk, the haze wears off twice as fast, and you never get past merely drunk."},
 		{"Headbutt", "Ability_Warrior_DecisiveStrike", "active", "Stuns a nearby enemy for 2 sec."},
 		{"Brute Strength", "Spell_Nature_UnyeildingStamina", "passive", "Strength increased by 2%."},
