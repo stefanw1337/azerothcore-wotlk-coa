@@ -81,6 +81,24 @@ Subclass.StandardMains = 0
 Subclass.ThinHuman.Enable = 1
 Subclass.TwoHeadedOgre.Enable = 1
 
+#    Subclass.HeroRaces.Security
+#        The Thin Twin and the Two-Headed Ogre are Hero Races. The lowest account security level that may
+#        create one. Characters that already exist are not affected.
+#        Default: 0 - every player
+#                 1 - moderators and up
+#                 2 - game masters and up
+#                 3 - administrators only
+
+Subclass.HeroRaces.Security = 0
+
+#    Subclass.HeroRaces.RequiredLevel
+#        Like the Death Knight, a Hero Race needs a character of at least this level on the account on this
+#        realm first. GM accounts skip it.
+#        Default: 60
+#                 0 - no level requirement
+
+Subclass.HeroRaces.RequiredLevel = 60
+
 #    Subclass.TravelForms.WholeBody
 #        Ghost Wolf, Wargstride and the druid's Travel Form turn the whole body, also for a Two-Headed
 #        Ogre using them from her subclass, and the Thin Twins brother rides on the beast's back. Off,

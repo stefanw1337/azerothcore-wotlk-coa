@@ -376,3 +376,16 @@ TEST(Subclass, ARiderKeepsTheWeaponsHeHoldsWhenHandedBlankSlots)
     EXPECT_EQ(held.Entries[0], 3441u);
     EXPECT_EQ(held.Enchants[0], 0u);
 }
+
+TEST(Subclass, AHeroRaceNeedsTheSecurityAndAHighEnoughCharacter)
+{
+    Settings settings;
+    EXPECT_EQ(HeroRaceRefusalFor(settings, 0, 59), HeroRaceRefusal::Level);
+    EXPECT_EQ(HeroRaceRefusalFor(settings, 0, 60), HeroRaceRefusal::None);
+    EXPECT_EQ(HeroRaceRefusalFor(settings, 1, 0), HeroRaceRefusal::None);
+    settings.HeroRaceLevel = 0;
+    EXPECT_EQ(HeroRaceRefusalFor(settings, 0, 0), HeroRaceRefusal::None);
+    settings.HeroRaceSecurity = 2;
+    EXPECT_EQ(HeroRaceRefusalFor(settings, 1, 80), HeroRaceRefusal::Security);
+    EXPECT_EQ(HeroRaceRefusalFor(settings, 2, 0), HeroRaceRefusal::None);
+}

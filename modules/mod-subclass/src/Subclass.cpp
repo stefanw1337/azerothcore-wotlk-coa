@@ -1958,6 +1958,10 @@ public:
         loaded.TwoHeadedOgre = sConfigMgr->GetOption<bool>("Subclass.TwoHeadedOgre.Enable", true);
         loaded.ForceBots = sConfigMgr->GetOption<bool>("Subclass.Bots.Force", false);
         loaded.TravelFormsWholeBody = sConfigMgr->GetOption<bool>("Subclass.TravelForms.WholeBody", true);
+        loaded.HeroRaceSecurity = uint8(std::min<uint32>(
+            sConfigMgr->GetOption<uint32>("Subclass.HeroRaces.Security", 0), SEC_CONSOLE));
+        loaded.HeroRaceLevel = uint8(std::min<uint32>(
+            sConfigMgr->GetOption<uint32>("Subclass.HeroRaces.RequiredLevel", 60), STRONG_MAX_LEVEL));
         thinHumanEnabled = loaded.ThinHuman;
         twoHeadedOgreEnabled = loaded.TwoHeadedOgre;
         forceBots = loaded.ForceBots;
@@ -3316,11 +3320,34 @@ bool AllowsCreation(WorldSession* session, WorldPacket const& packet)
     std::string name;
     uint8 race = 0;
     reader >> name >> race;
-    if (SubclassRaceEnabled(race))
+    ResponseCodes refusal = SubclassRaceEnabled(race) ? CHAR_CREATE_SUCCESS : CHAR_CREATE_DISABLED;
+    if (refusal == CHAR_CREATE_SUCCESS && (race == Subclass::ThinHumanRace || race == Subclass::TwoHeadedOgreRace))
+    {
+        Subclass::Settings const current = CurrentSettings();
+        uint8 const security = uint8(session->GetSecurity());
+        uint8 highestLevel = 0;
+        if (!security && current.HeroRaceLevel)
+            if (QueryResult result = CharacterDatabase.Query(
+                    "SELECT `level` FROM `characters` WHERE `account` = {} ORDER BY `level` DESC LIMIT 1",
+                    session->GetAccountId()))
+                highestLevel = result->Fetch()[0].Get<uint8>();
+        switch (Subclass::HeroRaceRefusalFor(current, security, highestLevel))
+        {
+            case Subclass::HeroRaceRefusal::Security:
+                refusal = CHAR_CREATE_DISABLED;
+                break;
+            case Subclass::HeroRaceRefusal::Level:
+                refusal = CHAR_CREATE_LEVEL_REQUIREMENT;
+                break;
+            case Subclass::HeroRaceRefusal::None:
+                break;
+        }
+    }
+    if (refusal == CHAR_CREATE_SUCCESS)
         return true;
-    WorldPacket refusal(SMSG_CHAR_CREATE, 1);
-    refusal << uint8(CHAR_CREATE_DISABLED);
-    session->SendPacket(&refusal);
+    WorldPacket response(SMSG_CHAR_CREATE, 1);
+    response << uint8(refusal);
+    session->SendPacket(&response);
     return false;
 }
 

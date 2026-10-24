@@ -82,7 +82,25 @@ struct Settings
     bool TwoHeadedOgre = true;
     bool ForceBots = false;
     bool TravelFormsWholeBody = true;
+    std::uint8_t HeroRaceSecurity = 0;
+    std::uint8_t HeroRaceLevel = 60;
 };
+
+enum class HeroRaceRefusal
+{
+    None,
+    Security,
+    Level
+};
+
+inline HeroRaceRefusal HeroRaceRefusalFor(Settings const& settings, std::uint8_t security, std::uint8_t highestLevel)
+{
+    if (security < settings.HeroRaceSecurity)
+        return HeroRaceRefusal::Security;
+    if (!security && settings.HeroRaceLevel && highestLevel < settings.HeroRaceLevel)
+        return HeroRaceRefusal::Level;
+    return HeroRaceRefusal::None;
+}
 
 constexpr std::uint8_t ThinHumanRace = 96;
 constexpr std::uint8_t TwoHeadedOgreRace = 85;

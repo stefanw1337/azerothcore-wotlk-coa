@@ -1,5 +1,6 @@
 
 -- mod-subclass races: Thin Human (96, male) and Two-Headed Ogre (85, female)
+CHAR_CREATE_LEVEL_REQUIREMENT = "Death Knights and Hero Races need one of your characters on this realm to reach a higher level first."
 CHAR_CREATE_RACE_IDS["Thin Human"] = {96}
 CHAR_CREATE_RACE_IDS["Two-Headed Ogre"] = {85}
 CHAR_CREATE_MALE_ONLY_RACES["Thin Human"] = true
@@ -33,8 +34,8 @@ end
 if CHAR_CREATE_RACE_LORE then
 	CHAR_CREATE_RACE_LORE.alliance = CHAR_CREATE_RACE_LORE.alliance or {}
 	CHAR_CREATE_RACE_LORE.horde = CHAR_CREATE_RACE_LORE.horde or {}
-	CHAR_CREATE_RACE_LORE.alliance["Thin Human"] = [==[Born in the shadow of Stormwind's walls to a stonemason who helped rebuild the city and a Kul Tiran sailor's daughter, the Thin Humans are lean, wiry folk who learned early to slip through crowds and out of trouble. Most of them travel alone. A few were born a pair, and somewhere out there a brother is waiting for the day his twin finds their father's lost Bravery Badge.]==]
-	CHAR_CREATE_RACE_LORE.horde["Two-Headed Ogre"] = [==[Two heads, one body, and never a moment's peace. The two-headed ogres of the Horde are mighty brawlers whose heads argue over everything from breakfast to battle plans. When they do agree, they hit twice as hard. Legend says an old book of origins hidden in Shadowfang Keep can teach the second head a craft of its own.]==]
+	CHAR_CREATE_RACE_LORE.alliance["Thin Human"] = "|cffffd100Hero Race.|r " .. [==[Born in the shadow of Stormwind's walls to a stonemason who helped rebuild the city and a Kul Tiran sailor's daughter, the Thin Humans are lean, wiry folk who learned early to slip through crowds and out of trouble. Most of them travel alone. A few were born a pair, and somewhere out there a brother is waiting for the day his twin finds their father's lost Bravery Badge.]==]
+	CHAR_CREATE_RACE_LORE.horde["Two-Headed Ogre"] = "|cffffd100Hero Race.|r " .. [==[Two heads, one body, and never a moment's peace. The two-headed ogres of the Horde are mighty brawlers whose heads argue over everything from breakfast to battle plans. When they do agree, they hit twice as hard. Legend says an old book of origins hidden in Shadowfang Keep can teach the second head a craft of its own.]==]
 end
 
 COA_SUBCLASS_SMALL_RACES = { ["Two-Headed Ogre"] = 1.9 }
