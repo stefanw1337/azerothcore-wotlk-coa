@@ -2254,8 +2254,105 @@ void RegenerateLentMana(Player* player, uint32 milliseconds)
 }
 }
 
+namespace
+{
+std::unordered_map<uint32, std::array<int32, MAX_STATS>> standInStats;
+
+Optional<Stats> StatOfItemMod(uint8 itemMod)
+{
+    switch (itemMod)
+    {
+        case ITEM_MOD_STRENGTH: return STAT_STRENGTH;
+        case ITEM_MOD_AGILITY: return STAT_AGILITY;
+        case ITEM_MOD_STAMINA: return STAT_STAMINA;
+        case ITEM_MOD_INTELLECT: return STAT_INTELLECT;
+        case ITEM_MOD_SPIRIT: return STAT_SPIRIT;
+        default: return std::nullopt;
+    }
+}
+
+std::vector<Stats> SpecializationStats(uint16 specId)
+{
+    std::vector<Stats> stats;
+    for (AscensionCompatData::CoASpecialization const& specialization : AscensionCompatData::CoASpecializations)
+        if (specId && specialization.SpecId == specId)
+            for (uint8 itemMod : specialization.PrimaryStats)
+                if (Optional<Stats> stat = StatOfItemMod(itemMod); stat && *stat != STAT_STAMINA)
+                    stats.push_back(*stat);
+    return stats;
+}
+
+std::array<int32, MAX_STATS> StandInsOf(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(subclassMutex);
+    auto const itr = standInStats.find(player->GetGUID().GetCounter());
+    return itr == standInStats.end() ? std::array<int32, MAX_STATS>{} : itr->second;
+}
+
+float OwnStat(Player const* player, std::array<int32, MAX_STATS> const& standIns, Stats stat)
+{
+    return player->GetStat(stat) - float(standIns[stat]);
+}
+
+Stats MainStatOf(Player const* player, std::array<int32, MAX_STATS> const& standIns)
+{
+    for (Stats stat : SpecializationStats(uint16(GetAscensionActiveSpecialization(player))))
+        if (stat == STAT_STRENGTH || stat == STAT_AGILITY || stat == STAT_INTELLECT)
+            return stat;
+    Stats best = STAT_STRENGTH;
+    for (Stats stat : { STAT_AGILITY, STAT_INTELLECT })
+        if (OwnStat(player, standIns, stat) > OwnStat(player, standIns, best))
+            best = stat;
+    return best;
+}
+
+std::vector<Stats> StatsTheSubclassNeeds(Player const* player)
+{
+    Subclass::Choice const choice = ChoiceOf(player);
+    if (!choice.Complete() || SubclassResting(player) || OpenTreesOf(player).empty())
+        return {};
+    std::vector<Stats> needed = SpecializationStats(choice.SubSpec);
+    for (Stats stat : SpecializationStats(choice.SecondSpec))
+        needed.push_back(stat);
+    if (SubclassPower(choice.SubClass) == POWER_MANA)
+        needed.push_back(STAT_INTELLECT);
+    std::sort(needed.begin(), needed.end());
+    needed.erase(std::unique(needed.begin(), needed.end()), needed.end());
+    return needed;
+}
+
+void SyncStandInStats(Player* player)
+{
+    std::array<int32, MAX_STATS> const applied = StandInsOf(player);
+    std::array<int32, MAX_STATS> wanted{};
+    if (std::vector<Stats> const needed = StatsTheSubclassNeeds(player); !needed.empty())
+    {
+        Stats const main = MainStatOf(player, applied);
+        float const mainValue = OwnStat(player, applied, main);
+        for (Stats stat : needed)
+            if (stat != main)
+                wanted[stat] = std::max(0, int32(mainValue - OwnStat(player, applied, stat)));
+    }
+    if (wanted == applied)
+        return;
+    for (uint8 stat = STAT_STRENGTH; stat < MAX_STATS; ++stat)
+    {
+        if (wanted[stat] == applied[stat])
+            continue;
+        UnitMods const mod = UnitMods(UNIT_MOD_STAT_START + stat);
+        if (applied[stat])
+            player->HandleStatFlatModifier(mod, TOTAL_VALUE, float(applied[stat]), false);
+        if (wanted[stat])
+            player->HandleStatFlatModifier(mod, TOTAL_VALUE, float(wanted[stat]), true);
+    }
+    std::lock_guard<std::mutex> lock(subclassMutex);
+    standInStats[player->GetGUID().GetCounter()] = wanted;
+}
+}
+
 void SyncBorrowedMana(Player* player, uint32 milliseconds)
 {
+    SyncStandInStats(player);
     bool const lends = LendsMana(player);
     uint8 const classId = lends ? PlayableClassOf(ChoiceOf(player).SubClass) : player->getClass();
     uint32 const wanted = ClassBaseMana(classId, player->GetLevel());
@@ -2503,6 +2600,7 @@ public:
         records.erase(player->GetGUID().GetCounter());
         focusLent.erase(player->GetGUID().GetCounter());
         lentManaCarried.erase(player->GetGUID().GetCounter());
+        standInStats.erase(player->GetGUID().GetCounter());
         runesLent.erase(player->GetGUID().GetCounter());
     }
 
