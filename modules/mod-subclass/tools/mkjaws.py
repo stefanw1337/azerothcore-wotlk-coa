@@ -9,7 +9,7 @@ to cover her upper lip. Hide the cyclops head's crest under the hats that enclos
 split moves each jaw into facial geosets the server switches with her facial style. fit measures every helmet on
 both heads, pushes the mouth-covering ones forward in place and writes which displays cover which mouth. crown
 moves the cyclops crest above the hat band into facial geosets of its own; crownfit marks the cyclops helmets whose
-band reaches below that cut all around and whose crown covers the crest."""
+band reaches below that cut all around and that roof over the opening, even where the crest pokes through them."""
 import re
 import struct
 import sys
@@ -290,7 +290,7 @@ class Crest:
             if not band.any() or hat[band, 2].min() > CROWN_CUT:
                 return False
         apart = np.hypot(*(hat[None, :, :2] - self.points[:, None, :2]).transpose(2, 0, 1))
-        roofed = ((apart < ABOVE_RADIUS) & (hat[None, :, 2] > self.points[:, None, 2])).any(axis=1)
+        roofed = ((apart < ABOVE_RADIUS) & (hat[None, :, 2] > CROWN_CUT)).any(axis=1)
         return roofed.mean() >= CROWN_ENCLOSED
 
 
