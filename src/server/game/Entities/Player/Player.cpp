@@ -10469,7 +10469,8 @@ void Player::ApplySpellMod(uint32 spellId, SpellModOp op, T& basevalue, Spell* s
     // The module snapshots readiness before prepare calculates cost/cast time.
     // Keep the modifiers on that cast, including delayed summon effects, without
     // installing permanent empowered auras on the player.
-    if (spell && spell->GetCaster() == this && !spell->IsTriggered() && getClass() == CLASS_SON_OF_ARUGAL &&
+    if (spell && spell->GetCaster() == this && !spell->IsTriggered() &&
+        IsClass(CLASS_SON_OF_ARUGAL, CLASS_CONTEXT_ABILITY) &&
         spellInfo->SpellFamilyName == 26 && spell->GetSpellInfo()->Id == spellId && !temporaryPet)
     {
         using namespace AscensionBloodmage;

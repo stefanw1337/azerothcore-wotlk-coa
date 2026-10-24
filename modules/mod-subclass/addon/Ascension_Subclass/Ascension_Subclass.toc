@@ -3,7 +3,7 @@
 ## Notes: The Two-Head / Two-Thins tab: the borrowed class's talent trees from mod-subclass.
 ## Version: 0.1.0
 ## SavedVariables: Ascension_SubclassDump
-## OptionalDeps: Bartender4
+## OptionalDeps: Bartender4, SpellActivationOverlay-for-CoA
 Ascension_Subclass.lua
 SubclassBar.lua
 SubclassCastBar.lua
@@ -11,3 +11,5 @@ SubclassPowerBar.lua
 SubclassOrbs.lua
 SubclassQuest.lua
 SubclassNodes.lua
+SubclassChoices.lua
+SubclassGlow.lua

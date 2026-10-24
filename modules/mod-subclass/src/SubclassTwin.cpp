@@ -51,6 +51,7 @@ using namespace Acore::ChatCommands;
 
 bool SubclassChosen(Player const* player);
 bool ForcedBot(Player const* player);
+bool BotPlaysOtherHalf(Player const* player);
 void NoteBotCast(Player const* player, uint32 spellId, uint32 result);
 bool OtherHalfShoots(Player const* player);
 bool MainHalfShoots(Player const* player);
@@ -170,9 +171,13 @@ struct Motion
     uint32 NextPoint = PointMin;
     uint32 Swing = 0;
     uint32 Afoot = 0;
+    uint32 BrotherSwing = 0;
     float Follow = 0.0f;
+    ObjectGuid Engaged;
+    ObjectGuid Chasing;
     bool Split = false;
     bool Restyle = false;
+    bool Riding = false;
     Carry Mode = Carry::Beside;
 };
 
@@ -246,6 +251,7 @@ struct BrotherCast
 
 thread_local BrotherCast castingAsBrother;
 thread_local bool resendingAsBrother = false;
+thread_local ObjectGuid swingingAlone;
 
 struct HalfForm
 {
@@ -527,6 +533,22 @@ bool InBorrowedShape(Player const* player)
     return false;
 }
 
+bool CarriesTheMain(SpellInfo const* info)
+{
+    return info && info->IsPositive() && info->HasAura(SPELL_AURA_TRANSFORM) &&
+        (info->HasAura(SPELL_AURA_MOD_INCREASE_SPEED) || info->HasAura(SPELL_AURA_MOD_INCREASE_MOUNTED_SPEED));
+}
+
+bool RidesTheBrother(Player const* player)
+{
+    if (player->getRace(true) != TwinRace || !SubclassRaceEnabled(TwinRace) || !IsSplit(player))
+        return false;
+    for (AuraEffect const* effect : player->GetAuraEffectsByType(SPELL_AURA_TRANSFORM))
+        if (CarriesTheMain(effect->GetSpellInfo()) && IsBorrowedSpell(player, effect->GetId()))
+            return true;
+    return false;
+}
+
 uint32 FormModelFor(Player* player, ShapeshiftForm form)
 {
     if (uint32 model = sObjectMgr->GetModelForShapeshift(form, player))
@@ -585,7 +607,7 @@ void LendWeapon(Player const* player, Wardrobe& wardrobe, std::size_t slot, uint
 Wardrobe Dressed(Player const* player)
 {
     Wardrobe wardrobe = WardrobeOf(player);
-    if (!IsSplit(player))
+    if (!IsSplit(player) || RidesTheBrother(player))
     {
         wardrobe.Items = Worn(player).Items;
         return wardrobe;
@@ -693,7 +715,8 @@ bool KeepsOwnLook(Player const* player, uint32 spellId)
 {
     uint8 const race = player->getRace(true);
     return (race == TwinRace || race == OgreRace) && SubclassRaceEnabled(race) &&
-        IsBorrowedSpell(player, spellId) && !ShapesWholeBody(spellId);
+        IsBorrowedSpell(player, spellId) && !ShapesWholeBody(spellId) &&
+        !(race == TwinRace && IsSplit(player) && CarriesTheMain(sSpellMgr->GetSpellInfo(spellId)));
 }
 
 bool BrotherWearsForm(Player const* player, uint32 spellId)
@@ -804,7 +827,7 @@ void MirrorFormVisual(Player* player, Creature* twin)
         if (!twin->HasAura(copy.Visual))
             twin->CastSpell(twin, copy.Visual, true);
     }
-    if (HalfForm const half = HalfFormOf(player); half.Spell)
+    if (HalfForm const half = HalfFormOf(player); half.Spell && !RidesTheBrother(player))
         if (uint32 const visual = TwinFormCopyOf(half.Spell).Visual)
         {
             worn.insert(visual);
@@ -930,6 +953,9 @@ void SetCarry(Player* player, Creature* twin, Carry mode)
 
 Carry WantedCarry(Player const* player, Motion const& motion)
 {
+    if (motion.Riding)
+        return player->IsAlive() && !player->IsInWater() && !player->HasStealthAura() ? Carry::CatBack :
+            Carry::Beside;
     if (!player->IsAlive() || player->IsInCombat() || player->IsInWater() || !player->IsStandState() ||
         player->HasStealthAura() || player->GetSheath() != SHEATH_STATE_UNARMED || InBorrowedShape(player))
         return Carry::Beside;
@@ -1073,7 +1099,7 @@ void MirrorReadiness(Player* player, Creature* twin)
         twin->SetUInt32Value(UNIT_NPC_EMOTESTATE, wanted);
 }
 
-void MirrorStance(Player* player, Creature* twin)
+void MirrorStance(Player* player, Creature* twin, bool fighting)
 {
     MirrorStealth(player, twin);
     MirrorReadiness(player, twin);
@@ -1134,7 +1160,8 @@ void MirrorStance(Player* player, Creature* twin)
     }
     if (twin->getStandState() != player->getStandState())
         twin->SetStandState(player->getStandState());
-    if (player->IsAlive() && twin->GetMotionMaster()->GetCurrentMovementGeneratorType() != FOLLOW_MOTION_TYPE)
+    if (player->IsAlive() && !fighting &&
+        twin->GetMotionMaster()->GetCurrentMovementGeneratorType() != FOLLOW_MOTION_TYPE)
         twin->GetMotionMaster()->MoveFollow(player, FollowDistanceFor(player, twin), TwinAngle);
 }
 
@@ -1399,7 +1426,7 @@ uint32 CursedShape(Player const* player)
 void MirrorShape(Player* player, Creature* twin)
 {
     uint32 const cursed = CursedShape(player);
-    uint32 const shaped = cursed ? cursed : BorrowedShape(player);
+    uint32 const shaped = cursed ? cursed : RidesTheBrother(player) ? 0 : BorrowedShape(player);
     uint32 const wanted = shaped ? shaped : player->GetNativeDisplayId();
     if (twin->GetDisplayId() == wanted)
         return;
@@ -1465,6 +1492,80 @@ void MarkRestyle(Player const* player)
         itr->second.Restyle = true;
 }
 
+constexpr float BrotherFightsWithin = 30.0f;
+
+bool LetLoose(Player const* player)
+{
+    return player->HasAura(CowboyAura) || BotPlaysOtherHalf(player);
+}
+
+Unit* BrotherFoe(Player* player, Creature* twin, ObjectGuid engaged)
+{
+    if (!IsSplit(player) || !player->IsAlive() || !player->IsInCombat() || player->HasStealthAura() ||
+        twin->GetVehicle() || FightsFromRange(player, twin))
+        return nullptr;
+    Unit* foe = player->GetVictim();
+    if (!foe && engaged)
+        foe = ObjectAccessor::GetUnit(*player, engaged);
+    if (!foe && LetLoose(player) && !player->getAttackers().empty())
+        foe = *player->getAttackers().begin();
+    if (!foe || !foe->IsAlive() || !player->IsValidAttackTarget(foe) ||
+        !foe->IsWithinDist(player, BrotherFightsWithin))
+        return nullptr;
+    return foe;
+}
+
+bool PlayerHitsItHimself(Player const* player, Unit const* foe)
+{
+    return player->GetVictim() == foe && player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) &&
+        player->IsWithinMeleeRange(foe);
+}
+
+ObjectGuid ChaseFoe(Creature* twin, Unit* foe, ObjectGuid chasing)
+{
+    MotionMaster* motion = twin->GetMotionMaster();
+    MovementGeneratorType const current = motion->GetCurrentMovementGeneratorType();
+    if (current == EFFECT_MOTION_TYPE || (current == CHASE_MOTION_TYPE && chasing == foe->GetGUID()))
+        return chasing;
+    motion->MoveChase(foe, std::nullopt, ChaseAngle(float(M_PI) / 2));
+    return foe->GetGUID();
+}
+
+bool SwingFromBrother(Player* player, Creature* twin, Unit* foe)
+{
+    if (PlayerHitsItHimself(player, foe) || !twin->IsWithinMeleeRange(foe))
+        return false;
+    twin->SetFacingToObject(foe);
+    swingingAlone = player->GetGUID();
+    player->AttackerStateUpdate(foe, BASE_ATTACK);
+    swingingAlone = ObjectGuid::Empty;
+    return true;
+}
+
+void FightAtTheFoe(Player* player, Creature* twin, Unit* foe, Motion const& motion)
+{
+    ObjectGuid const chasing = ChaseFoe(twin, foe, motion.Chasing);
+    bool const swung = !motion.BrotherSwing && SwingFromBrother(player, twin, foe);
+    std::lock_guard<std::mutex> lock(twinMutex);
+    Motion& stored = motions[player->GetGUID().GetCounter()];
+    stored.Chasing = chasing;
+    if (swung)
+        stored.BrotherSwing = std::max<uint32>(player->GetAttackTime(BASE_ATTACK), MotionTick);
+}
+
+void SwapRider(Player* player, bool riding)
+{
+    SummonTwin(player);
+    std::lock_guard<std::mutex> lock(twinMutex);
+    motions[player->GetGUID().GetCounter()].Riding = riding;
+}
+
+void StopFighting(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(twinMutex);
+    motions[player->GetGUID().GetCounter()].Chasing = ObjectGuid::Empty;
+}
+
 void UpdateCarry(Player* player, uint32 diff)
 {
     Motion motion;
@@ -1483,6 +1584,9 @@ void UpdateCarry(Player* player, uint32 diff)
         stored.Moving = moving && !player->IsInCombat() ? stored.Moving + stored.Tick : 0;
         pointNow = false;
         stored.Afoot = stored.Afoot > stored.Tick ? stored.Afoot - stored.Tick : 0;
+        stored.BrotherSwing = stored.BrotherSwing > stored.Tick ? stored.BrotherSwing - stored.Tick : 0;
+        if (!player->IsInCombat())
+            stored.Engaged = ObjectGuid::Empty;
         if (stored.Mode == Carry::Piggyback && moving && !stored.Afoot)
         {
             stored.NextPoint = stored.NextPoint > stored.Tick ? stored.NextPoint - stored.Tick : 0;
@@ -1499,6 +1603,8 @@ void UpdateCarry(Player* player, uint32 diff)
     Creature* twin = TwinOf(player);
     if (!twin)
         return;
+    if (bool const riding = RidesTheBrother(player); riding != motion.Riding)
+        return SwapRider(player, riding);
     if (motion.Restyle || motion.Split != IsSplit(player))
         return Restyle(player, !motion.Split && IsSplit(player));
     if (pointNow && twin->GetVehicle())
@@ -1516,9 +1622,17 @@ void UpdateCarry(Player* player, uint32 diff)
     UpdateShieldBearer(player, twin);
     if (twin->HasUnitFlag(UNIT_FLAG_STUNNED))
         return;
-    MirrorStance(player, twin);
+    Unit* foe = BrotherFoe(player, twin, motion.Engaged);
+    MirrorStance(player, twin, foe != nullptr);
     UpdateSwingPartner(player, twin);
-    KeepStandoff(player, twin, motion.Follow);
+    if (foe)
+        FightAtTheFoe(player, twin, foe, motion);
+    else
+    {
+        if (motion.Chasing)
+            StopFighting(player);
+        KeepStandoff(player, twin, motion.Follow);
+    }
     Carry const wanted = WantedCarry(player, motion);
     bool const seated = twin->GetVehicle() != nullptr;
     if (wanted == motion.Mode && (wanted == Carry::Beside) != seated)
@@ -3170,6 +3284,14 @@ bool ShareSwingWithBrother(WorldSession* session, WorldPacket const& packet)
     if (statePos >= packet.size())
         return true;
     uint8 const targetState = packet.contents()[statePos];
+    if (attacker == swingingAlone)
+    {
+        WorldPacket swing = TwinSwingPacket(partner, target, hitInfo, schools[0], total, targetState);
+        resendingAsBrother = true;
+        session->SendPacket(&swing);
+        resendingAsBrother = false;
+        return false;
+    }
 
     uint32 ownTotal = 0;
     WorldPacket own(SMSG_ATTACKERSTATEUPDATE, packet.size());
@@ -3955,7 +4077,7 @@ void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid, uin
         SettleBrotherShare(player, false);
     SpellCastResult const result = player->CastSpell(target, spellId, TriggerCastFlags(TRIGGERED_IGNORE_GCD |
         TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_CAST_DIRECTLY | TRIGGERED_IGNORE_SET_FACING |
-        TRIGGERED_IGNORE_SHAPESHIFT | TRIGGERED_DONT_REPORT_CAST_ERROR));
+        TRIGGERED_IGNORE_SHAPESHIFT | TRIGGERED_DONT_REPORT_CAST_ERROR | TRIGGERED_COUNTS_AS_CAST));
     if (brotherPays)
         SettleBrotherShare(player, true);
     LOG_INFO("module", "The other half of {} casts {} ({}) at {}: result {}, {} cast packet(s) shown on the twin",
@@ -4161,7 +4283,7 @@ bool RainsOnAnArea(SpellInfo const* info)
 
 bool NeverAlone(SpellInfo const* info)
 {
-    if ((info->IsChanneled() && !RainsOnAnArea(info)) || UsesReagents(info) || info->PowerType == POWER_HEALTH)
+    if ((info->IsChanneled() && !RainsOnAnArea(info)) || UsesReagents(info))
         return true;
     switch (info->GetSpellSpecific())
     {
@@ -4513,6 +4635,19 @@ bool LeavesManaForTheMain(Player const* player, SpellInfo const* info, bool emer
         int64(player->GetMaxPower(POWER_MANA) * ManaKeptForTheMain);
 }
 
+constexpr float HealthKeptFromBloodPrices = 50.0f;
+
+bool AffordsTheBloodPrice(Player const* player, SpellInfo const* info, bool emergency)
+{
+    if (info->PowerType != uint32(POWER_HEALTH))
+        return true;
+    if (emergency || !player->GetMaxHealth())
+        return false;
+    int64 const cost = info->CalcPowerCost(player, info->GetSchoolMask());
+    return float(int64(player->GetHealth()) - cost) * 100.0f / float(player->GetMaxHealth()) >=
+        HealthKeptFromBloodPrices;
+}
+
 bool RecentlyRefused(Player const* player, uint32 spellId)
 {
     std::lock_guard<std::mutex> lock(twinMutex);
@@ -4765,6 +4900,8 @@ std::string_view Verdict(Player* player, SpellInfo const* info, Unit* foe, std::
         return "refused a moment ago";
     if (!LeavesManaForTheMain(player, info, emergency))
         return "keeps mana for you";
+    if (!AffordsTheBloodPrice(player, info, emergency))
+        return "keeps your blood for you";
     return ConsiderSpell(player, info, foe, friends, best);
 }
 
@@ -4924,6 +5061,14 @@ void BrotherLeapsBack(Player* player, SpellEffectInfo const& effect)
         twin->JumpTo(effect.MiscValue / 10.0f, effect.CalcValue(player) / 10.0f, false);
 }
 
+void EngageAfterLeap(Player* player, Unit* foe)
+{
+    if (!foe || foe == player || !player->IsValidAttackTarget(foe))
+        return;
+    std::lock_guard<std::mutex> lock(twinMutex);
+    motions[player->GetGUID().GetCounter()].Engaged = foe->GetGUID();
+}
+
 Position NextTo(Unit* target, Unit const* mover)
 {
     return target->GetFirstCollisionPosition(target->GetCombatReach(), target->GetRelativeAngle(mover));
@@ -4956,6 +5101,7 @@ class spell_subclass_brother_moves : public SpellScript
             return;
         PreventHitDefaultEffect(effIndex);
         BrotherLeapsTo(player, *where, GetSpellInfo(), EffectAt(effIndex));
+        EngageAfterLeap(player, GetExplTargetUnit());
     }
 
     void LaunchTarget(SpellEffIndex effIndex)
@@ -4976,6 +5122,7 @@ class spell_subclass_brother_moves : public SpellScript
         PreventHitDefaultEffect(effIndex);
         if (Creature* twin = BrotherFree(player))
             BrotherLeapsTo(player, NextTo(target, twin), GetSpellInfo(), EffectAt(effIndex));
+        EngageAfterLeap(player, target);
     }
 
     void HitTarget(SpellEffIndex effIndex)

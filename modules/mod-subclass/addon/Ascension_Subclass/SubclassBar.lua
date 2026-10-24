@@ -79,6 +79,9 @@ local function Refresh(button)
         button.shownStart, button.shownDuration = nil, nil
     end
     button.hotkey:SetText(ShortKey(GetBindingKey(BINDING .. button:GetID())))
+    if Ascension_Subclass.UpdateGlow then
+        Ascension_Subclass.UpdateGlow(button)
+    end
 end
 
 local function RefreshAll()
@@ -87,18 +90,52 @@ local function RefreshAll()
     end
 end
 
+local carried
+
+local function Carry(spellId, from)
+    carried = { spell = spellId, from = from }
+    local _, _, icon = GetSpellInfo(spellId)
+    if icon then
+        SetCursor(icon)
+    end
+end
+
+local function DropCarried()
+    carried = nil
+    ResetCursor()
+end
+
 local function Place(button, spellId)
     local saved = Saved()
     local previous = saved[button:GetID()]
     saved[button:GetID()] = spellId
     ClearCursor()
     if previous and previous ~= spellId then
-        local index = SpellbookIndex(previous)
+        local index = not InCombatLockdown() and SpellbookIndex(previous)
         if index then
             PickupSpell(index, BOOKTYPE_SPELL)
+        elseif carried and carried.from and not saved[carried.from] then
+            saved[carried.from] = previous
         end
     end
-    Refresh(button)
+    DropCarried()
+    RefreshAll()
+end
+
+local function PlaceCarried(button)
+    if not carried then
+        return false
+    end
+    if button and button:GetID() == carried.from then
+        Saved()[carried.from] = carried.spell
+        DropCarried()
+        RefreshAll()
+    elseif button then
+        Place(button, carried.spell)
+    else
+        DropCarried()
+    end
+    return true
 end
 
 local function Press(button)
@@ -110,6 +147,10 @@ end
 
 local function OnClick(button, mouse)
     local dropped = CursorSpell()
+    if not dropped and PlaceCarried(button) then
+        button:SetChecked(false)
+        return
+    end
     if dropped then
         Place(button, dropped)
     elseif mouse == "RightButton" and IsShiftKeyDown() then
@@ -134,9 +175,11 @@ local function OnDragStart(button)
         return
     end
     Saved()[button:GetID()] = nil
-    local index = SpellbookIndex(spellId)
+    local index = not InCombatLockdown() and SpellbookIndex(spellId)
     if index then
         PickupSpell(index, BOOKTYPE_SPELL)
+    else
+        Carry(spellId, button:GetID())
     end
     Refresh(button)
 end
@@ -145,6 +188,22 @@ local function OnReceiveDrag(button)
     local dropped = CursorSpell()
     if dropped then
         Place(button, dropped)
+    else
+        PlaceCarried(button)
+    end
+end
+
+local function OurButton(frame)
+    for _, button in ipairs(buttons) do
+        if button == frame then
+            return button
+        end
+    end
+end
+
+local function OnDragStop()
+    if carried then
+        PlaceCarried(OurButton(GetMouseFocus()))
     end
 end
 
@@ -269,6 +328,9 @@ local function CreateButton(index)
         end
     end)
     button:SetScript("OnDragStop", function()
+        if carried then
+            return OnDragStop()
+        end
         if not lent then
             bar:StopMovingOrSizing()
             SavePosition()
@@ -278,6 +340,11 @@ local function CreateButton(index)
     button:SetScript("OnEnter", OnEnter)
     button:SetScript("OnLeave", function() GameTooltip:Hide() end)
     buttons[index] = button
+    if Ascension_Subclass.GlowButton then
+        Ascension_Subclass.GlowButton(button, function()
+            return Saved()[button:GetID()]
+        end)
+    end
     return button
 end
 
@@ -474,6 +541,9 @@ end
 
 function Ascension_Subclass.OnSubclass(name)
     timers.offGlobal = {}
+    if Ascension_Subclass.GlowSubclass then
+        Ascension_Subclass.GlowSubclass(name)
+    end
     if subclassName ~= name then
         subclassName = name
         if WeakAuras and WeakAuras.ScanEvents then

@@ -14,11 +14,15 @@ function Nodes.Ready()
     return Nodes.ready
 end
 
-function Ascension_Subclass.CoANode(canvas, entry, previous, handlers)
+function Ascension_Subclass.CoAReady()
+    return Nodes.Ready()
+end
+
+function Ascension_Subclass.CoANode(canvas, entry, previous, handlers, wanted)
     if not Nodes.Ready() then
         return nil
     end
-    local template = CoACharacterAdvancementUtil.GetDisplayTemplateForEntry(entry)
+    local template = wanted or CoACharacterAdvancementUtil.GetDisplayTemplateForEntry(entry)
     if previous and previous.coaTemplate == template then
         return previous
     end

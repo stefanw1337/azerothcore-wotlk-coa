@@ -398,7 +398,10 @@ end
 function CoAArt.ShowWide(first, last)
     if not panel.art then
         panel.art = panel:CreateTexture(nil, "BACKGROUND")
-        panel.art:SetAlpha(0.8)
+        panel.artGlow = panel:CreateTexture(nil, "BACKGROUND")
+        panel.artGlow:SetBlendMode("ADD")
+        panel.artGlow:SetAllPoints(panel.art)
+        CoAArt.Pulse(panel.artGlow)
     end
     local atlas = first and CoAArt.SharedAtlas()
     local width, height = first and last and last:GetRight() and first:GetLeft() and last:GetRight() - first:GetLeft(),
@@ -411,10 +414,23 @@ function CoAArt.ShowWide(first, last)
         if CoAArt.Show(panel.art, atlas, width, height) then
             CoAArt.wide = atlas
             panel.art:Show()
+            if CoAArt.Show(panel.artGlow, atlas, width, height) then
+                panel.artGlow:Show()
+            end
             return
         end
     end
     panel.art:Hide()
+    panel.artGlow:Hide()
+end
+
+function CoAArt.Pulse(texture)
+    local ticker = CreateFrame("Frame", nil, panel)
+    local elapsedTotal = 0
+    ticker:SetScript("OnUpdate", function(_, elapsed)
+        elapsedTotal = elapsedTotal + elapsed
+        texture:SetAlpha(0.09 + 0.09 * math.sin(elapsedTotal * math.pi / 10))
+    end)
 end
 
 function CoAArt.Show(texture, atlas, width, height)
@@ -517,7 +533,6 @@ local function ShowTreeArt(tree, canvas)
     if not canvas.art then
         canvas.art = canvas:CreateTexture(nil, "BACKGROUND")
         canvas.art:SetAllPoints(canvas)
-        canvas.art:SetAlpha(0.8)
     end
     local width, height = canvas:GetWidth(), canvas:GetHeight()
     local art = tree.className and STANDARD_TREE_ART[tree.className .. ":" .. (tree.title or "")]
@@ -575,18 +590,29 @@ local function RenderTree(tree, canvas)
         node.choice = #sharing[spot] + 1
         table.insert(sharing[spot], node)
     end
+    local choices = Ascension_Subclass.Choices
+    local asOne = choices and choices.Available()
     for index, node in ipairs(tree.nodes) do
         local x, y = Position(node.entry, grid)
-        local shared = #sharing[x .. ":" .. y]
-        local px = NODE + (spanX > 0 and (x - minX) / spanX * width or width / 2) +
-            (node.choice - (shared + 1) / 2) * (NODE + 6)
-        local py = strip + NODE + (spanY > 0 and (maxY - y) / spanY * height or height / 2)
-        centers[node.id] = { px, py }
+        local spot = sharing[x .. ":" .. y]
+        local cx = NODE + (spanX > 0 and (x - minX) / spanX * width or width / 2)
+        local cy = strip + NODE + (spanY > 0 and (maxY - y) / spanY * height or height / 2)
+        local px = cx + (node.choice - (#spot + 1) / 2) * (NODE + 6)
+        local py = (#spot > 1 and asOne) and cy + NODE + 8 or cy
+        centers[node.id] = (#spot > 1 and asOne) and { cx, cy } or { px, py }
         local button, coa = CoAArt.Node(canvas, index, node.entry)
         button.node, button.tree = node, tree
         button:ClearAllPoints()
         button:SetPoint("CENTER", canvas, "BOTTOMLEFT", px, py)
         CoAArt.Style(button, coa, tree, node, false)
+        if #spot > 1 then
+            spot.buttons = spot.buttons or {}
+            table.insert(spot.buttons, button)
+            spot.center = { cx, cy }
+        end
+    end
+    if choices then
+        choices.Render(canvas, tree, sharing, CoAArt.handlers)
     end
     for index, node in ipairs(tree.abilities) do
         local slot = index - 1

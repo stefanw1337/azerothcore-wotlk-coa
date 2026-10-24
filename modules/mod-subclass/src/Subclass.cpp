@@ -862,7 +862,18 @@ Powers SubclassPower(uint8 catalogClassId)
     if (Powers const standard = StandardClassPower(catalogClassId); standard != MAX_POWERS)
         return standard;
     ChrClassesEntry const* entry = sChrClassesStore.LookupEntry(PlayableClassOf(catalogClassId));
-    return entry && entry->powerType == POWER_MANA ? POWER_MANA : MAX_POWERS;
+    if (!entry)
+        return MAX_POWERS;
+    switch (Powers(entry->powerType))
+    {
+        case POWER_MANA:
+        case POWER_RAGE:
+        case POWER_ENERGY:
+        case POWER_RUNIC_POWER:
+            return Powers(entry->powerType);
+        default:
+            return MAX_POWERS;
+    }
 }
 
 bool StanceLike(SpellInfo const* info)
@@ -2462,6 +2473,11 @@ void SetBorrowedPassives(Player* player, bool active)
     }
 }
 
+bool PressedByHand(Spell const* spell)
+{
+    return !spell->IsTriggered() && !spell->HasTriggeredCastFlag(TRIGGERED_COUNTS_AS_CAST);
+}
+
 class mod_subclass_spells : public AllSpellScript
 {
 public:
@@ -2470,7 +2486,7 @@ public:
     void OnSpellCheckCast(Spell* spell, bool /*strict*/, SpellCastResult& res) override
     {
         Player* player = spell->GetCaster() ? spell->GetCaster()->ToPlayer() : nullptr;
-        if (player && !spell->IsTriggered() &&
+        if (player && PressedByHand(spell) &&
             (res == SPELL_FAILED_ONLY_SHAPESHIFT || res == SPELL_FAILED_NOT_SHAPESHIFT) &&
             IsBorrowedSpell(player, spell->GetSpellInfo()->Id) &&
             OtherHalfFormAllows(player, spell->GetSpellInfo()))
@@ -2479,7 +2495,7 @@ public:
             res = SPELL_FAILED_DONT_REPORT;
             return;
         }
-        if (res != SPELL_CAST_OK || !player || spell->IsTriggered())
+        if (res != SPELL_CAST_OK || !player || !PressedByHand(spell))
             return;
         if (CallsHunterPet(spell->GetSpellInfo()))
             BringBackParkedHunterPet(player);
@@ -2560,6 +2576,9 @@ public:
             default:
                 return std::nullopt;
         }
+        if (context == CLASS_CONTEXT_ABILITY && playerClass != player->getClass() &&
+            IsAscensionCustomClassId(playerClass) && UsesAscensionClassMechanics(player, playerClass))
+            return true;
         if (playerClass < CLASS_WARRIOR || playerClass > CLASS_DRUID || playerClass == player->getClass())
             return std::nullopt;
         if (playerClass == CLASS_DEATH_KNIGHT && raisingRunes)
