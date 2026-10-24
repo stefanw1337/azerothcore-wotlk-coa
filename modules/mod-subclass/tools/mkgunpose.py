@@ -51,6 +51,8 @@ COPIED = ((49, READY_RIFLE, True, True, HELD_AIM), (49, 49, True, True, None), (
           (109, READY_BOW, False, False, HELD_AIM), (46, 46, False, False, None), (109, 109, False, False, None),
           (49, ATTACK_OFF_PIERCE, True, True, None))
 HOLD_LOOPS = 12
+HOLD_RIFLE, OTHER_HEAD_READY_RIFLE = 110, 221
+OWN_RIFLE = ((READY_RIFLE, READY_RIFLE, 0.0), (49, 49, None), (49, HOLD_RIFLE, None))
 KICKED = (49, ATTACK_OFF_PIERCE)
 LEFT_HAND_HOLDS = (17, 21, 26, 57, 31, 51, 52, 53, 54, 107, 108, 124, 125, 126)
 READY_1H = 26
@@ -301,16 +303,34 @@ def arm_length(data, chain):
     return sum(np.linalg.norm(pivot(data, chain[index + 1]) - pivot(data, chain[index])) for index in (1, 2))
 
 
-def reached(ogre, ready, source, sequence, entries, chain, source_chain):
+def reached(ogre, ready, source, sequence, entries, chain, source_chain, mirror=True, moment=None):
     scale = arm_length(ogre, chain) / arm_length(source, source_chain)
+    side = np.array((1.0, -1.0 if mirror else 1.0, 1.0))
 
     def tauren_hold(stamp):
-        model = Pose(source, sequence, {}, stamp)
+        model = Pose(source, sequence, {}, stamp if moment is None else moment)
         source_chest = model.frame(parent_of(source, source_chain[0]))[0]
-        return source_chest.T @ (model.joint(source_chain[3]) - model.joint(source_chain[1])) * \
-            np.array((1.0, -1.0, 1.0)) * scale
+        return source_chest.T @ (model.joint(source_chain[3]) - model.joint(source_chain[1])) * side * scale
 
     return bent_toward(ogre, ready, entries, chain, tauren_hold)
+
+
+def turned_like_source(ogre, ready, source, sequence, entries, chain, source_chain, moment=None):
+    posed = {bone: decoded(entry) for bone, entry in entries.items()}
+    stamps = posed[chain[1]][0]
+    hands, previous = [], None
+    for stamp in stamps:
+        model = Pose(source, sequence, {}, stamp if moment is None else moment)
+        source_chest = model.frame(parent_of(source, source_chain[0]))[0]
+        pose = Pose(ogre, ready, posed, stamp)
+        chest = pose.frame(parent_of(ogre, chain[0]))[0]
+        forearm = pose.frame(chain[2])[0]
+        local = forearm.T @ chest @ source_chest.T @ model.frame(source_chain[3])[0]
+        previous = continuous(as_quaternion(local), previous)
+        hands.append(packed(previous, False))
+    entries = dict(entries)
+    entries[chain[3]] = (len(stamps), struct.pack(f"<{len(stamps)}I", *stamps), b"".join(hands))
+    return entries
 
 
 def pointed(ogre, ready, entries, chain, direction):
@@ -694,6 +714,70 @@ class Grafter:
         self.cast_from_right_hand()
         return bytes(self.blob.data)
 
+    def own_rifle(self):
+        ogre = bytes(self.blob.data)
+        _, offset = array(ogre, SEQUENCES)
+        struct.pack_into("<H", self.blob.data, offset + sequence_index(ogre, READY_RIFLE) * SEQUENCE_SIZE,
+                         OTHER_HEAD_READY_RIFLE)
+        arms = ((arm_chain(ogre, KEY_ARM_LEFT), arm_chain(self.source, KEY_ARM_LEFT)),
+                (arm_chain(ogre, KEY_ARM_RIGHT), arm_chain(self.source, KEY_ARM_RIGHT)))
+        appended = []
+        for animation, target, held in OWN_RIFLE:
+            sequence = sequence_index(self.source, animation)
+            mapping = bone_sources(ogre, self.source, False, False, held is not None)
+            keys = {bone: rotation_keys(self.source, chain, sequence, False) for bone, chain in mapping.items()}
+            moment = None
+            if held is not None:
+                moment = int(sequence_length(self.source, sequence) * held)
+                keys = {bone: frozen(entry, moment) for bone, entry in keys.items()}
+            for chain, source_chain in arms:
+                keys = reached(ogre, self.base, self.source, sequence, keys, chain, source_chain, False, moment)
+                keys = turned_like_source(ogre, self.base, self.source, sequence, keys, chain, source_chain, moment)
+            if held is not None:
+                gun_hand, source_gun_hand = arms[1][0][-1], arms[1][1][-1]
+                barrel = Pose(self.source, sequence, {}, moment).frame(source_gun_hand)[0].T @ np.array(FORWARD)
+                keys[gun_hand] = aimed_joint(ogre, self.base, [gun_hand], keys, tuple(barrel))
+            if held is None:
+                own = sequence_index(ogre, target)
+                for bone, entry in keys.items():
+                    self.set_own_rotation(bone, own, entry)
+            else:
+                appended.append((sequence, target, keys))
+        for sequence, target, keys in appended:
+            self.append_held(sequence, target, keys)
+        return bytes(self.blob.data)
+
+    def append_held(self, source_sequence, target, keys):
+        bone_count, _ = array(self.blob.data, BONES)
+        for bone in range(bone_count):
+            for track, size in zip(BONE_TRACKS, TRACK_VALUE_SIZES):
+                place = bone_offset(self.blob.data, bone) + track
+                entry = keys.get(bone) if track == ROTATION else None
+                self.extend(place, True, [entry if entry is not None else self.looped(place, size)])
+        for header, (size, tracks) in RECORD_TRACKS.items():
+            count, offset = array(self.blob.data, header)
+            for record in range(count):
+                for track in tracks:
+                    self.extend(offset + record * size + track, True, [None])
+        count, offset = array(self.blob.data, EVENTS)
+        for record in range(count):
+            self.extend(offset + record * EVENT_SIZE + EVENT_TRACK, False, [None])
+        data = self.blob.data
+        _, offset = array(data, SEQUENCES)
+        _, source_offset = array(self.source, SEQUENCES)
+        records = bytearray(data[offset:offset + self.old_count * SEQUENCE_SIZE])
+        record = bytearray(self.source[source_offset + source_sequence * SEQUENCE_SIZE:
+                                       source_offset + (source_sequence + 1) * SEQUENCE_SIZE])
+        record[SEQUENCE_BOUNDS] = data[offset + self.base * SEQUENCE_SIZE:
+                                       offset + (self.base + 1) * SEQUENCE_SIZE][SEQUENCE_BOUNDS]
+        struct.pack_into("<HH", record, 0, target, 0)
+        struct.pack_into("<I", record, 4, sequence_length(bytes(data), self.base) * HOLD_LOOPS)
+        struct.pack_into("<hH", record, SEQUENCE_NEXT, -1, self.old_count)
+        records += record
+        struct.pack_into("<II", self.blob.data, SEQUENCES, len(records) // SEQUENCE_SIZE,
+                         self.blob.append(bytes(records), 16))
+        self.old_count += 1
+
     def cast_from_right_hand(self):
         count, offset = array(self.blob.data, ATTACHMENTS)
         records = {struct.unpack_from("<I", self.blob.data, offset + index * 40)[0]: offset + index * 40
@@ -780,5 +864,14 @@ def graft(ogre_path, source_path, skin_path):
     ogre.write_bytes(Grafter(ogre.read_bytes(), Path(source_path).read_bytes(), Path(skin_path).read_bytes()).graft())
 
 
+def own_rifle(ogre_path, source_path, skin_path):
+    ogre = Path(ogre_path)
+    grafter = Grafter(ogre.read_bytes(), Path(source_path).read_bytes(), Path(skin_path).read_bytes())
+    ogre.write_bytes(grafter.own_rifle())
+
+
 if __name__ == "__main__":
-    graft(sys.argv[1], sys.argv[2], sys.argv[3])
+    if sys.argv[1] == "--own-rifle":
+        own_rifle(sys.argv[2], sys.argv[3], sys.argv[4])
+    else:
+        graft(sys.argv[1], sys.argv[2], sys.argv[3])

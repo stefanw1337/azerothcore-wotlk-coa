@@ -99,6 +99,7 @@ constexpr uint32 QuestMarkAura = 9530120;
 constexpr std::array<uint32, 4> SelfAuras = { TeamingUpAura, LonelyAura, AgreedAura, DisagreedAura };
 constexpr uint32 SelfAuraTick = 1000;
 constexpr uint32 SheathEmote = 573;
+constexpr uint32 OtherHeadReadyRifleEmote = 501;
 constexpr uint32 ArrivalDelay = 2000;
 constexpr uint32 LoginArrivalDelay = 10000;
 constexpr float RangedStandoff = 15.0f;
@@ -2747,9 +2748,10 @@ void AimFromAfar(Player* player)
         player->GetSheath() == SHEATH_STATE_MELEE &&
         target->IsAlive() && !player->IsWithinMeleeRange(target) && !player->isMoving() &&
         !player->IsNonMeleeSpellCast(false, true, true);
-    uint32 const wanted = !aiming ? 0 : IsBow(gun) ? EMOTE_STATE_READY_BOW : EMOTE_STATE_READY_RIFLE;
+    uint32 const wanted = !aiming ? 0 : IsBow(gun) ? EMOTE_STATE_READY_BOW : OtherHeadReadyRifleEmote;
     uint32 const current = player->GetUInt32Value(UNIT_NPC_EMOTESTATE);
-    bool const ours = current == EMOTE_STATE_READY_BOW || current == EMOTE_STATE_READY_RIFLE;
+    bool const ours = current == EMOTE_STATE_READY_BOW || current == OtherHeadReadyRifleEmote ||
+        current == EMOTE_STATE_READY_RIFLE;
     if (current == wanted || (!wanted && !ours))
         return;
     player->SetUInt32Value(UNIT_NPC_EMOTESTATE, wanted);
