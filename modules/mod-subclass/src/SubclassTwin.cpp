@@ -17,6 +17,7 @@
 #include "LootMgr.h"
 #include "MotionMaster.h"
 #include "MoveSpline.h"
+#include "TargetedMovementGenerator.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "CharmInfo.h"
@@ -1653,6 +1654,35 @@ void SwapRider(Player* player, bool riding)
     motions[player->GetGUID().GetCounter()].Riding = riding;
 }
 
+Unit* FollowedBy(Unit* summon)
+{
+    MotionMaster* motion = summon->GetMotionMaster();
+    if (motion->empty() || motion->GetCurrentMovementGeneratorType() != FOLLOW_MOTION_TYPE)
+        return nullptr;
+    auto const* follow = dynamic_cast<FollowMovementGenerator<Creature> const*>(motion->top());
+    return follow ? follow->GetTarget() : nullptr;
+}
+
+bool TagsAlong(Unit const* summon, Player const* player)
+{
+    return summon->IsGuardian() && !summon->IsPet() && !summon->IsTotem() && summon->IsAlive() &&
+        summon->GetOwnerGUID() == player->GetGUID() && !summon->GetVictim() && !summon->IsCharmed();
+}
+
+Unit* SummonLeader(Player* player, Creature* twin)
+{
+    return IsSplit(player) && !twin->GetVehicle() ? static_cast<Unit*>(twin) : player;
+}
+
+void LeadSummons(Player* player, Creature* twin, Unit* leader)
+{
+    std::vector<Unit*> const summons(player->m_Controlled.begin(), player->m_Controlled.end());
+    for (Unit* summon : summons)
+        if (Unit* const followed = TagsAlong(summon, player) ? FollowedBy(summon) : nullptr;
+            followed && followed != leader && (followed == player || followed == twin))
+            summon->GetMotionMaster()->MoveFollow(leader, PET_FOLLOW_DIST, summon->GetFollowAngle());
+}
+
 void StopFighting(Player const* player)
 {
     std::lock_guard<std::mutex> lock(twinMutex);
@@ -1713,6 +1743,7 @@ void UpdateCarry(Player* player, uint32 diff)
     MirrorShape(player, twin);
     MirrorFormVisual(player, twin);
     UpdateCompanion(player, twin);
+    LeadSummons(player, twin, SummonLeader(player, twin));
     HandWeaponsToBrother(player);
     UpdateShieldBearer(player, twin);
     if (twin->HasUnitFlag(UNIT_FLAG_STUNNED))
@@ -1756,6 +1787,7 @@ void DismissTwin(Player* player)
     ReturnFormsToPlayer(player);
     if (Creature* twin = ObjectAccessor::GetCreature(*player, guid))
     {
+        LeadSummons(player, twin, player);
         if (twin->GetVehicle())
             twin->ExitVehicle();
         twin->DespawnOrUnsummon();

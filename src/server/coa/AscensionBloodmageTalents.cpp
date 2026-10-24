@@ -101,7 +101,6 @@ enum BloodmageTalentSpells : uint32
 };
 
 constexpr uint32 NPC_BLOOD_ORB = 315303;
-constexpr uint32 NPC_SHADOW_BAT = 50069;
 constexpr int32 AtherannsAnguishPercent = 30;
 constexpr uint32 AtherannsAnguishScale = 100;
 constexpr uint32 CardiacArrestDamagePercent = 50;
@@ -1313,21 +1312,6 @@ class spell_ascension_bloodmage_lunge : public SpellScript
     }
 };
 
-class aura_ascension_bloodmage_eyes_in_the_night : public AuraScript
-{
-    PrepareAuraScript(aura_ascension_bloodmage_eyes_in_the_night);
-
-    bool ShieldsAllButShadowBats(Unit* target)
-    {
-        return !target->IsCreature() || target->GetEntry() != NPC_SHADOW_BAT;
-    }
-
-    void Register() override
-    {
-        DoCheckAreaTarget += AuraCheckAreaTargetFn(aura_ascension_bloodmage_eyes_in_the_night::ShieldsAllButShadowBats);
-    }
-};
-
 class spell_ascension_bloodmage_blood_orb_spawn : public SpellScript
 {
     PrepareSpellScript(spell_ascension_bloodmage_blood_orb_spawn);
@@ -1620,7 +1604,6 @@ void AddSC_AscensionBloodmageTalents()
     RegisterSpellScript(aura_ascension_bloodmage_infuse);
     RegisterSpellScript(spell_ascension_bloodmage_infuse_unleash);
     RegisterSpellScript(spell_ascension_bloodmage_lunge);
-    RegisterSpellScript(aura_ascension_bloodmage_eyes_in_the_night);
     RegisterSpellScript(spell_ascension_bloodmage_blood_orb_spawn);
     RegisterCreatureAI(npc_ascension_bloodmage_blood_orb);
     RegisterSpellScript(spell_ascension_bloodmage_blood_orb_pickup);
