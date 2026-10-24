@@ -5,7 +5,7 @@ to cover her upper lip. Hide the cyclops head's crest under the hats that enclos
         <cyclops root> <cyclops map.sql> <mouth cover.sql>
     python mkjaws.py crown <TwoHeadedOgre.m2> <TwoHeadedOgre00.skin> <CharacterFacialHairStyles.dbc>
     python mkjaws.py crownfit <TwoHeadedOgre.m2> <TwoHeadedOgre00.skin> <cyclops root> <cyclops map.sql>
-        <crown cover.sql>
+        <mouth cover.sql> <crown cover.sql>
 split moves each jaw into facial geosets the server switches with her facial style. fit measures every helmet on
 both heads, pushes the mouth-covering ones forward in place and writes which displays cover which mouth. crown
 moves the cyclops crest above the hat band into facial geosets of its own; crownfit marks the cyclops helmets whose
@@ -13,6 +13,7 @@ band reaches below that cut all around and whose crown covers the crest."""
 import re
 import struct
 import sys
+import textwrap
 import zipfile
 from pathlib import Path, PureWindowsPath
 
@@ -293,7 +294,7 @@ class Crest:
         return roofed.mean() >= CROWN_ENCLOSED
 
 
-def crownfit(m2_path, skin_path, cyclops_root, cyclops_map, out_sql):
+def crownfit(m2_path, skin_path, cyclops_root, cyclops_map, mouth_sql, out_sql):
     crest = Crest(m2_path, skin_path)
     cyclops_models = {}
     for display, model in re.findall(r"\((\d+), \d+, '([^']+)'\)", Path(cyclops_map).read_text()):
@@ -304,15 +305,19 @@ def crownfit(m2_path, skin_path, cyclops_root, cyclops_map, out_sql):
         skin = path.with_name(path.stem + "00.skin")
         if path.exists() and skin.exists() and crest.enclosed(surface_points(path.read_bytes(), skin.read_bytes())):
             covering += displays
-    covering.sort()
+    mouths = {int(display): int(heads)
+              for display, heads in re.findall(r"^\((\d+), (\d+)\)", Path(mouth_sql).read_text(), re.M)}
+    entries = sorted((display, mouths.get(display, 0) | CROWN_HEAD) for display in set(covering))
     with open(out_sql, "w") as out:
         out.write("-- mod-subclass: cyclops helmet displays whose band and crown enclose the cyclops head's crest, so "
-                  "it is hidden\n-- under them (Heads bit %d).\n" % CROWN_HEAD)
-        for start in range(0, len(covering), 500):
-            chunk = covering[start:start + 500]
-            out.write("\nINSERT INTO `mod_subclass_mouth_cover` (`DisplayId`, `Heads`) VALUES\n")
-            out.write(",\n".join("(%d, %d)" % (display, CROWN_HEAD) for display in chunk))
-            out.write("\nON DUPLICATE KEY UPDATE `Heads` = `Heads` | %d;\n" % CROWN_HEAD)
+                  "it is hidden\n-- under them (Heads bit %d, kept with the mouths they cover).\n" % CROWN_HEAD)
+        for start in range(0, len(entries), 500):
+            chunk = entries[start:start + 500]
+            ids = textwrap.fill(", ".join(str(display) for display, _ in chunk), 116, initial_indent="    ",
+                                subsequent_indent="    ")
+            out.write("\nDELETE FROM `mod_subclass_mouth_cover` WHERE `DisplayId` IN (\n%s);\n" % ids)
+            out.write("INSERT INTO `mod_subclass_mouth_cover` (`DisplayId`, `Heads`) VALUES\n")
+            out.write(",\n".join("(%d, %d)" % pair for pair in chunk) + ";\n")
     print(len(cyclops_models), "cyclops helmets,", len(covering), "displays enclose the crest")
 
 
