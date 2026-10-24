@@ -1,10 +1,15 @@
 """Hide the Two-Headed Ogre's jaws under helmets that cover the mouth, and bring those helmets forward far enough
-to cover her upper lip.
+to cover her upper lip. Hide the cyclops head's crest under the hats that enclose it.
     python mkjaws.py split <TwoHeadedOgre.m2> <TwoHeadedOgre00.skin> <CharacterFacialHairStyles.dbc>
     python mkjaws.py fit <TwoHeadedOgre.m2> <TwoHeadedOgre00.skin> <helmets.zip> <own helmet folder>
         <cyclops root> <cyclops map.sql> <mouth cover.sql>
+    python mkjaws.py crown <TwoHeadedOgre.m2> <TwoHeadedOgre00.skin> <CharacterFacialHairStyles.dbc>
+    python mkjaws.py crownfit <TwoHeadedOgre.m2> <TwoHeadedOgre00.skin> <cyclops root> <cyclops map.sql>
+        <crown cover.sql>
 split moves each jaw into facial geosets the server switches with her facial style. fit measures every helmet on
-both heads, pushes the mouth-covering ones forward in place and writes which displays cover which mouth."""
+both heads, pushes the mouth-covering ones forward in place and writes which displays cover which mouth. crown
+moves the cyclops crest above the hat band into facial geosets of its own; crownfit marks the cyclops helmets whose
+band reaches below that cut all around and whose crown covers the crest."""
 import re
 import struct
 import sys
@@ -34,6 +39,15 @@ COVERED_SHARE = 0.6
 LIP_HEIGHT = 0.04
 LIP_MARGIN = {"left": 0.015, "right": 0.04}
 MOST_PUSH = {"left": 0.01, "right": 0.15}
+CROWN_CUT = 2.68
+CROWN_SHOWN, CROWN_HIDDEN = 1601, 1603
+CROWN_GEOSET_FIELD = 6
+CROWN_HEAD = 4
+BAND_DIRECTIONS = 12
+BAND_WIDTH, BAND_REACH = 0.05, 0.2
+ABOVE_RADIUS = 0.06
+CROWN_ENCLOSED = 0.95
+SURFACE_SAMPLES = ((0.33, 0.33), (0.6, 0.2), (0.2, 0.6), (0.2, 0.2), (0.5, 0.5), (0.5, 0.0), (0.0, 0.5))
 
 
 def dominant_bones(m2):
@@ -56,14 +70,22 @@ def jaw_triangles(m2, skin, body):
 
 def split(m2_path, skin_path, styles_path):
     m2, skin = Path(m2_path).read_bytes(), bytearray(Path(skin_path).read_bytes())
-    submesh_count, submesh_offset = arr(skin, SKIN_SUBMESHES)
-    body = submesh_offset
+    body = arr(skin, SKIN_SUBMESHES)[1]
     corners, left, right = jaw_triangles(m2, bytes(skin), body)
-    face = corners[~(left | right)]
+    pieces = ((BOTH_JAWS, left | right), (RIGHT_JAW_ONLY, right), (LEFT_JAW_ONLY, left))
+    skin = moved_into_geosets(skin, body, corners, left | right, pieces)
+    Path(skin_path).write_bytes(bytes(skin))
+    write_styles(styles_path)
+    print("jaw triangles: left", int(left.sum()), "right", int(right.sum()))
+
+
+def moved_into_geosets(skin, body, corners, moved, pieces):
+    kept = corners[~moved]
     _, index_offset = arr(skin, SKIN_INDICES)
     start = struct.unpack_from("<H", skin, body + 8)[0]
-    skin[index_offset + start * 2:index_offset + start * 2 + face.size * 2] = face.astype(np.uint16).tobytes()
-    struct.pack_into("<H", skin, body + 10, face.size)
+    skin[index_offset + start * 2:index_offset + start * 2 + kept.size * 2] = kept.astype(np.uint16).tobytes()
+    struct.pack_into("<H", skin, body + 10, kept.size)
+    submesh_count, submesh_offset = arr(skin, SKIN_SUBMESHES)
     index_count = arr(skin, SKIN_INDICES)[0]
     indices = bytearray(skin[index_offset:index_offset + index_count * 2])
     submeshes = bytearray(skin[submesh_offset:submesh_offset + submesh_count * SUBMESH_SIZE])
@@ -71,7 +93,6 @@ def split(m2_path, skin_path, styles_path):
     units = bytearray(skin[unit_offset:unit_offset + unit_count * TEXTURE_UNIT_SIZE])
     body_unit = next(index for index in range(unit_count)
                      if struct.unpack_from("<H", units, index * TEXTURE_UNIT_SIZE + 4)[0] == 0)
-    pieces = ((BOTH_JAWS, left | right), (RIGHT_JAW_ONLY, right), (LEFT_JAW_ONLY, left))
     for geoset, shown in ((first + offset, shown) for first, shown in pieces for offset in range(GEOSET_SPAN)):
         piece = corners[shown]
         submesh = bytearray(submeshes[:SUBMESH_SIZE])
@@ -88,9 +109,29 @@ def split(m2_path, skin_path, styles_path):
             skin.append(0)
         struct.pack_into("<II", skin, header, len(payload) // size, len(skin))
         skin += payload
+    return skin
+
+
+def crest_triangles(m2, skin, body):
+    bones = dominant_bones(m2)
+    lookup_count, lookup_offset = arr(skin, 4)
+    lookup = np.frombuffer(skin, np.uint16, lookup_count, lookup_offset).astype(np.int64)
+    _, index_offset = arr(skin, SKIN_INDICES)
+    start, count = struct.unpack_from("<HH", skin, body + 8)
+    corners = np.frombuffer(skin, np.uint16, count, index_offset + start * 2).reshape(-1, 3)
+    heights = positions(m2)[lookup[corners], 2]
+    cyclops = list(subtree(bone_parents(m2), {CYCLOPS_HEAD}))
+    return corners, np.isin(bones[lookup[corners]], cyclops).all(axis=1) & (heights.min(axis=1) > CROWN_CUT)
+
+
+def crown(m2_path, skin_path, styles_path):
+    m2, skin = Path(m2_path).read_bytes(), bytearray(Path(skin_path).read_bytes())
+    body = arr(skin, SKIN_SUBMESHES)[1]
+    corners, crest = crest_triangles(m2, bytes(skin), body)
+    skin = moved_into_geosets(skin, body, corners, crest, ((CROWN_SHOWN, crest),))
     Path(skin_path).write_bytes(bytes(skin))
     write_styles(styles_path)
-    print("jaw triangles: left", int(left.sum()), "right", int(right.sum()))
+    print("crest triangles:", int(crest.sum()))
 
 
 def write_styles(path):
@@ -98,10 +139,13 @@ def write_styles(path):
     _, count, fields, size, string_size = struct.unpack_from("<4s4I", data)
     rows = [data[20 + index * size:20 + (index + 1) * size] for index in range(count)]
     kept = [row for row in rows if struct.unpack_from("<2i", row) != (OGRE_RACE, FEMALE)]
-    for variation, geoset in enumerate((BOTH_JAWS, RIGHT_JAW_ONLY, LEFT_JAW_ONLY, NO_JAW)):
+    jaws = (BOTH_JAWS, RIGHT_JAW_ONLY, LEFT_JAW_ONLY, NO_JAW)
+    for variation, (crest, geoset) in enumerate((crest, geoset) for crest in (CROWN_SHOWN, CROWN_HIDDEN)
+                                                for geoset in jaws):
         values = [0] * STYLE_FIELDS
         values[:3] = OGRE_RACE, FEMALE, variation
         values[JAW_GEOSET_FIELD] = geoset - 300
+        values[CROWN_GEOSET_FIELD] = crest - 1600
         kept.append(struct.pack("<%di" % STYLE_FIELDS, *values))
     strings = data[20 + count * size:]
     Path(path).write_bytes(struct.pack("<4s4I", b"WDBC", len(kept), fields, size, string_size) + b"".join(kept) +
@@ -214,5 +258,63 @@ def fit(m2_path, skin_path, zip_path, own_folder, cyclops_root, cyclops_map, out
     print(len(by_model), "own helmets,", len(cyclops_models), "cyclops helmets,", len(covers), "covering displays")
 
 
+def surface_points(data, skin):
+    mesh = load_mesh(data, skin)
+    corners = mesh.positions[mesh.triangles]
+    samples = [corners[:, 0] * (1 - a - b) + corners[:, 1] * a + corners[:, 2] * b for a, b in SURFACE_SAMPLES]
+    return np.concatenate([mesh.positions] + samples)
+
+
+class Crest:
+    def __init__(self, m2_path, skin_path):
+        m2, skin = Path(m2_path).read_bytes(), Path(skin_path).read_bytes()
+        crest = load_mesh(m2, skin, {CROWN_SHOWN})
+        self.points = crest.positions[np.unique(crest.triangles)]
+        body = load_mesh(m2, skin, {0})
+        head = body.positions[np.isin(body.bones, list(subtree(bone_parents(m2), {CYCLOPS_HEAD})))]
+        self.centre = pivots(m2)[CYCLOPS_HEAD][:2]
+        self.bands = []
+        for angle in np.linspace(0, 2 * np.pi, BAND_DIRECTIONS, endpoint=False):
+            direction = np.array([np.cos(angle), np.sin(angle)])
+            across = np.array([-direction[1], direction[0]])
+            offset = head[:, :2] - self.centre
+            side = head[(np.abs(offset @ across) < BAND_WIDTH) & (offset @ direction > 0)]
+            self.bands.append((direction, across, ((side[:, :2] - self.centre) @ direction).max()))
+
+    def enclosed(self, hat):
+        offset = hat[:, :2] - self.centre
+        for direction, across, reach in self.bands:
+            along = offset @ direction
+            band = (np.abs(offset @ across) < BAND_WIDTH) & (along > 0) & (along < reach + BAND_REACH)
+            if not band.any() or hat[band, 2].min() > CROWN_CUT:
+                return False
+        apart = np.hypot(*(hat[None, :, :2] - self.points[:, None, :2]).transpose(2, 0, 1))
+        roofed = ((apart < ABOVE_RADIUS) & (hat[None, :, 2] > self.points[:, None, 2])).any(axis=1)
+        return roofed.mean() >= CROWN_ENCLOSED
+
+
+def crownfit(m2_path, skin_path, cyclops_root, cyclops_map, out_sql):
+    crest = Crest(m2_path, skin_path)
+    cyclops_models = {}
+    for display, model in re.findall(r"\((\d+), \d+, '([^']+)'\)", Path(cyclops_map).read_text()):
+        cyclops_models.setdefault(model.replace("\\\\", "\\"), []).append(int(display))
+    covering = []
+    for model, displays in cyclops_models.items():
+        path = Path(cyclops_root, *PureWindowsPath(model).parts)
+        skin = path.with_name(path.stem + "00.skin")
+        if path.exists() and skin.exists() and crest.enclosed(surface_points(path.read_bytes(), skin.read_bytes())):
+            covering += displays
+    covering.sort()
+    with open(out_sql, "w") as out:
+        out.write("-- mod-subclass: cyclops helmet displays whose band and crown enclose the cyclops head's crest, so "
+                  "it is hidden\n-- under them (Heads bit %d).\n" % CROWN_HEAD)
+        for start in range(0, len(covering), 500):
+            chunk = covering[start:start + 500]
+            out.write("\nINSERT INTO `mod_subclass_mouth_cover` (`DisplayId`, `Heads`) VALUES\n")
+            out.write(",\n".join("(%d, %d)" % (display, CROWN_HEAD) for display in chunk))
+            out.write("\nON DUPLICATE KEY UPDATE `Heads` = `Heads` | %d;\n" % CROWN_HEAD)
+    print(len(cyclops_models), "cyclops helmets,", len(covering), "displays enclose the crest")
+
+
 if __name__ == "__main__":
-    {"split": split, "fit": fit}[sys.argv[1]](*sys.argv[2:])
+    {"split": split, "fit": fit, "crown": crown, "crownfit": crownfit}[sys.argv[1]](*sys.argv[2:])

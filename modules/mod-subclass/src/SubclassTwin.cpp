@@ -2855,6 +2855,7 @@ std::string CyclopsPreview(uint32 itemId)
 
 constexpr uint8 LeftMouth = 1;
 constexpr uint8 RightMouth = 2;
+constexpr uint8 CyclopsCrest = 4;
 
 std::unordered_map<uint32, uint8> const& MouthCovers()
 {
@@ -2876,25 +2877,27 @@ std::unordered_map<uint32, uint8> const& MouthCovers()
     return covers;
 }
 
-bool CoversMouth(uint32 itemId, uint8 mouth)
+bool HelmetCovers(uint32 itemId, uint8 part)
 {
     if (!itemId)
         return false;
     auto const& covers = MouthCovers();
     auto const itr = covers.find(DisplayOfItem(itemId));
-    return itr != covers.end() && (itr->second & mouth);
+    return itr != covers.end() && (itr->second & part);
 }
 
-void HideCoveredJaws(Player* player)
+void HideCoveredParts(Player* player)
 {
     if (!HasSecondHead(player) || player->GetSession()->PlayerLogout())
         return;
     uint32 const leftHelmet = player->HasPlayerFlag(PLAYER_FLAGS_HIDE_HELM) ? 0 :
         player->GetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_HEAD * 2);
-    uint8 const jaws = (CoversMouth(leftHelmet, LeftMouth) ? LeftMouth : 0) |
-        (CoversMouth(ShownCyclopsHelmetItem(player), RightMouth) ? RightMouth : 0);
-    if (player->GetByteValue(PLAYER_BYTES_2, PLAYER_BYTES_2_OFFSET_FACIAL_STYLE) != jaws)
-        player->SetByteValue(PLAYER_BYTES_2, PLAYER_BYTES_2_OFFSET_FACIAL_STYLE, jaws);
+    uint32 const cyclopsHelmet = ShownCyclopsHelmetItem(player);
+    uint8 const hidden = (HelmetCovers(leftHelmet, LeftMouth) ? LeftMouth : 0) |
+        (HelmetCovers(cyclopsHelmet, RightMouth) ? RightMouth : 0) |
+        (HelmetCovers(cyclopsHelmet, CyclopsCrest) ? CyclopsCrest : 0);
+    if (player->GetByteValue(PLAYER_BYTES_2, PLAYER_BYTES_2_OFFSET_FACIAL_STYLE) != hidden)
+        player->SetByteValue(PLAYER_BYTES_2, PLAYER_BYTES_2_OFFSET_FACIAL_STYLE, hidden);
 }
 
 void ShowCharacterSelectJaws(Player* player)
@@ -2904,12 +2907,12 @@ void ShowCharacterSelectJaws(Player* player)
     uint32 const leftHelmet = player->HasPlayerFlag(PLAYER_FLAGS_HIDE_HELM) ? 0 :
         player->GetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_HEAD * 2);
     player->SetByteValue(PLAYER_BYTES_2, PLAYER_BYTES_2_OFFSET_FACIAL_STYLE,
-        CoversMouth(leftHelmet, LeftMouth) ? LeftMouth : 0);
+        HelmetCovers(leftHelmet, LeftMouth) ? LeftMouth : 0);
 }
 
 void UpdateCyclopsHelmet(Player* player)
 {
-    HideCoveredJaws(player);
+    HideCoveredParts(player);
     if (!player->IsAlive())
         return;
     uint32 const wanted = WantedCyclopsHelmetAura(player);

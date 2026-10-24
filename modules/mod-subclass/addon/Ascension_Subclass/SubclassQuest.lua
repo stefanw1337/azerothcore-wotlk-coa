@@ -10,10 +10,9 @@ function Quest.Button()
     if Quest.button then
         return Quest.button
     end
-    local button = CreateFrame("Button", "Ascension_SubclassQuestButton", PlayerFrame)
+    local button = CreateFrame("Button", "Ascension_SubclassQuestButton", UIParent)
     button:SetSize(28, 28)
-    button:SetPoint("BOTTOMRIGHT", PlayerPortrait or PlayerFrame, "TOPRIGHT", -2, -14)
-    button:SetFrameLevel(PlayerFrame:GetFrameLevel() + 10)
+    button:SetFrameStrata("HIGH")
     button.icon = button:CreateTexture(nil, "OVERLAY")
     button.icon:SetAllPoints(button)
     button.icon:SetTexture(QUEST_ICON)
@@ -38,10 +37,23 @@ function Quest.Button()
     return button
 end
 
+function Quest.Place(button)
+    button:ClearAllPoints()
+    if PlayerFrame and PlayerFrame:IsVisible() then
+        button:SetPoint("BOTTOMRIGHT", PlayerPortrait or PlayerFrame, "TOPRIGHT", -2, -14)
+        button:SetSize(28, 28)
+    else
+        button:SetPoint("TOP", UIParent, "TOP", 0, -120)
+        button:SetSize(40, 40)
+    end
+end
+
 function Ascension_Subclass.ShowQuestOffer(offered)
     local _, race = UnitRace("player")
     if offered and SECOND_HEAD_RACES[race] then
-        Quest.Button():Show()
+        local button = Quest.Button()
+        Quest.Place(button)
+        button:Show()
     elseif Quest.button then
         Quest.button:Hide()
     end
