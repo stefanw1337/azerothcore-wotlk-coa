@@ -2475,7 +2475,14 @@ bool IsBorrowedSpell(Player const* player, uint32 spellId)
 
 bool IsBasicAttack(SpellInfo const* info)
 {
-    return info->HasAttribute(SPELL_ATTR2_AUTO_REPEAT) || info->HasEffect(SPELL_EFFECT_ATTACK);
+    if (info->HasAttribute(SPELL_ATTR2_AUTO_REPEAT) || info->HasEffect(SPELL_EFFECT_ATTACK))
+        return true;
+    SkillLineAbilityMapBounds const skills = sSpellMgr->GetSkillLineAbilityMapBounds(info->Id);
+    for (auto itr = skills.first; itr != skills.second; ++itr)
+        if (SkillLineEntry const* skill = sSkillLineStore.LookupEntry(itr->second->SkillLine);
+            skill && skill->categoryId == SKILL_CATEGORY_WEAPON)
+            return true;
+    return false;
 }
 
 std::vector<uint32> KnownBorrowedActives(Player const* player)

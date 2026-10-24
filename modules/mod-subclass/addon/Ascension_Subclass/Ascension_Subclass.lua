@@ -2158,6 +2158,27 @@ local function TabsAfter(first, height)
     return found
 end
 
+local function ShowTabSelected(button, selected)
+    if button.SetTabSelected then
+        if not button.isSelected ~= not selected or not button:GetChecked() ~= not selected then
+            button:SetTabSelected(selected)
+        end
+        return
+    end
+    if button.SetChecked then
+        button:SetChecked(selected)
+    end
+    if button == tab then
+        local text = tab.GetFontString and tab:GetFontString()
+        if text then
+            local color = selected and HIGHLIGHT_FONT_COLOR or NORMAL_FONT_COLOR
+            text:SetTextColor(color.r, color.g, color.b)
+        end
+    elseif not selected and button.Enable then
+        button:Enable()
+    end
+end
+
 local function KeepTabsInRow(first, gap)
     local height = first:GetHeight()
     local function Arrange()
@@ -2167,9 +2188,7 @@ local function KeepTabsInRow(first, gap)
                 other.subclassHooked = true
                 other:HookScript("OnClick", function()
                     panel:Hide()
-                    if tab.SetChecked then
-                        tab:SetChecked(false)
-                    end
+                    ShowTabSelected(tab, false)
                 end)
             end
             if other:IsShown() then
@@ -2184,16 +2203,9 @@ local function KeepTabsInRow(first, gap)
     end
     local function ShowSelection()
         local active = panel:IsShown()
-        if tab.SetChecked then
-            tab:SetChecked(active)
-        end
-        local text = tab.GetFontString and tab:GetFontString()
-        if text then
-            local color = active and HIGHLIGHT_FONT_COLOR or NORMAL_FONT_COLOR
-            text:SetTextColor(color.r, color.g, color.b)
-        end
-        if active and advancementTab and advancementTab.SetChecked then
-            advancementTab:SetChecked(false)
+        ShowTabSelected(tab, active)
+        if active and advancementTab then
+            ShowTabSelected(advancementTab, false)
         end
     end
     local keeper = CreateFrame("Frame", nil, tab)
@@ -2244,26 +2256,17 @@ local function AttachToWindow()
             advancementTab:Click()
         end
         for _, other in ipairs(tabs) do
-            if other.SetChecked then
-                other:SetChecked(false)
-            end
-            if other.Enable then
-                other:Enable()
-            end
+            ShowTabSelected(other, false)
         end
-        if tab.SetChecked then
-            tab:SetChecked(true)
-        end
+        ShowTabSelected(tab, true)
         panel:Show()
     end)
     local function LeavePanel()
         panel:Hide()
-        if tab.SetChecked then
-            tab:SetChecked(false)
-        end
-        if window.GetCurrentTabID and window.Tabs and advancementTab.SetChecked
+        ShowTabSelected(tab, false)
+        if window.GetCurrentTabID and window.Tabs
             and window:GetCurrentTabID() == window.Tabs.CharacterAdvancement then
-            advancementTab:SetChecked(true)
+            ShowTabSelected(advancementTab, true)
         end
     end
     for _, other in ipairs(tabs) do
