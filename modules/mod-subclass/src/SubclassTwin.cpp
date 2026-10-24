@@ -988,6 +988,14 @@ void SetCarry(Player* player, Creature* twin, Carry mode)
     twin->EnterVehicle(player, TwinSeat);
 }
 
+bool TransformedPastTheForm(Player const* player)
+{
+    for (AuraEffect const* effect : player->GetAuraEffectsByType(SPELL_AURA_TRANSFORM))
+        if (!IsRiddenForm(FormOfSpell(effect->GetSpellInfo())))
+            return true;
+    return false;
+}
+
 Carry WantedCarry(Player const* player, Motion const& motion)
 {
     if (motion.Riding)
@@ -998,7 +1006,7 @@ Carry WantedCarry(Player const* player, Motion const& motion)
         return Carry::Beside;
     if (player->GetDisplayId() != player->GetNativeDisplayId())
     {
-        if (!IsRiddenForm(player->GetShapeshiftForm()) || player->HasAuraType(SPELL_AURA_TRANSFORM))
+        if (!IsRiddenForm(player->GetShapeshiftForm()) || TransformedPastTheForm(player))
             return Carry::Beside;
         return player->GetShapeshiftForm() == FORM_GHOSTWOLF ? Carry::WolfBack : Carry::CatBack;
     }
@@ -1081,12 +1089,18 @@ bool Clawing(Creature const* twin)
     return twin->GetDisplayId() != twin->GetNativeDisplayId();
 }
 
+bool MeleesHimself(Player const* player)
+{
+    Unit const* victim = player->GetVictim();
+    return victim && player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) && player->IsWithinMeleeRange(victim);
+}
+
 bool FightsFromRange(Player const* player, Creature const* twin)
 {
     if (IsSplit(player))
         return !BrotherTanks(player) && !Clawing(twin) && (OtherHalfShoots(player) ||
             LendsRangedSpecialization(player) || !twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID));
-    return RangedOf(player) != nullptr;
+    return RangedOf(player) != nullptr && !MeleesHimself(player);
 }
 
 float FollowDistanceFor(Player const* player, Creature const* twin)
