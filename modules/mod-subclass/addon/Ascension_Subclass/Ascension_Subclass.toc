@@ -10,7 +10,6 @@ SubclassBar.lua
 SubclassCastBar.lua
 SubclassPowerBar.lua
 SubclassOrbs.lua
-SubclassQuest.lua
 SubclassNodes.lua
 SubclassChoices.lua
 SubclassGlow.lua

@@ -92,6 +92,7 @@ constexpr uint32 TeamingUpAura = 9530102;
 constexpr uint32 LonelyAura = 9530103;
 constexpr uint32 AgreedAura = 9530104;
 constexpr uint32 DisagreedAura = 9530105;
+constexpr uint32 QuestMarkAura = 9530120;
 constexpr std::array<uint32, 4> SelfAuras = { TeamingUpAura, LonelyAura, AgreedAura, DisagreedAura };
 constexpr uint32 SelfAuraTick = 1000;
 constexpr uint32 SheathEmote = 573;
@@ -1949,8 +1950,23 @@ std::string TwinState(Player const* player)
 
 bool SubclassChosen(Player const* player);
 
+void ShowQuestOnSecondHead(Player* player, bool offered)
+{
+    bool const marked = player->HasAura(QuestMarkAura);
+    if (offered && !marked && player->IsAlive())
+    {
+        player->AddAura(QuestMarkAura, player);
+        ChatHandler(player->GetSession()).SendSysMessage(
+            "Your second head wants a word. Use Agree or Disagree to hear her out.");
+    }
+    else if (!offered && marked)
+        player->RemoveAurasDueToSpell(QuestMarkAura);
+}
+
 void ShowQuestOnTwin(Player* player, bool offered)
 {
+    if (HasSecondHead(player))
+        return ShowQuestOnSecondHead(player, offered);
     constexpr uint32 Talks = UNIT_NPC_FLAG_GOSSIP | UNIT_NPC_FLAG_QUESTGIVER;
     Creature* twin = HasTwin(player) ? TwinOf(player) : nullptr;
     if (!twin)
@@ -5350,6 +5366,8 @@ class spell_subclass_second_self : public SpellScript
         Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
         if (!player)
             return;
+        if (HasSecondHead(player) && SubclassQuestOffered(player))
+            return ShowSubclassPrompt(player, player->GetGUID());
         std::string const reply = HasTwin(player) ? ToggleTwin(player) : ToggleHeads(player);
         ChatHandler(player->GetSession()).SendSysMessage(reply);
     }
