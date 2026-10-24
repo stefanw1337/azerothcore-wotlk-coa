@@ -16,6 +16,7 @@
 #include "Log.h"
 #include "LootMgr.h"
 #include "MotionMaster.h"
+#include "MoveSpline.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "CharmInfo.h"
@@ -1231,6 +1232,12 @@ Unit* TwinTarget(Player* player)
     return attackers.empty() ? nullptr : *attackers.begin();
 }
 
+void TurnTo(Creature* twin, WorldObject* target)
+{
+    if (twin->movespline->Finalized())
+        twin->SetFacingToObject(target);
+}
+
 bool EchoSwing(Player* player, Creature* twin, uint32 swing)
 {
     if (IsSplit(player))
@@ -1240,7 +1247,7 @@ bool EchoSwing(Player* player, Creature* twin, uint32 swing)
     uint32 const pace = ranged && ranged->Delay ? ranged->Delay : player->GetAttackTime(BASE_ATTACK);
     if (!victim || twin->GetVehicle() || swing < std::max<uint32>(pace, MotionTick))
         return false;
-    twin->SetFacingToObject(victim);
+    TurnTo(twin, victim);
     if (ranged)
     {
         twin->SetSheath(SHEATH_STATE_RANGED);
@@ -1568,9 +1575,10 @@ ObjectGuid ChaseFoe(Creature* twin, Unit* foe, ObjectGuid chasing)
 
 bool SwingFromBrother(Player* player, Creature* twin, Unit* foe)
 {
-    if (PlayerHitsItHimself(player, foe) || !twin->IsWithinMeleeRange(foe))
+    if (PlayerHitsItHimself(player, foe) || !twin->IsWithinMeleeRange(foe) ||
+        twin->GetMotionMaster()->GetCurrentMovementGeneratorType() == EFFECT_MOTION_TYPE)
         return false;
-    twin->SetFacingToObject(foe);
+    TurnTo(twin, foe);
     swingingAlone = player->GetGUID();
     player->AttackerStateUpdate(foe, BASE_ATTACK);
     swingingAlone = ObjectGuid::Empty;
@@ -4033,7 +4041,7 @@ void ActOutCast(Player* player, SpellInfo const* info, Unit* target)
     if (!twin)
         return;
     if (target && target != player)
-        twin->SetFacingToObject(target);
+        TurnTo(twin, target);
     if (info->HasAttribute(SPELL_ATTR0_USES_RANGED_SLOT))
         if (ItemTemplate const* ranged = RangedOf(player))
         {
@@ -4262,7 +4270,7 @@ bool OrderOtherHalf(Player* player, uint32 spellId, Unit* target, uint32 pause)
         if (Creature* twin = HasTwin(player) ? TwinOf(player) : nullptr)
         {
             if (target != player)
-                twin->SetFacingToObject(target);
+                TurnTo(twin, target);
             twin->HandleEmoteCommand(EMOTE_ONESHOT_SPELL_PRECAST);
         }
     ObjectGuid const targetGuid = target->GetGUID();

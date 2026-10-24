@@ -9,6 +9,7 @@
 #include "AscensionCustomClassData.h"
 #include "AscensionCustomResourceData.h"
 #include "AscensionLiveBaselineData.h"
+#include "AscensionPooledVitality.h"
 #include "DBCStores.h"
 #include "AscensionSpecialization.h"
 #include "AscensionTaughtAbilityData.h"
@@ -1063,6 +1064,20 @@ void SendTalentGates(Player* player, std::vector<Subclass::Tree> const& open,
     SendAddonList(player, "PRESET", presets);
 }
 
+constexpr uint32 BloodmageThirst = 706613;
+constexpr uint32 BloodmageThirstPassive = 92112;
+
+constexpr std::array<std::pair<uint32, uint32>, 2> ResourceFeeders = {{
+    { AscensionBloodmage::PooledVitality, AscensionBloodmage::PooledVitalityTalent },
+    { BloodmageThirst, BloodmageThirstPassive } }};
+
+bool CanBuildResource(Player const* player, uint32 resourceSpellId)
+{
+    auto const feeder = std::find_if(ResourceFeeders.begin(), ResourceFeeders.end(),
+        [resourceSpellId](std::pair<uint32, uint32> const& pair) { return pair.first == resourceSpellId; });
+    return feeder == ResourceFeeders.end() || player->HasSpell(feeder->second) || player->HasAura(resourceSpellId);
+}
+
 void SendSubclassState(Player* player)
 {
     if (!player || !player->IsInWorld())
@@ -1121,7 +1136,7 @@ void SendSubclassState(Player* player)
     {
         uint8 const subClass = record.Choice.SubClass;
         for (AscensionCompatData::ResourceDisplay const& display : AscensionCompatData::ResourceDisplays)
-            if (display.ClassId == subClass)
+            if (display.ClassId == subClass && CanBuildResource(player, display.SpellId))
                 SendAddon(player, Acore::StringFormat("RES {} {} {}", display.SpellId, display.DisplayMaximum,
                     display.Name));
         std::vector<uint32> powers;
