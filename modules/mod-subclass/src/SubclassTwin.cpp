@@ -59,6 +59,8 @@ void RefreshSubclassResources(Player* player);
 bool IsBorrowedSpell(Player const* player, uint32 spellId);
 void SyncBorrowedMana(Player* player, uint32 milliseconds);
 Powers PowerBothHalvesUse(Player const* player);
+void RefreshSubclassState(Player* player);
+std::vector<uint32> KnownBorrowedActives(Player const* player);
 void HandWeaponsToBrother(Player* player);
 bool LendsTankSpecialization(Player const* player);
 bool LendsRangedSpecialization(Player const* player);
@@ -245,6 +247,22 @@ struct BrotherCast
 thread_local BrotherCast castingAsBrother;
 thread_local bool resendingAsBrother = false;
 
+struct HalfForm
+{
+    uint32 Spell = 0;
+    uint32 Form = 0;
+};
+
+std::mutex& halfFormMutex = *new std::mutex;
+std::unordered_map<uint32, HalfForm>& halfForms = *new std::unordered_map<uint32, HalfForm>;
+
+HalfForm HalfFormOf(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(halfFormMutex);
+    auto const itr = halfForms.find(player->GetGUID().GetCounter());
+    return itr == halfForms.end() ? HalfForm{} : itr->second;
+}
+
 constexpr uint32 CopyShownMs = 4000;
 std::mutex shownCopiesMutex;
 std::unordered_map<uint64, uint32>& shownCopies = *new std::unordered_map<uint64, uint32>;
@@ -415,6 +433,78 @@ bool IsRiddenForm(uint32 form)
     return TravelFormsShapeWholeBody() && (form == FORM_GHOSTWOLF || form == FORM_TRAVEL);
 }
 
+constexpr uint32 LastStanceForm = 32;
+
+uint32 FormOfSpell(SpellInfo const* info)
+{
+    for (SpellEffectInfo const& effect : info->GetEffects())
+        if (effect.ApplyAuraName == SPELL_AURA_MOD_SHAPESHIFT)
+            return uint32(effect.MiscValue);
+    return 0;
+}
+
+bool StaysOnTheBody(uint32 form)
+{
+    return form == FORM_STEALTH || form == FORM_SHADOW || form == FORM_SPIRITOFREDEMPTION || IsRiddenForm(form);
+}
+
+bool GatesBorrowedAbilities(Player const* player, uint32 form)
+{
+    uint32 const mask = 1u << (form - 1);
+    for (auto const& [spellId, spell] : player->GetSpellMap())
+        if (spell->State != PLAYERSPELL_REMOVED && spell->Active)
+            if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+                info && (info->Stances & mask) && IsBorrowedSpell(player, spellId))
+                return true;
+    return false;
+}
+
+bool IsHalfFormSpell(Player const* player, SpellInfo const* info)
+{
+    uint8 const race = player->getRace(true);
+    if (!info || (race != TwinRace && race != OgreRace) || !SubclassRaceEnabled(race) ||
+        info->HasAura(SPELL_AURA_MOD_STEALTH) || !IsBorrowedSpell(player, info->Id))
+        return false;
+    uint32 const form = FormOfSpell(info);
+    return form && form <= LastStanceForm && !StaysOnTheBody(form) && GatesBorrowedAbilities(player, form);
+}
+
+uint32 BorrowedBodyForm(Player const* player)
+{
+    for (AuraEffect const* effect : player->GetAuraEffectsByType(SPELL_AURA_MOD_SHAPESHIFT))
+        if (IsBorrowedSpell(player, effect->GetId()))
+            return player->GetShapeshiftForm();
+    return FORM_NONE;
+}
+
+uint32 OtherHalfForm(Player const* player)
+{
+    HalfForm const half = HalfFormOf(player);
+    return half.Form ? half.Form : BorrowedBodyForm(player);
+}
+
+bool FitsOtherHalfForm(Player const* player, SpellInfo const* info)
+{
+    return info->CheckShapeshift(OtherHalfForm(player)) == SPELL_CAST_OK;
+}
+
+Powers PowerOfForm(uint32 form)
+{
+    switch (form)
+    {
+        case FORM_CAT:
+            return POWER_ENERGY;
+        case FORM_BEAR:
+        case FORM_DIREBEAR:
+        case FORM_BATTLESTANCE:
+        case FORM_DEFENSIVESTANCE:
+        case FORM_BERSERKERSTANCE:
+            return POWER_RAGE;
+        default:
+            return MAX_POWERS;
+    }
+}
+
 bool ShapesWholeBody(uint32 spellId)
 {
     SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
@@ -462,6 +552,13 @@ uint32 ModellessFormShape(uint32 form)
 
 uint32 BorrowedShape(Player* player)
 {
+    if (HalfForm const half = HalfFormOf(player); half.Form)
+    {
+        if (uint32 model = FormModelFor(player, ShapeshiftForm(half.Form)))
+            return model;
+        if (uint32 model = ModellessFormShape(half.Form))
+            return model;
+    }
     for (AuraEffect const* effect : player->GetAuraEffectsByType(SPELL_AURA_TRANSFORM))
         if (effect->GetSpellInfo()->IsPositive() && IsBorrowedSpell(player, effect->GetId()))
             if (uint32 model = CreatureShape(effect->GetMiscValue()))
@@ -707,6 +804,13 @@ void MirrorFormVisual(Player* player, Creature* twin)
         if (!twin->HasAura(copy.Visual))
             twin->CastSpell(twin, copy.Visual, true);
     }
+    if (HalfForm const half = HalfFormOf(player); half.Spell)
+        if (uint32 const visual = TwinFormCopyOf(half.Spell).Visual)
+        {
+            worn.insert(visual);
+            if (!twin->HasAura(visual))
+                twin->CastSpell(twin, visual, true);
+        }
     std::vector<uint32> shed;
     for (auto const& [spellId, application] : twin->GetAppliedAuras())
         if (TwinForms().Visuals.count(spellId) && !worn.count(spellId))
@@ -1658,6 +1762,150 @@ bool BotPlaysOtherHalf(Player const* player)
 bool OtherHalfActs(Player const* player)
 {
     return OtherHalfAwake(player) || BotPlaysOtherHalf(player);
+}
+
+namespace
+{
+constexpr std::size_t HalfFormListLimit = 200;
+
+std::string HalfFormMessage(Player const* player, HalfForm const& half)
+{
+    if (!half.Spell)
+        return "OTHERFORM 0";
+    std::string allowed;
+    uint32 const mask = 1u << (half.Form - 1);
+    for (uint32 spellId : KnownBorrowedActives(player))
+        if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+            info && (info->Stances & mask) && allowed.size() < HalfFormListLimit)
+            allowed += (allowed.empty() ? "" : ",") + std::to_string(spellId);
+    return Acore::StringFormat("OTHERFORM {} {}", half.Spell, allowed);
+}
+
+void WearHalfForm(Player* player, HalfForm const& from, HalfForm const& to)
+{
+    uint32 const shed = from.Spell ? TwinFormCopyOf(from.Spell).Visual : 0;
+    uint32 const worn = to.Spell ? TwinFormCopyOf(to.Spell).Visual : 0;
+    if (Creature* twin = HasTwin(player) ? TwinOf(player) : nullptr)
+    {
+        if (shed)
+            twin->RemoveAurasDueToSpell(shed);
+        if (worn)
+            twin->CastSpell(twin, worn, true);
+        MirrorShape(player, twin);
+    }
+    else if (HasSecondHead(player))
+    {
+        if (shed)
+            player->RemoveAurasDueToSpell(shed);
+        if (worn)
+            player->CastSpell(player, worn, true);
+    }
+    SendSubclassMessage(player, HalfFormMessage(player, to));
+}
+
+void SetHalfForm(Player* player, HalfForm const& wanted)
+{
+    HalfForm previous;
+    {
+        std::lock_guard<std::mutex> lock(halfFormMutex);
+        HalfForm& stored = halfForms[player->GetGUID().GetCounter()];
+        if (stored.Spell == wanted.Spell)
+            return;
+        previous = stored;
+        stored = wanted;
+    }
+    WearHalfForm(player, previous, wanted);
+    RefreshSubclassState(player);
+    LOG_INFO("module", "mod-subclass: the other half of {} takes form {} (spell {})", player->GetName(), wanted.Form,
+        wanted.Spell);
+}
+
+void KeepHalfForm(Player* player)
+{
+    HalfForm const half = HalfFormOf(player);
+    if (!half.Spell)
+        return;
+    uint32 const visual = TwinFormCopyOf(half.Spell).Visual;
+    bool const cancelled = HasSecondHead(player) && visual && !player->HasAura(visual);
+    if (cancelled || !player->IsAlive() || !OtherHalfActs(player) || !player->HasSpell(half.Spell) ||
+        !IsBorrowedSpell(player, half.Spell))
+        SetHalfForm(player, {});
+}
+
+bool IsTankForm(uint32 form)
+{
+    return form == FORM_BEAR || form == FORM_DIREBEAR || form == FORM_DEFENSIVESTANCE;
+}
+
+constexpr uint32 PreferredFormBonus = 100;
+
+SpellInfo const* PreferredHalfForm(Player* player)
+{
+    std::vector<uint32> const actives = KnownBorrowedActives(player);
+    bool const tank = LendsTankSpecialization(player);
+    SpellInfo const* best = nullptr;
+    uint32 bestScore = 0;
+    for (uint32 spellId : actives)
+    {
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+        if (!info || !IsHalfFormSpell(player, info))
+            continue;
+        uint32 const form = FormOfSpell(info);
+        uint32 score = IsTankForm(form) == tank ? PreferredFormBonus : 0;
+        for (uint32 other : actives)
+            if (SpellInfo const* gated = sSpellMgr->GetSpellInfo(other); gated && (gated->Stances & (1u << (form - 1))))
+                ++score;
+        if (score > bestScore)
+        {
+            best = info;
+            bestScore = score;
+        }
+    }
+    return best;
+}
+}
+
+bool TakeHalfForm(Player* player, SpellInfo const* info)
+{
+    if (!IsHalfFormSpell(player, info))
+        return false;
+    if (!OtherHalfActs(player))
+    {
+        ChatHandler(player->GetSession()).SendNotification(HasTwin(player) ?
+            "Your brother has to be with you for that." : "Your other head is too busy agreeing with you for that.");
+        return true;
+    }
+    SetHalfForm(player, HalfFormOf(player).Spell == info->Id ? HalfForm{} : HalfForm{ info->Id, FormOfSpell(info) });
+    return true;
+}
+
+bool TakePreferredHalfForm(Player* player)
+{
+    if (HalfFormOf(player).Spell)
+        return false;
+    SpellInfo const* form = PreferredHalfForm(player);
+    return form && TakeHalfForm(player, form);
+}
+
+bool OtherHalfFormAllows(Player const* player, SpellInfo const* info)
+{
+    return FitsOtherHalfForm(player, info);
+}
+
+Powers HalfFormPower(Player const* player)
+{
+    return PowerOfForm(HalfFormOf(player).Form);
+}
+
+void ResendHalfForm(Player* player)
+{
+    SendSubclassMessage(player, HalfFormMessage(player, HalfFormOf(player)));
+}
+
+void ForgetHalfForm(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(halfFormMutex);
+    halfForms.erase(player->GetGUID().GetCounter());
 }
 
 bool BrotherOut(Player const* player);
@@ -2639,6 +2887,7 @@ void TickSelfAura(Player* player, uint32 diff)
         elapsed = 0;
     }
     UpdateSelfAura(player);
+    KeepHalfForm(player);
     SyncBorrowedMana(player, ticked);
     TickSharedPool(player, ticked);
     UpdateCyclopsHelmet(player);
@@ -3366,6 +3615,7 @@ public:
     {
         ClearCastingGlows(player);
         ForgetSharedPool(player);
+        ForgetHalfForm(player);
         DismissTwin(player);
         std::lock_guard<std::mutex> lock(twinMutex);
         wardrobes.erase(player->GetGUID().GetCounter());
@@ -3692,7 +3942,7 @@ void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid, uin
     SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
     Unit* target = targetGuid == player->GetGUID() ? player : ObjectAccessor::GetUnit(*player, targetGuid);
     if (!info || !target || !player->IsInWorld() || !player->IsAlive() || !OtherHalfActs(player) ||
-        !Affordable(player, info) || Helpless(player))
+        !Affordable(player, info) || Helpless(player) || !FitsOtherHalfForm(player, info))
         return;
     Creature* twin = HasTwin(player) ? TwinOf(player) : nullptr;
     ActOutCast(player, info, target);
@@ -3705,7 +3955,7 @@ void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid, uin
         SettleBrotherShare(player, false);
     SpellCastResult const result = player->CastSpell(target, spellId, TriggerCastFlags(TRIGGERED_IGNORE_GCD |
         TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_CAST_DIRECTLY | TRIGGERED_IGNORE_SET_FACING |
-        TRIGGERED_DONT_REPORT_CAST_ERROR));
+        TRIGGERED_IGNORE_SHAPESHIFT | TRIGGERED_DONT_REPORT_CAST_ERROR));
     if (brotherPays)
         SettleBrotherShare(player, true);
     LOG_INFO("module", "The other half of {} casts {} ({}) at {}: result {}, {} cast packet(s) shown on the twin",
@@ -3744,6 +3994,15 @@ bool OrderOtherHalf(Player* player, uint32 spellId, Unit* target, uint32 pause)
 {
     bool const byHand = pause > 0;
     SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+    if (info && TakeHalfForm(player, info))
+        return true;
+    if (info && !FitsOtherHalfForm(player, info))
+    {
+        if (byHand)
+            ChatHandler(player->GetSession()).SendNotification(HasTwin(player) ?
+                "Your brother needs another form for that." : "Your other head needs another form for that.");
+        return byHand;
+    }
     if (!info || !target || !OtherHalfActs(player) || !Affordable(player, info) || Helpless(player) ||
         !BrotherReaches(player, info, target) || OtherHalfOnGlobalCooldown(player, byHand))
         return false;
@@ -3818,7 +4077,8 @@ bool OrderBrother(Player* player, uint32 spellId, Unit* target)
 void PressForOtherHalf(Player* player, uint32 spellId)
 {
     SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
-    if (!info || !player->IsAlive() || !player->HasSpell(spellId) || !IsBorrowedSpell(player, spellId))
+    if (!info || !player->IsAlive() || !player->HasSpell(spellId) || !IsBorrowedSpell(player, spellId) ||
+        TakeHalfForm(player, info))
         return;
     Unit* selected = player->GetSelectedUnit();
     Unit* target = player;
@@ -4497,6 +4757,8 @@ std::string_view Verdict(Player* player, SpellInfo const* info, Unit* foe, std::
 {
     if (player->HasSpellCooldown(info->Id))
         return "on cooldown";
+    if (!FitsOtherHalfForm(player, info))
+        return "needs another form";
     if (!Affordable(player, info))
         return "can't afford";
     if (RecentlyRefused(player, info->Id))
@@ -4566,6 +4828,8 @@ void PlayEasy(Player* player, uint32 diff)
     bool const bot = BotPlaysOtherHalf(player);
     if ((!bot && !player->HasAura(easyAura)) || !InAFight(player) || !player->IsAlive() ||
         player->HasStealthAura() || !OtherHalfActs(player) || (!bot && HasTwin(player) && !BrotherOut(player)))
+        return;
+    if (TakePreferredHalfForm(player))
         return;
     auto const [spellId, target] = PickSpell(player);
     if (spellId && OrderOtherHalf(player, spellId, target, 0))

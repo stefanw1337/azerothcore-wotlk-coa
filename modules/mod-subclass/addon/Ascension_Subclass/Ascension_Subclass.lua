@@ -1692,7 +1692,8 @@ Stances.watch:SetScript("OnUpdate", function(self, elapsed)
         if not button or not button:IsShown() or not button.spellName then
             break
         end
-        button.active = UnitBuff("player", button.spellName) ~= nil
+        button.active = UnitBuff("player", button.spellName) ~= nil or (Ascension_Subclass.OtherForm ~= nil and
+            Ascension_Subclass.OtherForm.name == button.spellName)
         button:SetChecked(button.active)
         button.icon:SetTexture(button.active and "Interface\\Icons\\Spell_Nature_WispSplode" or button.spellIcon)
         local start, duration, enabled = GetSpellCooldown(button.spellCast or button.spellName)

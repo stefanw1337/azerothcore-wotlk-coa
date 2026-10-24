@@ -88,6 +88,10 @@ void ShowQuestOnTwin(Player* player, bool offered);
 Subclass::Offer BorrowedOffer(AscensionCompatData::CoATalentEntry const& entry);
 void SyncBorrowedMana(Player* player, uint32 milliseconds);
 void ResendBrotherShare(Player const* player);
+bool TakeHalfForm(Player* player, SpellInfo const* info);
+bool OtherHalfFormAllows(Player const* player, SpellInfo const* info);
+Powers HalfFormPower(Player const* player);
+void ResendHalfForm(Player* player);
 
 uint8 StoryGenderOf(Player const* player)
 {
@@ -1115,10 +1119,10 @@ void SendSubclassState(Player* player)
                 powers.push_back(rule.PowerType);
         if (subClass == CLASS_RANGER && player->getPowerType() != POWER_FOCUS)
             powers.push_back(POWER_FOCUS);
-        if (Powers const borrowed = SubclassPower(subClass); borrowed != MAX_POWERS &&
-            player->getPowerType() != borrowed &&
-            std::find(powers.begin(), powers.end(), uint32(borrowed)) == powers.end())
-            powers.push_back(borrowed);
+        for (Powers const borrowed : { SubclassPower(subClass), HalfFormPower(player) })
+            if (borrowed != MAX_POWERS && player->getPowerType() != borrowed &&
+                std::find(powers.begin(), powers.end(), uint32(borrowed)) == powers.end())
+                powers.push_back(borrowed);
         if (!SubclassResting(player))
         {
             for (uint32 power : powers)
@@ -1187,6 +1191,7 @@ void HandleAddonMessage(Player* player, std::string_view message)
     if (message == "SYNC")
     {
         ResendBrotherShare(player);
+        ResendHalfForm(player);
         SendSubclassState(player);
         SendAddon(player, TwinState(player));
         SendAddon(player, RelicState(player));
@@ -2194,8 +2199,14 @@ Powers PowerBothHalvesUse(Player const* player)
     Subclass::Choice const choice = ChoiceOf(player);
     if (!choice.Complete() || SubclassResting(player) || OpenTreesOf(player).empty())
         return MAX_POWERS;
-    Powers const borrowed = SubclassPower(choice.SubClass);
+    Powers const formed = HalfFormPower(player);
+    Powers const borrowed = formed != MAX_POWERS ? formed : SubclassPower(choice.SubClass);
     return borrowed == player->getPowerType() ? borrowed : MAX_POWERS;
+}
+
+void RefreshSubclassState(Player* player)
+{
+    SendSubclassState(player);
 }
 
 bool LendsMana(Player const* player)
@@ -2459,12 +2470,26 @@ public:
     void OnSpellCheckCast(Spell* spell, bool /*strict*/, SpellCastResult& res) override
     {
         Player* player = spell->GetCaster() ? spell->GetCaster()->ToPlayer() : nullptr;
+        if (player && !spell->IsTriggered() &&
+            (res == SPELL_FAILED_ONLY_SHAPESHIFT || res == SPELL_FAILED_NOT_SHAPESHIFT) &&
+            IsBorrowedSpell(player, spell->GetSpellInfo()->Id) &&
+            OtherHalfFormAllows(player, spell->GetSpellInfo()))
+        {
+            PressForOtherHalf(player, spell->GetSpellInfo()->Id);
+            res = SPELL_FAILED_DONT_REPORT;
+            return;
+        }
         if (res != SPELL_CAST_OK || !player || spell->IsTriggered())
             return;
         if (CallsHunterPet(spell->GetSpellInfo()))
             BringBackParkedHunterPet(player);
         if (!IsBorrowedSpell(player, spell->GetSpellInfo()->Id))
             return;
+        if (TakeHalfForm(player, spell->GetSpellInfo()))
+        {
+            res = SPELL_FAILED_DONT_REPORT;
+            return;
+        }
         if (HandlesOwnPet(spell->GetSpellInfo()))
         {
             if (SubclassResting(player))
@@ -2519,8 +2544,8 @@ public:
     bool OnPlayerHasActivePowerType(Player const* player, Powers power) override
     {
         Subclass::Choice const choice = ChoiceOf(player);
-        return choice.Complete() && SubclassPower(choice.SubClass) == power && player->getPowerType() != power &&
-            !SubclassResting(player);
+        return choice.Complete() && player->getPowerType() != power && !SubclassResting(player) &&
+            (SubclassPower(choice.SubClass) == power || HalfFormPower(player) == power);
     }
 
     Optional<bool> OnPlayerIsClass(Player const* player, ::Classes playerClass, ClassContext context) override

@@ -221,6 +221,10 @@ local function UpdateButton(button)
     local castUntil = timers.casting[spellId]
     button:SetChecked(castUntil ~= nil and castUntil > GetTime())
     local usable, noMana = IsUsableSpell(name)
+    local form = Ascension_Subclass.OtherForm
+    if not usable and not noMana and form and form.usable[spellId] then
+        usable = true
+    end
     if charged and charges == 0 then
         usable = false
     end
@@ -380,6 +384,19 @@ function Ascension_Subclass.GetSubclass()
 end
 
 Ascension_Subclass.BarMessages = {
+    OTHERFORM = function(rest)
+        local spellId, list = string.match(rest, "^(%d+)%s?(.*)$")
+        spellId = tonumber(spellId)
+        if not spellId or spellId == 0 then
+            Ascension_Subclass.OtherForm = nil
+            return
+        end
+        local form = { spell = spellId, name = GetSpellInfo(spellId), usable = {} }
+        for id in string.gmatch(list or "", "(%d+)") do
+            form.usable[tonumber(id)] = true
+        end
+        Ascension_Subclass.OtherForm = form
+    end,
     OTHERSTART = function(rest)
         local spellId, global, cast = string.match(rest, "^(%d+) (%d+) (%d+)$")
         if not spellId then
