@@ -1086,7 +1086,9 @@ void SendSubclassState(Player* player)
     std::vector<Subclass::Tree> const open = OpenTreesOf(player);
     SendAddon(player, Acore::StringFormat("RESET {} {} {}", IsEligible(player) ? 1 : 0, open.size(),
         record.Insights));
-    SendAddon(player, Acore::StringFormat("QUESTOFFER {}", OffersQuest(player) ? 1 : 0));
+    bool const offered = OffersQuest(player);
+    SendAddon(player, Acore::StringFormat("QUESTOFFER {}", offered ? 1 : 0));
+    ShowQuestOnTwin(player, offered);
     Subclass::Choice const choice = ChoiceOf(player);
     SendAddon(player, "SUBCLASS " + (choice.Complete() ? PlainClassName(choice.SubClass) : std::string("-")));
     std::vector<std::string> otherSpells;
@@ -2449,6 +2451,11 @@ bool IsBorrowedSpell(Player const* player, uint32 spellId)
     return false;
 }
 
+bool IsBasicAttack(SpellInfo const* info)
+{
+    return info->HasAttribute(SPELL_ATTR2_AUTO_REPEAT) || info->HasEffect(SPELL_EFFECT_ATTACK);
+}
+
 std::vector<uint32> KnownBorrowedActives(Player const* player)
 {
     std::vector<uint32> actives;
@@ -2458,7 +2465,8 @@ std::vector<uint32> KnownBorrowedActives(Player const* player)
     auto consider = [&](uint32 spellId)
     {
         SpellInfo const* info = spellId ? sSpellMgr->GetSpellInfo(spellId) : nullptr;
-        if (!info || info->IsPassive() || !player->HasSpell(spellId) || OwnClassGrants(player, spellId))
+        if (!info || info->IsPassive() || !player->HasSpell(spellId) || OwnClassGrants(player, spellId) ||
+            IsBasicAttack(info))
             return;
         uint32 const next = sSpellMgr->GetNextSpellInChain(spellId);
         if (next && player->HasSpell(next))

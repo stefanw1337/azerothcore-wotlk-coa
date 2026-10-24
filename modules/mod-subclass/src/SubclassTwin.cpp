@@ -28,6 +28,7 @@
 #include "ScriptMgr.h"
 #include "StringConvert.h"
 #include "SubclassRules.h"
+#include "AscensionPooledVitality.h"
 #include "ScriptedGossip.h"
 #include "ServerScript.h"
 #include "SpellScript.h"
@@ -121,6 +122,8 @@ constexpr uint32 EasyTick = 600;
 constexpr uint32 DefaultShotPace = 2000;
 constexpr uint32 CursedFormId = 57;
 constexpr uint32 CursedFormCreature = 56332;
+constexpr std::array<uint32, 2> CursedFormChecks = { 525031, AscensionBloodmage::CursedFormCheck };
+constexpr std::array<uint32, 2> MortalAbilityForms = { 680692, 801076 };
 constexpr uint32 FirstCyclopsHelmet = 9531000;
 constexpr uint32 LastCyclopsHelmet = 9539999;
 constexpr std::size_t HeadSlot = 0;
@@ -494,7 +497,9 @@ bool IsHalfFormSpell(Player const* player, SpellInfo const* info)
         info->HasAura(SPELL_AURA_MOD_STEALTH) || !IsBorrowedSpell(player, info->Id))
         return false;
     uint32 const form = FormOfSpell(info);
-    return form && form <= LastStanceForm && !StaysOnTheBody(form) && GatesBorrowedAbilities(player, form);
+    if (!form || StaysOnTheBody(form))
+        return false;
+    return form <= LastStanceForm ? GatesBorrowedAbilities(player, form) : form == CursedFormId;
 }
 
 uint32 BorrowedBodyForm(Player const* player)
@@ -513,7 +518,8 @@ uint32 OtherHalfForm(Player const* player)
 
 bool FitsOtherHalfForm(Player const* player, SpellInfo const* info)
 {
-    return info->CheckShapeshift(OtherHalfForm(player)) == SPELL_CAST_OK;
+    uint32 const form = OtherHalfForm(player);
+    return form > LastStanceForm ? !info->Stances : info->CheckShapeshift(form) == SPELL_CAST_OK;
 }
 
 Powers PowerOfForm(uint32 form)
@@ -2074,8 +2080,28 @@ std::string HalfFormMessage(Player const* player, HalfForm const& half)
     return Acore::StringFormat("OTHERFORM {} {}", half.Spell, allowed);
 }
 
+void HoldAura(Player* player, uint32 spellId, bool held)
+{
+    if (held && !player->HasAura(spellId))
+        player->CastSpell(player, spellId, true);
+    else if (!held && player->HasAura(spellId))
+        player->RemoveAurasDueToSpell(spellId);
+}
+
+void HoldCursedChecks(Player* player, HalfForm const& half)
+{
+    if (player->GetShapeshiftForm() == CursedFormId)
+        return;
+    bool const cursed = half.Form == CursedFormId;
+    for (uint32 check : CursedFormChecks)
+        HoldAura(player, check, cursed);
+    HoldAura(player, AscensionBloodmage::CursedForm, cursed &&
+        std::find(MortalAbilityForms.begin(), MortalAbilityForms.end(), half.Spell) == MortalAbilityForms.end());
+}
+
 void WearHalfForm(Player* player, HalfForm const& from, HalfForm const& to)
 {
+    HoldCursedChecks(player, to);
     uint32 const shed = from.Spell ? TwinFormCopyOf(from.Spell).Visual : 0;
     uint32 const worn = to.Spell ? TwinFormCopyOf(to.Spell).Visual : 0;
     if (Creature* twin = HasTwin(player) ? TwinOf(player) : nullptr)
@@ -2117,7 +2143,11 @@ void KeepHalfForm(Player* player)
 {
     HalfForm const half = HalfFormOf(player);
     if (!half.Spell)
+    {
+        if (HasTwin(player) || HasSecondHead(player))
+            HoldCursedChecks(player, half);
         return;
+    }
     uint32 const visual = TwinFormCopyOf(half.Spell).Visual;
     bool const cancelled = HasSecondHead(player) && visual && !player->HasAura(visual);
     if (cancelled || !player->IsAlive() || !OtherHalfActs(player) || !player->HasSpell(half.Spell) ||
@@ -2871,7 +2901,8 @@ std::string CyclopsPreview(uint32 itemId)
 
 constexpr uint8 LeftMouth = 1;
 constexpr uint8 RightMouth = 2;
-constexpr uint8 CyclopsCrest = 4;
+constexpr uint8 CyclopsCrestTop = 4;
+constexpr uint8 CyclopsCrest = 8;
 
 std::unordered_map<uint32, uint8> const& MouthCovers()
 {
@@ -2911,7 +2942,8 @@ void HideCoveredParts(Player* player)
     uint32 const cyclopsHelmet = ShownCyclopsHelmetItem(player);
     uint8 const hidden = (HelmetCovers(leftHelmet, LeftMouth) ? LeftMouth : 0) |
         (HelmetCovers(cyclopsHelmet, RightMouth) ? RightMouth : 0) |
-        (HelmetCovers(cyclopsHelmet, CyclopsCrest) ? CyclopsCrest : 0);
+        (HelmetCovers(cyclopsHelmet, CyclopsCrest) ? CyclopsCrest :
+            HelmetCovers(cyclopsHelmet, CyclopsCrestTop) ? CyclopsCrestTop : 0);
     if (player->GetByteValue(PLAYER_BYTES_2, PLAYER_BYTES_2_OFFSET_FACIAL_STYLE) != hidden)
         player->SetByteValue(PLAYER_BYTES_2, PLAYER_BYTES_2_OFFSET_FACIAL_STYLE, hidden);
 }

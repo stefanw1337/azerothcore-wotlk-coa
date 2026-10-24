@@ -8,8 +8,9 @@ to cover her upper lip. Hide the cyclops head's crest under the hats that enclos
         <mouth cover.sql> <crown cover.sql>
 split moves each jaw into facial geosets the server switches with her facial style. fit measures every helmet on
 both heads, pushes the mouth-covering ones forward in place and writes which displays cover which mouth. crown
-moves the cyclops crest above the hat band into facial geosets of its own; crownfit marks the cyclops helmets whose
-band reaches below that cut all around and that roof over the opening, even where the crest pokes through them."""
+moves the cyclops crest into facial geosets of its own: the whole crest, or only its base when the top above a high
+band is hidden. crownfit marks, per cut, the cyclops helmets whose band reaches below it all around and that roof over
+the opening, even where the crest pokes through them."""
 import re
 import struct
 import sys
@@ -40,12 +41,12 @@ COVERED_SHARE = 0.6
 LIP_HEIGHT = 0.04
 LIP_MARGIN = {"left": 0.015, "right": 0.04}
 MOST_PUSH = {"left": 0.01, "right": 0.15}
-CROWN_CUT = 2.68
-CROWN_SHOWN, CROWN_HIDDEN = 1601, 1603
+TOP_CUT, BASE_CUT = 2.68, 2.62
+CREST_WHOLE, CREST_BASE, CREST_NONE = 1601, 1603, 1605
 CROWN_GEOSET_FIELD = 6
-CROWN_HEAD = 4
+TOP_HIDDEN, WHOLE_HIDDEN = 4, 8
 BAND_DIRECTIONS = 12
-BAND_WIDTH, BAND_REACH = 0.05, 0.2
+BAND_WIDTH, BAND_REACH, BAND_SLACK = 0.05, 0.2, 0.01
 ABOVE_RADIUS = 0.06
 CROWN_ENCLOSED = 0.95
 SURFACE_SAMPLES = ((0.33, 0.33), (0.6, 0.2), (0.2, 0.6), (0.2, 0.2), (0.5, 0.5), (0.5, 0.0), (0.0, 0.5))
@@ -120,19 +121,19 @@ def crest_triangles(m2, skin, body):
     _, index_offset = arr(skin, SKIN_INDICES)
     start, count = struct.unpack_from("<HH", skin, body + 8)
     corners = np.frombuffer(skin, np.uint16, count, index_offset + start * 2).reshape(-1, 3)
-    heights = positions(m2)[lookup[corners], 2]
-    cyclops = list(subtree(bone_parents(m2), {CYCLOPS_HEAD}))
-    return corners, np.isin(bones[lookup[corners]], cyclops).all(axis=1) & (heights.min(axis=1) > CROWN_CUT)
+    lowest = positions(m2)[lookup[corners], 2].min(axis=1)
+    cyclops = np.isin(bones[lookup[corners]], list(subtree(bone_parents(m2), {CYCLOPS_HEAD}))).all(axis=1)
+    return corners, cyclops & (lowest > TOP_CUT), cyclops & (lowest > BASE_CUT) & (lowest <= TOP_CUT)
 
 
 def crown(m2_path, skin_path, styles_path):
     m2, skin = Path(m2_path).read_bytes(), bytearray(Path(skin_path).read_bytes())
     body = arr(skin, SKIN_SUBMESHES)[1]
-    corners, crest = crest_triangles(m2, bytes(skin), body)
-    skin = moved_into_geosets(skin, body, corners, crest, ((CROWN_SHOWN, crest),))
+    corners, top, base = crest_triangles(m2, bytes(skin), body)
+    skin = moved_into_geosets(skin, body, corners, top | base, ((CREST_WHOLE, top | base), (CREST_BASE, base)))
     Path(skin_path).write_bytes(bytes(skin))
     write_styles(styles_path)
-    print("crest triangles:", int(crest.sum()))
+    print("crest triangles: top", int(top.sum()), "base", int(base.sum()))
 
 
 def write_styles(path):
@@ -141,7 +142,7 @@ def write_styles(path):
     rows = [data[20 + index * size:20 + (index + 1) * size] for index in range(count)]
     kept = [row for row in rows if struct.unpack_from("<2i", row) != (OGRE_RACE, FEMALE)]
     jaws = (BOTH_JAWS, RIGHT_JAW_ONLY, LEFT_JAW_ONLY, NO_JAW)
-    for variation, (crest, geoset) in enumerate((crest, geoset) for crest in (CROWN_SHOWN, CROWN_HIDDEN)
+    for variation, (crest, geoset) in enumerate((crest, geoset) for crest in (CREST_WHOLE, CREST_BASE, CREST_NONE)
                                                 for geoset in jaws):
         values = [0] * STYLE_FIELDS
         values[:3] = OGRE_RACE, FEMALE, variation
@@ -269,7 +270,7 @@ def surface_points(data, skin):
 class Crest:
     def __init__(self, m2_path, skin_path):
         m2, skin = Path(m2_path).read_bytes(), Path(skin_path).read_bytes()
-        crest = load_mesh(m2, skin, {CROWN_SHOWN})
+        crest = load_mesh(m2, skin, {CREST_WHOLE})
         self.points = crest.positions[np.unique(crest.triangles)]
         body = load_mesh(m2, skin, {0})
         head = body.positions[np.isin(body.bones, list(subtree(bone_parents(m2), {CYCLOPS_HEAD})))]
@@ -282,16 +283,21 @@ class Crest:
             side = head[(np.abs(offset @ across) < BAND_WIDTH) & (offset @ direction > 0)]
             self.bands.append((direction, across, ((side[:, :2] - self.centre) @ direction).max()))
 
-    def enclosed(self, hat):
+    def enclosed(self, hat, cut):
         offset = hat[:, :2] - self.centre
         for direction, across, reach in self.bands:
             along = offset @ direction
             band = (np.abs(offset @ across) < BAND_WIDTH) & (along > 0) & (along < reach + BAND_REACH)
-            if not band.any() or hat[band, 2].min() > CROWN_CUT:
+            if not band.any() or hat[band, 2].min() > cut + BAND_SLACK:
                 return False
-        apart = np.hypot(*(hat[None, :, :2] - self.points[:, None, :2]).transpose(2, 0, 1))
-        roofed = ((apart < ABOVE_RADIUS) & (hat[None, :, 2] > CROWN_CUT)).any(axis=1)
+        opening = self.points[self.points[:, 2] > cut + BAND_SLACK]
+        apart = np.hypot(*(hat[None, :, :2] - opening[:, None, :2]).transpose(2, 0, 1))
+        roofed = ((apart < ABOVE_RADIUS) & (hat[None, :, 2] > cut)).any(axis=1)
         return roofed.mean() >= CROWN_ENCLOSED
+
+    def hidden(self, hat):
+        return ((WHOLE_HIDDEN if self.enclosed(hat, BASE_CUT) else 0) |
+                (TOP_HIDDEN if self.enclosed(hat, TOP_CUT) else 0))
 
 
 def crownfit(m2_path, skin_path, cyclops_root, cyclops_map, mouth_sql, out_sql):
@@ -299,18 +305,21 @@ def crownfit(m2_path, skin_path, cyclops_root, cyclops_map, mouth_sql, out_sql):
     cyclops_models = {}
     for display, model in re.findall(r"\((\d+), \d+, '([^']+)'\)", Path(cyclops_map).read_text()):
         cyclops_models.setdefault(model.replace("\\\\", "\\"), []).append(int(display))
-    covering = []
+    covering = {}
     for model, displays in cyclops_models.items():
         path = Path(cyclops_root, *PureWindowsPath(model).parts)
         skin = path.with_name(path.stem + "00.skin")
-        if path.exists() and skin.exists() and crest.enclosed(surface_points(path.read_bytes(), skin.read_bytes())):
-            covering += displays
+        if path.exists() and skin.exists():
+            hidden = crest.hidden(surface_points(path.read_bytes(), skin.read_bytes()))
+            if hidden:
+                covering.update((display, hidden) for display in displays)
     mouths = {int(display): int(heads)
               for display, heads in re.findall(r"^\((\d+), (\d+)\)", Path(mouth_sql).read_text(), re.M)}
-    entries = sorted((display, mouths.get(display, 0) | CROWN_HEAD) for display in set(covering))
+    entries = sorted((display, mouths.get(display, 0) | hidden) for display, hidden in covering.items())
     with open(out_sql, "w") as out:
-        out.write("-- mod-subclass: cyclops helmet displays whose band and crown enclose the cyclops head's crest, so "
-                  "it is hidden\n-- under them (Heads bit %d, kept with the mouths they cover).\n" % CROWN_HEAD)
+        out.write("-- mod-subclass: cyclops helmet displays that enclose the cyclops head's crest top (Heads bit "
+                  "%d) or the whole\n-- crest (bit %d), kept with the mouths they cover.\n"
+                  % (TOP_HIDDEN, WHOLE_HIDDEN))
         for start in range(0, len(entries), 500):
             chunk = entries[start:start + 500]
             ids = textwrap.fill(", ".join(str(display) for display, _ in chunk), 116, initial_indent="    ",
@@ -318,7 +327,8 @@ def crownfit(m2_path, skin_path, cyclops_root, cyclops_map, mouth_sql, out_sql):
             out.write("\nDELETE FROM `mod_subclass_mouth_cover` WHERE `DisplayId` IN (\n%s);\n" % ids)
             out.write("INSERT INTO `mod_subclass_mouth_cover` (`DisplayId`, `Heads`) VALUES\n")
             out.write(",\n".join("(%d, %d)" % pair for pair in chunk) + ";\n")
-    print(len(cyclops_models), "cyclops helmets,", len(covering), "displays enclose the crest")
+    whole = sum(1 for hidden in covering.values() if hidden & WHOLE_HIDDEN)
+    print(len(cyclops_models), "cyclops helmets,", len(covering), "displays hide the crest top,", whole, "all of it")
 
 
 if __name__ == "__main__":
