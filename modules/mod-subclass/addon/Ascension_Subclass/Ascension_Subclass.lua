@@ -343,8 +343,35 @@ function CoAArt.OfSpec(tree)
     end
 end
 
+function CoAArt.ClassKey(className)
+    for _, names in ipairs({ LOCALIZED_CLASS_NAMES_MALE or {}, LOCALIZED_CLASS_NAMES_FEMALE or {} }) do
+        for token, localized in pairs(names) do
+            if localized == className then
+                return string.lower(token)
+            end
+        end
+    end
+    return CoAArt.Key(className)
+end
+
+function CoAArt.OfClassSpecs(tree)
+    local class = CoAArt.ClassKey(tree.className)
+    if not (class and C_ClassInfo and C_ClassInfo.GetAllSpecs and C_ClassInfo.GetSpecInfo) then
+        return nil
+    end
+    local token = string.upper(class)
+    local ok, specs = pcall(C_ClassInfo.GetAllSpecs, token)
+    for _, spec in ipairs(ok and type(specs) == "table" and specs or {}) do
+        local found, info = pcall(C_ClassInfo.GetSpecInfo, token, spec)
+        if found and type(info) == "table" and (info.ID == tree.spec or info.Name == tree.title) then
+            local atlas = CoAArt.prefix .. class .. "-" .. string.lower(info.Spec or spec)
+            return AtlasInfo[atlas] and atlas or nil
+        end
+    end
+end
+
 function CoAArt.OfNames(tree)
-    local class, spec = CoAArt.Key(tree.className), CoAArt.Key(tree.title)
+    local class, spec = CoAArt.ClassKey(tree.className), CoAArt.Key(tree.title)
     local atlas = class and spec and CoAArt.prefix .. class .. "-" .. spec
     return atlas and AtlasInfo[atlas] and atlas or nil
 end
@@ -358,7 +385,7 @@ function CoAArt.OfClass(tree)
             end
         end
     end
-    local class = CoAArt.Key(tree.className)
+    local class = CoAArt.ClassKey(tree.className)
     local start = class and CoAArt.prefix .. class .. "-"
     local first
     for atlas in pairs(AtlasInfo) do
@@ -375,7 +402,8 @@ function CoAArt.Find(tree)
     end
     local key = tree.className .. ":" .. (tree.spec or 0) .. ":" .. (tree.title or "")
     if CoAArt.found[key] == nil then
-        CoAArt.found[key] = CoAArt.OfSpec(tree) or CoAArt.OfNames(tree) or ((tree.spec or 0) == 0 and
+        CoAArt.found[key] = CoAArt.OfSpec(tree) or ((tree.spec or 0) > 0 and CoAArt.OfClassSpecs(tree)) or
+            CoAArt.OfNames(tree) or ((tree.spec or 0) == 0 and
             CoAArt.OfClass(tree)) or false
     end
     return CoAArt.found[key] or nil
