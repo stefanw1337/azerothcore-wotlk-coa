@@ -580,6 +580,8 @@ SlashCmdList.ASCENSIONSUBCLASSBAR = function(message)
         end
     elseif message == "stances" then
         Ascension_Subclass.DescribeStances()
+    elseif message == "powers" then
+        Ascension_Subclass.DescribePowers()
     elseif message == "castbar" then
         castBarUnlocked = not castBarUnlocked
         Ascension_Subclass.UnlockCastBar(castBarUnlocked)

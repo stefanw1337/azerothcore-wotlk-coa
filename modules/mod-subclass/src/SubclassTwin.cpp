@@ -568,6 +568,16 @@ bool RidesTheBrother(Player const* player)
     return false;
 }
 
+void EndRideForStealth(Player* player)
+{
+    std::vector<uint32> rides;
+    for (AuraEffect const* effect : player->GetAuraEffectsByType(SPELL_AURA_TRANSFORM))
+        if (CarriesTheMain(effect->GetSpellInfo()) && IsBorrowedSpell(player, effect->GetId()))
+            rides.push_back(effect->GetId());
+    for (uint32 spellId : rides)
+        player->RemoveAurasDueToSpell(spellId);
+}
+
 uint32 FormModelFor(Player* player, ShapeshiftForm form)
 {
     if (uint32 model = sObjectMgr->GetModelForShapeshift(form, player))
@@ -1678,6 +1688,8 @@ void UpdateCarry(Player* player, uint32 diff)
     Creature* twin = TwinOf(player);
     if (!twin)
         return;
+    if (player->HasStealthAura() && RidesTheBrother(player))
+        EndRideForStealth(player);
     if (bool const riding = RidesTheBrother(player); riding != motion.Riding)
         return SwapRider(player, riding);
     if (motion.Restyle || motion.Split != IsSplit(player))
@@ -4154,6 +4166,11 @@ void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid, uin
     bool const brotherPays = twin && info->PowerType < MAX_POWERS && SplitsPower(player, Powers(info->PowerType));
     if (brotherPays)
         SettleBrotherShare(player, false);
+    if (info->IsBreakingStealth())
+    {
+        player->RemoveAurasWithInterruptFlags(AURA_INTERRUPT_FLAG_CAST, 0, false, info);
+        player->RemoveAurasWithInterruptFlags(AURA_INTERRUPT_FLAG_SPELL_ATTACK, 0, false, info);
+    }
     SpellCastResult const result = player->CastSpell(target, spellId, TriggerCastFlags(TRIGGERED_IGNORE_GCD |
         TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_CAST_DIRECTLY | TRIGGERED_IGNORE_SET_FACING |
         TRIGGERED_IGNORE_SHAPESHIFT | TRIGGERED_DONT_REPORT_CAST_ERROR | TRIGGERED_COUNTS_AS_CAST));

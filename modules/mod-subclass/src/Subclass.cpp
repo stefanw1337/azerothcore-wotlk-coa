@@ -868,6 +868,7 @@ Powers SubclassPower(uint8 catalogClassId)
     {
         case POWER_MANA:
         case POWER_RAGE:
+        case POWER_FOCUS:
         case POWER_ENERGY:
         case POWER_RUNIC_POWER:
             return Powers(entry->powerType);

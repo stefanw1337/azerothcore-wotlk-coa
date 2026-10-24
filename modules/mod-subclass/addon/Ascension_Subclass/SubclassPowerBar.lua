@@ -158,6 +158,22 @@ function Ascension_Subclass.UpdatePowerBars(powers)
     Layout()
 end
 
+function Ascension_Subclass.DescribePowers()
+    local say = function(text) DEFAULT_CHAT_FRAME:AddMessage("|cffffd100Subclass power:|r " .. text) end
+    local native = Native()
+    say(string.format("main power %s; PlayerFrame %s; CoA's second bar %s", tostring(UnitPowerType("player")),
+        PlayerFrame and (PlayerFrame:IsVisible() and "visible" or "hidden") or "missing",
+        native and string.format("power %s, %s", tostring(native.powerIndex), native:IsShown() and "shown" or
+            "hidden") or "none"))
+    for _, power in ipairs(ORDER) do
+        local bar = bars[power]
+        say(string.format("%s: lent %s, %d/%d, bar %s", TOKENS[power], wanted[power] and "yes" or "no",
+            UnitPower("player", power) or 0, UnitPowerMax("player", power) or 0,
+            bar and (bar:IsVisible() and "visible" or (bar:IsShown() and "shown, parent hidden" or "hidden")) or
+            (Covers(power) and "CoA's own" or "none")))
+    end
+end
+
 local messages = Ascension_Subclass.BarMessages or {}
 Ascension_Subclass.BarMessages = messages
 
