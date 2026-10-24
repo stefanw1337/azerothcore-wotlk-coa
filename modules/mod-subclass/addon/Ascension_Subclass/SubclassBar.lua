@@ -493,6 +493,68 @@ Ascension_Subclass.BarMessages = {
     end,
 }
 
+local OWN_ACTION_SLOTS = 72
+local AUTO_PLACEMENT_AFTER_LEARNING = 2
+local AUTO_PLACEMENT_KEPT_FOR = 10
+
+local learnedUntil = 0
+local autoPlaced = {}
+
+local function IsBorrowedSpell(spellId)
+    local name = GetSpellInfo(spellId)
+    if not name then
+        return false
+    end
+    for borrowedId in pairs(knownSpells) do
+        if borrowedId == spellId or GetSpellInfo(borrowedId) == name then
+            return true
+        end
+    end
+    return false
+end
+
+local function TakeBackBorrowedAutoPlacements()
+    if InCombatLockdown() or GetCursorInfo() or not next(autoPlaced) then
+        return
+    end
+    local now = GetTime()
+    local sound = GetCVar("Sound_EnableAllSound")
+    SetCVar("Sound_EnableAllSound", 0)
+    for slot, placed in pairs(autoPlaced) do
+        local kind, _, _, spellId = GetActionInfo(slot)
+        if kind ~= "spell" or spellId ~= placed.spell or now > placed.expires then
+            autoPlaced[slot] = nil
+        elseif IsBorrowedSpell(spellId) then
+            autoPlaced[slot] = nil
+            PickupAction(slot)
+            ClearCursor()
+        end
+    end
+    SetCVar("Sound_EnableAllSound", sound)
+end
+
+local function NoteAutoPlacement(slot)
+    if not slot or slot < 1 or slot > OWN_ACTION_SLOTS or GetTime() > learnedUntil then
+        return
+    end
+    local kind, _, _, spellId = GetActionInfo(slot)
+    if kind == "spell" and spellId then
+        autoPlaced[slot] = { spell = spellId, expires = GetTime() + AUTO_PLACEMENT_KEPT_FOR }
+        TakeBackBorrowedAutoPlacements()
+    end
+end
+
+local placements = CreateFrame("Frame")
+placements:RegisterEvent("LEARNED_SPELL_IN_TAB")
+placements:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
+placements:SetScript("OnEvent", function(_, event, slot)
+    if event == "ACTIONBAR_SLOT_CHANGED" then
+        NoteAutoPlacement(slot)
+    else
+        learnedUntil = GetTime() + AUTO_PLACEMENT_AFTER_LEARNING
+    end
+end)
+
 function Ascension_Subclass.OnOtherSpells(list)
     local fresh = {}
     for id in string.gmatch(list or "", "%d+") do
@@ -516,6 +578,7 @@ function Ascension_Subclass.OnOtherSpells(list)
         end
         saved.filled = true
     end
+    TakeBackBorrowedAutoPlacements()
     if bar then
         RefreshAll()
         UpdateShown()
@@ -597,50 +660,6 @@ SlashCmdList.ASCENSIONSUBCLASSBAR = function(message)
             .. "Bar 1.")
     end
 end
-
-local AUTO_PLACEMENT_DELAY = 0.5
-
-local function IsBorrowedSpellName(spellName)
-    for spellId in pairs(knownSpells) do
-        if GetSpellInfo(spellId) == spellName then
-            return true
-        end
-    end
-    return false
-end
-
-local function KeepBorrowedSpellsOffOwnBars()
-    local placeOnOwnBar = C_Spell and C_Spell.PlaceSpellOnActionBar
-    if not placeOnOwnBar then
-        return
-    end
-    local pending = {}
-    local placer = CreateFrame("Frame")
-    placer:Hide()
-    placer:SetScript("OnUpdate", function(self)
-        if GetCursorInfo() then
-            return
-        end
-        local now = GetTime()
-        for spellName, due in pairs(pending) do
-            if now >= due then
-                pending[spellName] = nil
-                if not IsBorrowedSpellName(spellName) then
-                    placeOnOwnBar(C_Spell, spellName)
-                end
-            end
-        end
-        if not next(pending) then
-            self:Hide()
-        end
-    end)
-    C_Spell.PlaceSpellOnActionBar = function(_, spellName)
-        pending[spellName] = GetTime() + AUTO_PLACEMENT_DELAY
-        placer:Show()
-    end
-end
-
-KeepBorrowedSpellsOffOwnBars()
 
 local events = CreateFrame("Frame")
 events:RegisterEvent("PLAYER_LOGIN")
