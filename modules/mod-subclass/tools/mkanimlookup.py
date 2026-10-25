@@ -11,8 +11,11 @@ FIRE_BOW, ATTACK_BOW = 47, 46
 RANGED_STANCE = {29: READY_1H, 48: READY_1H, 109: READY_1H, 110: READY_1H, 46: ATTACK_OFF, 47: ATTACK_OFF,
                  49: ATTACK_OFF}
 ONE_HANDED = {18: 17, 19: 17, 22: 21, 23: 21, 27: 26, 28: 26, 58: 57}
+READY_BOW, READY_RIFLE, HOLD_RIFLE = 29, 48, 110
 READY_CROSSBOW, HOLD_CROSSBOW = 836, 842
-CROSSBOW_AS_RIFLE = {READY_CROSSBOW: 48, HOLD_CROSSBOW: 110}
+LOAD_BOW, LOAD_RIFLE = 105, 106
+RANGED_STAND_INS = {READY_CROSSBOW: READY_RIFLE, HOLD_CROSSBOW: HOLD_RIFLE, LOAD_BOW: READY_BOW,
+                    LOAD_RIFLE: READY_RIFLE}
 RECLINED_MOUNT = 484
 RECLINED_WORDS = ("Reclined", "Chopper")
 RIDER_WORDS = ("Mount", "Carriage")
@@ -58,8 +61,8 @@ def relink(model_path: Path, dbc_path: Path) -> None:
             lookup.append(own[ONE_HANDED[animation]])
         elif animation in own:
             lookup.append(own[animation])
-        elif animation in CROSSBOW_AS_RIFLE and CROSSBOW_AS_RIFLE[animation] in own:
-            lookup.append(own[CROSSBOW_AS_RIFLE[animation]])
+        elif animation in RANGED_STAND_INS and RANGED_STAND_INS[animation] in own:
+            lookup.append(own[RANGED_STAND_INS[animation]])
         elif animation == FIRE_BOW and ATTACK_BOW in own:
             lookup.append(own[ATTACK_BOW])
         elif animation in RANGED_STANCE:
