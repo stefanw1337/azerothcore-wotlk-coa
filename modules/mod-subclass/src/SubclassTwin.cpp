@@ -58,6 +58,7 @@ bool BotPlaysOtherHalf(Player const* player);
 void NoteBotCast(Player const* player, uint32 spellId, uint32 result);
 bool OtherHalfShoots(Player const* player);
 bool MainHalfShoots(Player const* player);
+bool MainHalfCasts(Player const* player);
 bool BrotherOut(Player const* player);
 void RefreshSubclassResources(Player* player);
 bool IsBorrowedSpell(Player const* player, uint32 spellId);
@@ -2831,7 +2832,7 @@ void AimFromAfar(Player* player)
     bool const aiming = target && gun && player->IsAlive() && OtherHeadShoots(player) &&
         player->GetSheath() == SHEATH_STATE_MELEE &&
         target->IsAlive() && !player->IsWithinMeleeRange(target) && !player->isMoving() &&
-        !player->IsNonMeleeSpellCast(false, true, true);
+        !player->IsNonMeleeSpellCast(false, true, true) && (IsBow(gun) || !MainHalfCasts(player));
     uint32 const wanted = aiming ? (IsBow(gun) ? EMOTE_STATE_READY_BOW : OtherHeadReadyRifleEmote) :
         !AimsHerOwnGun(player) && RestsGunOnShoulder(player) ? GunOnShoulderEmote : 0;
     uint32 const current = player->GetUInt32Value(UNIT_NPC_EMOTESTATE);
@@ -2915,6 +2916,12 @@ void DrawForTheFight(Player* player)
     AimFromAfar(player);
 }
 
+void ShowOtherHeadGunShot(Player* player)
+{
+    if (!MainHalfCasts(player))
+        player->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_OFF_PIERCE);
+}
+
 void ShootAlong(Player* player)
 {
     DrawForTheFight(player);
@@ -2930,7 +2937,7 @@ void ShootAlong(Player* player)
     ShowCastAsCopy(player, AutoShotSpell, true);
     WorldPacket shot = ProjectilePacket(player->GetGUID(), AutoShotSpell, gun->GetEntry(), victim->GetGUID(), false);
     player->SendMessageToSet(&shot, true);
-    player->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_OFF_PIERCE);
+    ShowOtherHeadGunShot(player);
     bool const critical = roll_chance_f(player->GetUnitCriticalChance(RANGED_ATTACK, victim));
     uint32 damage = Unit::CalcArmorReducedDamage(player, victim, player->CalculateDamage(RANGED_ATTACK, false, true),
         nullptr, 0, RANGED_ATTACK);
@@ -5745,7 +5752,7 @@ public:
                 player->SetSheath(SHEATH_STATE_MELEE);
                 HoldTheGun(player, AimsFromAfar(player));
             }
-            player->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_OFF_PIERCE);
+            ShowOtherHeadGunShot(player);
         }
         else if (!target || !player->IsWithinMeleeRange(target))
             player->HandleEmoteCommand(RangedEmote(gun->GetTemplate()));

@@ -2243,6 +2243,22 @@ bool MainHalfShoots(Player const* player)
     return ClassShoots(player->getClass());
 }
 
+bool MainHalfCasts(Player const* player)
+{
+    switch (PlayableClassOf(player->getClass()))
+    {
+        case CLASS_MAGE:
+        case CLASS_PRIEST:
+        case CLASS_WARLOCK:
+            return true;
+        default:
+            break;
+    }
+    Item const* weapon = player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND);
+    return weapon && weapon->GetTemplate()->Class == ITEM_CLASS_WEAPON &&
+        weapon->GetTemplate()->SubClass == ITEM_SUBCLASS_WEAPON_STAFF;
+}
+
 uint32 ClassFamily(uint8 classId)
 {
     switch (PlayableClassOf(classId))
