@@ -496,6 +496,11 @@ def own_keys(data, bone, sequence):
     return count, bytes(data[stamps_at:stamps_at + count * 4]), bytes(data[values_at:values_at + count * 8])
 
 
+def first_key(entry, size):
+    keys, _, values = entry
+    return (1, struct.pack("<I", 0), values[:size]) if keys else entry
+
+
 def key_bone(data, key):
     count, offset = array(data, KEY_BONES)
     return struct.unpack_from(f"<{count}h", data, offset)[key]
@@ -760,9 +765,34 @@ class Grafter:
             left, right = records[SPELL_LEFT_HAND], records[SPELL_RIGHT_HAND]
             self.blob.data[left + 4:left + 20] = self.blob.data[right + 4:right + 20]
 
+    def ready_own_rifle(self):
+        ogre = bytes(self.blob.data)
+        ready = sequence_index(ogre, READY_1H)
+        right_arm, left_arm = arm_chain(ogre, KEY_ARM_RIGHT), arm_chain(ogre, KEY_ARM_LEFT)
+        bone_count, _ = array(ogre, BONES)
+        _, sequences = array(ogre, SEQUENCES)
+        crouch = sequences + ready * SEQUENCE_SIZE
+        for animation in (READY_RIFLE, HOLD_RIFLE, 49):
+            own = sequence_index(ogre, animation)
+            stance = animation != 49
+            if stance:
+                record = sequences + own * SEQUENCE_SIZE
+                self.blob.data[record + 4:record + 32] = ogre[crouch + 4:crouch + 32]
+            for bone in range(bone_count):
+                for track, size in zip(BONE_TRACKS, TRACK_VALUE_SIZES):
+                    if track == ROTATION and (bone in right_arm or (not stance and bone in left_arm)):
+                        continue
+                    calm_arm = track == ROTATION and bone in left_arm
+                    place = bone_offset(ogre, bone) + track
+                    entry = own_track(ogre, place, self.base if calm_arm else ready, size)
+                    self.set_own_track(place, own, entry if stance and not calm_arm else first_key(entry, size))
+        return bytes(self.blob.data)
+
     def set_own_rotation(self, bone, sequence, entry):
+        self.set_own_track(bone_offset(self.blob.data, bone) + ROTATION, sequence, entry)
+
+    def set_own_track(self, track, sequence, entry):
         data = self.blob.data
-        track = bone_offset(data, bone) + ROTATION
         _, global_sequence, count, times = struct.unpack_from("<hhII", data, track)
         if global_sequence != -1 or count != self.old_count:
             return
@@ -843,8 +873,15 @@ def own_rifle(ogre_path, skin_path):
     ogre.write_bytes(Grafter(ogre.read_bytes(), b"", Path(skin_path).read_bytes()).own_rifle())
 
 
+def ready_own_rifle(ogre_path, skin_path):
+    ogre = Path(ogre_path)
+    ogre.write_bytes(Grafter(ogre.read_bytes(), b"", Path(skin_path).read_bytes()).ready_own_rifle())
+
+
 if __name__ == "__main__":
     if sys.argv[1] == "--own-rifle":
         own_rifle(sys.argv[2], sys.argv[3])
+    elif sys.argv[1] == "--ready-rifle":
+        ready_own_rifle(sys.argv[2], sys.argv[3])
     else:
         graft(sys.argv[1], sys.argv[2], sys.argv[3])
