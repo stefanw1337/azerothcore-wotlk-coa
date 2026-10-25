@@ -2463,10 +2463,15 @@ void SyncBorrowedMana(Player* player, uint32 milliseconds)
         RegenerateLentMana(player, milliseconds);
 }
 
+bool IsBasicAttack(SpellInfo const* info);
+
 bool IsBorrowedSpell(Player const* player, uint32 spellId)
 {
     Record const record = RecordOf(player);
     if (!record.Choice.Complete() || OwnClassGrants(player, spellId))
+        return false;
+    if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+        info && IsBasicAttack(info) && (MainHalfShoots(player) || !OtherHalfShoots(player)))
         return false;
     if (InBorrowedFamily(player, record.Choice.SubClass, sSpellMgr->GetSpellInfo(spellId)))
         return true;
