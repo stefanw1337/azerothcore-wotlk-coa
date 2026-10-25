@@ -1,4 +1,4 @@
--- mod-subclass: copies of the gun shots a Two-Headed Ogre fires with her own gun in her right hand: the bullet flies from her right hand and she plays her rifle shot, without the ranged slot.
+-- mod-subclass: copies of the gun shots a Two-Headed Ogre fires with her own gun in her right hand: the same shots with the bullet leaving from her right hand.
 
 DROP TABLE IF EXISTS `mod_subclass_own_shot`;
 CREATE TABLE `mod_subclass_own_shot` (
