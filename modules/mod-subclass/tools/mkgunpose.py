@@ -55,6 +55,8 @@ HOLD_RIFLE, OTHER_HEAD_READY_RIFLE, GUN_ON_SHOULDER = 110, 221, 222
 KICKED = (49, ATTACK_OFF_PIERCE)
 LEFT_HAND_HOLDS = (17, 21, 26, 57, 31, 51, 52, 53, 54, 107, 108, 124, 125, 126)
 READY_1H = 26
+ATTACK_RIFLE = 49
+SHOT_SETTLE_MS, SHOT_AIM_HOLD_MS = 250, 4000
 OFF_HAND_SWINGS = (87,)
 FIST_AT_HEART = (0.65, 0.52, -0.25)
 FIST_DIPPED = (0.62, 0.48, -0.32)
@@ -788,6 +790,22 @@ class Grafter:
                     self.set_own_track(place, own, entry if stance and not calm_arm else first_key(entry, size))
         return bytes(self.blob.data)
 
+    def hold_aim_after_shot(self):
+        ogre = bytes(self.blob.data)
+        shot, aim = sequence_index(ogre, ATTACK_RIFLE), sequence_index(ogre, READY_RIFLE)
+        length = sequence_length(ogre, shot)
+        if length >= SHOT_AIM_HOLD_MS:
+            return bytes(self.blob.data)
+        _, sequences = array(ogre, SEQUENCES)
+        struct.pack_into("<I", self.blob.data, sequences + shot * SEQUENCE_SIZE + 4, SHOT_AIM_HOLD_MS)
+        for bone in arm_chain(ogre, KEY_ARM_RIGHT):
+            keys, stamps, values = own_keys(ogre, bone, shot)
+            aimed = own_keys(ogre, bone, aim)[2][:8]
+            if keys > 1 and aimed:
+                self.set_own_rotation(bone, shot, (keys + 2, stamps + struct.pack(
+                    "<II", length + SHOT_SETTLE_MS, SHOT_AIM_HOLD_MS), values + aimed + aimed))
+        return bytes(self.blob.data)
+
     def set_own_rotation(self, bone, sequence, entry):
         self.set_own_track(bone_offset(self.blob.data, bone) + ROTATION, sequence, entry)
 
@@ -873,6 +891,11 @@ def own_rifle(ogre_path, skin_path):
     ogre.write_bytes(Grafter(ogre.read_bytes(), b"", Path(skin_path).read_bytes()).own_rifle())
 
 
+def hold_aim_after_shot(ogre_path, skin_path):
+    ogre = Path(ogre_path)
+    ogre.write_bytes(Grafter(ogre.read_bytes(), b"", Path(skin_path).read_bytes()).hold_aim_after_shot())
+
+
 def ready_own_rifle(ogre_path, skin_path):
     ogre = Path(ogre_path)
     ogre.write_bytes(Grafter(ogre.read_bytes(), b"", Path(skin_path).read_bytes()).ready_own_rifle())
@@ -883,5 +906,7 @@ if __name__ == "__main__":
         own_rifle(sys.argv[2], sys.argv[3])
     elif sys.argv[1] == "--ready-rifle":
         ready_own_rifle(sys.argv[2], sys.argv[3])
+    elif sys.argv[1] == "--hold-aim":
+        hold_aim_after_shot(sys.argv[2], sys.argv[3])
     else:
         graft(sys.argv[1], sys.argv[2], sys.argv[3])
