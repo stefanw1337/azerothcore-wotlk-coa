@@ -2765,11 +2765,15 @@ bool ShootsNow(Player* player)
     return target && player->IsWithinCombatRange(target, repeating->GetSpellInfo()->GetMaxRange(false, player));
 }
 
-bool RestsGunOnShoulder(Player* player, Item const* gun)
+bool RestsGunOnShoulder(Player* player, Item const* gun, Unit* target)
 {
-    return gun && HeldInHand(gun) && !IsBow(gun) && MainHalfShoots(player) && player->IsAlive() &&
-        player->GetSheath() == SHEATH_STATE_RANGED && !player->isMoving() &&
-        !player->IsNonMeleeSpellCast(false, true, true) && !ShootsNow(player);
+    if (!gun || !HeldInHand(gun) || IsBow(gun) || !MainHalfShoots(player) || !player->IsAlive() ||
+        player->isMoving() || player->IsNonMeleeSpellCast(false, true, true) || ShootsNow(player))
+        return false;
+    bool const atRange = target && target->IsAlive() && !player->IsWithinMeleeRange(target);
+    if (atRange && player->GetSheath() != SHEATH_STATE_RANGED)
+        player->SetSheath(SHEATH_STATE_RANGED);
+    return atRange || player->GetSheath() == SHEATH_STATE_RANGED;
 }
 
 void AimFromAfar(Player* player)
@@ -2781,7 +2785,7 @@ void AimFromAfar(Player* player)
         target->IsAlive() && !player->IsWithinMeleeRange(target) && !player->isMoving() &&
         !player->IsNonMeleeSpellCast(false, true, true);
     uint32 const wanted = aiming ? (IsBow(gun) ? EMOTE_STATE_READY_BOW : OtherHeadReadyRifleEmote) :
-        RestsGunOnShoulder(player, gun) ? GunOnShoulderEmote : 0;
+        RestsGunOnShoulder(player, gun, target) ? GunOnShoulderEmote : 0;
     uint32 const current = player->GetUInt32Value(UNIT_NPC_EMOTESTATE);
     bool const ours = current == EMOTE_STATE_READY_BOW || current == OtherHeadReadyRifleEmote ||
         current == GunOnShoulderEmote || current == EMOTE_STATE_READY_RIFLE;
