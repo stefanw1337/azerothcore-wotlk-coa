@@ -710,7 +710,7 @@ local function Render()
     if not panel or not panel:IsShown() then
         return
     end
-    panel.points:SetText(string.format("Borrowed points left: |cffffffff%d|r class, |cffffffff%d|r specialization",
+    panel.points:SetText(string.format("Subclass points left: |cffffffff%d|r class, |cffffffff%d|r specialization",
         state.classPoints, state.specPoints))
     if #state.trees == 0 then
         if state.eligible then
@@ -1644,7 +1644,7 @@ function Ascension_Subclass.DescribeStances()
         local texture, name = GetShapeshiftFormInfo(index)
         local button = _G["ShapeshiftButton" .. index]
         local parent = button and button:GetParent()
-        say(string.format("Own bar %d: %s, borrowed %s, shown %s, on %s", index, tostring(name),
+        say(string.format("Own bar %d: %s, subclass %s, shown %s, on %s", index, tostring(name),
             tostring(Stances.Borrowed(name, texture)), tostring(button and button:IsShown()),
             tostring(parent and parent:GetName())))
     end

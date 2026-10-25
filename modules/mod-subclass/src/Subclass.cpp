@@ -1170,7 +1170,7 @@ std::string TalentChangeRefusal(Player* player, uint32 entryId, uint32 rank)
     std::vector<Subclass::Offer> const offers = BorrowedOffers(OpenTreesOf(player));
     Subclass::Offer const* offer = Subclass::OfferIn(offers, entryId);
     if (!offer)
-        return "That talent is not in your borrowed trees.";
+        return "That talent is not in your subclass trees.";
     std::vector<Subclass::Rank> const before = RanksOf(KnownBuild(player));
     uint32 const current = Subclass::RankIn(before, entryId);
     if (rank < current && IsPresetEntry(player, entryId))
@@ -1183,7 +1183,7 @@ std::string TalentChangeRefusal(Player* player, uint32 entryId, uint32 rank)
     uint32 specPointsLeft = 0;
     if (rank > current && (!GetAscensionTalentPointsLeft(player, classPointsLeft, specPointsLeft) ||
             !Subclass::Affords(*offer, current, rank, classPointsLeft, specPointsLeft)))
-        return Acore::StringFormat("Not enough borrowed {} points for {}.",
+        return Acore::StringFormat("Not enough subclass {} points for {}.",
             offer->SpecId ? "specialization" : "class", TalentName(entryId));
     std::vector<Subclass::Rank> after = { { entryId, rank } };
     after.insert(after.end(), before.begin(), before.end());
@@ -1198,7 +1198,7 @@ void LearnFromAddon(Player* player, uint32 entryId, uint32 rank)
     if (!entry || !InTrees(OpenTreesOf(player), *entry) || !(entry->AECost || entry->TECost) ||
         rank > entry->SpellCount)
     {
-        SendAddon(player, "RESULT 0 That talent is not in your borrowed trees.");
+        SendAddon(player, "RESULT 0 That talent is not in your subclass trees.");
         SendSubclassState(player);
         return;
     }

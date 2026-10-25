@@ -1,6 +1,6 @@
 ## Interface: 30300
 ## Title: Ascension Subclass
-## Notes: The Two-Head / Two-Thins tab: the borrowed class's talent trees from mod-subclass.
+## Notes: The Two-Head / Two-Thins tab: your subclass's talent trees.
 ## Version: 0.1.0
 ## SavedVariables: Ascension_SubclassDump
 ## OptionalDeps: Bartender4, SpellActivationOverlay-for-CoA

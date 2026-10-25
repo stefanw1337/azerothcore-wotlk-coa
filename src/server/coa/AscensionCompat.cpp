@@ -10539,7 +10539,7 @@ bool ApplyAscensionTalentBuild(Player* player, std::vector<AscensionCoATalentSta
 {
     if (!player || (!IsAscensionCustomClass(player) && AscensionClassService::AccessOf(player).ExtraTrees.empty()))
     {
-        refusal = "Only CoA classes and borrowed trees have a character advancement build.";
+        refusal = "Only CoA classes and subclass trees have a character advancement build.";
         return false;
     }
     auto& service = AscensionClassService::Instance();
