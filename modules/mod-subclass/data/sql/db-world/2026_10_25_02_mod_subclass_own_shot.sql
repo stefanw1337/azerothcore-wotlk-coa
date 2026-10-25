@@ -1,4 +1,4 @@
--- mod-subclass: copies of the gun shots a Two-Headed Ogre fires with her own gun in her right hand: the same shots with the bullet leaving from her right hand.
+-- mod-subclass: copies of the gun shots a Two-Headed Ogre fires with her own gun in her right hand. Shots with their own visual are shown as the copy; shots without one (Auto Shot, Shoot) keep the original without its ammo projectile and add the copy as a bullet-only missile.
 
 DROP TABLE IF EXISTS `mod_subclass_own_shot`;
 CREATE TABLE `mod_subclass_own_shot` (

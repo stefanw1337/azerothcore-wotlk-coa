@@ -3,9 +3,10 @@ import sys
 from pathlib import Path
 
 from mkcyclops import Table
-from mkotherhead import FIRST_SPELL as FIRST_COPY, ATTRIBUTES, BULLET_MISSILE, CLASS_FAMILIES, DAMAGE_CLASS, \
-    RANGED, SPELL_FAMILY, SPELL_VISUAL, TARGET_CHEST, USES_RANGED_SLOT, VISUAL_FIELDS, VISUAL_HAS_MISSILE, \
-    VISUAL_MISSILE_ATTACHMENT, VISUAL_MISSILE_DESTINATION, VISUAL_MISSILE_MODEL, packed, values
+from mkotherhead import FIRST_SPELL as FIRST_COPY, ATTRIBUTES, ATTRIBUTES_EX2, AUTO_REPEAT, BULLET_MISSILE, \
+    CLASS_FAMILIES, DAMAGE_CLASS, KEEPS_SHEATH, RANGED, SPELL_FAMILY, SPELL_VISUAL, TARGET_CHEST, USES_RANGED_SLOT, \
+    VISUAL_FIELDS, VISUAL_HAS_MISSILE, VISUAL_MISSILE_ATTACHMENT, VISUAL_MISSILE_DESTINATION, VISUAL_MISSILE_MODEL, \
+    packed, values
 
 FIRST_ID = 9840000
 LAST_ID = 9850000
@@ -39,6 +40,16 @@ def right_hand_visual(visual_id, original):
     return visual
 
 
+def right_hand_copy(spell, copy_id, visual_id):
+    copy = list(spell)
+    copy[0] = copy_id
+    copy[SPELL_VISUAL] = visual_id
+    if not spell[SPELL_VISUAL]:
+        copy[ATTRIBUTES] = (copy[ATTRIBUTES] & ~USES_RANGED_SLOT) | KEEPS_SHEATH
+        copy[ATTRIBUTES_EX2] &= ~AUTO_REPEAT
+    return copy
+
+
 def main(client_root, mapping_sql):
     folder = Path(client_root) / "DBFilesClient"
     tables = {name: Table(folder / (name + ".dbc")) for name in ("Spell", "SpellVisual", "SpellVisualKit")}
@@ -54,9 +65,7 @@ def main(client_root, mapping_sql):
         original = spell[SPELL_VISUAL]
         if original not in new_visuals:
             new_visuals[original] = right_hand_visual(FIRST_ID + len(new_visuals), visual_rows.get(original))
-        copy = list(spell)
-        copy[0] = FIRST_ID + len(new_spells)
-        copy[SPELL_VISUAL] = new_visuals[original][0]
+        copy = right_hand_copy(spell, FIRST_ID + len(new_spells), new_visuals[original][0])
         new_spells.append(packed(copy))
         mapping.append((spell[0], copy[0]))
     if FIRST_ID + max(len(new_spells), len(new_visuals)) > LAST_ID:
@@ -67,7 +76,8 @@ def main(client_root, mapping_sql):
         table.save(folder / (name + ".dbc"))
     with open(mapping_sql, "w") as out:
         out.write("-- mod-subclass: copies of the gun shots a Two-Headed Ogre fires with her own gun in her right "
-                  "hand: the same shots with the bullet leaving from her right hand.\n\n")
+                  "hand. Shots with their own visual are shown as the copy; shots without one (Auto Shot, Shoot) keep "
+                  "the original without its ammo projectile and add the copy as a bullet-only missile.\n\n")
         out.write(f"DROP TABLE IF EXISTS `{TABLE}`;\n")
         out.write(f"CREATE TABLE `{TABLE}` (\n    `SpellId` INT UNSIGNED NOT NULL,\n"
                   "    `ShownId` INT UNSIGNED NOT NULL,\n    PRIMARY KEY (`SpellId`)\n) ENGINE=InnoDB "

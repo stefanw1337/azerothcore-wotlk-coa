@@ -2790,21 +2790,6 @@ bool ShootsNow(Player* player)
 
 constexpr uint32 StandStillMs = 600;
 std::unordered_map<uint32, uint32>& gunStillSince = *new std::unordered_map<uint32, uint32>;
-constexpr uint32 OwnShotMs = 900;
-std::unordered_map<uint32, uint32>& ownShotAt = *new std::unordered_map<uint32, uint32>;
-
-void NoteOwnShot(Player const* player)
-{
-    std::lock_guard<std::mutex> lock(twinMutex);
-    ownShotAt[player->GetGUID().GetCounter()] = GameTime::GetGameTimeMS().count();
-}
-
-bool StillFiring(Player const* player)
-{
-    std::lock_guard<std::mutex> lock(twinMutex);
-    auto const itr = ownShotAt.find(player->GetGUID().GetCounter());
-    return itr != ownShotAt.end() && GameTime::GetGameTimeMS().count() - itr->second < OwnShotMs;
-}
 bool StandsStill(Player const* player)
 {
     uint32 const now = GameTime::GetGameTimeMS().count();
@@ -2847,8 +2832,7 @@ void AimFromAfar(Player* player)
         target->IsAlive() && !player->IsWithinMeleeRange(target) && !player->isMoving() &&
         !player->IsNonMeleeSpellCast(false, true, true);
     uint32 const wanted = aiming ? (IsBow(gun) ? EMOTE_STATE_READY_BOW : OtherHeadReadyRifleEmote) :
-        AimsHerOwnGun(player) ? (StillFiring(player) ? 0 : HoldCrossbowEmote) :
-        RestsGunOnShoulder(player) ? GunOnShoulderEmote : 0;
+        !AimsHerOwnGun(player) && RestsGunOnShoulder(player) ? GunOnShoulderEmote : 0;
     uint32 const current = player->GetUInt32Value(UNIT_NPC_EMOTESTATE);
     bool const ours = current == EMOTE_STATE_READY_BOW || current == OtherHeadReadyRifleEmote ||
         current == GunOnShoulderEmote || current == EMOTE_STATE_READY_RIFLE || current == HoldCrossbowEmote;
@@ -3864,13 +3848,75 @@ bool CarriesASpell(uint16 opcode)
     }
 }
 
-uint32 ShownCopyOfCast(ObjectGuid caster, uint32 spellId)
+std::optional<std::size_t> AmmoDisplayAt(WorldPacket const& packet)
 {
-    if (CastShownAsCopy(caster, spellId))
-        return OtherHeadShownSpell(spellId);
-    if (ShotShownFromRightHand(caster, spellId))
-        return OwnShotShownSpell(spellId);
-    return 0;
+    constexpr uint32 TargetedObject = TARGET_FLAG_UNIT | TARGET_FLAG_CORPSE_ALLY | TARGET_FLAG_GAMEOBJECT |
+        TARGET_FLAG_CORPSE_ENEMY | TARGET_FLAG_UNIT_MINIPET;
+    WorldPacket reader(packet);
+    reader.rpos(0);
+    ObjectGuid guid;
+    uint8 castCount = 0;
+    uint32 spellId = 0;
+    uint32 castFlags = 0;
+    uint32 timestamp = 0;
+    reader >> guid.ReadAsPacked() >> guid.ReadAsPacked() >> castCount >> spellId >> castFlags >> timestamp;
+    if (!(castFlags & CAST_FLAG_PROJECTILE) || (castFlags & CAST_FLAG_RUNE_LIST))
+        return std::nullopt;
+    uint8 hits = 0;
+    reader >> hits;
+    reader.read_skip(hits * sizeof(uint64));
+    uint8 misses = 0;
+    reader >> misses;
+    for (uint8 miss = 0; miss < misses; ++miss)
+    {
+        uint64 target = 0;
+        uint8 reason = 0;
+        reader >> target >> reason;
+        if (reason == SPELL_MISS_REFLECT)
+            reader.read_skip<uint8>();
+    }
+    uint32 targetMask = 0;
+    reader >> targetMask;
+    if (targetMask & TargetedObject)
+        reader >> guid.ReadAsPacked();
+    if (targetMask & (TARGET_FLAG_ITEM | TARGET_FLAG_TRADE_ITEM))
+        reader >> guid.ReadAsPacked();
+    for (uint32 location : { uint32(TARGET_FLAG_SOURCE_LOCATION), uint32(TARGET_FLAG_DEST_LOCATION) })
+        if (targetMask & location)
+        {
+            reader >> guid.ReadAsPacked();
+            reader.read_skip(3 * sizeof(float));
+        }
+    if (targetMask & TARGET_FLAG_STRING)
+        reader.read_skip<std::string>();
+    if (castFlags & CAST_FLAG_POWER_LEFT_SELF)
+        reader.read_skip<uint32>();
+    if (castFlags & CAST_FLAG_ADJUST_MISSILE)
+        reader.read_skip(sizeof(float) + sizeof(uint32));
+    if (reader.rpos() + 2 * sizeof(uint32) > reader.size())
+        return std::nullopt;
+    return reader.rpos();
+}
+
+bool FireBulletFromRightHand(WorldSession* session, WorldPacket const& packet, std::size_t spellAt, uint32 bullet)
+{
+    std::optional<std::size_t> ammoAt;
+    try
+    {
+        ammoAt = AmmoDisplayAt(packet);
+    }
+    catch (ByteBufferException const&)
+    {
+        ammoAt = std::nullopt;
+    }
+    if (!ammoAt)
+        return true;
+    WorldPacket shot(packet);
+    shot.put<uint32>(*ammoAt, 0);
+    session->SendPacket(&shot);
+    shot.put<uint32>(spellAt, bullet);
+    session->SendPacket(&shot);
+    return false;
 }
 
 bool ShowCastAsItsCopy(WorldSession* session, WorldPacket const& packet)
@@ -3878,7 +3924,19 @@ bool ShowCastAsItsCopy(WorldSession* session, WorldPacket const& packet)
     if (!CarriesASpell(packet.GetOpcode()))
         return true;
     std::optional<SpellPacket> const read = ReadSpellPacket(packet);
-    uint32 const shown = read ? ShownCopyOfCast(read->Caster, read->SpellId) : 0;
+    if (!read)
+        return true;
+    uint32 shown = 0;
+    if (CastShownAsCopy(read->Caster, read->SpellId))
+        shown = OtherHeadShownSpell(read->SpellId);
+    else if (ShotShownFromRightHand(read->Caster, read->SpellId))
+    {
+        shown = OwnShotShownSpell(read->SpellId);
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(read->SpellId);
+        if (shown && info && !info->SpellVisual[0])
+            return packet.GetOpcode() != SMSG_SPELL_GO ||
+                FireBulletFromRightHand(session, packet, read->SpellAt, shown);
+    }
     if (!shown)
         return true;
     WorldPacket copy(packet);
@@ -4147,7 +4205,6 @@ public:
         wardrobes.erase(player->GetGUID().GetCounter());
         questMarks.erase(player->GetGUID().GetCounter());
         gunStillSince.erase(player->GetGUID().GetCounter());
-        ownShotAt.erase(player->GetGUID().GetCounter());
     }
 
     void OnPlayerCreate(Player* player) override
@@ -5659,8 +5716,6 @@ public:
             return;
         SpellInfo const* info = spell->GetSpellInfo();
         HideOtherHeadsArm(player, info);
-        if (ShotShownFromRightHand(player->GetGUID(), info->Id))
-            NoteOwnShot(player);
         if (!OtherHalfAwake(player))
             return;
         if (!IsShot(info))
