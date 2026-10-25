@@ -1580,6 +1580,7 @@ function Stances.TidyMainBar()
         Stances.mainGap = relative == ShapeshiftButton1 and x or 8
     end
     local previous
+    local anyBorrowed = false
     for index = 1, NUM_SHAPESHIFT_SLOTS or 10 do
         local button = _G["ShapeshiftButton" .. index]
         if button then
@@ -1588,6 +1589,7 @@ function Stances.TidyMainBar()
             button:SetAlpha(borrowed and 0 or 1)
             button:EnableMouse(not borrowed)
             if borrowed then
+                anyBorrowed = true
                 button:Hide()
             elseif button:IsShown() then
                 button:ClearAllPoints()
@@ -1598,6 +1600,11 @@ function Stances.TidyMainBar()
                 end
                 previous = button
             end
+        end
+    end
+    for _, part in ipairs({ "ShapeshiftBarLeft", "ShapeshiftBarMiddle", "ShapeshiftBarRight" }) do
+        if _G[part] then
+            _G[part]:SetAlpha(anyBorrowed and 0 or 1)
         end
     end
 end
