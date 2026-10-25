@@ -2833,7 +2833,7 @@ void AimFromAfar(Player* player)
         target->IsAlive() && !player->IsWithinMeleeRange(target) && !player->isMoving() &&
         !player->IsNonMeleeSpellCast(false, true, true);
     uint32 const wanted = aiming ? (IsBow(gun) ? EMOTE_STATE_READY_BOW : OtherHeadReadyRifleEmote) :
-        AimsHerOwnGun(player) ? HoldCrossbowEmote : RestsGunOnShoulder(player) ? GunOnShoulderEmote : 0;
+        !AimsHerOwnGun(player) && RestsGunOnShoulder(player) ? GunOnShoulderEmote : 0;
     uint32 const current = player->GetUInt32Value(UNIT_NPC_EMOTESTATE);
     bool const ours = current == EMOTE_STATE_READY_BOW || current == OtherHeadReadyRifleEmote ||
         current == GunOnShoulderEmote || current == EMOTE_STATE_READY_RIFLE || current == HoldCrossbowEmote;
