@@ -1896,6 +1896,8 @@ local function Receive(message)
             gates = {}, presets = {}, classPoints = 0, specPoints = 0, resources = {}, powers = {}, runes = false }
     elseif command == "SUBCLASS" and incoming then
         incoming.subclass = rest ~= "-" and rest or nil
+    elseif command == "AUTORANGED" and incoming then
+        incoming.autoRanged = tonumber(rest)
     elseif not incoming then
         return
     elseif command == "TREE" then
@@ -1968,6 +1970,9 @@ local function Receive(message)
         UpdateLentRunes()
         ShowSubclassInLevelLine()
         Ascension_Subclass.RememberSubclassForCharacterSelect(state.subclass)
+        if SetAutoRangedCombatSpell and (state.autoRanged or 0) > 0 then
+            SetAutoRangedCombatSpell(state.autoRanged)
+        end
     end
 end
 

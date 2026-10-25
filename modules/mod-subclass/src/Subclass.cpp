@@ -95,6 +95,8 @@ bool LeaveBorrowedStance(Player* player, SpellInfo const* info);
 bool OtherHalfFormAllows(Player const* player, SpellInfo const* info);
 Powers HalfFormPower(Player const* player);
 void ResendHalfForm(Player* player);
+bool OtherHalfShoots(Player const* player);
+bool MainHalfShoots(Player const* player);
 
 uint8 StoryGenderOf(Player const* player)
 {
@@ -1080,6 +1082,19 @@ bool CanBuildResource(Player const* player, uint32 resourceSpellId)
     return feeder == ResourceFeeders.end() || player->HasSpell(feeder->second) || player->HasAura(resourceSpellId);
 }
 
+uint32 LentAutoRangedSpell(Player const* player)
+{
+    if (!OtherHalfShoots(player) || MainHalfShoots(player))
+        return 0;
+    uint32 found = 0;
+    for (auto const& [spellId, spell] : player->GetSpellMap())
+        if (spell->State != PLAYERSPELL_REMOVED && spell->Active)
+            if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+                info && info->HasAttribute(SPELL_ATTR4_AUTO_RANGED_COMBAT))
+                found = std::max(found, spellId);
+    return found;
+}
+
 void SendSubclassState(Player* player)
 {
     if (!player || !player->IsInWorld())
@@ -1093,6 +1108,7 @@ void SendSubclassState(Player* player)
     ShowQuestOnTwin(player, offered);
     Subclass::Choice const choice = ChoiceOf(player);
     SendAddon(player, "SUBCLASS " + (choice.Complete() ? PlainClassName(choice.SubClass) : std::string("-")));
+    SendAddon(player, Acore::StringFormat("AUTORANGED {}", LentAutoRangedSpell(player)));
     std::vector<std::string> otherSpells;
     std::vector<std::string> offGlobalCooldown;
     for (uint32 spellId : KnownBorrowedActives(player))
