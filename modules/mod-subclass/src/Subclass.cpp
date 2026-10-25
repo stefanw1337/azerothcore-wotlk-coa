@@ -91,6 +91,7 @@ Subclass::Offer BorrowedOffer(AscensionCompatData::CoATalentEntry const& entry);
 void SyncBorrowedMana(Player* player, uint32 milliseconds);
 void ResendBrotherShare(Player const* player);
 bool TakeHalfForm(Player* player, SpellInfo const* info);
+bool LeaveBorrowedStance(Player* player, SpellInfo const* info);
 bool OtherHalfFormAllows(Player const* player, SpellInfo const* info);
 Powers HalfFormPower(Player const* player);
 void ResendHalfForm(Player* player);
@@ -1256,6 +1257,13 @@ void HandleAddonMessage(Player* player, std::string_view message)
     {
         if (Optional<uint32> spellId = Acore::StringTo<uint32>(words[1]))
             PressForOtherHalf(player, *spellId);
+        return;
+    }
+    if (words.size() == 2 && words[0] == "LEAVEFORM")
+    {
+        if (Optional<uint32> spellId = Acore::StringTo<uint32>(words[1]))
+            if (SpellInfo const* info = sSpellMgr->GetSpellInfo(*spellId); info && StanceLike(info))
+                LeaveBorrowedStance(player, info);
         return;
     }
     if (words.size() == 2 && words[0] == "LEFTHEAD")
@@ -2565,6 +2573,12 @@ public:
     void OnSpellCheckCast(Spell* spell, bool /*strict*/, SpellCastResult& res) override
     {
         Player* player = spell->GetCaster() ? spell->GetCaster()->ToPlayer() : nullptr;
+        if (player && PressedByHand(spell) && StanceLike(spell->GetSpellInfo()) &&
+            LeaveBorrowedStance(player, spell->GetSpellInfo()))
+        {
+            res = SPELL_FAILED_DONT_REPORT;
+            return;
+        }
         if (player && PressedByHand(spell) &&
             (res == SPELL_FAILED_ONLY_SHAPESHIFT || res == SPELL_FAILED_NOT_SHAPESHIFT) &&
             IsBorrowedSpell(player, spell->GetSpellInfo()->Id) &&

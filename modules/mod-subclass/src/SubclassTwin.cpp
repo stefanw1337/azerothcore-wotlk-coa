@@ -2270,6 +2270,23 @@ bool TakePreferredHalfForm(Player* player)
     return form && TakeHalfForm(player, form);
 }
 
+bool LeaveBorrowedStance(Player* player, SpellInfo const* info)
+{
+    if (!IsBorrowedSpell(player, info->Id))
+        return false;
+    if (HalfFormOf(player).Spell == info->Id)
+    {
+        SetHalfForm(player, {});
+        return true;
+    }
+    if (!player->HasAura(info->Id) || info->HasAttribute(SPELL_ATTR0_NO_AURA_CANCEL))
+        return false;
+    player->RemoveOwnedAura(info->Id, ObjectGuid::Empty, 0, AURA_REMOVE_BY_CANCEL);
+    LOG_INFO("module", "mod-subclass: {} leaves {} ({}) by pressing it again", player->GetName(), info->SpellName[0],
+        info->Id);
+    return true;
+}
+
 bool OtherHalfFormAllows(Player const* player, SpellInfo const* info)
 {
     return FitsOtherHalfForm(player, info);

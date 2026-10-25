@@ -1478,7 +1478,12 @@ function Stances.StanceButton(index)
             end
         end)
         button:SetScript("OnLeave", function() GameTooltip:Hide() end)
-        button:SetScript("PostClick", function(self) self:SetChecked(self.active) end)
+        button:SetScript("PostClick", function(self)
+            if self.active and self.spellId then
+                Send("LEAVEFORM " .. self.spellId)
+            end
+            self:SetChecked(self.active)
+        end)
         button:RegisterForDrag("LeftButton")
         button:SetScript("OnDragStart", function()
             if IsAltKeyDown() and not InCombatLockdown() and not Stances.btBar then
