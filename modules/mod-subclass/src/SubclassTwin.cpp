@@ -2790,6 +2790,21 @@ bool ShootsNow(Player* player)
 
 constexpr uint32 StandStillMs = 600;
 std::unordered_map<uint32, uint32>& gunStillSince = *new std::unordered_map<uint32, uint32>;
+constexpr uint32 OwnShotMs = 900;
+std::unordered_map<uint32, uint32>& ownShotAt = *new std::unordered_map<uint32, uint32>;
+
+void NoteOwnShot(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(twinMutex);
+    ownShotAt[player->GetGUID().GetCounter()] = GameTime::GetGameTimeMS().count();
+}
+
+bool StillFiring(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(twinMutex);
+    auto const itr = ownShotAt.find(player->GetGUID().GetCounter());
+    return itr != ownShotAt.end() && GameTime::GetGameTimeMS().count() - itr->second < OwnShotMs;
+}
 bool StandsStill(Player const* player)
 {
     uint32 const now = GameTime::GetGameTimeMS().count();
@@ -2832,7 +2847,8 @@ void AimFromAfar(Player* player)
         target->IsAlive() && !player->IsWithinMeleeRange(target) && !player->isMoving() &&
         !player->IsNonMeleeSpellCast(false, true, true);
     uint32 const wanted = aiming ? (IsBow(gun) ? EMOTE_STATE_READY_BOW : OtherHeadReadyRifleEmote) :
-        AimsHerOwnGun(player) ? HoldCrossbowEmote : RestsGunOnShoulder(player) ? GunOnShoulderEmote : 0;
+        AimsHerOwnGun(player) ? (StillFiring(player) ? 0 : HoldCrossbowEmote) :
+        RestsGunOnShoulder(player) ? GunOnShoulderEmote : 0;
     uint32 const current = player->GetUInt32Value(UNIT_NPC_EMOTESTATE);
     bool const ours = current == EMOTE_STATE_READY_BOW || current == OtherHeadReadyRifleEmote ||
         current == GunOnShoulderEmote || current == EMOTE_STATE_READY_RIFLE || current == HoldCrossbowEmote;
@@ -4131,6 +4147,7 @@ public:
         wardrobes.erase(player->GetGUID().GetCounter());
         questMarks.erase(player->GetGUID().GetCounter());
         gunStillSince.erase(player->GetGUID().GetCounter());
+        ownShotAt.erase(player->GetGUID().GetCounter());
     }
 
     void OnPlayerCreate(Player* player) override
@@ -5642,6 +5659,8 @@ public:
             return;
         SpellInfo const* info = spell->GetSpellInfo();
         HideOtherHeadsArm(player, info);
+        if (ShotShownFromRightHand(player->GetGUID(), info->Id))
+            NoteOwnShot(player);
         if (!OtherHalfAwake(player))
             return;
         if (!IsShot(info))
