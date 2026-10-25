@@ -56,7 +56,7 @@ KICKED = (49, ATTACK_OFF_PIERCE)
 LEFT_HAND_HOLDS = (17, 21, 26, 57, 31, 51, 52, 53, 54, 107, 108, 124, 125, 126)
 READY_1H = 26
 ATTACK_RIFLE = 49
-SHOT_SETTLE_MS, SHOT_AIM_HOLD_MS = 250, 4000
+SHOT_SETTLE_MS, SHOT_AIM_HOLD_MS = 250, 6000
 OFF_HAND_SWINGS = (87,)
 FIST_AT_HEART = (0.65, 0.52, -0.25)
 FIST_DIPPED = (0.62, 0.48, -0.32)
@@ -498,6 +498,22 @@ def own_keys(data, bone, sequence):
     return count, bytes(data[stamps_at:stamps_at + count * 4]), bytes(data[values_at:values_at + count * 8])
 
 
+def looped_through(entry, size, period, total):
+    keys, stamps, values = entry
+    if keys <= 1 or not period:
+        return entry
+    times = struct.unpack(f"<{keys}I", stamps)
+    looped_stamps, looped_values = [], bytearray()
+    for loop in range(total // period + 1):
+        for index, stamp in enumerate(times):
+            at = stamp + loop * period
+            if (loop and stamp == 0) or at > total:
+                continue
+            looped_stamps.append(at)
+            looped_values += values[index * size:(index + 1) * size]
+    return len(looped_stamps), struct.pack(f"<{len(looped_stamps)}I", *looped_stamps), bytes(looped_values)
+
+
 def first_key(entry, size):
     keys, _, values = entry
     return (1, struct.pack("<I", 0), values[:size]) if keys else entry
@@ -798,12 +814,26 @@ class Grafter:
             return bytes(self.blob.data)
         _, sequences = array(ogre, SEQUENCES)
         struct.pack_into("<I", self.blob.data, sequences + shot * SEQUENCE_SIZE + 4, SHOT_AIM_HOLD_MS)
-        for bone in arm_chain(ogre, KEY_ARM_RIGHT):
-            keys, stamps, values = own_keys(ogre, bone, shot)
-            aimed = own_keys(ogre, bone, aim)[2][:8]
-            if keys > 1 and aimed:
-                self.set_own_rotation(bone, shot, (keys + 2, stamps + struct.pack(
-                    "<II", length + SHOT_SETTLE_MS, SHOT_AIM_HOLD_MS), values + aimed + aimed))
+        ready = sequence_index(ogre, READY_1H)
+        right_arm, left_arm = arm_chain(ogre, KEY_ARM_RIGHT), arm_chain(ogre, KEY_ARM_LEFT)
+        bone_count, _ = array(ogre, BONES)
+        for bone in range(bone_count):
+            for track, size in zip(BONE_TRACKS, TRACK_VALUE_SIZES):
+                place = bone_offset(ogre, bone) + track
+                if track == ROTATION and bone in right_arm:
+                    keys, stamps, values = own_keys(ogre, bone, shot)
+                    aimed = own_keys(ogre, bone, aim)[2][:8]
+                    if keys > 1 and aimed:
+                        self.set_own_rotation(bone, shot, (keys + 2, stamps + struct.pack(
+                            "<II", length + SHOT_SETTLE_MS, SHOT_AIM_HOLD_MS), values + aimed + aimed))
+                    continue
+                _, global_sequence, count, _ = struct.unpack_from("<hhII", ogre, place)
+                if global_sequence != -1 or count != self.old_count:
+                    continue
+                source = self.base if track == ROTATION and bone in left_arm else ready
+                entry = own_track(ogre, place, source, size)
+                self.set_own_track(place, shot, looped_through(entry, size, sequence_length(ogre, source),
+                                                               SHOT_AIM_HOLD_MS))
         return bytes(self.blob.data)
 
     def set_own_rotation(self, bone, sequence, entry):
