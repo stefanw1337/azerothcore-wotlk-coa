@@ -266,6 +266,7 @@ struct BrotherCast
 
 thread_local BrotherCast castingAsBrother;
 thread_local bool resendingAsBrother = false;
+thread_local bool resendingOwnShot = false;
 thread_local ObjectGuid swingingAlone;
 
 struct HalfForm
@@ -3913,7 +3914,9 @@ bool FireBulletFromRightHand(WorldSession* session, WorldPacket const& packet, s
         return true;
     WorldPacket shot(packet);
     shot.put<uint32>(*ammoAt, 0);
+    resendingOwnShot = true;
     session->SendPacket(&shot);
+    resendingOwnShot = false;
     shot.put<uint32>(spellAt, bullet);
     session->SendPacket(&shot);
     return false;
@@ -3921,7 +3924,7 @@ bool FireBulletFromRightHand(WorldSession* session, WorldPacket const& packet, s
 
 bool ShowCastAsItsCopy(WorldSession* session, WorldPacket const& packet)
 {
-    if (!CarriesASpell(packet.GetOpcode()))
+    if (resendingOwnShot || !CarriesASpell(packet.GetOpcode()))
         return true;
     std::optional<SpellPacket> const read = ReadSpellPacket(packet);
     if (!read)
