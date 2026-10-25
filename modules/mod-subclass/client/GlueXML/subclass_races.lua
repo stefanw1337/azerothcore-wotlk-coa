@@ -348,3 +348,100 @@ do
 		end
 	end)
 end
+do
+	local SUBCLASS_CVAR = "coaSubclassNames"
+	local function Plain(text)
+		return (string.gsub(string.gsub(text, "|c%x%x%x%x%x%x%x%x", ""), "|r", ""))
+	end
+	local function Subclasses()
+		local found = {}
+		local ok, value = pcall(GetCVar, SUBCLASS_CVAR)
+		for key, subclass in string.gmatch(ok and value or "", "([^;=]+)=([^;]+)") do
+			found[key] = subclass
+		end
+		return found
+	end
+	local function TextsIn(frame, found)
+		for _, region in ipairs({ frame:GetRegions() }) do
+			if region.GetObjectType and region:GetObjectType() == "FontString" and region:IsVisible() and region:GetText() then
+				found[#found + 1] = region
+			end
+		end
+		for _, child in ipairs({ frame:GetChildren() }) do
+			TextsIn(child, found)
+		end
+		return found
+	end
+	local function NameLabels(names)
+		local labels = {}
+		local frame = EnumerateFrames()
+		while frame do
+			if frame:IsVisible() then
+				for _, region in ipairs({ frame:GetRegions() }) do
+					local text = region.GetObjectType and region:GetObjectType() == "FontString" and region:IsVisible()
+						and region:GetText()
+					if text and names[Plain(text)] then
+						labels[#labels + 1] = { region = region, name = Plain(text) }
+					end
+				end
+			end
+			frame = EnumerateFrames(frame)
+		end
+		return labels
+	end
+	local function WithSubclass(text, class, subclass)
+		local tag = "(" .. subclass .. ")"
+		local _, last = string.find(text, class, 1, true)
+		if not last or string.find(text, tag, 1, true) then return end
+		return string.sub(text, 1, last) .. " " .. tag .. string.sub(text, last + 1)
+	end
+	local function ClassLinesOf(label, everyone, class)
+		local holder = label.region:GetParent()
+		while holder and holder ~= CharacterSelect do
+			local lines, crowded = {}, false
+			for _, line in ipairs(TextsIn(holder, {})) do
+				local text = Plain(line:GetText())
+				if line ~= label.region and everyone[text] and text ~= label.name then
+					crowded = true
+				elseif line ~= label.region and string.find(text, class, 1, true) then
+					lines[#lines + 1] = line
+				end
+			end
+			if crowded then return {} end
+			if #lines > 0 then return lines end
+			holder = holder:GetParent()
+		end
+		return {}
+	end
+	local listWatch = CreateFrame("Frame")
+	listWatch:SetScript("OnUpdate", function(self, elapsed)
+		self.wait = (self.wait or 0) + elapsed
+		if self.wait < 0.3 then return end
+		self.wait = 0
+		if not (CharacterSelect and CharacterSelect:IsShown() and GetNumCharacters and EnumerateFrames) then return end
+		local subclasses = Subclasses()
+		if not next(subclasses) then return end
+		local realm = GetServerName and GetServerName() or ""
+		local everyone, subclassed = {}, {}
+		for index = 1, GetNumCharacters() do
+			local name, _, class = GetCharacterInfo(index)
+			if name then
+				everyone[name] = true
+				local subclass = subclasses[name .. "@" .. realm]
+				if subclass and class then
+					subclassed[name] = { class = class, subclass = subclass }
+				end
+			end
+		end
+		if not next(subclassed) then return end
+		for _, label in ipairs(NameLabels(subclassed)) do
+			local wanted = subclassed[label.name]
+			for _, line in ipairs(ClassLinesOf(label, everyone, wanted.class)) do
+				local shown = WithSubclass(line:GetText(), wanted.class, wanted.subclass)
+				if shown then
+					line:SetText(shown)
+				end
+			end
+		end
+	end)
+end

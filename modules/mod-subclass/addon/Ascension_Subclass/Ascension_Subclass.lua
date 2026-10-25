@@ -924,6 +924,28 @@ local function SubclassedLevelLine()
     end
 end
 
+function Ascension_Subclass.RememberSubclassForCharacterSelect(subclass)
+    local cvar = "coaSubclassNames"
+    if not (RegisterCVar and SetCVar and GetCVar) then
+        return
+    end
+    pcall(RegisterCVar, cvar, "")
+    local key = UnitName("player") .. "@" .. (GetRealmName() or "")
+    local kept = {}
+    for entry in string.gmatch(GetCVar(cvar) or "", "[^;]+") do
+        if string.match(entry, "^(.-)=") ~= key then
+            kept[#kept + 1] = entry
+        end
+    end
+    if subclass then
+        kept[#kept + 1] = key .. "=" .. subclass
+    end
+    local value = table.concat(kept, ";")
+    if value ~= (GetCVar(cvar) or "") then
+        SetCVar(cvar, value)
+    end
+end
+
 local function ShowSubclassInLevelLine()
     if PaperDollFrame_SetLevel and CharacterFrame and CharacterFrame:IsShown() then
         PaperDollFrame_SetLevel()
@@ -1945,6 +1967,7 @@ local function Receive(message)
         UpdateResourceFrame()
         UpdateLentRunes()
         ShowSubclassInLevelLine()
+        Ascension_Subclass.RememberSubclassForCharacterSelect(state.subclass)
     end
 end
 
