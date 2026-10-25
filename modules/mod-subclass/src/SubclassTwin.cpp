@@ -301,33 +301,55 @@ Optional<RiderWeapons> WeaponsOfTheRider(Player const* player)
 constexpr uint32 CopyShownMs = 4000;
 std::mutex shownCopiesMutex;
 std::unordered_map<uint64, uint32>& shownCopies = *new std::unordered_map<uint64, uint32>;
+std::unordered_map<uint64, uint32>& rightHandShots = *new std::unordered_map<uint64, uint32>;
 
 uint64 CopyKey(ObjectGuid player, uint32 spellId)
 {
     return (uint64(player.GetCounter()) << 32) | spellId;
 }
 
-void ShowCastAsCopy(Player const* player, uint32 spellId, bool shown, uint32 castMs = 0)
+void MarkShown(std::unordered_map<uint64, uint32>& marks, Player const* player, uint32 spellId, bool shown,
+    uint32 castMs)
 {
     std::lock_guard<std::mutex> lock(shownCopiesMutex);
     if (shown)
-        shownCopies[CopyKey(player->GetGUID(), spellId)] = GameTime::GetGameTimeMS().count() + castMs + CopyShownMs;
+        marks[CopyKey(player->GetGUID(), spellId)] = GameTime::GetGameTimeMS().count() + castMs + CopyShownMs;
     else
-        shownCopies.erase(CopyKey(player->GetGUID(), spellId));
+        marks.erase(CopyKey(player->GetGUID(), spellId));
 }
 
-bool CastShownAsCopy(ObjectGuid caster, uint32 spellId)
+bool StillMarked(std::unordered_map<uint64, uint32>& marks, ObjectGuid caster, uint32 spellId)
 {
     if (!caster.IsPlayer())
         return false;
     std::lock_guard<std::mutex> lock(shownCopiesMutex);
-    auto const itr = shownCopies.find(CopyKey(caster, spellId));
-    if (itr == shownCopies.end())
+    auto const itr = marks.find(CopyKey(caster, spellId));
+    if (itr == marks.end())
         return false;
     if (itr->second >= GameTime::GetGameTimeMS().count())
         return true;
-    shownCopies.erase(itr);
+    marks.erase(itr);
     return false;
+}
+
+void ShowCastAsCopy(Player const* player, uint32 spellId, bool shown, uint32 castMs = 0)
+{
+    MarkShown(shownCopies, player, spellId, shown, castMs);
+}
+
+bool CastShownAsCopy(ObjectGuid caster, uint32 spellId)
+{
+    return StillMarked(shownCopies, caster, spellId);
+}
+
+void ShowShotFromRightHand(Player const* player, uint32 spellId, bool shown, uint32 castMs)
+{
+    MarkShown(rightHandShots, player, spellId, shown, castMs);
+}
+
+bool ShotShownFromRightHand(ObjectGuid caster, uint32 spellId)
+{
+    return StillMarked(rightHandShots, caster, spellId);
 }
 
 enum class Swing : uint8
@@ -3735,33 +3757,48 @@ bool HideShotWithoutGun(WorldPacket const& packet)
     return false;
 }
 
-std::unordered_map<uint32, uint32> const& OtherHeadSpells()
+std::unordered_map<uint32, uint32> LoadShownCopies(std::string_view table)
 {
-    static std::unordered_map<uint32, uint32> const shown = []
-    {
-        std::unordered_map<uint32, uint32> loaded;
-        bool const exists = bool(WorldDatabase.Query("SELECT 1 FROM information_schema.TABLES WHERE "
-            "TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mod_subclass_other_head_spell'"));
-        if (exists)
-            if (QueryResult result =
-                    WorldDatabase.Query("SELECT `SpellId`, `ShownId` FROM `mod_subclass_other_head_spell`"))
-                do
-                {
-                    Field* fields = result->Fetch();
-                    loaded[fields[0].Get<uint32>()] = fields[1].Get<uint32>();
-                } while (result->NextRow());
-        LOG_INFO("module", "mod-subclass: {} class spells have a copy the other head casts without her arm",
-            loaded.size());
-        return loaded;
-    }();
-    return shown;
+    std::unordered_map<uint32, uint32> loaded;
+    bool const exists = bool(WorldDatabase.Query("SELECT 1 FROM information_schema.TABLES WHERE "
+        "TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '{}'", table));
+    if (exists)
+        if (QueryResult result = WorldDatabase.Query("SELECT `SpellId`, `ShownId` FROM `{}`", table))
+            do
+            {
+                Field* fields = result->Fetch();
+                loaded[fields[0].Get<uint32>()] = fields[1].Get<uint32>();
+            } while (result->NextRow());
+    return loaded;
+}
+
+uint32 ShownCopyOf(std::unordered_map<uint32, uint32> const& copies, uint32 spellId)
+{
+    auto const itr = copies.find(spellId);
+    return itr == copies.end() ? 0 : itr->second;
 }
 
 uint32 OtherHeadShownSpell(uint32 spellId)
 {
-    auto const& shown = OtherHeadSpells();
-    auto const itr = shown.find(spellId);
-    return itr == shown.end() ? 0 : itr->second;
+    static std::unordered_map<uint32, uint32> const shown = []
+    {
+        std::unordered_map<uint32, uint32> loaded = LoadShownCopies("mod_subclass_other_head_spell");
+        LOG_INFO("module", "mod-subclass: {} class spells have a copy the other head casts without her arm",
+            loaded.size());
+        return loaded;
+    }();
+    return ShownCopyOf(shown, spellId);
+}
+
+uint32 OwnShotShownSpell(uint32 spellId)
+{
+    static std::unordered_map<uint32, uint32> const shown = []
+    {
+        std::unordered_map<uint32, uint32> loaded = LoadShownCopies("mod_subclass_own_shot");
+        LOG_INFO("module", "mod-subclass: {} gun shots have a copy that flies from her right hand", loaded.size());
+        return loaded;
+    }();
+    return ShownCopyOf(shown, spellId);
 }
 
 struct SpellPacket
@@ -3826,14 +3863,21 @@ bool CarriesASpell(uint16 opcode)
     }
 }
 
-bool ShowOtherHeadStrikeAsCopy(WorldSession* session, WorldPacket const& packet)
+uint32 ShownCopyOfCast(ObjectGuid caster, uint32 spellId)
+{
+    if (CastShownAsCopy(caster, spellId))
+        return OtherHeadShownSpell(spellId);
+    if (ShotShownFromRightHand(caster, spellId))
+        return OwnShotShownSpell(spellId);
+    return 0;
+}
+
+bool ShowCastAsItsCopy(WorldSession* session, WorldPacket const& packet)
 {
     if (!CarriesASpell(packet.GetOpcode()))
         return true;
     std::optional<SpellPacket> const read = ReadSpellPacket(packet);
-    if (!read || !CastShownAsCopy(read->Caster, read->SpellId))
-        return true;
-    uint32 const shown = OtherHeadShownSpell(read->SpellId);
+    uint32 const shown = read ? ShownCopyOfCast(read->Caster, read->SpellId) : 0;
     if (!shown)
         return true;
     WorldPacket copy(packet);
@@ -4003,7 +4047,7 @@ public:
     {
         if (session)
             NoteAttackStopped(session, packet);
-        return !session || (HideShotWithoutGun(packet) && ShowOtherHeadStrikeAsCopy(session, packet) &&
+        return !session || (HideShotWithoutGun(packet) && ShowCastAsItsCopy(session, packet) &&
             ShowFormCastPlain(session, packet) && ShowFormAuraPlain(session, packet) &&
             ShowCastOnBrother(session, packet) &&
             ShareSwingWithBrother(session, packet) && ShowHitsOnBrother(session, packet));
@@ -5576,9 +5620,18 @@ bool SwingsAWeapon(SpellInfo const* info)
         info->HasEffect(SPELL_EFFECT_WEAPON_PERCENT_DAMAGE));
 }
 
+bool FiresHerOwnGun(Player const* player)
+{
+    Item const* gun = OwnBow(player);
+    return gun && HeldInHand(gun) && !IsBow(gun) && MainHalfShoots(player);
+}
+
 void HideOtherHeadsArm(Player* player, SpellInfo const* info, uint32 castMs = 0)
 {
-    ShowCastAsCopy(player, info->Id, IsBorrowedSpell(player, info->Id) && ShowsAsCopy(player, info), castMs);
+    bool const borrowed = IsBorrowedSpell(player, info->Id);
+    ShowCastAsCopy(player, info->Id, borrowed && ShowsAsCopy(player, info), castMs);
+    ShowShotFromRightHand(player, info->Id, !borrowed && OwnShotShownSpell(info->Id) && FiresHerOwnGun(player),
+        castMs);
 }
 
 class mod_subclass_other_head_cast_start : public AllSpellScript
