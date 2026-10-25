@@ -7010,13 +7010,14 @@ public:
     for (auto const &[categoryId, appearanceId] : changes)
       if (categoryId && categoryId < requested.size())
         requested[categoryId] = appearanceId;
-    ApplyRequestedAppearances(player, *state, requested);
+    ApplyRequestedAppearances(player, *state, requested, true);
     return true;
   }
 
 private:
   void ApplyRequestedAppearances(Player *player, PlayerCollectionState &collection,
-                                 std::array<uint32, APPEARANCE_CATEGORY_COUNT> requested) {
+                                 std::array<uint32, APPEARANCE_CATEGORY_COUNT> requested,
+                                 bool resendActive = false) {
     PlayerCollectionState *state = &collection;
     for (uint32 categoryId = 1; categoryId < requested.size(); ++categoryId) {
       uint32 appearanceId = requested[categoryId];
@@ -7075,6 +7076,8 @@ private:
     RefreshAscensionIncarnationDisplay(player);
     RefreshCosmetics(player, *state);
     RefreshVisibleItems(player);
+    if (resendActive)
+      SendActiveAppearances(player, *state);
     SendApplyResult(player, "APPLY_APPEARANCES_OK");
   }
 
