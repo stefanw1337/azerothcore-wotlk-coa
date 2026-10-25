@@ -100,6 +100,7 @@ constexpr std::array<uint32, 4> SelfAuras = { TeamingUpAura, LonelyAura, AgreedA
 constexpr uint32 SelfAuraTick = 1000;
 constexpr uint32 SheathEmote = 573;
 constexpr uint32 OtherHeadReadyRifleEmote = 501;
+constexpr uint32 GunOnShoulderEmote = 502;
 constexpr uint32 ArrivalDelay = 2000;
 constexpr uint32 LoginArrivalDelay = 10000;
 constexpr float RangedStandoff = 15.0f;
@@ -2757,6 +2758,20 @@ Unit* AimedAt(Player* player)
     return IntendedFoe(player);
 }
 
+bool ShootsNow(Player* player)
+{
+    Spell* repeating = player->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL);
+    Unit* target = repeating ? repeating->m_targets.GetUnitTarget() : nullptr;
+    return target && player->IsWithinCombatRange(target, repeating->GetSpellInfo()->GetMaxRange(false, player));
+}
+
+bool RestsGunOnShoulder(Player* player, Item const* gun)
+{
+    return gun && HeldInHand(gun) && !IsBow(gun) && MainHalfShoots(player) && player->IsAlive() &&
+        player->GetSheath() == SHEATH_STATE_RANGED && !player->isMoving() &&
+        !player->IsNonMeleeSpellCast(false, true, true) && !ShootsNow(player);
+}
+
 void AimFromAfar(Player* player)
 {
     Unit* target = AimedAt(player);
@@ -2765,15 +2780,16 @@ void AimFromAfar(Player* player)
         player->GetSheath() == SHEATH_STATE_MELEE &&
         target->IsAlive() && !player->IsWithinMeleeRange(target) && !player->isMoving() &&
         !player->IsNonMeleeSpellCast(false, true, true);
-    uint32 const wanted = !aiming ? 0 : IsBow(gun) ? EMOTE_STATE_READY_BOW : OtherHeadReadyRifleEmote;
+    uint32 const wanted = aiming ? (IsBow(gun) ? EMOTE_STATE_READY_BOW : OtherHeadReadyRifleEmote) :
+        RestsGunOnShoulder(player, gun) ? GunOnShoulderEmote : 0;
     uint32 const current = player->GetUInt32Value(UNIT_NPC_EMOTESTATE);
     bool const ours = current == EMOTE_STATE_READY_BOW || current == OtherHeadReadyRifleEmote ||
-        current == EMOTE_STATE_READY_RIFLE;
+        current == GunOnShoulderEmote || current == EMOTE_STATE_READY_RIFLE;
     if (current == wanted || (!wanted && !ours))
         return;
     player->SetUInt32Value(UNIT_NPC_EMOTESTATE, wanted);
-    LOG_INFO("module", "mod-subclass: {} {} aiming at {} (victim {}, in melee range {}, in combat {})",
-        player->GetName(), wanted ? "starts" : "stops", target ? target->GetName() : "nobody",
+    LOG_INFO("module", "mod-subclass: {} takes stance emote {} toward {} (victim {}, in melee range {}, in combat {})",
+        player->GetName(), wanted, target ? target->GetName() : "nobody",
         player->GetVictim() ? player->GetVictim()->GetName() : "none",
         target && player->IsWithinMeleeRange(target), player->IsInCombat());
     if (wanted && !player->IsInCombat())

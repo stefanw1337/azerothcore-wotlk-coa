@@ -51,7 +51,9 @@ COPIED = ((49, READY_RIFLE, True, True, HELD_AIM), (49, 49, True, True, None), (
           (109, READY_BOW, False, False, HELD_AIM), (46, 46, False, False, None), (109, 109, False, False, None),
           (49, ATTACK_OFF_PIERCE, True, True, None))
 HOLD_LOOPS = 12
-HOLD_RIFLE, OTHER_HEAD_READY_RIFLE = 110, 221
+HOLD_RIFLE, OTHER_HEAD_READY_RIFLE, GUN_ON_SHOULDER = 110, 221, 222
+GUN_RESTING_REACH = (0.35, 0.08, -0.35)
+GUN_RESTING_BARREL = (-0.45, 0.0, 0.9)
 OWN_RIFLE = ((READY_RIFLE, READY_RIFLE, 0.0), (49, 49, None), (49, HOLD_RIFLE, None))
 KICKED = (49, ATTACK_OFF_PIERCE)
 LEFT_HAND_HOLDS = (17, 21, 26, 57, 31, 51, 52, 53, 54, 107, 108, 124, 125, 126)
@@ -719,30 +721,34 @@ class Grafter:
         _, offset = array(ogre, SEQUENCES)
         struct.pack_into("<H", self.blob.data, offset + sequence_index(ogre, READY_RIFLE) * SEQUENCE_SIZE,
                          OTHER_HEAD_READY_RIFLE)
-        arms = ((arm_chain(ogre, KEY_ARM_LEFT), arm_chain(self.source, KEY_ARM_LEFT)),
-                (arm_chain(ogre, KEY_ARM_RIGHT), arm_chain(self.source, KEY_ARM_RIGHT)))
+        right_arm, left_arm = arm_chain(ogre, KEY_ARM_RIGHT), arm_chain(ogre, KEY_ARM_LEFT)
+        source_arm = arm_chain(self.source, KEY_ARM_RIGHT)
+        aim = Pose(self.source, sequence_index(self.source, READY_RIFLE), {}, 0)
+        barrel = tuple(aim.frame(source_arm[-1])[0].T @ np.array(FORWARD))
+        calm = {bone: own_keys(ogre, bone, self.base) for bone in (*left_arm, *SPINE)}
         appended = []
         for animation, target, held in OWN_RIFLE:
             sequence = sequence_index(self.source, animation)
-            mapping = bone_sources(ogre, self.source, False, False, held is not None)
+            mapping = {bone: chain for bone, chain in bone_sources(ogre, self.source, False, False, True).items()
+                       if bone in right_arm}
             keys = {bone: rotation_keys(self.source, chain, sequence, False) for bone, chain in mapping.items()}
             moment = None
             if held is not None:
                 moment = int(sequence_length(self.source, sequence) * held)
                 keys = {bone: frozen(entry, moment) for bone, entry in keys.items()}
-            for chain, source_chain in arms:
-                keys = reached(ogre, self.base, self.source, sequence, keys, chain, source_chain, False, moment)
-                keys = turned_like_source(ogre, self.base, self.source, sequence, keys, chain, source_chain, moment)
-            if held is not None:
-                gun_hand, source_gun_hand = arms[1][0][-1], arms[1][1][-1]
-                barrel = Pose(self.source, sequence, {}, moment).frame(source_gun_hand)[0].T @ np.array(FORWARD)
-                keys[gun_hand] = aimed_joint(ogre, self.base, [gun_hand], keys, tuple(barrel))
+            keys = reached(ogre, self.base, self.source, sequence, keys, right_arm, source_arm, False, moment)
+            keys = turned_like_source(ogre, self.base, self.source, sequence, keys, right_arm, source_arm, moment)
+            keys[right_arm[-1]] = aimed_joint(ogre, self.base, right_arm[-1:], keys, barrel)
             if held is None:
                 own = sequence_index(ogre, target)
-                for bone, entry in keys.items():
+                for bone, entry in {**calm, **keys}.items():
                     self.set_own_rotation(bone, own, entry)
             else:
                 appended.append((sequence, target, keys))
+        resting = {bone: frozen(own_keys(ogre, bone, self.base), 0) for bone in right_arm}
+        resting = pointed(ogre, self.base, resting, right_arm, GUN_RESTING_REACH)
+        resting[right_arm[-1]] = aimed_joint(ogre, self.base, right_arm[-1:], resting, barrel, unit(GUN_RESTING_BARREL))
+        appended.append((sequence_index(self.source, READY_RIFLE), GUN_ON_SHOULDER, resting))
         for sequence, target, keys in appended:
             self.append_held(sequence, target, keys)
         return bytes(self.blob.data)
