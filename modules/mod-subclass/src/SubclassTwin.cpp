@@ -2765,15 +2765,56 @@ bool ShootsNow(Player* player)
     return target && player->IsWithinCombatRange(target, repeating->GetSpellInfo()->GetMaxRange(false, player));
 }
 
+constexpr uint32 StandStillMs = 600;
+std::unordered_map<uint32, uint32>& gunStillSince = *new std::unordered_map<uint32, uint32>;
+std::unordered_set<uint32>& gunOutForFight = *new std::unordered_set<uint32>;
+
+bool StandsStill(Player const* player)
+{
+    uint32 const now = GameTime::GetGameTimeMS().count();
+    std::lock_guard<std::mutex> lock(twinMutex);
+    uint32& since = gunStillSince[player->GetGUID().GetCounter()];
+    if (player->isMoving())
+        since = now;
+    return !player->isMoving() && now - since >= StandStillMs;
+}
+
+bool GunOutForFight(Player const* player, bool fighting)
+{
+    uint32 const guid = player->GetGUID().GetCounter();
+    std::lock_guard<std::mutex> lock(twinMutex);
+    if (player->GetSheath() != SHEATH_STATE_RANGED)
+        gunOutForFight.erase(guid);
+    else if (fighting)
+        gunOutForFight.insert(guid);
+    return gunOutForFight.count(guid);
+}
+
+void ForgetGunStance(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(twinMutex);
+    gunStillSince.erase(player->GetGUID().GetCounter());
+    gunOutForFight.erase(player->GetGUID().GetCounter());
+}
+
 bool RestsGunOnShoulder(Player* player, Item const* gun, Unit* target)
 {
-    if (!gun || !HeldInHand(gun) || IsBow(gun) || !MainHalfShoots(player) || !player->IsAlive() ||
-        player->isMoving() || player->IsNonMeleeSpellCast(false, true, true) || ShootsNow(player))
+    if (!gun || !HeldInHand(gun) || IsBow(gun) || !MainHalfShoots(player) || !player->IsAlive())
         return false;
-    bool const atRange = target && target->IsAlive() && !player->IsWithinMeleeRange(target);
+    bool const meleeing = player->HasUnitState(UNIT_STATE_MELEE_ATTACKING);
+    bool const atRange = target && target->IsAlive() && !player->IsWithinMeleeRange(target) && !meleeing;
+    if (GunOutForFight(player, atRange || player->IsInCombat()) && !atRange && !player->IsInCombat() &&
+        !ShootsNow(player))
+    {
+        ForgetGunStance(player);
+        player->SetSheath(SHEATH_STATE_UNARMED);
+        return false;
+    }
+    if (meleeing || !StandsStill(player) || player->IsNonMeleeSpellCast(false, true, true) || ShootsNow(player))
+        return false;
     if (atRange && player->GetSheath() != SHEATH_STATE_RANGED)
         player->SetSheath(SHEATH_STATE_RANGED);
-    return atRange || player->GetSheath() == SHEATH_STATE_RANGED;
+    return player->GetSheath() == SHEATH_STATE_RANGED;
 }
 
 void AimFromAfar(Player* player)
@@ -4060,6 +4101,8 @@ public:
         std::lock_guard<std::mutex> lock(twinMutex);
         wardrobes.erase(player->GetGUID().GetCounter());
         questMarks.erase(player->GetGUID().GetCounter());
+        gunStillSince.erase(player->GetGUID().GetCounter());
+        gunOutForFight.erase(player->GetGUID().GetCounter());
     }
 
     void OnPlayerCreate(Player* player) override
