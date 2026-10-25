@@ -2800,9 +2800,24 @@ bool StandsStill(Player const* player)
     return !player->isMoving() && now - since >= StandStillMs;
 }
 
-bool RestsGunOnShoulder(Player* player, Item const* gun, Unit* target)
+bool FiresHerOwnGun(Player const* player)
 {
-    if (!gun || !HeldInHand(gun) || IsBow(gun) || !MainHalfShoots(player) || !player->IsAlive())
+    Item const* gun = OwnBow(player);
+    return gun && HeldInHand(gun) && !IsBow(gun) && MainHalfShoots(player);
+}
+
+bool AimsHerOwnGun(Player* player)
+{
+    if (!player->IsAlive() || !FiresHerOwnGun(player) || !ShootsNow(player))
+        return false;
+    if (player->GetSheath() != SHEATH_STATE_RANGED)
+        player->SetSheath(SHEATH_STATE_RANGED);
+    return true;
+}
+
+bool RestsGunOnShoulder(Player* player, Unit* target)
+{
+    if (!FiresHerOwnGun(player) || !player->IsAlive())
         return false;
     if (player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) || !StandsStill(player) ||
         player->IsNonMeleeSpellCast(false, true, true) || ShootsNow(player))
@@ -2822,11 +2837,12 @@ void AimFromAfar(Player* player)
         target->IsAlive() && !player->IsWithinMeleeRange(target) && !player->isMoving() &&
         !player->IsNonMeleeSpellCast(false, true, true);
     uint32 const wanted = aiming ? (IsBow(gun) ? EMOTE_STATE_READY_BOW : OtherHeadReadyRifleEmote) :
-        RestsGunOnShoulder(player, gun, target) ? GunOnShoulderEmote : 0;
+        AimsHerOwnGun(player) ? EMOTE_STATE_READY_RIFLE : RestsGunOnShoulder(player, target) ? GunOnShoulderEmote : 0;
     uint32 const current = player->GetUInt32Value(UNIT_NPC_EMOTESTATE);
     bool const ours = current == EMOTE_STATE_READY_BOW || current == OtherHeadReadyRifleEmote ||
         current == GunOnShoulderEmote || current == EMOTE_STATE_READY_RIFLE;
-    if (current == wanted || (!wanted && !ours))
+    bool const otherHeadCasting = current == LeftHandReadyAtTarget || current == LeftHandReadyAround;
+    if (current == wanted || (!wanted && !ours) || otherHeadCasting)
         return;
     player->SetUInt32Value(UNIT_NPC_EMOTESTATE, wanted);
     LOG_INFO("module", "mod-subclass: {} takes stance emote {} toward {} (victim {}, in melee range {}, in combat {})",
@@ -5591,12 +5607,6 @@ bool SwingsAWeapon(SpellInfo const* info)
     return info->DmgClass == SPELL_DAMAGE_CLASS_MELEE && (info->HasEffect(SPELL_EFFECT_WEAPON_DAMAGE) ||
         info->HasEffect(SPELL_EFFECT_WEAPON_DAMAGE_NOSCHOOL) || info->HasEffect(SPELL_EFFECT_NORMALIZED_WEAPON_DMG) ||
         info->HasEffect(SPELL_EFFECT_WEAPON_PERCENT_DAMAGE));
-}
-
-bool FiresHerOwnGun(Player const* player)
-{
-    Item const* gun = OwnBow(player);
-    return gun && HeldInHand(gun) && !IsBow(gun) && MainHalfShoots(player);
 }
 
 void HideOtherHeadsArm(Player* player, SpellInfo const* info, uint32 castMs = 0)
