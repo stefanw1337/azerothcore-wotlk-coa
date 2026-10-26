@@ -109,6 +109,14 @@ class WorkspaceTest(unittest.TestCase):
         return status, stdout.getvalue(), stderr.getvalue()
 
 
+class SourceAuthorizationTests(WorkspaceTest):
+    def test_historical_sql_requires_explicit_authorization(self):
+        self.assertNotIn('--allow-historical-sql', verify_all.source_command('base'))
+        self.assertIn('--allow-historical-sql', verify_all.source_command('base', True))
+        self.assertFalse(verify_all.parser().parse_args([]).allow_historical_sql)
+        self.assertTrue(verify_all.parser().parse_args(['--allow-historical-sql']).allow_historical_sql)
+
+
 class SettingsTests(WorkspaceTest):
     def test_unknown_setting_keys_are_rejected(self):
         path = write(Path(self.directory.name) / 'settings.json', json.dumps({'worldserver': 'x', 'ports': 1}))

@@ -219,9 +219,15 @@ void SyncAuras(Player* player, State& state)
             ++wanted[spell];
     for (auto const& [spell, stacks] : state.Auras)
         if (!wanted.contains(spell))
+        {
             player->RemoveAurasDueToSpell(spell);
+            if (Enchant const* enchant = Loaded.FindSpell(spell); enchant && enchant->Taught)
+                player->removeSpell(enchant->Taught, SPEC_MASK_ALL, true);
+        }
     for (auto const& [spell, stacks] : wanted)
     {
+        if (Enchant const* enchant = Loaded.FindSpell(spell); enchant && enchant->Taught && !player->HasSpell(enchant->Taught))
+            player->learnSpell(enchant->Taught, true);
         Aura* aura = player->GetAura(spell);
         if (!aura)
             aura = player->AddAura(spell, player);
@@ -1005,7 +1011,7 @@ public:
 };
 }
 
-bool ApplyGuide(Player* player, std::vector<GuideEnchant> const& guide)
+bool ApplyGuide(Player* player, std::vector<GuideEnchant> const& guide, bool learnMissing)
 {
     State* state = Ready ? Find(player) : nullptr;
     if (!state || guide.empty())
@@ -1013,6 +1019,9 @@ bool ApplyGuide(Player* player, std::vector<GuideEnchant> const& guide)
     ClientConfig const config = CurrentClientConfig();
     Character character = Describe(player, config);
     character.Known = &state->Known;
+    if (learnMissing)
+        for (uint32 spell : GuideLessons(Loaded, character, guide))
+            Learn(player, *state, spell);
     Slots const before = state->Active();
     Slots const after = GuideSlots(Loaded, character, before, guide);
     if (after == before)
@@ -1024,6 +1033,28 @@ bool ApplyGuide(Player* player, std::vector<GuideEnchant> const& guide)
     SyncAuras(player, *state);
     SendChangedSlots(player, before, after);
     return true;
+}
+
+uint32 ClearActivePreset(Player* player)
+{
+    State* state = Ready ? Find(player) : nullptr;
+    if (!state)
+        return 0;
+    Slots const before = state->Active();
+    uint32 cleared = 0;
+    for (uint32 slot = 0; slot < SLOT_COUNT; ++slot)
+        if (before[slot])
+        {
+            state->Active()[slot] = 0;
+            SaveSlot(player, state->ActivePreset, slot, 0);
+            ++cleared;
+        }
+    if (cleared)
+    {
+        SyncAuras(player, *state);
+        SendChangedSlots(player, before, state->Active());
+    }
+    return cleared;
 }
 }
 

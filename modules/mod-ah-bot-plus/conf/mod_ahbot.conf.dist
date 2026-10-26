@@ -35,10 +35,6 @@
 #        between cycles).
 #    Default: 1
 #
-#    AuctionHouseBot.EnableSeller
-#        Enable/Disable the part of AHBot that puts items up for auction
-#    Default: true (requires the master switch and an auction character)
-#
 #    AuctionHouseBot.ReturnExpiredAuctionItemsToBot
 #        If enabled (true), returns expired auction items to the AH Bot(s) via
 #        mail. Note: if enabled, this can cause your bot's mailbox to fill up
@@ -78,7 +74,7 @@
 #		 Note: Do not set lower than 15 minutes (900) or higher than 48 hours (172800)
 ###############################################################################
 
-# Master switch; the seller or buyer and an auction character (GUIDs or AutoCharacter) are also required.
+# Master switch. When on, the bot lists items and uses an auction character (GUIDs or AutoCharacter).
 AuctionHouseBot.Enable = false
 
 # CoA: only list items found in world loot, vendors or profession crafting.
@@ -89,7 +85,6 @@ AuctionHouseBot.DEBUG = false
 AuctionHouseBot.DEBUG_FILTERS = false
 AuctionHouseBot.MinutesBetweenBuyCycle = 1
 AuctionHouseBot.MinutesBetweenSellCycle = 1
-AuctionHouseBot.EnableSeller = true
 AuctionHouseBot.ReturnExpiredAuctionItemsToBot = false
 AuctionHouseBot.GUIDs = 0
 AuctionHouseBot.AutoCharacter = true

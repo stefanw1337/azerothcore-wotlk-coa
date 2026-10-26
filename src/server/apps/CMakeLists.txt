@@ -111,7 +111,13 @@ foreach(APPLICATION_NAME ${APPLICATIONS_BUILD_LIST})
     endif()
 
     if (MSVC)
-      list(APPEND APP_PRIVATE_SOURCES ${SOURCE_APP_PATH}/${APPLICATION_NAME}.rc)
+      set(APP_RESOURCE_TARGET ${APPLICATION_NAME}-resources)
+      add_library(${APP_RESOURCE_TARGET} OBJECT ${SOURCE_APP_PATH}/${APPLICATION_NAME}.rc)
+      target_include_directories(${APP_RESOURCE_TARGET} PRIVATE
+        ${SOURCE_APP_PATH}
+        ${CMAKE_BINARY_DIR})
+      add_dependencies(${APP_RESOURCE_TARGET} revision.h)
+      list(APPEND APP_PRIVATE_SOURCES $<TARGET_OBJECTS:${APP_RESOURCE_TARGET}>)
     endif()
   endif()
 

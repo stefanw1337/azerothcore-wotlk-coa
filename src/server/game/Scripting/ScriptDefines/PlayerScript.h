@@ -240,6 +240,7 @@ enum PlayerHook
     PLAYERHOOK_ON_PLAYER_BREATH_INVERTED,
     PLAYERHOOK_ON_CAN_REGENERATE,
     PLAYERHOOK_ON_CAN_ENERGIZE,
+    PLAYERHOOK_ON_SEND_SPELL_CHARGE_STATES,
     PLAYERHOOK_ON_GET_MAX_ALLOWED_LEVEL,
     PLAYERHOOK_ON_HAS_NO_BONUS_EXPERIENCE,
     PLAYERHOOK_ON_HONORABLE_KILLING_BLOW,
@@ -264,6 +265,7 @@ enum PlayerHook
     PLAYERHOOK_ON_GET_QUEST_RACE_MASK,
     PLAYERHOOK_ON_KEEPS_OWN_LOOK,
     PLAYERHOOK_ON_BEFORE_BOARDED_BY,
+    PLAYERHOOK_ON_GET_SHAPESHIFT_MODEL,
     PLAYERHOOK_END
 };
 
@@ -449,6 +451,9 @@ public:
     // is gone
     virtual void OnPlayerTemporarySpellRemoveNotice(Player* /*player*/, uint32 /*spellId*/, bool /*sent*/) { }
     virtual void OnPlayerSpellChargeConsumed(Player* /*player*/, SpellInfo const* /*spellInfo*/, Spell* /*spell*/, uint32 /*recoveryMs*/, uint64 /*nowEpochMs*/) { }
+
+    // Append charge displays backed by module-owned state after the core's full client reset.
+    virtual void OnPlayerSendSpellChargeStates(Player const* /*player*/) { }
     virtual void OnPlayerSpellCooldownCalculated(Player* /*player*/, SpellInfo const* /*spellInfo*/, Spell* /*spell*/, uint32 /*recoveryMs*/) { }
 
     // Fires when a petition (guild charter or arena team charter) is offered to a specific
@@ -704,6 +709,9 @@ public:
     // Cosmetic fields of outgoing spell-start/go packets. Does not change ammunition or damage.
     virtual void OnPlayerGetAmmoDisplay(Player* /*player*/, SpellInfo const* /*spellInfo*/,
         uint32& /*displayId*/, uint32& /*inventoryType*/) { }
+
+    // Model the player takes in a shapeshift form; leaving modelId at 0 keeps the form's own model.
+    virtual void OnPlayerGetShapeshiftModel(Player* /*player*/, uint8 /*form*/, uint32 /*spellId*/, uint32& /*modelId*/) { }
 
     [[nodiscard]] virtual bool OnPlayerCanEquipItem(Player* /*player*/, uint8 /*slot*/, uint16& /*dest*/, Item* /*pItem*/, bool /*swap*/, bool /*not_loading*/) { return true; }
 

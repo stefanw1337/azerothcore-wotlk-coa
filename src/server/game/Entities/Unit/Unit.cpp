@@ -87,6 +87,7 @@
 // which it uses instead of the warrior's combo point.
 constexpr AuraStateType ASCENSION_AURA_STATE_TARGET_DODGED = AuraStateType(24);
 constexpr uint32 ASCENSION_SPELL_HELLKNIGHT = 800703;
+constexpr uint32 ASCENSION_SPELL_WEAVER_FORM_PERIODIC_HASTE = 804981;
 
 float baseMoveSpeed[MAX_MOVE_TYPE] =
 {
@@ -113,6 +114,19 @@ float playerBaseMoveSpeed[MAX_MOVE_TYPE] =
     4.5f,                  // MOVE_FLIGHT_BACK
     3.14f                  // MOVE_PITCH_RATE
 };
+
+static bool UsesLinearMonsterResistance(Unit const* victim, SpellSchoolMask schoolMask)
+{
+    return victim && victim->IsCreature() && !victim->IsControlledByPlayer() &&
+        !(schoolMask & SPELL_SCHOOL_MASK_NORMAL) && sWorld->getBoolConfig(CONFIG_MONSTER_RESISTANCE_ENABLE);
+}
+
+static bool DealsSpellDamage(SpellInfo const* spellInfo)
+{
+    return spellInfo->HasEffect(SPELL_EFFECT_SCHOOL_DAMAGE) || spellInfo->HasEffect(SPELL_EFFECT_HEALTH_LEECH) ||
+        spellInfo->HasAura(SPELL_AURA_PERIODIC_DAMAGE) || spellInfo->HasAura(SPELL_AURA_PERIODIC_LEECH) ||
+        spellInfo->HasAura(SPELL_AURA_PERIODIC_DAMAGE_PERCENT);
+}
 
 static bool IsClassicPlusCombat(Unit const* attacker, Unit const* victim)
 {
@@ -1477,6 +1491,8 @@ thread_local bool TriggerLoopLogged = false;
 
 SpellCastResult Unit::CastSpell(SpellCastTargets const& targets, SpellInfo const* spellInfo, CustomSpellValues const* value, TriggerCastFlags triggerFlags, Item* castItem, AuraEffect const* triggeredByAura, ObjectGuid originalCaster)
 {
+    sScriptMgr->ResolveSpellCast(this, spellInfo);
+
     if (!spellInfo)
     {
         LOG_ERROR("entities.unit", "CastSpell: unknown spell by caster {}", GetGUID().ToString());
@@ -2528,6 +2544,29 @@ uint32 Unit::CalcArmorReducedDamage(Unit const* attacker, Unit const* victim, co
 float Unit::GetEffectiveResistChance(Unit const* owner, SpellSchoolMask schoolMask, Unit const* victim, SpellInfo const* spellInfo /*= nullptr*/)
 {
     float victimResistance = static_cast<float>(victim->GetResistance(schoolMask));
+    bool const linearResistance = UsesLinearMonsterResistance(victim, schoolMask);
+    if (linearResistance)
+    {
+        float const levelResistance = float(victim->getLevelForTarget(owner)) *
+            sWorld->getFloatConfig(CONFIG_MONSTER_RESISTANCE_PER_LEVEL);
+        bool firstSchool = true;
+        for (uint32 school = SPELL_SCHOOL_HOLY; school < MAX_SPELL_SCHOOL; ++school)
+        {
+            if (!(schoolMask & (1u << school)))
+                continue;
+
+            UnitMods const unitMod = UnitMods(UNIT_MOD_RESISTANCE_START + school);
+            float resistance = victim->GetFlatModifierValue(unitMod, BASE_VALUE) + levelResistance;
+            resistance *= victim->GetPctModifierValue(unitMod, BASE_PCT);
+            resistance += victim->GetFlatModifierValue(unitMod, TOTAL_VALUE);
+            resistance *= std::max(0.0f, victim->GetPctModifierValue(unitMod, TOTAL_PCT));
+            if (firstSchool || resistance < victimResistance)
+            {
+                victimResistance = resistance;
+                firstSchool = false;
+            }
+        }
+    }
     if (owner)
     {
         // Xinef: pets inherit 100% of masters penetration
@@ -2543,6 +2582,10 @@ float Unit::GetEffectiveResistChance(Unit const* owner, SpellSchoolMask schoolMa
     }
 
     victimResistance = std::max(victimResistance, 0.0f);
+
+    if (linearResistance)
+        return std::min(victimResistance / sWorld->getFloatConfig(CONFIG_MONSTER_RESISTANCE_PER_PERCENT) / 100.0f,
+            sWorld->getFloatConfig(CONFIG_MONSTER_RESISTANCE_MAX_REDUCTION_PCT) / 100.0f);
 
     if (owner && IsClassicPlusCombat(owner, victim))
     {
@@ -2587,12 +2630,13 @@ void Unit::CalcAbsorbResist(DamageInfo& dmgInfo, bool Splited)
     // Magic damage, check for resists
     // Ignore spells that cant be resisted
     // Xinef: holy resistance exists for npcs
-    if (!(schoolMask & SPELL_SCHOOL_MASK_NORMAL) && (!(schoolMask & SPELL_SCHOOL_MASK_HOLY) || victim->IsCreature()) && (!spellInfo || (!spellInfo->HasAttribute(SPELL_ATTR0_CU_BINARY_SPELL) && !spellInfo->HasAttribute(SPELL_ATTR4_NO_CAST_LOG))))
+    bool const linearResistance = UsesLinearMonsterResistance(victim, schoolMask);
+    if (!(schoolMask & SPELL_SCHOOL_MASK_NORMAL) && (!(schoolMask & SPELL_SCHOOL_MASK_HOLY) || victim->IsCreature()) && (!spellInfo || ((linearResistance || !spellInfo->HasAttribute(SPELL_ATTR0_CU_BINARY_SPELL)) && !spellInfo->HasAttribute(SPELL_ATTR4_NO_CAST_LOG))))
     {
         float averageResist = Unit::GetEffectiveResistChance(attacker, schoolMask, victim);
         float damageResisted = 0.0f;
 
-        if (attacker && IsClassicPlusCombat(attacker, victim))
+        if (!linearResistance && attacker && IsClassicPlusCombat(attacker, victim))
         {
             if (dmgInfo.GetDamageType() == DOT && spellInfo &&
                 !ClassicPlusCombat::ResistsDotAsDirectDamage(spellInfo->Id))
@@ -3973,7 +4017,9 @@ SpellMissInfo Unit::MagicSpellHitResult(Unit* victim, SpellInfo const* spellInfo
             tmp += victim->GetMaxNegativeAuraModifierByMiscValue(SPELL_AURA_MOD_DEBUFF_RESISTANCE, int32(spellInfo->Dispel)) * 100;
         }
 
-        if (spellInfo->HasAttribute(SPELL_ATTR0_CU_BINARY_SPELL) && (spellInfo->GetSchoolMask() & (SPELL_SCHOOL_MASK_NORMAL | SPELL_SCHOOL_MASK_HOLY)) == 0)
+        if (spellInfo->HasAttribute(SPELL_ATTR0_CU_BINARY_SPELL) &&
+            !(UsesLinearMonsterResistance(victim, spellInfo->GetSchoolMask()) && DealsSpellDamage(spellInfo)) &&
+            (spellInfo->GetSchoolMask() & (SPELL_SCHOOL_MASK_NORMAL | SPELL_SCHOOL_MASK_HOLY)) == 0)
         {
             float const resistChance =
                 Unit::GetEffectiveResistChance(this, spellInfo->GetSchoolMask(), victim, spellInfo);
@@ -4874,6 +4920,10 @@ bool Unit::CanCastSpellWhileMoving(SpellInfo const* info) const
 {
     if (!info)
         return false;
+    // All movement gates must agree on the active Manastorm mixture.
+    // Its aura 313 family differs from CoA class spells such as Elemental Burst.
+    if (HasManastormMovementGrace())
+        return true;
     if (IsPlayer() && getClass() == CLASS_STARCALLER &&
         (info->Id == 801990 || info->Id == 802682 || (HasAura(704772) && !info->IsPositive())))
         return true;
@@ -4889,6 +4939,10 @@ bool Unit::CanCastSpellWhileMoving(SpellInfo const* info) const
         (info->Id == 500213 || info->Id == 504594 ||
          sSpellMgr->GetFirstSpellInChain(info->Id) == 504527 ||
          sSpellMgr->GetFirstSpellInChain(info->Id) == 801387))
+        return true;
+    if (IsPlayer() && getClass() == CLASS_CHRONOMANCER && info->SpellFamilyName == 28 &&
+        (info->SpellFamilyFlags[1] & 0x00001000) && (info->SpellFamilyFlags[2] & 0x02000000) &&
+        HasAura(570067))
         return true;
     // Copied aura 313 grants movement only to spells selected by its family mask.
     return HasAuraTypeWithAffectMask(SPELL_AURA_313, info);
@@ -6065,12 +6119,12 @@ void Unit::RemoveNotOwnSingleTargetAuras()
 
 bool Unit::HasManastormMovementGrace() const
 {
-    // Aura 313 is a private client extension. Only the eight authored Mobility Mixtures
-    // in an authorized scripted instance enable it; unrelated aura-313 class spells do not.
+    // Only the temporary Mobility Mixture auras grant movement grace.
+    // Learned duration upgrades (1300186-1300192) never grant it by themselves.
     Map const* map = FindMap();
     if (!IsPlayer() || !map || !map->IsScriptedPrivateInstance())
         return false;
-    for (uint32 spell : {1300179u, 1300186u, 1300187u, 1300188u, 1300189u, 1300190u, 1300191u, 1300192u})
+    for (uint32 spell = 1300179; spell <= 1300185; ++spell)
         if (HasAura(spell))
             return true;
     return false;
@@ -6726,6 +6780,15 @@ bool Unit::HasAuraTypeWithAffectMask(AuraType auratype, SpellInfo const* affecte
     AuraEffectList const& mTotalAuraList = GetAuraEffectsByType(auratype);
     for (AuraEffectList::const_iterator i = mTotalAuraList.begin(); i != mTotalAuraList.end(); ++i)
         if ((*i)->IsAffectedOnSpell(affectedSpell))
+            return true;
+    return false;
+}
+
+// Venomancer Weaver Form hastes periodic ticks without shortening the aura, so the duration keeps Protraction.
+bool Unit::HasDurationShorteningPeriodicHaste(SpellInfo const* affectedSpell) const
+{
+    for (AuraEffect const* effect : GetAuraEffectsByType(SPELL_AURA_PERIODIC_HASTE))
+        if (effect->GetId() != ASCENSION_SPELL_WEAVER_FORM_PERIODIC_HASTE && effect->IsAffectedOnSpell(affectedSpell))
             return true;
     return false;
 }
@@ -16734,7 +16797,11 @@ uint32 Unit::GetModelForForm(ShapeshiftForm form, uint32 spellId)
 
     if (IsPlayer())
     {
-        // AscensionIncarnation: the Wardrobe incarnation replaces the form's model.
+        uint32 incarnationModel = 0;
+        sScriptMgr->OnPlayerGetShapeshiftModel(ToPlayer(), form, spellId, incarnationModel);
+        if (incarnationModel)
+            return incarnationModel;
+
         if (uint32 incarnation = GetAscensionIncarnationDisplay(ToPlayer(), form, spellId))
             return incarnation;
 
@@ -18646,6 +18713,25 @@ bool Unit::IsInDisallowedMountForm() const
     if (GetDisplayId() == GetNativeDisplayId())
     {
         return false;
+    }
+
+    // A display form whose spell asks to be allowed while mounted may coexist with the mount, so
+    // it does not block one. The form is kept, and entering it is what dismounts the caster.
+    for (auto const& pair : GetOwnedAuras())
+    {
+        SpellInfo const* auraInfo = pair.second->GetSpellInfo();
+        if (!auraInfo || !auraInfo->HasAttribute(SPELL_ATTR0_ALLOW_WHILE_MOUNTED))
+        {
+            continue;
+        }
+
+        for (SpellEffectInfo const& effect : auraInfo->Effects)
+        {
+            if (effect.IsAura() && effect.ApplyAuraName != SPELL_AURA_MOD_SHAPESHIFT)
+            {
+                return false;
+            }
+        }
     }
 
     CreatureDisplayInfoEntry const* display = sCreatureDisplayInfoStore.LookupEntry(GetDisplayId());

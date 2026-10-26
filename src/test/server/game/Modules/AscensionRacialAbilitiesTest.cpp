@@ -4,6 +4,7 @@
 #include "CoaCustomRacials.h"
 #include "gtest/gtest.h"
 #include <vector>
+#include <set>
 
 namespace
 {
@@ -165,19 +166,47 @@ TEST(AscensionRacialAbilitiesTest, RejectsUnrelatedSkillsClassesAndNonDefaultAbi
     EXPECT_FALSE(AscensionRacialAbilities::CanLearn(ability, RACE_HUMAN, CLASS_BARBARIAN));
 }
 
-TEST(AscensionRacialAbilitiesTest, AddedRacesReceiveFourUniqueRacialsByExactRaceId)
+TEST(AscensionRacialAbilitiesTest, AddedRaceRacialsAreUniqueManagedSpellsWithOptionalPadding)
 {
-    for (uint8 race : {uint8(78), uint8(82), uint8(83), uint8(97), uint8(103)})
+    for (CoaCustomRacial const& racial : CoaCustomRacials)
     {
-        auto const* racial = GetCoaCustomRacial(race);
-        ASSERT_NE(racial, nullptr);
-        for (uint32 index = 0; index < racial->Spells.size(); ++index)
+        EXPECT_EQ(GetCoaCustomRacial(racial.RaceId), &racial);
+        std::set<uint32> spells;
+        for (uint32 spell : racial.Spells)
         {
-            EXPECT_GE(racial->Spells[index], 14000000u);
-            for (uint32 other = index + 1; other < racial->Spells.size(); ++other)
-                EXPECT_NE(racial->Spells[index], racial->Spells[other]);
+            if (!spell)
+                continue;
+            EXPECT_TRUE(spells.insert(spell).second);
+            EXPECT_TRUE(IsCoaManagedRacialSpell(spell));
         }
+        EXPECT_FALSE(spells.empty());
     }
     EXPECT_EQ(GetCoaCustomRacial(1), nullptr);
     EXPECT_EQ(GetCoaCustomRacial(84), nullptr);
+    EXPECT_FALSE(IsCoaManagedRacialSpell(0));
+}
+
+TEST(AscensionRacialAbilitiesTest, DragonRacesReceiveTheirAuthoredSetsByExactRaceId)
+{
+    auto const* drakkin = GetCoaCustomRacial(99);
+    ASSERT_NE(drakkin, nullptr);
+    std::array<uint32, 12> const drakkinSpells = {
+        110300, 110301, 110302, 110303, 110304, 110305, 110306, 110307, 110308, 110309, 110316, 110318
+    };
+    EXPECT_EQ(drakkin->Spells, drakkinSpells);
+    std::array<uint32, 12> const drakonidSpells = {110400, 110404, 110405, 110406};
+    for (uint8 race : {uint8(98), uint8(100)})
+    {
+        auto const* drakonid = GetCoaCustomRacial(race);
+        ASSERT_NE(drakonid, nullptr);
+        EXPECT_EQ(drakonid->Spells, drakonidSpells);
+    }
+}
+
+TEST(AscensionRacialAbilitiesTest, GrummleKeepsItsFourExistingRacials)
+{
+    auto const* grummle = GetCoaCustomRacial(103);
+    ASSERT_NE(grummle, nullptr);
+    std::array<uint32, 12> const expected = {14001031, 14001032, 14001033, 14001034};
+    EXPECT_EQ(grummle->Spells, expected);
 }

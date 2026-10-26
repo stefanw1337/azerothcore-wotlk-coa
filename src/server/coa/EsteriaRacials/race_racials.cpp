@@ -1,18 +1,3 @@
-/*
- * Racials for the retail ports and the custom races, driven by tools/race_racials.py.
- *
- * The generator owns the spell rows (client Spell.dbc, world `spell_dbc`), the
- * `spell_script_names` bindings and race_racials_generated.h, which maps each race to the
- * racials it learns. Learning happens at login rather than only at creation so existing
- * characters pick the racials up, and the same login pass strips the legacy racials of the
- * donor race a port borrows its race mask from (Blood Fury on an Ogre, Arcane Torrent on a Naga).
- *
- * Spells that are just auras need no code. What lives here:
- *   - scaled damage / healing / bleed / HoT amounts, which Spell.dbc cannot express;
- *   - the active racials that move, dispel or fan out to several targets;
- *   - passive "marker" racials whose effect is a hook below (XP, gold, flat mitigation, food).
- */
-
 #include "Cell.h"
 #include "Chat.h"
 #include "CellImpl.h"
@@ -49,7 +34,7 @@ using namespace RaceRacials;
 
 namespace
 {
-    // --- tuning ---------------------------------------------------------------------
+
     constexpr int32 DamagePerLevel          = 8;
     constexpr float PowerCoefficient        = 0.4f;
     constexpr int32 HealPerLevel            = 6;
@@ -95,7 +80,6 @@ namespace
     constexpr uint32 SpellPickLock          = 1804;
     constexpr uint32 SkillLockpicking       = 633;
 
-    // Learned at login for every race that owns the racial.
     bool Knows(Unit const* unit, uint32 spellId)
     {
         return unit && unit->IsPlayer() && unit->HasAura(spellId);
@@ -138,9 +122,6 @@ namespace
         return creature && (creature->isWorldBoss() || creature->IsDungeonBoss());
     }
 
-    // CoA: which race learns which racial, and stripping the borrowed vanilla racials, is CoaCustomRacials.h +
-    // CoaRacialSync.cpp (our race ids). Esteria's Grants()/GetLegacyMaskRaceForRace path is not used here.
-
     void RefreshOutOfCombatSpeed(Unit* unit)
     {
         if (!Knows(unit, SPELL_HUNTERS_PACE))
@@ -152,9 +133,8 @@ namespace
             unit->CastSpell(unit, SPELL_HUNTERS_PACE_SPEED, true);
     }
 
-    // --- deferred racials: tuning ------------------------------------------------------
     constexpr uint32 SpellCloneMe           = 45204;
-    constexpr uint32 GossipTextId           = 1;    // npc_text 1: "Greetings, $n."
+    constexpr uint32 GossipTextId           = 1;
     constexpr uint32 LoaChangeCooldownMs    = RACIAL_LOA_COOLDOWN_DAYS * DAY * IN_MILLISECONDS;
     constexpr int32 EmbraceProcChance       = 10;
     constexpr uint32 EmbraceProcCooldownMs  = 3000;
@@ -186,7 +166,6 @@ namespace
         MENU_CHOSEN_IDENTITY,
     };
 
-    // character_settings slots under the "race_racials" source.
     enum RacialSetting : uint32
     {
         SETTING_IDENTITY_RACE,
@@ -238,14 +217,12 @@ namespace
         ChatHandler(player->GetSession()).SendSysMessage(text);
     }
 
-    // Player gossip menus: the player is the menu's sender, so the core routes the click to OnPlayerGossipSelect.
     void OpenMenu(Player* player, uint32 menuId)
     {
         player->PlayerTalkClass->GetGossipMenu().SetMenuId(menuId);
         SendGossipMenuFor(player, GossipTextId, player->GetGUID());
     }
 
-    // Runs on the owner's next update instead of inside the hook that triggered it.
     template <typename Fn>
     void Defer(Unit* owner, Fn&& fn)
     {
@@ -268,7 +245,6 @@ namespace
                                  caster->GetOrientation(), 0.0f, 0.0f, 0.0f, 0.0f, lifetimeSec);
     }
 
-    // One tool object of each profession focus at the player's feet, refreshed before the previous set expires.
     void RefreshMastercraft(Player* player)
     {
         for (uint32 entry : { uint32(RACIAL_GO_INVISIBLE_ANVIL), uint32(RACIAL_GO_INVISIBLE_FORGE),
@@ -329,7 +305,6 @@ namespace
         }
     }
 
-    // Thorn Bloom's single hit is split over its pulses.
     uint32 PulseDivisor(uint32 spellId)
     {
         return spellId == SPELL_THORN_BLOOM_DAMAGE || spellId == SPELL_THORN_BLOOM_HEAL ? ThornBloomPulses : 1;
@@ -342,7 +317,6 @@ namespace
             player->TeleportTo(tele->mapId, tele->position_x, tele->position_y, tele->position_z, tele->orientation);
     }
 
-    // A rift is just a remembered position; the open-rift aura (8 sec) is the window to use it.
     struct RiftTarget
     {
         uint32 mapId;
@@ -408,9 +382,6 @@ namespace
     }
 }
 
-// --- generic scaling --------------------------------------------------------------------
-
-// Damage child spells of every racial: level and the better of attack / spell power.
 class spell_race_scaled_damage : public SpellScript
 {
     PrepareSpellScript(spell_race_scaled_damage);
@@ -459,12 +430,11 @@ class spell_race_scaled_heal : public SpellScript
     }
 };
 
-// Savage Bite: effect 1 is the bleed.
 class spell_race_scaled_bleed : public AuraScript
 {
     PrepareAuraScript(spell_race_scaled_bleed);
 
-    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    void CalculateAmount(AuraEffect const*  , int32& amount, bool&  )
     {
         Unit* caster = GetCaster();
         if (!caster)
@@ -479,7 +449,6 @@ class spell_race_scaled_bleed : public AuraScript
     }
 };
 
-// A heal-over-time worth a fixed percentage of the target's maximum health, split over its ticks.
 namespace
 {
     int32 PctOfMaxHealth(Unit const* target, int32 percent, uint32 ticks)
@@ -492,7 +461,7 @@ class spell_race_tidal_mend : public AuraScript
 {
     PrepareAuraScript(spell_race_tidal_mend);
 
-    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& canBeRecalculated)
+    void CalculateAmount(AuraEffect const*  , int32& amount, bool& canBeRecalculated)
     {
         canBeRecalculated = false;
         amount = PctOfMaxHealth(GetUnitOwner(), TidalMendPct, TidalMendTicks);
@@ -508,7 +477,7 @@ class spell_race_regeneratin : public AuraScript
 {
     PrepareAuraScript(spell_race_regeneratin);
 
-    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& canBeRecalculated)
+    void CalculateAmount(AuraEffect const*  , int32& amount, bool& canBeRecalculated)
     {
         canBeRecalculated = false;
         amount = PctOfMaxHealth(GetUnitOwner(), RegenerationPct, RegenerationTicks);
@@ -520,14 +489,11 @@ class spell_race_regeneratin : public AuraScript
     }
 };
 
-// --- active racials ---------------------------------------------------------------------
-
-// 110541-ish parent: damage lands where the target stood after a short delay.
 class spell_race_lights_judgment : public SpellScript
 {
     PrepareSpellScript(spell_race_lights_judgment);
 
-    void HandleDummy(SpellEffIndex /*effIndex*/)
+    void HandleDummy(SpellEffIndex  )
     {
         Unit* caster = GetCaster();
         Unit* target = GetHitUnit();
@@ -556,7 +522,7 @@ class spell_race_fireblood : public SpellScript
 {
     PrepareSpellScript(spell_race_fireblood);
 
-    void HandleDummy(SpellEffIndex /*effIndex*/)
+    void HandleDummy(SpellEffIndex  )
     {
         Unit* caster = GetCaster();
         std::vector<uint32> removable;
@@ -597,7 +563,7 @@ class spell_race_bull_rush : public SpellScript
         return GetCaster()->HasUnitState(UNIT_STATE_ROOT) ? SPELL_FAILED_ROOTED : SPELL_CAST_OK;
     }
 
-    void HandleDummy(SpellEffIndex /*effIndex*/)
+    void HandleDummy(SpellEffIndex  )
     {
         Unit* caster = GetCaster();
         float startX = caster->GetPositionX();
@@ -638,14 +604,13 @@ class spell_race_pounce : public SpellScript
         return GetCaster()->HasUnitState(UNIT_STATE_ROOT) ? SPELL_FAILED_ROOTED : SPELL_CAST_OK;
     }
 
-    void HandleDummy(SpellEffIndex /*effIndex*/)
+    void HandleDummy(SpellEffIndex  )
     {
         Unit* caster = GetCaster();
         Unit* target = GetHitUnit();
         if (!target)
             return;
 
-        // Land in melee range on the caster's side of the target.
         float gap = std::max(caster->GetCombatReach() + target->GetCombatReach(), 1.0f);
         float angle = target->GetAngle(caster);
         float x = target->GetPositionX() + std::cos(angle) * gap;
@@ -673,7 +638,7 @@ class spell_race_bag_of_tricks : public SpellScript
 {
     PrepareSpellScript(spell_race_bag_of_tricks);
 
-    void HandleDummy(SpellEffIndex /*effIndex*/)
+    void HandleDummy(SpellEffIndex  )
     {
         Unit* caster = GetCaster();
         Unit* target = GetHitUnit();
@@ -702,7 +667,7 @@ class spell_race_wing_buffet : public SpellScript
 {
     PrepareSpellScript(spell_race_wing_buffet);
 
-    void HandleDummy(SpellEffIndex /*effIndex*/)
+    void HandleDummy(SpellEffIndex  )
     {
         Unit* caster = GetCaster();
         Unit* target = GetHitUnit();
@@ -722,14 +687,13 @@ class spell_race_azerite_surge : public SpellScript
 {
     PrepareSpellScript(spell_race_azerite_surge);
 
-    void HandleDummy(SpellEffIndex /*effIndex*/)
+    void HandleDummy(SpellEffIndex  )
     {
         Unit* caster = GetCaster();
         std::list<Unit*> hostiles = HostilesAround(caster, caster, SurgeRadius);
         for (Unit* unit : hostiles)
             caster->CastSpell(unit, SPELL_AZERITE_SURGE_DAMAGE, true);
 
-        // Rank II: allies are healed as well. Rank III: the healthiest enemy takes an extra strike.
         if (caster->GetLevel() >= SurgeHealLevel)
             for (Unit* unit : FriendsAround(caster, caster, SurgeRadius))
                 caster->CastSpell(unit, SPELL_AZERITE_SURGE_HEAL, true);
@@ -773,7 +737,7 @@ class spell_race_thorn_bloom : public SpellScript
         }
     }
 
-    void HandleDummy(SpellEffIndex /*effIndex*/)
+    void HandleDummy(SpellEffIndex  )
     {
         Unit* caster = GetCaster();
         Unit* center = GetHitUnit();
@@ -782,7 +746,6 @@ class spell_race_thorn_bloom : public SpellScript
 
         Pulse(caster, center);
 
-        // Later pulses follow the target; the event lives on the caster, so it dies with it.
         ObjectGuid centerGuid = center->GetGUID();
         for (uint32 pulse = 1; pulse < ThornBloomPulses; ++pulse)
             caster->m_Events.AddEventAtOffset([caster, centerGuid]()
@@ -799,14 +762,11 @@ class spell_race_thorn_bloom : public SpellScript
     }
 };
 
-// --- deferred racials -------------------------------------------------------------------
-
-// Nightborne: a mailbox for 1.5 min.
 class spell_race_cantrips : public SpellScript
 {
     PrepareSpellScript(spell_race_cantrips);
 
-    void HandleDummy(SpellEffIndex /*effIndex*/)
+    void HandleDummy(SpellEffIndex  )
     {
         SummonInFront(GetCaster(), RACIAL_GO_MAILBOX, MailboxLifetimeSec);
     }
@@ -817,13 +777,11 @@ class spell_race_cantrips : public SpellScript
     }
 };
 
-// Void Elf: the first cast remembers a point ahead, a second cast inside the open-rift window steps through it.
-// The 3 min recharge starts on the teleport or when the window lapses (spell_race_spatial_rift_open).
 class spell_race_spatial_rift : public SpellScript
 {
     PrepareSpellScript(spell_race_spatial_rift);
 
-    void HandleDummy(SpellEffIndex /*effIndex*/)
+    void HandleDummy(SpellEffIndex  )
     {
         Player* player = GetCaster()->ToPlayer();
         if (!player)
@@ -855,7 +813,7 @@ class spell_race_spatial_rift_open : public AuraScript
 {
     PrepareAuraScript(spell_race_spatial_rift_open);
 
-    void HandleRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    void HandleRemove(AuraEffect const*  , AuraEffectHandleModes  )
     {
         Player* player = GetTarget()->ToPlayer();
         if (!player)
@@ -872,12 +830,11 @@ class spell_race_spatial_rift_open : public AuraScript
     }
 };
 
-// Lightforged: an anvil for 2 min plus the Blacksmithing bonus.
 class spell_race_forge_of_light : public SpellScript
 {
     PrepareSpellScript(spell_race_forge_of_light);
 
-    void HandleDummy(SpellEffIndex /*effIndex*/)
+    void HandleDummy(SpellEffIndex  )
     {
         Unit* caster = GetCaster();
         SummonInFront(caster, RACIAL_GO_ANVIL, ForgeLifetimeSec);
@@ -890,12 +847,11 @@ class spell_race_forge_of_light : public SpellScript
     }
 };
 
-// Zandalari: pick one of the six Loa (learned as passive spells, so the choice persists on its own).
 class spell_race_embrace_of_the_loa : public SpellScript
 {
     PrepareSpellScript(spell_race_embrace_of_the_loa);
 
-    void HandleDummy(SpellEffIndex /*effIndex*/)
+    void HandleDummy(SpellEffIndex  )
     {
         Player* player = GetCaster()->ToPlayer();
         if (!player)
@@ -915,7 +871,6 @@ class spell_race_embrace_of_the_loa : public SpellScript
     }
 };
 
-// Bwonsamdi: additional Shadow damage, and the caster is healed for all of it.
 class spell_race_bwonsamdi_shadow : public SpellScript
 {
     PrepareSpellScript(spell_race_bwonsamdi_shadow);
@@ -942,12 +897,11 @@ class spell_race_bwonsamdi_shadow : public SpellScript
     }
 };
 
-// Kimbul: a bleed worth BleedTicks ticks per stack.
 class spell_race_kimbul_bleed : public AuraScript
 {
     PrepareAuraScript(spell_race_kimbul_bleed);
 
-    void CalculateAmount(AuraEffect const* /*aurEff*/, int32& amount, bool& /*canBeRecalculated*/)
+    void CalculateAmount(AuraEffect const*  , int32& amount, bool&  )
     {
         if (Unit* caster = GetCaster())
             amount = int32(ScaledAmount(caster, GetSpellInfo(), BleedPerLevel, BleedCoefficient) / BleedTicks);
@@ -959,7 +913,6 @@ class spell_race_kimbul_bleed : public AuraScript
     }
 };
 
-// Dark Iron: the Mole Machine menu (destinations come from game_tele, see MoleDestinations()).
 class spell_race_mole_machine : public SpellScript
 {
     PrepareSpellScript(spell_race_mole_machine);
@@ -973,7 +926,7 @@ class spell_race_mole_machine : public SpellScript
         return caster->GetMap()->Instanceable() ? SPELL_FAILED_NOT_HERE : SPELL_CAST_OK;
     }
 
-    void HandleDummy(SpellEffIndex /*effIndex*/)
+    void HandleDummy(SpellEffIndex  )
     {
         Player* player = GetCaster()->ToPlayer();
         if (!player)
@@ -994,12 +947,11 @@ class spell_race_mole_machine : public SpellScript
     }
 };
 
-// Mechagnome: two clones of the caster at 10% health that pull every engaged enemy off the caster for 15 sec.
 class spell_race_holo : public SpellScript
 {
     PrepareSpellScript(spell_race_holo);
 
-    void HandleDummy(SpellEffIndex /*effIndex*/)
+    void HandleDummy(SpellEffIndex  )
     {
         Unit* caster = GetCaster();
         std::list<Unit*> hostiles = HostilesAround(caster, caster, DecoyTauntRadius);
@@ -1028,7 +980,6 @@ class spell_race_holo : public SpellScript
     }
 };
 
-// Vulpera: Make Camp stores the spot (character_settings), Return to Camp teleports back while the camp stands.
 class spell_race_make_camp : public SpellScript
 {
     PrepareSpellScript(spell_race_make_camp);
@@ -1042,7 +993,7 @@ class spell_race_make_camp : public SpellScript
         return caster->IsOutdoors() ? SPELL_CAST_OK : SPELL_FAILED_ONLY_OUTDOORS;
     }
 
-    void HandleDummy(SpellEffIndex /*effIndex*/)
+    void HandleDummy(SpellEffIndex  )
     {
         Player* player = GetCaster()->ToPlayer();
         if (!player)
@@ -1085,7 +1036,7 @@ class spell_race_return_to_camp : public SpellScript
         return SPELL_CAST_OK;
     }
 
-    void HandleDummy(SpellEffIndex /*effIndex*/)
+    void HandleDummy(SpellEffIndex  )
     {
         Player* player = GetCaster()->ToPlayer();
         if (!player)
@@ -1103,12 +1054,11 @@ class spell_race_return_to_camp : public SpellScript
     }
 };
 
-// Vulpera: swap the Bag of Tricks between Physical, Fire and Frost.
 class spell_race_rummage_your_bag : public SpellScript
 {
     PrepareSpellScript(spell_race_rummage_your_bag);
 
-    void HandleDummy(SpellEffIndex /*effIndex*/)
+    void HandleDummy(SpellEffIndex  )
     {
         Player* player = GetCaster()->ToPlayer();
         if (!player)
@@ -1124,12 +1074,11 @@ class spell_race_rummage_your_bag : public SpellScript
     }
 };
 
-// Dracthyr: Visage toggles the mortal form; Chosen Identity picks which race it wears.
 class spell_race_visage : public SpellScript
 {
     PrepareSpellScript(spell_race_visage);
 
-    void HandleDummy(SpellEffIndex /*effIndex*/)
+    void HandleDummy(SpellEffIndex  )
     {
         Player* player = GetCaster()->ToPlayer();
         if (!player)
@@ -1151,7 +1100,7 @@ class spell_race_visage_form : public AuraScript
 {
     PrepareAuraScript(spell_race_visage_form);
 
-    void HandleApply(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    void HandleApply(AuraEffect const*  , AuraEffectHandleModes  )
     {
         Player* player = GetTarget()->ToPlayer();
         if (!player)
@@ -1163,7 +1112,7 @@ class spell_race_visage_form : public AuraScript
             player->SetDisplayId(player->getGender() == GENDER_MALE ? info->displayId_m : info->displayId_f);
     }
 
-    void HandleRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    void HandleRemove(AuraEffect const*  , AuraEffectHandleModes  )
     {
         GetTarget()->DeMorph();
     }
@@ -1179,7 +1128,7 @@ class spell_race_chosen_identity : public SpellScript
 {
     PrepareSpellScript(spell_race_chosen_identity);
 
-    void HandleDummy(SpellEffIndex /*effIndex*/)
+    void HandleDummy(SpellEffIndex  )
     {
         Player* player = GetCaster()->ToPlayer();
         if (!player)
@@ -1198,7 +1147,6 @@ class spell_race_chosen_identity : public SpellScript
     }
 };
 
-// Earthen: eat a gem for an hour-long Well Fed substitute.
 class spell_race_ingest_minerals : public SpellScript
 {
     PrepareSpellScript(spell_race_ingest_minerals);
@@ -1209,7 +1157,7 @@ class spell_race_ingest_minerals : public SpellScript
         return player && FindGem(player) ? SPELL_CAST_OK : SPELL_FAILED_REAGENTS;
     }
 
-    void HandleDummy(SpellEffIndex /*effIndex*/)
+    void HandleDummy(SpellEffIndex  )
     {
         Player* player = GetCaster()->ToPlayer();
         Item* gem = player ? FindGem(player) : nullptr;
@@ -1234,18 +1182,17 @@ class spell_race_ingest_minerals : public SpellScript
     }
 };
 
-// Earthen: a seated 20 sec channel-like aura worth a share of maximum health and mana.
 class spell_race_quiet_contemplation : public AuraScript
 {
     PrepareAuraScript(spell_race_quiet_contemplation);
 
-    void CalculateHealth(AuraEffect const* /*aurEff*/, int32& amount, bool& canBeRecalculated)
+    void CalculateHealth(AuraEffect const*  , int32& amount, bool& canBeRecalculated)
     {
         canBeRecalculated = false;
         amount = PctOfMaxHealth(GetUnitOwner(), QuietContemplationPct, QuietContemplationTicks);
     }
 
-    void CalculateMana(AuraEffect const* /*aurEff*/, int32& amount, bool& canBeRecalculated)
+    void CalculateMana(AuraEffect const*  , int32& amount, bool& canBeRecalculated)
     {
         canBeRecalculated = false;
         amount = int32(CalculatePct(GetUnitOwner()->GetMaxPower(POWER_MANA), QuietContemplationPct) / QuietContemplationTicks);
@@ -1258,7 +1205,6 @@ class spell_race_quiet_contemplation : public AuraScript
     }
 };
 
-// Haranir: travel through the roots to the World Tree.
 class spell_race_rootwalking : public SpellScript
 {
     PrepareSpellScript(spell_race_rootwalking);
@@ -1272,7 +1218,7 @@ class spell_race_rootwalking : public SpellScript
         return sObjectMgr->GetGameTele(RACIAL_TELE_WORLD_TREE) ? SPELL_CAST_OK : SPELL_FAILED_NOT_HERE;
     }
 
-    void HandleDummy(SpellEffIndex /*effIndex*/)
+    void HandleDummy(SpellEffIndex  )
     {
         if (Player* player = GetCaster()->ToPlayer())
             TeleportToTele(player, RACIAL_TELE_WORLD_TREE);
@@ -1284,8 +1230,6 @@ class spell_race_rootwalking : public SpellScript
         OnEffectHitTarget += SpellEffectFn(spell_race_rootwalking::HandleDummy, EFFECT_0, SPELL_EFFECT_DUMMY);
     }
 };
-
-// --- passive hooks ----------------------------------------------------------------------
 
 class race_racials_player : public PlayerScript
 {
@@ -1306,7 +1250,6 @@ public:
                 player->SetSkill(SkillLockpicking, 0, value, 375);
         }
 
-        // Alpaca Saddlebags: the extra bag is handed out once; a full inventory retries on the next login.
         if (Knows(player, SPELL_ALPACA_SADDLEBAGS) && !Setting(player, SETTING_SADDLEBAG_GIVEN) &&
             player->AddItem(RACIAL_ITEM_ALPACA_BAG, 1))
             SetSetting(player, SETTING_SADDLEBAG_GIVEN, 1);
@@ -1314,7 +1257,7 @@ public:
         RefreshOutOfCombatSpeed(player);
     }
 
-    void OnPlayerGossipSelect(Player* player, uint32 menuId, uint32 /*sender*/, uint32 action) override
+    void OnPlayerGossipSelect(Player* player, uint32 menuId, uint32  , uint32 action) override
     {
         switch (menuId)
         {
@@ -1334,8 +1277,7 @@ public:
         CloseGossipMenuFor(player);
     }
 
-    // Waste Not, Want Not: now and then a second portion of meat or fish.
-    void OnPlayerLootItem(Player* player, Item* item, uint32 /*count*/, ObjectGuid /*lootguid*/) override
+    void OnPlayerLootItem(Player* player, Item* item, uint32  , ObjectGuid  ) override
     {
         ItemTemplate const* proto = item ? item->GetTemplate() : nullptr;
         if (proto && proto->Class == ITEM_CLASS_TRADE_GOODS && proto->SubClass == ITEM_SUBCLASS_MEAT &&
@@ -1369,7 +1311,6 @@ public:
         if (type == CREATURE_TYPE_DEMON && Knows(player, SPELL_DEMONBANE))
             AddPct(amount, DemonbanePct);
 
-        // WotLK has no Aberration type, so Beasts and Elementals stand in for the retail trio.
         if ((type == CREATURE_TYPE_BEAST || type == CREATURE_TYPE_ELEMENTAL) && Knows(player, SPELL_SUBTERRANEAN_PREDATOR))
             AddPct(amount, PredatorXpPct);
     }
@@ -1399,14 +1340,14 @@ public:
 
     void OnPlayerBeforeUpdate(Player* player, uint32 diff) override
     {
-        // Map threads update different maps at the same time, and these timers live on the one script.
+
         std::lock_guard<std::recursive_mutex> guard(_tickLock);
         OneSecondTick(player, diff);
         CombatAnalysis(player, diff);
     }
 
 private:
-    // Dungeon Delver, Inner Peace and Mastercraft need no event, so they are polled once a second.
+
     void OneSecondTick(Player* player, uint32 diff)
     {
         uint32& elapsed = _secondMs[player->GetGUID()];
@@ -1425,7 +1366,6 @@ private:
                 player->RemoveAurasDueToSpell(SPELL_DUNGEON_DELVER_SPEED);
         }
 
-        // Inner Peace: whatever rest the core just added is added once more.
         if (Knows(player, SPELL_INNER_PEACE))
         {
             auto [it, fresh] = _rest.try_emplace(player->GetGUID(), player->GetRestBonus());
@@ -1448,7 +1388,6 @@ private:
         }
     }
 
-    // Combat Analysis: one stack every five seconds spent in combat.
     void CombatAnalysis(Player* player, uint32 diff)
     {
         if (!player->IsInCombat() || !Knows(player, SPELL_COMBAT_ANALYSIS))
@@ -1479,10 +1418,9 @@ public:
     race_racials_unit() : UnitScript("race_racials_unit", true, {
         UNITHOOK_ON_DAMAGE, UNITHOOK_ON_HEAL, UNITHOOK_ON_AURA_APPLY, UNITHOOK_ON_UNIT_ENTER_COMBAT, UNITHOOK_ON_UNIT_EXIT_COMBAT }) { }
 
-    void OnUnitEnterCombat(Unit* unit, Unit* /*victim*/) override { RefreshOutOfCombatSpeed(unit); }
+    void OnUnitEnterCombat(Unit* unit, Unit*  ) override { RefreshOutOfCombatSpeed(unit); }
     void OnUnitExitCombat(Unit* unit) override { RefreshOutOfCombatSpeed(unit); }
 
-    // Akunda: a share of the heal done is repeated.
     void OnHeal(Unit* healer, Unit* receiver, uint32& gain) override
     {
         if (!gain || !healer || !receiver || !healer->IsPlayer())
@@ -1506,7 +1444,6 @@ public:
         });
     }
 
-    // Bwonsamdi, Kimbul and Pa'ku proc off damage the player deals.
     void OnOffensiveEmbrace(Player* player, Unit* victim)
     {
         ObjectGuid victimGuid = victim->GetGUID();
@@ -1569,7 +1506,6 @@ public:
         }
     }
 
-    // Food, drink, bandages and Well Fed are strengthened from the spell's own base amounts, so re-applying on login never compounds.
     void OnAuraApply(Unit* unit, Aura* aura) override
     {
         SpellInfo const* info = aura->GetSpellInfo();

@@ -187,8 +187,9 @@ python -B tools/verify_all.py --stages harness --harness primal_weapons test_aut
 ```
 
 A stage left out by `--stages` or `--skip` does not run, so include `build` whenever sources changed; otherwise
-the gameplay and unit stages test whatever binaries already exist. Before a PR, or when a full verification is
-requested, run every stage without focus filters and with the PR base:
+the gameplay and unit stages test whatever binaries already exist. Before a PR, verify the tests the change adds or
+modifies with focus filters and run the `source` stage with the PR base (`--stages source --base origin/main`).
+When a full verification is explicitly requested, run every stage without focus filters and with the PR base:
 
 ```sh
 python -B tools/verify_all.py --base origin/main
@@ -617,9 +618,8 @@ Classify every failed or blocked stage, failed or `not_run` case and failed or u
    [authorized SQL exception](#authorized-sql-outside-pending-updates). When the change concerns such a
    scenario, verify it in a focused run whose `--settings` names a configuration with the documented value.
 2. Pre-existing: the same id fails or is unavailable on the PR base with the same settings and gameplay clock.
-   Compare with a full run of the base commit, whose `report.json` and `gameplay/gameplay.json` stay usable
-   while the base and the settings are unchanged, or rerun only those ids on a checkout of the base
-   ([Separate worktrees](#separate-worktrees)).
+   Use an existing run of the base commit, whose `report.json` and `gameplay/gameplay.json` stay usable
+   while the base and the settings are unchanged. Do not build or run the base only to classify a failure.
 3. Acceleration-specific: a gameplay case that fails on the simulated clock and passes a
    [real-clock reference run](#real-clock-reference-runs) of the same checkout and settings
    (`--gameplay-clock real --scenario <id>`). Report both outcomes; an affected accelerated failure must be
@@ -632,11 +632,11 @@ documented, pre-existing or acceleration-specific is not `PASSED`; say which cla
 
 ### Authorized SQL outside pending updates
 
-`verify_all.py` has no option that allows historical SQL. When the task explicitly authorizes an edit outside
-`data/sql/updates/pending_db_*/`, the source stage fails in `tools/check_change_boundaries.py`. Confirm in
-`source.log` that its `sql_outside_pending` list names only the authorized files and that every other source
-command passed, then report that failure as the authorized exception with those file names. On the pull
-request, a maintainer's `sql-change-authorized` label covers the exception in CI.
+When the task explicitly authorizes SQL outside `data/sql/updates/pending_db_*/`, such as importing a reviewed
+upstream module history, pass `--allow-historical-sql` to `verify_all.py`. The exception is recorded by the source
+boundary check. Review the SQL diff to confirm it contains only authorized files, and keep new CoA migrations
+in pending directories. Leave this option unset for ordinary tasks. On the pull request, a maintainer's
+`sql-change-authorized` label covers the same exception in CI; the label does not grant SQL authorization.
 
 ## Coverage boundaries
 

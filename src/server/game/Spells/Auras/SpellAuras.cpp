@@ -843,7 +843,7 @@ void Aura::RefreshDuration(bool withMods)
     {
         int32 duration = m_spellInfo->GetMaxDuration();
         // Calculate duration of periodics affected by haste.
-        if (caster->HasAuraTypeWithAffectMask(SPELL_AURA_PERIODIC_HASTE, m_spellInfo) || m_spellInfo->HasAttribute(SPELL_ATTR5_SPELL_HASTE_AFFECTS_PERIODIC))
+        if (caster->HasDurationShorteningPeriodicHaste(m_spellInfo) || m_spellInfo->HasAttribute(SPELL_ATTR5_SPELL_HASTE_AFFECTS_PERIODIC))
             duration = int32(duration * caster->GetFloatValue(UNIT_MOD_CAST_SPEED));
         SetMaxDuration(duration);
 
@@ -887,7 +887,7 @@ void Aura::RefreshTimersWithMods()
 {
     Unit* caster = GetCaster();
     m_maxDuration = CalcMaxDuration();
-    if ((caster && caster->HasAuraTypeWithAffectMask(SPELL_AURA_PERIODIC_HASTE, m_spellInfo)) || m_spellInfo->HasAttribute(SPELL_ATTR5_SPELL_HASTE_AFFECTS_PERIODIC))
+    if ((caster && caster->HasDurationShorteningPeriodicHaste(m_spellInfo)) || m_spellInfo->HasAttribute(SPELL_ATTR5_SPELL_HASTE_AFFECTS_PERIODIC))
     {
         m_maxDuration = int32(m_maxDuration * caster->GetFloatValue(UNIT_MOD_CAST_SPEED));
     }
@@ -1096,7 +1096,8 @@ bool Aura::CanBeSaved() const
 
 bool Aura::CanBeSentToClient() const
 {
-    return !IsPassive() || GetSpellInfo()->HasAreaAuraEffect() || HasEffectType(SPELL_AURA_ABILITY_IGNORE_AURASTATE);
+    return !IsPassive() || GetSpellInfo()->HasAreaAuraEffect() || HasEffectType(SPELL_AURA_ABILITY_IGNORE_AURASTATE) ||
+           HasEffectType(SPELL_AURA_ASCENSION_IGNORE_MIN_RANGE);
 }
 
 bool Aura::IsSingleTargetWith(Aura const* aura) const
@@ -1643,10 +1644,10 @@ void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, b
                         switch (sSpellMgr->GetSpellTwinSource(aurEff->GetId()))
                         {
                             case 53759:
-                                spellId = 60947;
+                                spellId = sSpellMgr->GetSpellTwinFor(60947, aurEff->GetId());
                                 break;
                             case 53754:
-                                spellId = 60946;
+                                spellId = sSpellMgr->GetSpellTwinFor(60946, aurEff->GetId());
                                 break;
                             default:
                                 LOG_ERROR("spells.aura", "Aura::HandleAuraSpecificMods: Unknown rank of Improved Fear ({}) found", aurEff->GetId());

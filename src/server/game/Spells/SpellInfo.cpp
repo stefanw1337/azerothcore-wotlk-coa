@@ -857,7 +857,7 @@ std::array<SpellEffectInfo::StaticData, TOTAL_SPELL_EFFECTS> SpellEffectInfo::_d
     {EFFECT_IMPLICIT_TARGET_NONE,     TARGET_OBJECT_TYPE_NONE}, // 171 unknown Ascension effect
     {EFFECT_IMPLICIT_TARGET_NONE,     TARGET_OBJECT_TYPE_NONE}, // 172 unknown Ascension effect
     {EFFECT_IMPLICIT_TARGET_EXPLICIT, TARGET_OBJECT_TYPE_UNIT}, // 173 SPELL_EFFECT_ASCENSION_REFRESH_AURA
-    {EFFECT_IMPLICIT_TARGET_NONE,     TARGET_OBJECT_TYPE_NONE}, // 174 unknown Ascension effect
+    {EFFECT_IMPLICIT_TARGET_EXPLICIT, TARGET_OBJECT_TYPE_UNIT}, // 174 Ascension health-percentage damage
     {EFFECT_IMPLICIT_TARGET_EXPLICIT, TARGET_OBJECT_TYPE_UNIT}, // 175 SPELL_EFFECT_ASCENSION_MODIFY_AURA_STACKS
     {EFFECT_IMPLICIT_TARGET_EXPLICIT, TARGET_OBJECT_TYPE_UNIT}, // 176 SPELL_EFFECT_ASCENSION_MODIFY_AURA_STACKS_2
     {EFFECT_IMPLICIT_TARGET_EXPLICIT, TARGET_OBJECT_TYPE_UNIT}, // 177 SPELL_EFFECT_ASCENSION_MODIFY_AURA_DURATION
@@ -876,7 +876,7 @@ std::array<SpellEffectInfo::StaticData, TOTAL_SPELL_EFFECTS> SpellEffectInfo::_d
     {EFFECT_IMPLICIT_TARGET_EXPLICIT, TARGET_OBJECT_TYPE_UNIT}, // 190 SPELL_EFFECT_ASCENSION_APPLY_AURA_TO_SUMMONS
     {EFFECT_IMPLICIT_TARGET_NONE,     TARGET_OBJECT_TYPE_NONE}, // 191 unknown Ascension effect
     {EFFECT_IMPLICIT_TARGET_NONE,     TARGET_OBJECT_TYPE_NONE}, // 192 unknown Ascension effect
-    {EFFECT_IMPLICIT_TARGET_NONE,     TARGET_OBJECT_TYPE_NONE}, // 193 unknown Ascension effect
+    {EFFECT_IMPLICIT_TARGET_NONE,     TARGET_OBJECT_TYPE_NONE}, // 193 Ascension delayed trigger; DBC supplies targets
     {EFFECT_IMPLICIT_TARGET_NONE,     TARGET_OBJECT_TYPE_NONE}, // 194 unknown Ascension effect
     {EFFECT_IMPLICIT_TARGET_EXPLICIT, TARGET_OBJECT_TYPE_UNIT}, // 195 SPELL_EFFECT_ASCENSION_RESET_COOLDOWN
     {EFFECT_IMPLICIT_TARGET_NONE,     TARGET_OBJECT_TYPE_NONE}, // 196 unknown Ascension effect
@@ -899,8 +899,9 @@ SpellInfo::SpellInfo(SpellEntry const* spellEntry)
     AttributesEx6 = spellEntry->AttributesEx6;
     AttributesEx7 = spellEntry->AttributesEx7;
     AttributesCu = 0;
-    Stances = spellEntry->Stances;
-    StancesNot = spellEntry->StancesNot;
+    // Form masks are 64-bit in the client (forms 33-64 in the high words); CoA's own forms are numbered above 32.
+    Stances = uint64(spellEntry->Stances) | (uint64(spellEntry->StancesHigh) << 32);
+    StancesNot = uint64(spellEntry->StancesNot) | (uint64(spellEntry->StancesNotHigh) << 32);
     Targets = spellEntry->Targets;
     TargetCreatureType = spellEntry->TargetCreatureType;
     RequiresSpellFocus = spellEntry->RequiresSpellFocus;
@@ -1589,12 +1590,16 @@ bool SpellInfo::IsAffectedBySpellMod(SpellModifier const* mod) const
 
     if (!mod->mask)
     {
-        auto const named = SpellAffectTargets().find(mod->spellId);
-        if (named != SpellAffectTargets().end())
+        auto const& targets = SpellAffectTargets();
+        auto const named = targets.find(mod->spellId);
+        if (named != targets.end())
         {
             uint32 const firstRank = sSpellMgr->GetFirstSpellInChain(Id);
             return std::any_of(named->second.begin(), named->second.end(), [&](int32 target)
-                { return target < 0 ? uint32(-target) == firstRank : uint32(target) == Id; });
+            {
+                // Widen before negating so even INT32_MIN cannot overflow.
+                return target < 0 ? uint32(-int64(target)) == firstRank : uint32(target) == Id;
+            });
         }
     }
 
@@ -1693,7 +1698,7 @@ SpellCastResult SpellInfo::CheckShapeshift(uint32 form) const
             (Effects[0].Effect == SPELL_EFFECT_LEARN_SPELL || Effects[1].Effect == SPELL_EFFECT_LEARN_SPELL || Effects[2].Effect == SPELL_EFFECT_LEARN_SPELL))
         return SPELL_CAST_OK;
 
-    uint32 stanceMask = (form ? 1 << (form - 1) : 0);
+    uint64 stanceMask = (form ? uint64(1) << (form - 1) : 0);
 
     if (stanceMask & StancesNot)                 // can explicitly not be casted in this stance
         return SPELL_FAILED_NOT_SHAPESHIFT;
@@ -2297,6 +2302,10 @@ SpellSpecificType SpellInfo::GetSpellSpecific() const
 
 SpellSpecificType SpellInfo::LoadSpellSpecific() const
 {
+    // Frogduck Morph Machine keeps its generic gadget family but uses native Polymorph rules.
+    if (Id == 991576 && HasAura(SPELL_AURA_MOD_CONFUSE) && HasAura(SPELL_AURA_TRANSFORM))
+        return SPELL_SPECIFIC_MAGE_POLYMORPH;
+
     switch (SpellFamilyName)
     {
         case SPELLFAMILY_GENERIC:
@@ -3096,9 +3105,11 @@ int32 SpellInfo::CalcPowerCost(Unit const* caster, SpellSchoolMask schoolMask, S
             case POWER_MANA:
                 powerCost += int32(CalculatePct(UsesMaxManaForCost ? caster->GetMaxPower(POWER_MANA) : caster->GetCreateMana(), ManaCostPercentage));
                 break;
+            case POWER_ENERGY:
+                powerCost += int32(CalculatePct(caster->GetCreatePowers(POWER_ENERGY), ManaCostPercentage));
+                break;
             case POWER_RAGE:
             case POWER_FOCUS:
-            case POWER_ENERGY:
             case POWER_HAPPINESS:
                 powerCost += int32(CalculatePct(caster->GetMaxPower(Powers(PowerType)), ManaCostPercentage));
                 break;

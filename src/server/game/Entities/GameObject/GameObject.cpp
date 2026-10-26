@@ -1310,6 +1310,10 @@ void GameObject::Respawn()
 
 bool GameObject::ActivateToQuest(Player* target) const
 {
+    if (GameObjectAI* ai = AI())
+        if (!ai->CanActivateToQuest(target))
+            return false;
+
     if (target->HasQuestForGO(GetEntry()))
         return true;
 
@@ -1861,7 +1865,10 @@ void GameObject::Use(Unit* user)
                 {
                     Player* ritualOwner = ObjectAccessor::GetPlayer(*this, m_ritualOwnerGUID);
                     if (!ritualOwner)
-                        return;
+                    {
+                        m_ritualOwnerGUID = player->GetGUID();
+                        ritualOwner = player;
+                    }
                     if (player != ritualOwner && (info->summoningRitual.castersGrouped && !player->IsInSameRaidWith(ritualOwner)))
                         return;
                 }

@@ -5,9 +5,9 @@ Fills auction houses and optionally buys player listings. Based on
 
 Configure it in the Manager module settings or `mod_ahbot.conf`:
 
-- Set `AuctionHouseBot.GUIDs` to a dedicated existing character GUID (comma-separated for several).
+- Turn on `AuctionHouseBot.Enable`. With `AuctionHouseBot.GUIDs = 0` the server creates its own auction
+  character (account `AHBOT`) on the next start; set `GUIDs` to dedicated existing characters to use your own.
   Keep these characters offline; bot auction mail is discarded by default.
-- Turn on `AuctionHouseBot.Enable` and `AuctionHouseBot.EnableSeller`.
 - Set Alliance, Horde and Neutral listing limits. Defaults are 2,000 per house.
 - Enable the buyer separately if desired; it is off by default.
 

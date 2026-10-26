@@ -116,6 +116,7 @@ namespace
         PrepareSpellScript(spell_coa_massive_fire_nova);
 
         static constexpr uint32 EarthPillar = 663030;
+        static constexpr uint32 NovaLanded = 1;
 
         void Cover(std::list<WorldObject*>& targets)
         {
@@ -146,10 +147,20 @@ namespace
             });
         }
 
+        void Crumble()
+        {
+            std::list<Creature*> pillars;
+            GetCaster()->GetCreatureListWithEntryInGrid(pillars, EarthPillar, 80.0f);
+            for (Creature* pillar : pillars)
+                if (pillar->IsAlive() && pillar->IsAIEnabled)
+                    pillar->AI()->SetData(NovaLanded, NovaLanded);
+        }
+
         void Register() override
         {
             OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_coa_massive_fire_nova::Cover, EFFECT_0,
                 TARGET_UNIT_SRC_AREA_ENEMY);
+            AfterCast += SpellCastFn(spell_coa_massive_fire_nova::Crumble);
         }
     };
 
@@ -337,6 +348,26 @@ namespace
         }
     };
 
+    class CoATargorrBerserkerLeapMarker final : public AllSpellScript
+    {
+    public:
+        CoATargorrBerserkerLeapMarker()
+            : AllSpellScript("CoATargorrBerserkerLeapMarker", { ALLSPELLHOOK_ON_PREPARE }) { }
+
+        static constexpr uint32 SpellBerserkerLeap = 2102736;
+        static constexpr uint32 SpellBerserkerLeapDestArea = 2102735;
+
+        void OnSpellPrepare(Spell* spell, Unit* caster, SpellInfo const* info) override
+        {
+            if (info->Id != SpellBerserkerLeap || spell->IsTriggered() || spell->getState() != SPELL_STATE_PREPARING
+                || !spell->m_targets.HasDst())
+                return;
+            Position const* landing = spell->m_targets.GetDstPos();
+            caster->CastSpell(landing->GetPositionX(), landing->GetPositionY(), landing->GetPositionZ(),
+                SpellBerserkerLeapDestArea, true);
+        }
+    };
+
     enum MothersMilk
     {
         SPELL_MOTHERS_MILK_DEBUFF = 2102217,
@@ -385,8 +416,36 @@ namespace
     };
 }
 
+class spell_coa_summon_hearty_heart : public SpellScript
+{
+    PrepareSpellScript(spell_coa_summon_hearty_heart);
+
+    void SnapToGround()
+    {
+        WorldLocation const* dest = GetExplTargetDest();
+        Unit* caster = GetCaster();
+        if (!dest || !caster)
+            return;
+
+        float const ground = caster->GetMap()->GetHeight(caster->GetPhaseMask(), dest->GetPositionX(),
+            dest->GetPositionY(), dest->GetPositionZ() + 2.0f);
+        if (ground <= INVALID_HEIGHT)
+            return;
+
+        WorldLocation grounded(dest->GetMapId(), dest->GetPositionX(), dest->GetPositionY(), ground,
+            dest->GetOrientation());
+        SetExplTargetDest(grounded);
+    }
+
+    void Register() override
+    {
+        BeforeCast += SpellCastFn(spell_coa_summon_hearty_heart::SnapToGround);
+    }
+};
+
 void AddSC_CoADungeonBossSpells()
 {
+    RegisterSpellScript(spell_coa_summon_hearty_heart);
     RegisterSpellScript(spell_coa_massive_fire_nova);
     RegisterSpellScript(spell_coa_torrent_spin);
     RegisterSpellScript(spell_coa_bouncing_saw_blade);
@@ -395,6 +454,7 @@ void AddSC_CoADungeonBossSpells()
     new CoADivineRetributionStore();
     RegisterSpellScript(spell_coa_fixed_facing_channel);
     new CoARattlegoreBoneCrush();
+    new CoATargorrBerserkerLeapMarker();
     RegisterSpellScript(spell_coa_mothers_milk_spray);
     RegisterSpellScript(spell_coa_mothers_milk_debuff);
 }

@@ -25,6 +25,7 @@
 #include "BattlegroundMgr.h"
 #include "BanMgr.h"
 #include "CharacterPackets.h"
+#include "CoAPortableSession.h"
 #include "Common.h"
 #include "DatabaseEnv.h"
 #include "GameTime.h"
@@ -421,7 +422,9 @@ bool WorldSession::Update(uint32 diff, PacketFilter& updater)
 
     constexpr uint32 MAX_PROCESSED_PACKETS_IN_SAME_WORLDSESSION_UPDATE = 150;
 
-    while ((m_Socket || _socketlessPacketObserver) && _recvQueue.next(packet, updater))
+    bool const portableGate = CoAPortableSession::IsGated(this);
+
+    while (!portableGate && (m_Socket || _socketlessPacketObserver) && _recvQueue.next(packet, updater))
     {
         OpcodeClient opcode = static_cast<OpcodeClient>(packet->GetOpcode());
         ClientOpcodeHandler const* opHandle = opcodeTable[opcode];
@@ -707,6 +710,8 @@ void WorldSession::SendPlayTimeWarning(PlayTimeFlag flag, int32 playTimeRemainin
 /// %Log the player out
 void WorldSession::LogoutPlayer(bool save, bool redirecting)
 {
+    UpdateRecruitAFriendRewards(true);
+    ClearRecruitAFriendRequests();
     // finish pending transfers before starting the logout
     while (_player && _player->IsBeingTeleportedFar())
         HandleMoveWorldportAck();
@@ -833,6 +838,8 @@ void WorldSession::LogoutPlayer(bool save, bool redirecting)
             }
             _player->SaveToDB(false, true);
         }
+
+        CoAPortableSession::OnLogout(_player);
 
         ///- Leave all channels before player delete...
         _player->CleanupChannels();

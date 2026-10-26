@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionWarcraftReborn.h"
 #include "AscensionFreepick.h"
 #include "AscensionWarcraftRebornRules.h"
 #include "DBCStores.h"
@@ -88,6 +89,16 @@ std::vector<std::pair<uint32, uint32>> LoadTwins(bool ranked)
         [](std::uint32_t spellId) { return sSpellMgr->GetFirstSpellInChain(spellId); }, &LayoutOf);
 }
 
+void ApplyStockProficiencies()
+{
+    for (SkillLineAbilityEntry const* ability : sSkillLineAbilityStore)
+        if (uint32 const classMask = ProficiencyClassMask(ability->Spell, ability->ClassMask); classMask != ability->ClassMask)
+            const_cast<SkillLineAbilityEntry*>(ability)->ClassMask = classMask;
+    for (SkillRaceClassInfoEntry const* info : sSkillRaceClassInfoStore)
+        if (uint32 const classMask = SkillClassMask(info->SkillID, info->ClassMask); classMask != info->ClassMask)
+            const_cast<SkillRaceClassInfoEntry*>(info)->ClassMask = classMask;
+}
+
 std::vector<std::vector<uint32>> LoadRankChains()
 {
     CurrentRealm = AscensionFreepick::ReadRealm();
@@ -100,6 +111,7 @@ std::vector<std::vector<uint32>> LoadRankChains()
         RebornRealm = false;
         return {};
     }
+    ApplyStockProficiencies();
     NonWotlk = CurrentRealm.WotlkOnly ? NonWotlkSpells(Loaded) : std::vector<uint32>{};
     if (CurrentRealm.WotlkOnly)
         LOG_INFO("coa", "Warcraft Reborn: WotLK abilities only, {} Ascension-made spells are left out",
@@ -151,8 +163,8 @@ void BuildTrainers()
             SpellInfo const* info = sSpellMgr->AssertSpellInfo(spellId);
             TrainerSpell row;
             row.SpellId = spellId;
-            row.ReqLevel = std::clamp<uint32>(info->SpellLevel, 1, 255);
-            auto const price = prices.upper_bound(row.ReqLevel);
+            row.ReqLevel = std::min<uint32>(info->SpellLevel, 255);
+            auto const price = prices.upper_bound(std::max<uint32>(row.ReqLevel, 1));
             row.MoneyCost = price == prices.begin() ? 0 : std::prev(price)->second;
             return row;
         };
@@ -201,6 +213,22 @@ void LearnClassSkills(Player* player)
         SkillLineEntry const* skill = sSkillLineStore.LookupEntry(skillId);
         if (skill && skill->categoryId == SKILL_CATEGORY_CLASS && !player->HasSkill(skillId))
             player->LearnDefaultSkill(skillId, 0);
+    }
+}
+
+void LearnOutfitSkills(Player* player)
+{
+    CharStartOutfitEntry const* outfit = GetCharStartOutfitEntry(player->getRace(), player->getClass(), player->getGender());
+    if (!outfit)
+        return;
+    for (int32 itemId : outfit->ItemId)
+    {
+        ItemTemplate const* proto = itemId > 0 ? sObjectMgr->GetItemTemplate(uint32(itemId)) : nullptr;
+        if (!proto)
+            continue;
+        uint32 const skill = proto->GetSkill();
+        if (skill && !player->HasSkill(skill) && StockClassUses(player->getClass(), proto->Class, proto->SubClass))
+            player->LearnDefaultSkill(skill, 0);
     }
 }
 
@@ -318,6 +346,7 @@ public:
             return;
         ForgetNonWotlkSpells(player);
         LearnClassSkills(player);
+        LearnOutfitSkills(player);
         LearnMissing(player, StartingSpells(Loaded, CurrentRealm, player->getClass(), StartLevel(player)));
         LearnMissing(player, AutomaticSpells(Loaded, CurrentRealm, player->getClass(), player->GetLevel()));
         LearnGrantedSpells(player);
@@ -357,6 +386,58 @@ public:
             BuildTrainers();
     }
 };
+}
+
+bool IsRebornCharacter(Player const* player)
+{
+    return player && IsRebornPlayer(player);
+}
+
+uint32 ResetActiveTalents(Player* player)
+{
+    if (!IsRebornCharacter(player))
+        return 0;
+    uint32 const before = player->GetFreeTalentPoints();
+    player->resetTalents(true);
+    return player->GetFreeTalentPoints() - std::min(before, player->GetFreeTalentPoints());
+}
+
+std::unordered_set<uint32> ForgetClassSpellsAbove(Player* player, uint8 level)
+{
+    std::unordered_set<uint32> chains;
+    if (!IsRebornCharacter(player))
+        return chains;
+
+    std::vector<uint32> const classSkills = ClassSkillLines(Loaded, CurrentRealm, player->getClass());
+    auto const onClassSkill = [&classSkills](uint32 spellId)
+    {
+        for (uint32 id : { spellId, sSpellMgr->GetFirstSpellInChain(spellId) })
+            if (auto const lines = Loaded.SkillLines.find(id); lines != Loaded.SkillLines.end())
+                for (uint32 skill : lines->second)
+                    if (std::find(classSkills.begin(), classSkills.end(), skill) != classSkills.end())
+                        return true;
+        return false;
+    };
+
+    std::vector<uint32> forget;
+    for (auto const& [spellId, spell] : player->GetSpellMap())
+    {
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+        if (spell->State != PLAYERSPELL_REMOVED && info && info->SpellLevel > level && !GetTalentSpellPos(spellId) &&
+            player->HasSpell(spellId) && onClassSkill(spellId))
+            forget.push_back(spellId);
+    }
+    for (uint32 spellId : forget)
+    {
+        uint32 const firstRank = sSpellMgr->GetFirstSpellInChain(spellId);
+        if (firstRank != spellId)
+            chains.insert(firstRank);
+        player->removeSpell(spellId, SPEC_MASK_ALL, false);
+    }
+
+    LearnMissing(player, StartingSpells(Loaded, CurrentRealm, player->getClass(), StartLevel(player)));
+    LearnMissing(player, AutomaticSpells(Loaded, CurrentRealm, player->getClass(), level));
+    return chains;
 }
 }
 

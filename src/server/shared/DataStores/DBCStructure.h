@@ -1689,7 +1689,9 @@ struct SpellEntry
     uint32    AttributesEx6;                                        // 10       m_attributesExF
     uint32    AttributesEx7;                                        // 11       m_attributesExG
     uint32    Stances;                                              // 12       m_shapeshiftMask
+    uint32    StancesHigh;                                          // 13       m_shapeshiftMask, forms 33-64
     uint32    StancesNot;                                           // 14       m_shapeshiftExclude
+    uint32    StancesNotHigh;                                       // 15       m_shapeshiftExclude, forms 33-64
     uint32    Targets;                                              // 16       m_targets
     uint32    TargetCreatureType;                                   // 17       m_targetCreatureType
     uint32    RequiresSpellFocus;                                   // 18       m_requiresSpellFocus
@@ -1804,12 +1806,12 @@ struct SpellCategoryEntry
     uint32 Flags;
 };
 
-// Ascension: the spells each spell modifier applies to, beyond its own family and class mask.
+// Ascension: named targets for spell modifiers with an empty class mask.
 struct SpellAffectEntry
 {
     uint32 ID;                                              // 0
     uint32 ModifierSpellID;                                 // 1
-    uint32 AffectedSpellID;                                 // 2
+    int32 AffectedSpellID;                                  // 2: negative means all ranks of the root
 };
 
 struct SpellDifficultyEntry

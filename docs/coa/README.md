@@ -11,7 +11,8 @@ Sources live in `src/server/coa/`, focused regressions in `apps/coa-tests/`, and
 configuration templates in `src/server/coa/conf/`. They install to
 `etc/modules/coa.conf` and `etc/modules/coa_bugreport.conf`; runtime configuration is
 supplied there, not by committing live local credentials. CoA logs under `coa`,
-`coa.gameplay_test` and `coa.highrisk`.
+`coa.gameplay_test`, `coa.highrisk` and `coa.hotpatch`. Server-sent interface Lua is described in
+`client-hot-patch.md`.
 
 This fork, CoA included, is licensed under the root `LICENSE` (GNU GPL v2), like
 AzerothCore. Most CoA source files still carry the short "GNU AGPL v3" notice from
@@ -60,6 +61,16 @@ from `<DataDir>/dbc`: the Docker setup already uses `env/dist/data`, and for a l
 them; running it and the CoA tests in `apps/coa-tests/` that read client data do. Set
 `COA_DBC_DIR` when the tests should read another directory.
 [`apps/coa-dbc`](../../apps/coa-dbc/README.md) extracts and checks them.
+
+The models of the Venomancer Beetle, Venomwing and Weaver Forms (CreatureModelData 20612
+`custom_nerubianbeetle`, 22063 `custom_flyingnerubian2` and 23813
+`maldraxxusmutant_noarmor`) have hand attachment points but lack the `0x10` flag that
+native animal forms such as Cat, Bear and Ghost Wolf carry, so the client hangs a drawn
+weapon on them in combat (#5128). The Spider and Sea Serpent Form models have no hand
+attachments. The weapon's visibility is decided by the client alone. When preparing a
+requested client update, run `apps/coa-spells/venomancer_form_weapons.py --input
+<CreatureModelData.dbc> --output <candidate-CreatureModelData.dbc>`; it sets the flag on
+those three rows in a separate output and never packages or installs a client archive.
 
 ## World database installation
 

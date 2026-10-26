@@ -127,6 +127,21 @@ Under this hierarchy:
 * **Data Reuse**: `coa_boss_flex` is preserved as a calibrated HP-per-player database. When a boss has an entry in `coa_boss_flex`, the content scaling engine uses that calibrated budget rather than generic heuristics.
 * `ApplyFlex` in `FlexHealth.cpp` delegates to or is subsumed by the unified pipeline, preventing the fatal `old_flex * new_flex` double-scaling error.
 
+### 4.3 Creature Health Ownership (`CoA.CreatureScaling` in the core)
+Three systems touch creature health. Each owns a different place, and there is exactly one authority per creature:
+
+| Creature | Authority | Formula |
+|---|---|---|
+| Open world | `LocalLevelScaling` (per viewer) + core `CoA.CreatureScaling.World.*` | unchanged |
+| Dungeon / raid, module enabled | this module | `ceil(base HP at effective level * ModHealth * tier * group scale * Difficulty.Health.*) * rank rate` |
+| Dungeon / raid, module disabled or absent | core `CoA.CreatureScaling.Dungeon/Raid/Map*` | unchanged |
+
+* **Contract**: at script load the module registers `CoAContentScaling::OwnsCombatScaling` with the core (`CreatureScaling::SetCombatAuthority`). The core asks it at the moment of scaling; for an owned dungeon or raid creature the core's health **and** damage multiplier is `1.0`. Because the answer is looked up when needed, nothing depends on script registration order, and `coa.conf` never has to be edited. Open world creatures are never handed over, and with `CoAContentScaling.Enable = 0` the module answers `false`. A second registration (`SetHealthBudgetAuthority`) makes the core's own health hook skip every creature the module budgets, because the module already folds `CoA.CreatureScaling.World.Health` into that budget once; the open world multiplier is therefore applied exactly once whichever level selection hook runs first.
+* **No stacked rank factors**: `ModHealth` already carries the rank (CoA data: elite trash median 3.0, encounter bosses 5 to 20, world bosses in the hundreds), so the budget has no extra elite `x2` or world boss `x4`. The normal dungeon tier is `1.0`; heroic and raid tiers keep their explicit progression.
+* **Boss identity** (`CombatBudgetProfile::IsBossTemplate`): `CREATURE_FLAG_EXTRA_DUNGEON_BOSS` (set at load from `instance_encounters`) or rank `WORLDBOSS`. The same test locks encounters and classifies the budget; ordinary elite trash is trash.
+* **Old versus new at a full party** (authored HP `A = base HP * ModHealth`, core dungeon multiplier 2.5): elite trash `A * 1.35 * 2 * 2.5 = 6.75 A`, now `A`; dungeon boss `A * 1.35 * 2 * 2.5`, now `A`. The party size curve (0.217 / 0.419 / 0.616 / 0.809 / 1.0 for 1 to 5 players) is unchanged.
+* **Diagnostics**: with `CoAContentScaling.Debug = 1` every combat budget logs one line with the full breakdown; `.coascale creature` prints the same factors for the selected creature.
+
 ---
 
 ## 5. Group Scaling & Anti-Exploit Architecture

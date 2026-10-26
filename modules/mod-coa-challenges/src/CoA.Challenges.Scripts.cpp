@@ -6,6 +6,7 @@
 #include "Random.h"
 #include "AllCreatureScript.h"
 #include "AccountScript.h"
+#include "AscensionClientLua.h"
 #include "LocalLevelScaling.h"
 
 using namespace Acore::ChatCommands;
@@ -1699,7 +1700,10 @@ namespace CoAChallenges
             if (Quest const* quest = sObjectMgr->GetQuestTemplate(quest_id))
             {
                 static char const* colors[5] = {"GRAY", "GREEN", "YELLOW", "ORANGE", "RED"};
-                int c = QuestColor(quest->GetQuestLevel(), player->GetLevel());
+                int qLevel = quest->GetQuestLevel();
+                if (qLevel < 0)
+                    return true;
+                int c = QuestColor(uint32(qLevel), player->GetLevel());
                 std::string rule = std::string("CHALLENGE_RULES_TYPE_NO_") + colors[c] + "_QUESTS";
                 if (PlayerHasRule(player, rule.c_str()))
                 {
@@ -3912,6 +3916,9 @@ namespace CoAChallenges
             if (!owner)
                 return;
 
+            if (!owner->IsFriendlyTo(creature))
+                return;
+
             ApplyActiveChallengeSpellsToCreature(owner, creature);
         }
     };
@@ -3921,6 +3928,11 @@ namespace CoAChallenges
 void Addmod_coa_challengesScripts()
 {
     RegisterAscensionClientConfig(&CoAChallenges::AppendClientConfig);
+    RegisterAscensionChallengeStateSync([](Player* player)
+    {
+        CoAChallenges::SendActiveList(player);
+        CoAChallenges::SendCriteriaState(player);
+    });
     LocalLevelScaling::ChallengeBlocksOwner.store(&CoAChallenges::LevelScalingBlocks, std::memory_order_relaxed);
     new CoAChallenges::CoAChallengesPlayer();
     new CoAChallenges::CoAChallengesWorld();

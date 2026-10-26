@@ -1566,7 +1566,7 @@ void AuraEffect::HandleShapeshiftBoosts(Unit* target, bool apply) const
                 if (!spellInfo || !spellInfo->HasAttribute(SpellAttr0(SPELL_ATTR0_PASSIVE | SPELL_ATTR0_DO_NOT_DISPLAY)))
                     continue;
 
-                if (spellInfo->Stances & (1 << (GetMiscValue() - 1)))
+                if (spellInfo->Stances & (uint64(1) << (GetMiscValue() - 1)))
                     target->CastSpell(target, itr->first, true, nullptr, this, target->GetGUID());
             }
 
@@ -1585,7 +1585,7 @@ void AuraEffect::HandleShapeshiftBoosts(Unit* target, bool apply) const
                 if (!spellInfo || !spellInfo->HasAttribute(SpellAttr0(SPELL_ATTR0_PASSIVE | SPELL_ATTR0_DO_NOT_DISPLAY)) || spellInfo->HasEffect(SPELL_EFFECT_LEARN_SPELL))
                     continue;
 
-                if (spellInfo->Stances & (1 << (GetMiscValue() - 1)))
+                if (spellInfo->Stances & (uint64(1) << (GetMiscValue() - 1)))
                     target->CastSpell(target, itr->first, true, nullptr, this, target->GetGUID());
             }
 
@@ -1599,7 +1599,7 @@ void AuraEffect::HandleShapeshiftBoosts(Unit* target, bool apply) const
                         SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(glyph->SpellId);
                         if (!spellInfo || !spellInfo->HasAttribute(SpellAttr0(SPELL_ATTR0_PASSIVE | SPELL_ATTR0_DO_NOT_DISPLAY)))
                             continue;
-                        if (spellInfo->Stances & (1 << (GetMiscValue() - 1)))
+                        if (spellInfo->Stances & (uint64(1) << (GetMiscValue() - 1)))
                             target->CastSpell(target, glyph->SpellId, TriggerCastFlags(TRIGGERED_FULL_MASK & ~(TRIGGERED_IGNORE_SHAPESHIFT | TRIGGERED_IGNORE_CASTER_AURASTATE)), nullptr, this, target->GetGUID());
                     }
                 }
@@ -1611,7 +1611,7 @@ void AuraEffect::HandleShapeshiftBoosts(Unit* target, bool apply) const
                 [player](uint32 spellId) { return player->HasTalent(spellId, player->GetActiveSpec()); }))
             {
                 SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(24932);
-                if (spellInfo && spellInfo->Stances & (1 << (GetMiscValue() - 1)))
+                if (spellInfo && spellInfo->Stances & (uint64(1) << (GetMiscValue() - 1)))
                     target->CastSpell(target, 24932, true, nullptr, this, target->GetGUID());
             }
             // Improved Barkskin - apply/remove armor bonus due to shapeshift
@@ -1732,7 +1732,7 @@ void AuraEffect::HandleShapeshiftBoosts(Unit* target, bool apply) const
         }
 
         // Use the new aura to see on what stance the target will be
-        uint32 newStance = (1 << ((newAura ? newAura->GetMiscValue() : 0) - 1));
+        uint64 newStance = newAura && newAura->GetMiscValue() > 0 ? uint64(1) << (newAura->GetMiscValue() - 1) : 0;
 
         Unit::AuraApplicationMap& tAuras = target->GetAppliedAuras();
         for (Unit::AuraApplicationMap::iterator itr = tAuras.begin(); itr != tAuras.end();)
@@ -2212,6 +2212,8 @@ void AuraEffect::HandleAuraModShapeshift(AuraApplication const* aurApp, uint8 mo
             if (target->getPowerType() != PowerType)
             {
                 target->setPowerType(PowerType);
+                if (Player* player = target->ToPlayer())
+                    player->UpdateMaxPower(PowerType);
                 if (powerAlreadyActive)
                     target->SetPower(PowerType, oldPower);
             }
@@ -7034,6 +7036,22 @@ void AuraEffect::HandleObsModPowerAuraTick(Unit* target, Unit* caster) const
     if (target->IsImmunedToAuraPeriodicTick(caster, GetSpellInfo()))
     {
         SendTickImmune(target, caster);
+        return;
+    }
+
+    // EunoiaCore-Underworld Mana Bomb: negative OBS_MOD_POWER (aura 21)
+    // drains max-power percentage. Other negative regen auras stay unchanged.
+    // Handle drains before the full-power regeneration early return.
+    if (GetId() >= 93489 && GetId() <= 93509 && m_amount < 0)
+    {
+        int64 const requested = -int64(m_amount) * int64(target->GetMaxPower(PowerType)) / 100;
+        int32 const drain = int32(std::min<int64>(requested, 2147483647LL));
+        if (!drain)
+            return;
+        int32 const change = target->ModifyPower(PowerType, -drain);
+        uint32 const drained = change < 0 ? uint32(-int64(change)) : 0;
+        SpellPeriodicAuraLogInfo pInfo(this, drained, 0, 0, 0, 0.0f, false);
+        target->SendPeriodicAuraLog(&pInfo);
         return;
     }
 

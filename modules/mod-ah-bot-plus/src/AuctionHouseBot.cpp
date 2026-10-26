@@ -1977,10 +1977,6 @@ bool AuctionHouseBot::IsModuleEnabled()
 {
     if (!sConfigMgr->GetOption<bool>("AuctionHouseBot.Enable", true))
         return false;
-    bool sellerEnabled = sConfigMgr->GetOption<bool>("AuctionHouseBot.EnableSeller", false);
-    bool buyerEnabled = sConfigMgr->GetOption<bool>("AuctionHouseBot.Buyer.Enabled", false);
-    if (sellerEnabled == false && buyerEnabled == false)
-        return false;
     string charString = sConfigMgr->GetOption<std::string>("AuctionHouseBot.GUIDs", "0");
     if ((charString == "0" || charString.empty()) && !UsesAutoCharacter())
     {
@@ -2071,7 +2067,7 @@ void AuctionHouseBot::InitializeConfiguration()
     debug_Out_Filters = sConfigMgr->GetOption<bool>("AuctionHouseBot.DEBUG_FILTERS", false);
 
     bool enabled = sConfigMgr->GetOption<bool>("AuctionHouseBot.Enable", true);
-    SellingBotEnabled = enabled && sConfigMgr->GetOption<bool>("AuctionHouseBot.EnableSeller", false);
+    SellingBotEnabled = enabled;
     BuyingBotEnabled = enabled && sConfigMgr->GetOption<bool>("AuctionHouseBot.Buyer.Enabled", false);
 
     if (!IsModuleEnabled())

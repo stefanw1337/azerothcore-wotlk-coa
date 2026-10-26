@@ -1,8 +1,8 @@
 # mod-coa-prestige
 
-Chromie's Prestige Mode for Conquest of Azeroth. A character at level 60 asks Chromie to wind back
+Chromie's Prestige Mode for Conquest of Azeroth. A character at the realm level cap asks Chromie to wind back
 time. It returns to level 1 and levels again with an experience bonus. Its specialization stays
-locked until it reaches 60 again, and every activation pays the Prestige rewards.
+locked until it reaches that cap again, and every activation pays the Prestige rewards.
 
 ## What the client expects
 
@@ -26,7 +26,8 @@ client piece reads:
 ## Activation
 
 Chromie refuses unless all of these hold:
-- the character is a Conquest of Azeroth class at `CoAPrestige.RequiredLevel`;
+- the character is a Conquest of Azeroth class, or a stock class on Warcraft Reborn, at
+  `CoAPrestige.RequiredLevel`;
 - it has a specialization;
 - it is alive, out of combat, not travelling and not in an instance.
 
@@ -77,6 +78,14 @@ Cases of Fortune and Bonus Manastorm Caches are deleted. The deleted scrolls bec
 level cap. Chromie's window reads their count from SMSG 0x720, which is sent before her gossip menu. The
 specialization lock covers the Wildcard specialization swap spells as well.
 
+## Warcraft Reborn
+
+A stock class on a Warcraft Reborn realm prestiges like a Conquest of Azeroth class, with the same
+requirements, rewards, reset and lock. Its specialization is its talent spec (1 or 2). Instead of
+class talents, the active talent spec's talents are reset, every Mystic Enchant in the active preset
+is removed, and the Reborn class spells above level 1 are forgotten (starting spells are learned
+again). Activating the other talent spec is refused until the Prestige level.
+
 ## Data
 
 `data/sql/updates/pending_db_world/rev_20260925_02_coa_prestige_chromie.sql` adds:
@@ -109,3 +118,33 @@ The spawn points are chosen, not recovered. Every price is a row of the client's
   open. The default reward is 1287330, the Prestigious Cache CoA opens into the newest released tier.
 - **"1x Experience" trials.** The Prestige bonus still applies inside mod-coa-challenges' "Resolute
   1x Experience" trials, which only block experience items today.
+
+## Realm level cap and classless characters
+
+Prestige follows `MaxPlayerLevel` (for example 60, 70 or 80) on every realm.
+The resolved value governs activation, replayable quest reset, completion, daily max-level credit,
+experience-bonus eligibility and specialization-lock messages. `CoAPrestige.RequiredLevel` is retired and
+ignored, including existing explicit values. The core's MaxPlayerLevel setting requires a restart to change.
+A realm capped at level 1 cannot prestige, to prevent reward loops without any releveling.
+
+CoA, Wildcard and Warcraft Reborn retain their existing reset implementations. Free Pick resets its active
+advancement build without charging unlearning costs, updates its saved active-slot copy and honors the
+Prestige specialization lock. Ordinary classes reset their active talents. Other saved builds are retained. The reset preserves Group 1 and ROW_RETAINED entries using upstream's
+existing reset-retention rule; it does not import Area 52's separate storage schema or reset policy.
+
+Area 52 uses an explicitly registered Prestige reset handler, ahead of the Dawnrise Free Pick path.
+Its scoped integration is in [integrations/area52](integrations/area52/README.md). It validates and
+resets only the active, unlocked build and enchant specializations, preserving other specializations
+and collections. The full Area 52 backend is deliberately not part of this change.
+
+The stock client's Prestige window has its own level-60 checks. Prepare its existing UI file with:
+
+```sh
+python tools/patch_prestige_client.py /extracted/PrestigeMode.lua /staging/PrestigeMode.lua
+```
+
+The tool changes only the MAX_LEVEL assignment to the existing client GetMaxLevel() API and refuses an
+unknown baseline or overwriting the input. Distribute the staged file at
+Interface/AddOns/AscensionUI/Gossips/PrestigeMode.lua using the realm's normal client patch process.
+This is an existing UI replacement, not a new addon or DLL. It updates the threshold and all labels which
+already read MAX_LEVEL. No client installation or binary is included.

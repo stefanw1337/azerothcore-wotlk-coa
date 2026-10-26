@@ -34,6 +34,7 @@
 #include "World.h"
 
 #include <algorithm>
+#include <memory>
 
 namespace
 {
@@ -336,6 +337,10 @@ int32 GetDiminishingReturnsLimitDuration(DiminishingGroup group, SpellInfo const
 {
     if (!IsDiminishingReturnsGroupDurationLimited(group))
         return 0;
+
+    // Polymorph: Frogduck explicitly advertises an eight-second player limit.
+    if (spellproto->Id == 991522)
+        return 8 * IN_MILLISECONDS;
 
     // Stone Grip's active tooltip specifies eight seconds against players, before diminishing returns.
     if (spellproto->SpellFamilyName == 37 && spellproto->Id == 800145)
@@ -670,7 +675,12 @@ uint32 SpellMgr::GetSpellWithRank(uint32 spell_id, uint32 rank, bool strict) con
     if (SpellChainNode const* node = GetSpellChainNode(spell_id))
     {
         if (rank != node->rank)
-            return GetSpellWithRank(node->rank < rank ? node->next->Id : node->prev->Id, rank, strict);
+        {
+            SpellInfo const* step = node->rank < rank ? node->next : node->prev;
+            if (!step)
+                return strict ? 0 : spell_id;
+            return GetSpellWithRank(step->Id, rank, strict);
+        }
     }
     else if (strict && rank > 1)
         return 0;
@@ -1616,8 +1626,8 @@ void SpellMgr::LoadSpellRequired()
         {
             if (mSpellReq.contains(twin->second))
                 continue;
-            auto const reqTwin = _spellTwins.find(spellReq);
-            twinRequirements.emplace_back(twin->second, reqTwin != _spellTwins.end() ? reqTwin->second : spellReq);
+            // the requirement's own copy at the same offset, also when it is a namesake (Reborn Bear Form)
+            twinRequirements.emplace_back(twin->second, GetSpellTwinFor(spellReq, twin->second));
         }
     }
     for (auto const& [spellId, spellReq] : twinRequirements)
@@ -1662,9 +1672,9 @@ void SpellMgr::LoadSpellLearnSkills()
                     }
                     else
                     {
-                        dbc_node.value = dbc_node.step * 75;
+                        dbc_node.value = GetSkillValueForStep(dbc_node.skill, dbc_node.step);
                     }
-                    dbc_node.maxvalue = dbc_node.step * 75;
+                    dbc_node.maxvalue = GetSkillValueForStep(dbc_node.skill, dbc_node.step);
                     break;
                 case SPELL_EFFECT_DUAL_WIELD:
                     dbc_node.skill = SKILL_DUAL_WIELD;
@@ -3362,6 +3372,27 @@ SpellCooldownOverride SpellMgr::GetSpellCooldownOverride(uint32 spellId) const
     return range->second;
 }
 
+SpellInfo* SpellMgr::RegisterRuntimeSpell(SpellEntry const& entry)
+{
+    if (!entry.Id || GetSpellInfo(entry.Id))
+    {
+        LOG_ERROR("spells", "Cannot register runtime spell {}: ID is zero or already exists.", entry.Id);
+        return nullptr;
+    }
+
+    auto spellInfo = std::make_unique<SpellInfo>(&entry);
+    spellInfo->_spellSpecific = spellInfo->LoadSpellSpecific();
+    spellInfo->_auraState = spellInfo->LoadAuraState();
+    spellInfo->_InitializeExplicitTargetMask();
+    spellInfo->_LoadImmunityInfo();
+
+    if (entry.Id >= mSpellInfoMap.size())
+        mSpellInfoMap.resize(std::size_t(entry.Id) + 1, nullptr);
+    SpellInfo* result = spellInfo.release();
+    mSpellInfoMap[entry.Id] = result;
+    return result;
+}
+
 void SpellMgr::UnloadSpellInfoStore()
 {
     for (uint32 i = 0; i < GetSpellInfoStoreSize(); ++i)
@@ -3448,8 +3479,12 @@ void SpellMgr::LoadSpellInfoCustomAttributes()
     }
     else
     {
-        for (count = 0; result->NextRow(); ++count)
+        count = 0;
+
+        do
         {
+            ++count;
+
             Field const* fields = result->Fetch();
 
             uint32 const spellId = fields[0].Get<uint32>();
@@ -3509,7 +3544,7 @@ void SpellMgr::LoadSpellInfoCustomAttributes()
 
             spellInfo->AttributesCu |= attributes;
             databaseAttributes[spellId] = attributes;
-        }
+        } while (result->NextRow());
 
         for (auto const& [source, twin] : _spellTwins)
         {

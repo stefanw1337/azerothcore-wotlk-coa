@@ -1,5 +1,3 @@
-// Our race ids for the Esteria racial scripts (Esteria's core defined these in SharedDefines with its own numbering).
-// Drakkin has no Horde version here (retired on Esteria too); the unused id 255 keeps their checks compiling.
 #ifndef COA_ESTERIA_RACE_IDS_H
 #define COA_ESTERIA_RACE_IDS_H
 

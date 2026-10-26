@@ -34,7 +34,10 @@ enum WitchHunterCastSpells
     SPELL_SHADOW_RAGE_PET = 804192,
     SPELL_SHARPSHOOTER = 705456,
     SPELL_SHARPSHOOTER_ENERGIZE = 704385,
-    SPELL_DEAL_WITH_THE_DEVIL = 680255
+    SPELL_DEAL_WITH_THE_DEVIL = 680255,
+    SPELL_SHADOWSTORM_DAMAGE = 520278,
+    SPELL_SHADOWSTORM_HEAL = 520793,
+    SPELL_SHADOWSTORM_LEECH = 520794
 };
 
 enum WitchHunterHounds
@@ -259,6 +262,12 @@ class spell_ascension_witch_hunter_ability : public SpellScript
             target->HasAura(680517, player->GetGUID()))
             player->CastCustomSpell(574335, SPELLVALUE_BASE_POINT0, int32(player->CountPctFromMaxHealth(1)), player,
                                     TRIGGERED_FULL_MASK);
+        if (id == SPELL_SHADOWSTORM_DAMAGE && dealt)
+            player->CastCustomSpell(
+                SPELL_SHADOWSTORM_HEAL, SPELLVALUE_BASE_POINT0,
+                int32(CalculatePct(uint64(dealt),
+                                   sSpellMgr->AssertSpellInfo(SPELL_SHADOWSTORM_LEECH)->Effects[EFFECT_0].CalcValue())),
+                player, TRIGGERED_FULL_MASK);
         if (id == 503662 && dealt && player->HasAura(680544))
             for (uint32 stack : {681413, 681523})
                 if (Aura* aura = target->GetAura(stack, player->GetGUID()))
@@ -393,7 +402,7 @@ class spell_ascension_witch_hunter_ability : public SpellScript
             player->RemoveAurasDueToSpell(680237);
         if (_slinging && Family(info, 0, 65536))
             player->RemoveAurasDueToSpell(500161);
-        if (_dawnKnight && Dawn(info))
+        if (_dawnKnight && Family(info, 0, 1024))
             player->RemoveAurasDueToSpell(681390);
         if (_anguish && Family(info, 0, 2))
             player->RemoveAurasDueToSpell(500566);
@@ -466,10 +475,28 @@ class spell_ascension_witch_hunter_ability : public SpellScript
         AfterCast += SpellCastFn(spell_ascension_witch_hunter_ability::After);
     }
 };
+
+class spell_ascension_witch_hunter_greater_knights_edict : public SpellScript
+{
+    PrepareSpellScript(spell_ascension_witch_hunter_greater_knights_edict);
+
+    void FilterPlayers(std::list<WorldObject*>& targets)
+    {
+        targets.remove_if([](WorldObject* object) { return !object->ToPlayer(); });
+    }
+
+    void Register() override
+    {
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(
+            spell_ascension_witch_hunter_greater_knights_edict::FilterPlayers, EFFECT_ALL,
+            TARGET_UNIT_CASTER_AREA_RAID);
+    }
+};
 }
 
 void AddAscensionWitchHunterAbilityScripts()
 {
     new witch_hunter_casts();
     RegisterSpellScript(spell_ascension_witch_hunter_ability);
+    RegisterSpellScript(spell_ascension_witch_hunter_greater_knights_edict);
 }

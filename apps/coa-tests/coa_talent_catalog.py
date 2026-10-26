@@ -36,6 +36,16 @@ using int64 = std::int64_t;
     "DBCStores.h": """#pragma once
 #include <string>
 #include <string_view>
+#include "AscensionFreepickRules.h"
+namespace AscensionFreepick
+{
+inline Realm ReadRealm()
+{
+    Realm realm;
+    realm.ConquestOfAzeroth = true;
+    return realm;
+}
+}
 inline std::string DbcDirectory;
 inline std::string GetClientDBCPath(std::string_view name) { return DbcDirectory + std::string(name); }
 """,

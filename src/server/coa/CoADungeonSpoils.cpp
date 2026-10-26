@@ -5,17 +5,25 @@
 #include "AscensionCacheRewards.h"
 #include "AscensionSpecLoot.h"
 #include "Containers.h"
+#include "Creature.h"
+#include "DatabaseEnv.h"
 #include "DungeonHealth.h"
 #include "GlobalScript.h"
 #include "Group.h"
 #include "Item.h"
 #include "ItemScript.h"
+#include "Log.h"
 #include "LootMgr.h"
 #include "Map.h"
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "PlayerScript.h"
+#include "QueryResult.h"
+#include "UnitScript.h"
+#include "WorldScript.h"
 #include <algorithm>
+#include <limits>
+#include <unordered_set>
 #include <vector>
 
 namespace
@@ -24,7 +32,15 @@ namespace
     constexpr uint32 DungeonSpoils = 2021814;
     constexpr uint32 DungeonSpoilsHeroic = 1202039;
     constexpr uint32 DungeonSpoilsMythic = 1027965;
-    constexpr uint32 SpoilsLevelWindow = 5;
+    constexpr uint32 SpoilsLevelWindow = 2;
+
+    std::unordered_set<uint32> MarkBosses;
+
+    bool IsHeroicOrMythicVanillaDungeon(Map const* map)
+    {
+        return map && map->IsNonRaidDungeon() && DungeonHealth::IsVanillaDungeon(map->GetId()) &&
+            (map->GetSpawnMode() == 1 || map->GetSpawnMode() == 2);
+    }
 
     bool PlayerCanWear(Player const* player, ItemTemplate const* item)
     {
@@ -40,16 +56,26 @@ namespace
         });
     }
 
+    uint32 SpoilsLevelCap(Player const* player, std::list<LootStoreItem*> const& entries)
+    {
+        uint32 lowestLevel = std::numeric_limits<uint32>::max();
+        for (LootStoreItem const* entry : entries)
+            if (ItemTemplate const* item = sObjectMgr->GetItemTemplate(entry->itemid); item && !entry->reference)
+                lowestLevel = std::min(lowestLevel, item->RequiredLevel);
+        return std::max<uint32>(player->GetLevel(), lowestLevel);
+    }
+
     std::vector<LootStoreItem*> SpoilsFor(Player const* player, std::list<LootStoreItem*> const& entries,
         Loot const& loot, bool levelScaled, bool wearableOnly)
     {
         std::vector<LootStoreItem*> spoils;
+        uint32 const levelCap = levelScaled ? SpoilsLevelCap(player, entries) : 0;
         uint32 bestLevel = 0;
         for (LootStoreItem* entry : entries)
         {
             ItemTemplate const* item = sObjectMgr->GetItemTemplate(entry->itemid);
             if (!item || entry->reference || AlreadyDropped(loot, entry) ||
-                (levelScaled && item->RequiredLevel > player->GetLevel()) ||
+                (levelScaled && item->RequiredLevel > levelCap) ||
                 (wearableOnly && !PlayerCanWear(player, item)))
                 continue;
             spoils.push_back(entry);
@@ -202,10 +228,48 @@ private:
     }
 };
 
+class CoADungeonBossMarkLoad final : public WorldScript
+{
+public:
+    CoADungeonBossMarkLoad() : WorldScript("CoADungeonBossMarkLoad", { WORLDHOOK_ON_STARTUP }) { }
+
+    void OnStartup() override
+    {
+        MarkBosses.clear();
+        if (QueryResult result = WorldDatabase.Query("SELECT entry FROM coa_dungeon_mark_bosses"))
+        {
+            do
+            {
+                MarkBosses.insert(result->Fetch()[0].Get<uint32>());
+            } while (result->NextRow());
+        }
+        LOG_INFO("server.loading", ">> Loaded {} CoA dungeon bosses that give a Mark of Triumph on Heroic and Mythic", MarkBosses.size());
+    }
+};
+
+class CoADungeonBossMark final : public UnitScript
+{
+public:
+    CoADungeonBossMark() : UnitScript("CoADungeonBossMark", true, { UNITHOOK_ON_UNIT_DEATH }) { }
+
+    void OnUnitDeath(Unit* unit, Unit*) override
+    {
+        Creature const* boss = unit ? unit->ToCreature() : nullptr;
+        if (!boss || !MarkBosses.count(boss->GetEntry()) || !IsHeroicOrMythicVanillaDungeon(boss->GetMap()))
+            return;
+        boss->GetMap()->DoForAllPlayers([](Player* player)
+        {
+            player->AddItem(MarkOfTriumph, 1);
+        });
+    }
+};
+
 void AddSC_CoADungeonSpoils()
 {
     new item_coa_dungeon_spoils();
     new CoADungeonSpoilsOpen();
     new CoADungeonSpoilsLevel();
     new CoADungeonFinalBossReward();
+    new CoADungeonBossMarkLoad();
+    new CoADungeonBossMark();
 }

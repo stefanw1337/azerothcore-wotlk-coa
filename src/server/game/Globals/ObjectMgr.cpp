@@ -21,6 +21,7 @@
 #include "ArenaTeamMgr.h"
 #include "CharacterCache.h"
 #include "Chat.h"
+#include "CoANameFilter.h"
 #include "Common.h"
 #include "Config.h"
 #include "Containers.h"
@@ -6762,7 +6763,13 @@ void ObjectMgr::LoadInstanceEncounters()
                         LOG_ERROR("sql.sql", "Table `instance_encounters` has an invalid creature (entry {}) linked to the encounter {} ({}), skipped!", creditEntry, entry, dungeonEncounter->encounterName[0]);
                         continue;
                     }
-                    const_cast<CreatureTemplate*>(creatureInfo)->flags_extra |= CREATURE_FLAG_EXTRA_DUNGEON_BOSS;
+                    // Raid bosses get encounter credit without the dungeon-boss flag, which also drives
+                    // 5-man rewards and mechanics.
+                    MapEntry const* mapEntry = sMapStore.LookupEntry(dungeonEncounter->mapId);
+                    if (mapEntry && mapEntry->IsRaid())
+                        _raidEncounterKillCreditStore.insert(creditEntry);
+                    else
+                        const_cast<CreatureTemplate*>(creatureInfo)->flags_extra |= CREATURE_FLAG_EXTRA_DUNGEON_BOSS;
                     break;
                 }
             case ENCOUNTER_CREDIT_CAST_SPELL:
@@ -7660,6 +7667,10 @@ AreaTriggerTeleport const* ObjectMgr::GetGoBackTrigger(uint32 Map) const
  */
 AreaTriggerTeleport const* ObjectMgr::GetMapEntranceTrigger(uint32 Map) const
 {
+    // Exits from linked instances (e.g. Blackwing Lair into Blackrock Spire) also target this map, and the store is
+    // unordered: prefer triggers placed outside instances, then the lowest trigger id.
+    AreaTriggerTeleport const* best = nullptr;
+    std::pair<bool, uint32> bestRank;
     for (AreaTriggerTeleportContainer::const_iterator itr = _areaTriggerTeleportStore.begin(); itr != _areaTriggerTeleportStore.end(); ++itr)
     {
         if (itr->second.target_mapId == Map) // Id is used to determine correct Scarlet Monastery instance
@@ -7667,10 +7678,17 @@ AreaTriggerTeleport const* ObjectMgr::GetMapEntranceTrigger(uint32 Map) const
             // xinef: no need to check, already done at loading
             //AreaTriggerEntry const* atEntry = sAreaTriggerStore.LookupEntry(itr->first);
             //if (atEntry)
-            return &itr->second;
+            AreaTrigger const* source = GetAreaTrigger(itr->first);
+            MapEntry const* sourceMap = source ? sMapStore.LookupEntry(source->map) : nullptr;
+            std::pair<bool, uint32> rank(!sourceMap || sourceMap->Instanceable(), itr->first);
+            if (!best || rank < bestRank)
+            {
+                best = &itr->second;
+                bestRank = rank;
+            }
         }
     }
-    return nullptr;
+    return best;
 }
 
 void ObjectMgr::SetHighestGuids()
@@ -9198,12 +9216,44 @@ void ObjectMgr::LoadProfanityNamesFromDBC()
         boost::algorithm::replace_all(wstr, "\\<", "");
         boost::algorithm::replace_all(wstr, "\\>", "");
 
+        if (wstr == L"damn" || wstr == L"crap" || wstr == L"butt" || wstr == L"poop")
+            continue;
+
         _profanityNamesStore.insert(wstr);
         count++;
     }
 
     LOG_INFO("server.loading", ">> Loaded {} profanity names from DBC in {} ms", count, GetMSTimeDiffToNow(oldMSTime));
     LOG_INFO("server.loading", " ");
+}
+
+void ObjectMgr::LoadCoANameFilter()
+{
+    uint32 oldMSTime = getMSTime();
+    _coaNameFilterStore.clear();
+
+    WorldDatabasePreparedStatement* stmt = WorldDatabase.GetPreparedStatement(WORLD_SEL_COA_NAME_FILTER);
+    PreparedQueryResult result = WorldDatabase.Query(stmt);
+    if (!result)
+    {
+        LOG_WARN("server.loading", ">> Loaded 0 CoA name filter terms. DB table `coa_name_filter` is empty!");
+        return;
+    }
+
+    do
+    {
+        std::string term = CoANameFilter::Normalize(result->Fetch()[0].Get<std::string>());
+        if (term.empty())
+        {
+            LOG_ERROR("sql.sql", "Table `coa_name_filter` contains a term with no normalized letters");
+            continue;
+        }
+
+        _coaNameFilterStore.insert(term);
+    } while (result->NextRow());
+
+    LOG_INFO("server.loading", ">> Loaded {} CoA name filter terms in {} ms",
+        _coaNameFilterStore.size(), GetMSTimeDiffToNow(oldMSTime));
 }
 
 bool ObjectMgr::IsProfanityName(std::string_view name) const
@@ -9218,7 +9268,12 @@ bool ObjectMgr::IsProfanityName(std::string_view name) const
 
     wstrToLower(wstr);
 
-    return _profanityNamesStore.find(wstr) != _profanityNamesStore.end();
+    if (_profanityNamesStore.find(wstr) != _profanityNamesStore.end())
+        return true;
+
+    std::string normalized = CoANameFilter::Normalize(name);
+    return std::any_of(_coaNameFilterStore.begin(), _coaNameFilterStore.end(),
+        [&normalized](std::string const& term) { return normalized.find(term) != std::string::npos; });
 }
 
 void ObjectMgr::AddProfanityPlayerName(std::string const& name)

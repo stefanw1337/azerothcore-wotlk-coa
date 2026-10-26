@@ -117,6 +117,7 @@ class Context:
     world_databases: str | None = None
     gameplay_db_workers: int = 1
     gameplay_real_pace_rerun: bool = False
+    allow_historical_sql: bool = False
 
 
 def absolute(value, base):
@@ -450,13 +451,14 @@ def read_tail(path):
     return read_text(path)[-TAIL:]
 
 
-def source_command(base):
-    return [sys.executable, '-B', 'tools/check_source.py', *(['--base', base] if base else ['--all'])]
+def source_command(base, allow_historical_sql=False):
+    return [sys.executable, '-B', 'tools/check_source.py', *(['--base', base] if base else ['--all']),
+            *(['--allow-historical-sql'] if allow_historical_sql else [])]
 
 
 def stage_source(context, log):
-    outcome = run_captured(source_command(context.base), child_environment(context.environment), context.root)
-    log.write_text(f'$ {command_text(source_command(context.base))}\n{outcome.stdout}{outcome.stderr}',
+    outcome = run_captured(source_command(context.base, context.allow_historical_sql), child_environment(context.environment), context.root)
+    log.write_text(f'$ {command_text(source_command(context.base, context.allow_historical_sql))}\n{outcome.stdout}{outcome.stderr}',
                    encoding='utf-8')
     try:
         data = json.loads(outcome.stdout)
@@ -1163,7 +1165,7 @@ def stage_plan(name, context):
         return {'selected': False}
     plan = {'selected': True}
     if name == 'source':
-        plan['commands'] = [source_command(context.base)]
+        plan['commands'] = [source_command(context.base, context.allow_historical_sql)]
     elif name == 'build':
         cmake = cmake_program(context)
         if cmake is None:
@@ -1259,6 +1261,8 @@ def parser():
     result.add_argument('--harness', nargs='+', action='extend', metavar='NAME',
                         help='Harness scripts by directory name or file stem')
     result.add_argument('--base', help='Source checks for the diff against this Git ref instead of --all')
+    result.add_argument('--allow-historical-sql', action='store_true',
+                        help='Only for explicitly authorized upstream or historical SQL integration')
     result.add_argument('--jobs', type=positive_integer, help='Build, unit and harness parallelism')
     result.add_argument('--gameplay-clock', choices=GAMEPLAY_CLOCKS, default=SIMULATED_CLOCK,
                         help='Gameplay clock: one accelerated worldserver, or the real-clock reference '
@@ -1367,7 +1371,7 @@ def prepare(args, root, environment):
     scenarios = resolve_scenarios(args) if 'gameplay' in stages else []
     context = Context(root, raw, settings, output, stages, jobs, gameplay_jobs, args.gameplay_clock, gameplay_lanes,
                       args.base, scenarios, harness, environment, args.world_databases,
-                      gameplay_db_workers(args, raw), args.gameplay_real_pace_rerun)
+                      gameplay_db_workers(args, raw), args.gameplay_real_pace_rerun, args.allow_historical_sql)
     check_command_length(context)
     if not args.plan:
         context.output = claim_output(requested, root)

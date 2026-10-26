@@ -56,7 +56,7 @@ void WorldConfig::BuildConfigCache()
     auto const validXPRate = [](float const& value) { return std::isfinite(value) && value >= 0.0f; };
     SetConfigValue<float>(RATE_XP_GLOBAL, "Rate.XP.Global", 0.9295f,
         ConfigValueCache::Reloadable::Yes, validXPRate, "finite and >= 0");
-    SetConfigValue<float>(RATE_XP_PROFESSION, "Rate.XP.Profession", 0.4f,
+    SetConfigValue<float>(RATE_XP_PROFESSION, "Rate.XP.Profession", 0.2f,
         ConfigValueCache::Reloadable::Yes, validXPRate, "finite and >= 0");
     SetConfigValue<float>(RATE_XP_PROFESSION_BASE_FRACTION, "Rate.XP.Profession.BaseFraction", 0.02f,
         ConfigValueCache::Reloadable::Yes, validXPRate, "finite and >= 0");
@@ -73,6 +73,8 @@ void WorldConfig::BuildConfigCache()
     SetConfigValue<float>(RATE_XP_PROFESSION_HERBALISM, "Rate.XP.Profession.Herbalism", 1.44f,
         ConfigValueCache::Reloadable::Yes, validXPRate, "finite and >= 0");
     SetConfigValue<float>(RATE_XP_PROFESSION_DISENCHANTING, "Rate.XP.Profession.Disenchanting", 1.44f,
+        ConfigValueCache::Reloadable::Yes, validXPRate, "finite and >= 0");
+    SetConfigValue<float>(RATE_XP_PROFESSION_SMELTING, "Rate.XP.Profession.Smelting", 0.0f,
         ConfigValueCache::Reloadable::Yes, validXPRate, "finite and >= 0");
     SetConfigValue<float>(RATE_XP_PROFESSION_SKINNING, "Rate.XP.Profession.Skinning", 0.55f,
         ConfigValueCache::Reloadable::Yes, validXPRate, "finite and >= 0");
@@ -264,6 +266,8 @@ void WorldConfig::BuildConfigCache()
     SetConfigValue<bool>(CONFIG_ALLOW_TWO_SIDE_INTERACTION_GUILD, "AllowTwoSide.Interaction.Guild", false);
     SetConfigValue<bool>(CONFIG_ALLOW_TWO_SIDE_INTERACTION_ARENA, "AllowTwoSide.Interaction.Arena", false);
     SetConfigValue<bool>(CONFIG_ALLOW_TWO_SIDE_INTERACTION_AUCTION, "AllowTwoSide.Interaction.Auction", false);
+    SetConfigValue<bool>(CONFIG_ALLOW_TWO_SIDE_INTERACTION_MAIL, "AllowTwoSide.Interaction.Mail", true);
+    SetConfigValue<bool>(CONFIG_ALLOW_TWO_SIDE_TRADE, "AllowTwoSide.Trade", true);
     SetConfigValue<bool>(CONFIG_ALLOW_TWO_SIDE_WHO_LIST, "AllowTwoSide.WhoList", true);
 
     SetConfigValue<uint32>(CONFIG_MIN_PLAYER_NAME, "MinPlayerName", 2, ConfigValueCache::Reloadable::Yes, [](uint32 const& value) { return value > 0 && value <= MAX_PLAYER_NAME_PART; }, "> 0 && <= MAX_PLAYER_NAME_PART");
@@ -360,6 +364,17 @@ void WorldConfig::BuildConfigCache()
     SetConfigValue<bool>(CONFIG_CLASSIC_PLUS_COMBAT_RULES, "ClassicPlus.CombatRules", true);
     SetConfigValue<bool>(CONFIG_CLASSIC_PLUS_STAT_FORMULAS, "ClassicPlus.StatFormulas", true);
     SetConfigValue<bool>(CONFIG_CLASSIC_PLUS_REPUTATION_SPILLOVER, "ClassicPlus.ReputationSpillover", true);
+    SetConfigValue<bool>(CONFIG_MONSTER_RESISTANCE_ENABLE, "CoA.MonsterResistance.Enable", true);
+    SetConfigValue<float>(CONFIG_MONSTER_RESISTANCE_PER_LEVEL, "CoA.MonsterResistance.PerLevel", 1.0f,
+        ConfigValueCache::Reloadable::Yes,
+        [](float const& value) { return std::isfinite(value) && value >= 0.0f; }, "finite and >= 0");
+    SetConfigValue<float>(CONFIG_MONSTER_RESISTANCE_PER_PERCENT, "CoA.MonsterResistance.PerPercent", 5.0f,
+        ConfigValueCache::Reloadable::Yes,
+        [](float const& value) { return std::isfinite(value) && value > 0.0f; }, "finite and > 0");
+    SetConfigValue<float>(CONFIG_MONSTER_RESISTANCE_MAX_REDUCTION_PCT, "CoA.MonsterResistance.MaxReductionPct", 75.0f,
+        ConfigValueCache::Reloadable::Yes,
+        [](float const& value) { return std::isfinite(value) && value >= 0.0f && value <= 100.0f; },
+        "finite and between 0 and 100");
 
     SetConfigValue<bool>(CONFIG_OBJECT_QUEST_MARKERS, "Visibility.ObjectQuestMarkers", true);
 
@@ -658,7 +673,7 @@ void WorldConfig::BuildConfigCache()
     SetConfigValue<bool>(CONFIG_DBC_ENFORCE_ITEM_ATTRIBUTES, "DBC.EnforceItemAttributes", true);
 
     // Max instances per hour
-    SetConfigValue<uint32>(CONFIG_MAX_INSTANCES_PER_HOUR, "AccountInstancesPerHour", 5);
+    SetConfigValue<uint32>(CONFIG_MAX_INSTANCES_PER_HOUR, "AccountInstancesPerHour", 10);
 
     // AutoBroadcast
     SetConfigValue<bool>(CONFIG_AUTOBROADCAST, "AutoBroadcast.On", false);

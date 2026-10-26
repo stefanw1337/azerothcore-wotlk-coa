@@ -19,6 +19,7 @@ enum MercenarySpells : uint32
 };
 
 constexpr uint8 MERCENARY_MIN_LEVEL = 20;
+constexpr uint32 MERCENARY_FACTION_TEMPLATE = 1163;
 constexpr int32 MERCENARY_CRIMINAL_DURATION = 8 * MINUTE * IN_MILLISECONDS;
 
 bool IsPvPRuleset(Unit const* unit)
@@ -42,6 +43,42 @@ class spell_ascension_mercenary : public SpellScript
     }
 
     void Register() override { OnCheckCast += SpellCheckCastFn(spell_ascension_mercenary::CheckCast); }
+};
+
+void SetMercenaryFaction(Player* player, uint32 factionTemplate)
+{
+    player->SetFaction(factionTemplate);
+    for (Unit* controlled : player->m_Controlled)
+        if (controlled->GetOwnerGUID() == player->GetGUID())
+            controlled->SetFaction(factionTemplate);
+}
+
+class spell_ascension_mercenary_aura : public AuraScript
+{
+    PrepareAuraScript(spell_ascension_mercenary_aura);
+
+    void HandleApply(AuraEffect const*, AuraEffectHandleModes)
+    {
+        if (Player* player = GetTarget()->ToPlayer())
+            SetMercenaryFaction(player, MERCENARY_FACTION_TEMPLATE);
+    }
+
+    void HandleRemove(AuraEffect const*, AuraEffectHandleModes)
+    {
+        if (Player* player = GetTarget()->ToPlayer())
+        {
+            player->SetFactionForRace(player->getRace(true));
+            SetMercenaryFaction(player, player->GetFaction());
+        }
+    }
+
+    void Register() override
+    {
+        AfterEffectApply += AuraEffectApplyFn(spell_ascension_mercenary_aura::HandleApply, EFFECT_0,
+                                              SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL);
+        AfterEffectRemove += AuraEffectRemoveFn(spell_ascension_mercenary_aura::HandleRemove, EFFECT_0,
+                                                SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL);
+    }
 };
 
 class spell_ascension_mercenary_loyalty : public SpellScript
@@ -137,7 +174,7 @@ private:
 
 void AddSC_AscensionMercenary()
 {
-    RegisterSpellScript(spell_ascension_mercenary);
+    RegisterSpellAndAuraScriptPair(spell_ascension_mercenary, spell_ascension_mercenary_aura);
     RegisterSpellScript(spell_ascension_mercenary_loyalty);
     new ascension_mercenary_reaction();
     new ascension_mercenary_player();

@@ -50,6 +50,16 @@ LocalLevelScaling::QuestCurve const* CurveFor(std::uint32_t questId)
     return itr == curves.end() ? nullptr : &itr->second;
 }
 
+void CorrectKnownRows()
+{
+    constexpr std::uint32_t DiscoverRolfsFate = 45;
+    constexpr std::int32_t ElwynnScalingCap = 60;
+
+    auto itr = curves.find(DiscoverRolfsFate);
+    if (itr != curves.end() && itr->second.MaxLevel < ElwynnScalingCap)
+        itr->second.MaxLevel = ElwynnScalingCap;
+}
+
 class Configuration : public WorldScript
 {
 public:
@@ -78,6 +88,7 @@ public:
             return;
         }
 
+        CorrectKnownRows();
         loaded.store(true, std::memory_order_release);
         LOG_INFO("server.loading", ">> Loaded {} quest scaling curves in {} ms", curves.size(),
             GetMSTimeDiffToNow(started));

@@ -99,8 +99,14 @@ namespace
     constexpr uint32 UNIT_DYNFLAG_LEVEL_SCALING = 0x100;
 
     /// The dungeon finder entries whose dungeons scale: the classic five-player dungeons the client's own
-    /// scaling list names.
-    constexpr char DEFAULT_SCALING_DUNGEONS[] = "1 4 6 8 10 12 14 16 18 20 22 24 26 28 163 164 165 272 273";
+    /// scaling list names, plus Blackrock Depths, Lower and Upper Blackrock Spire, Dire Maul, Stratholme
+    /// and Scholomance, the classic dungeons the client list leaves out.
+    constexpr char DEFAULT_SCALING_DUNGEONS[] = "1 2 4 6 8 10 12 14 16 18 20 22 24 26 28 30 32 34 36 38 40 44 51 54 163 164 165 272 273 274 276 601 402";
+
+    /// Finder entries whose band is set here instead of read from LFGDungeons.dbc, as `entry:low-high`:
+    /// Road to De Other Side scales with the character like the classic dungeons (15-59), while its finder row
+    /// admits 10-59.
+    constexpr char DEFAULT_SCALING_BANDS[] = "402:15-59";
 
     /// Where a view can exist at all: the open-world maps, and the classic dungeons with the band their
     /// creatures are held inside. Built on every config load and at startup, and published whole, so a
@@ -130,7 +136,31 @@ namespace
         return ids;
     }
 
-    /// The bands come from LFGDungeons.dbc. The first config load runs before the store is filled, so
+    std::unordered_map<uint32, LocalLevelScaling::LevelBand> ConfigBands()
+    {
+        std::unordered_map<uint32, LocalLevelScaling::LevelBand> bands;
+        std::string const value = sConfigMgr->GetOption<std::string>("DestinyWeaver.Scaling.DungeonBands",
+                                                                     DEFAULT_SCALING_BANDS);
+        for (std::string_view token : Acore::Tokenize(value, ' ', false))
+        {
+            std::vector<std::string_view> entry = Acore::Tokenize(token, ':', false);
+            if (entry.size() != 2)
+                continue;
+            std::vector<std::string_view> levels = Acore::Tokenize(entry[1], '-', false);
+            if (levels.size() != 2)
+                continue;
+            Optional<uint32> dungeonId = Acore::StringTo<uint32>(entry[0]);
+            Optional<uint32> low = Acore::StringTo<uint32>(levels[0]);
+            Optional<uint32> high = Acore::StringTo<uint32>(levels[1]);
+            if (dungeonId && low && high)
+                bands[*dungeonId] = LocalLevelScaling::DungeonBandFromFinder(*low, *high);
+        }
+        return bands;
+    }
+
+    /// The bands come from LFGDungeons.dbc unless DestinyWeaver.Scaling.DungeonBands sets one. An entry with a band
+    /// of its own scales even when DestinyWeaver.Scaling.DungeonIds leaves it out: a config written before the entry
+    /// joined the default list still has the old list. The first config load runs before the store is filled, so
     /// it publishes a scope without dungeons; startup publishes the complete one.
     void PublishScope()
     {
@@ -138,14 +168,21 @@ namespace
         for (uint32 mapId : ConfigIds("DestinyWeaver.Scaling.WorldMaps", "0 1"))
             scope->WorldMaps.insert(mapId);
 
-        for (uint32 dungeonId : ConfigIds("DestinyWeaver.Scaling.DungeonIds", DEFAULT_SCALING_DUNGEONS))
+        std::unordered_map<uint32, LocalLevelScaling::LevelBand> const configured = ConfigBands();
+        std::vector<uint32> dungeonIds = ConfigIds("DestinyWeaver.Scaling.DungeonIds", DEFAULT_SCALING_DUNGEONS);
+        for (auto const& [dungeonId, band] : configured)
+            if (std::find(dungeonIds.begin(), dungeonIds.end(), dungeonId) == dungeonIds.end())
+                dungeonIds.push_back(dungeonId);
+
+        for (uint32 dungeonId : dungeonIds)
         {
             LFGDungeonEntry const* dungeon = sLFGDungeonStore.LookupEntry(dungeonId);
             if (!dungeon)
                 continue;
 
-            LocalLevelScaling::LevelBand const band =
-                LocalLevelScaling::DungeonBandFromFinder(dungeon->TargetLevelMin, dungeon->MaxLevel);
+            auto const fixed = configured.find(dungeonId);
+            LocalLevelScaling::LevelBand const band = fixed != configured.end() ? fixed->second
+                : LocalLevelScaling::DungeonBandFromFinder(dungeon->TargetLevelMin, dungeon->MaxLevel);
             auto [itr, inserted] = scope->DungeonBands.try_emplace(dungeon->MapID, band);
             if (!inserted)
                 itr->second = LocalLevelScaling::MergeBands(itr->second, band);
@@ -229,10 +266,10 @@ namespace
     /// These exclusions are not optional: a creature that belongs to somebody - a pet, a guardian, a
     /// summon, a totem, a charmed unit - must never be re-levelled, and neither must a trigger, a
     /// critter or a non-combat pet, which are scenery with a health bar. A world boss is authored for a
-    /// raid at its level, and a creature that serves (any npcflag) or cannot be fought keeps its level
-    /// for everyone. Those two are read from the creature's spawn and template rather than from its
-    /// live flags, which scripts toggle during events: a client caches the level it was told, so the
-    /// view must not appear and vanish with them.
+    /// raid at its level, and a creature that cannot be fought keeps its level for everyone. A creature
+    /// that serves (any npcflag but gossip) is decided per character in `ViewableBy`. Both flags are read
+    /// from the creature's spawn and template rather than from its live flags, which scripts toggle during
+    /// events: a client caches the level it was told, so the view must not appear and vanish with them.
     ///
     /// The maps are the open world the realm lists and the classic dungeons with a band. Raids,
     /// battlegrounds and arenas never scale, and neither does CoA's scripted private content. A dungeon
@@ -273,8 +310,22 @@ namespace
         uint32 unitFlags = 0;
         uint32 dynamicFlags = 0;
         ObjectMgr::ChooseCreatureFlags(info, npcFlags, unitFlags, dynamicFlags, creature->GetCreatureData());
-        return !npcFlags &&
-               !(unitFlags & (UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_IMMUNE_TO_PC));
+        return !(unitFlags & (UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_IMMUNE_TO_PC));
+    }
+
+    /// Whether a creature offers a service (any npcflag but gossip), read from its spawn and template for
+    /// the same reason as in `ViewableCreature`.
+    bool Serves(Creature const* creature)
+    {
+        CreatureTemplate const* info = creature->GetCreatureTemplate();
+        if (!info)
+            return false;
+
+        uint32 npcFlags = 0;
+        uint32 unitFlags = 0;
+        uint32 dynamicFlags = 0;
+        ObjectMgr::ChooseCreatureFlags(info, npcFlags, unitFlags, dynamicFlags, creature->GetCreatureData());
+        return (npcFlags & ~UNIT_NPC_FLAG_GOSSIP) != 0;
     }
 
     /// Whether this character's version of this creature is theirs to fight.
@@ -285,13 +336,19 @@ namespace
     /// immunities and flags, so a creature would appear and vanish as a view depending on whether it
     /// could be seen at that instant - and a client caches the level it was told, so the level it
     /// displays would flap with it. The reaction is faction and faction state: hostile and neutral
-    /// creatures scale for a character, friendly ones do not.
+    /// creatures scale for a character, friendly ones do not. A creature that serves scales only for a
+    /// character it is hostile to, who cannot use its service: the Hillsbrad Fields smiths are vendors
+    /// to the Alliance and quest kills for the Horde, while a neutral goblin vendor stays at its level.
     ///
     /// Deliberately not excluded: a game master. A view is only ever one client's, so a GM who turned
     /// scaling on sees the same world a player would.
     bool ViewableBy(Player const* viewer, Creature const* creature)
     {
-        return viewer && creature && viewer->GetReactionTo(creature) <= REP_NEUTRAL;
+        if (!viewer || !creature)
+            return false;
+
+        ReputationRank const reaction = viewer->GetReactionTo(creature);
+        return Serves(creature) ? reaction < REP_NEUTRAL : reaction <= REP_NEUTRAL;
     }
 
     bool ViewFor(Creature const* creature, Player* viewer, CreatureView& view)

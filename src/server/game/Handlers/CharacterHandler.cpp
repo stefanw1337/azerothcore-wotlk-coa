@@ -25,6 +25,7 @@
 #include "CharacterCache.h"
 #include "CharacterPackets.h"
 #include "Chat.h"
+#include "CoAPortableSession.h"
 #include "Common.h"
 #include "Config.h"
 #include "DatabaseEnv.h"
@@ -216,6 +217,10 @@ bool LoginQueryHolder::Initialize()
     stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_CHAR_ACHIEVEMENT_OFFLINE_UPDATES);
     stmt->SetData(0, rawGUID);
     res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_OFFLINE_ACHIEVEMENTS_UPDATES, stmt);
+
+    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_PORTABLE_SESSION);
+    stmt->SetData(0, m_guid.GetCounter());
+    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_PORTABLE_SESSION, stmt);
 
     return res;
 }
@@ -1194,6 +1199,8 @@ void WorldSession::HandlePlayerLoginFromDB(LoginQueryHolder const& holder)
         }
     }
 
+    _rafRewardSession = 0;
+    UpdateRecruitAFriendRewards(true);
     sScriptMgr->OnPlayerLogin(pCurrChar);
 
     if (pCurrChar->HasAtLoginFlag(AT_LOGIN_FIRST))
@@ -1201,6 +1208,8 @@ void WorldSession::HandlePlayerLoginFromDB(LoginQueryHolder const& holder)
         pCurrChar->RemoveAtLoginFlag(AT_LOGIN_FIRST);
         sScriptMgr->OnPlayerFirstLogin(pCurrChar);
     }
+
+    CoAPortableSession::OnLoginComplete(pCurrChar, holder.GetPreparedResult(PLAYER_LOGIN_QUERY_LOAD_PORTABLE_SESSION));
 
     METRIC_EVENT("player_events", "Login", pCurrChar->GetName());
 }

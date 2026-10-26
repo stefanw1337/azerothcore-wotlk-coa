@@ -1,10 +1,6 @@
-// Every login, an added race (12 and up, CoaCustomRacials.h) ends up with exactly its own racials: the ones it should
-// have are learned, racials of other races (Esteria's, or our older CoA set it used to have) are removed, and the
-// borrowed vanilla racial lines are stripped. Creation only covers new characters; this covers the existing ones too,
-// for every class (AscensionCompat's own sync only runs for the CoA classes).
-
 #include "CoaCustomRacials.h"
 #include "DBCStores.h"
+#include "Config.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellMgr.h"
@@ -38,6 +34,9 @@ public:
 
     void OnPlayerLogin(Player* player) override
     {
+        if (!sConfigMgr->GetOption<bool>("CoACustomRaces.Enable", false))
+            return;
+
         CoaCustomRacial const* own = GetCoaCustomRacial(player->getRace(true));
         if (!own)
             return;

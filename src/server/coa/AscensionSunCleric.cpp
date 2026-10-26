@@ -114,7 +114,11 @@ void SetHelper(Player* player, uint32 id, bool enabled)
         Cast(player, player, id);
     else if (!enabled)
         player->RemoveAurasDueToSpell(id);
-    if (enabled && id == FortuitousHelper)
+}
+void KeepHelper(Player* player, uint32 id, bool enabled)
+{
+    SetHelper(player, id, enabled);
+    if (enabled)
         if (Aura* aura = player->GetAura(id))
             if (aura->GetDuration() >= 0 || aura->GetMaxDuration() >= 0)
             {
@@ -214,7 +218,10 @@ void Extend(Player* player, uint32 id, int32 milliseconds)
     Aura* aura = player->GetAura(id);
     if (!aura)
     {
+        bool const wasOnCooldown = player->HasSpellCooldown(id);
         Cast(player, player, id);
+        if (!wasOnCooldown && player->HasSpellCooldown(id))
+            player->RemoveSpellCooldown(id, true);
         aura = player->GetAura(id);
         if (aura)
             aura->SetDuration(milliseconds);
@@ -257,7 +264,7 @@ void ActivateDawn(Player* player)
     Resource(player, SolarPower, -20);
     Cast(player, player, Dawn);
     if (Aura* aura = player->GetAura(Dawn))
-        aura->SetCharges(10);
+        aura->SetCharges(aura->CalcMaxCharges());
     if (AuraEffect* choice = player->GetAuraEffect(Dawn, EFFECT_0))
         choice->SetAmount(1);
     if (player->HasAura(704586))
@@ -348,7 +355,7 @@ void Refresh(Player* player)
     bool healthy = state.healthyAbove80;
     for (auto [talent, helper] : {std::pair(Fortuitous, FortuitousHelper), std::pair(704585u, 707769u),
                                 std::pair(805267u, 807876u), std::pair(300314u, 301341u)})
-        SetHelper(player, helper, healthy && player->HasAura(talent));
+        KeepHelper(player, helper, healthy && player->HasAura(talent));
     bool day = player->IsAlive() && Daytime();
     SetHelper(player, 707768, day && player->HasAura(707078));
     int32 extraHaste = 0;

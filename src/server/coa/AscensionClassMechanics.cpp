@@ -39,7 +39,13 @@
 #include "AscensionHealingStatSelectors.h"
 #include "AscensionGuardianResources.h"
 #include "AscensionSpellProgressionData.h"
+#include "AscensionWarcraftRebornDruid.h"
+#include "AscensionWarcraftRebornHunter.h"
+#include "AscensionWarcraftRebornMage.h"
 #include "AscensionWarcraftRebornPaladin.h"
+#include "AscensionWarcraftRebornPriest.h"
+#include "AscensionWarcraftRebornRogue.h"
+#include "AscensionWarcraftRebornWarlock.h"
 #include "AscensionWarcraftRebornWarrior.h"
 #include "Cell.h"
 #include "CellImpl.h"
@@ -1087,10 +1093,19 @@ void ApplyAscensionClassMechanics(SpellInfo* spellInfo)
 
     ApplyAscensionGuardianResourceContracts(spellInfo);
 
+    if (spellInfo->Id == 707188)
+        spellInfo->Effects[EFFECT_1].ApplyAuraName = SPELL_AURA_DUMMY;
+
     ApplyAscensionClassMechanics19To25(spellInfo);
     ApplyAscensionBarbarianSpellChanges(spellInfo);
     ApplyAscensionWarcraftRebornWarriorContracts(spellInfo);
     ApplyAscensionWarcraftRebornPaladinContracts(spellInfo);
+    ApplyAscensionWarcraftRebornHunterContracts(spellInfo);
+    ApplyAscensionWarcraftRebornRogueContracts(spellInfo);
+    ApplyAscensionWarcraftRebornPriestContracts(spellInfo);
+    ApplyAscensionWarcraftRebornMageContracts(spellInfo);
+    ApplyAscensionWarcraftRebornWarlockContracts(spellInfo);
+    ApplyAscensionWarcraftRebornDruidContracts(spellInfo);
     ApplyTinkerScrapResourceContract(spellInfo);
     ApplyTinkerScrapperContract(spellInfo);
     ApplyRangerFixedDurationContract(spellInfo);
@@ -1466,6 +1481,12 @@ void HandleAscensionClassMechanicsCast(Spell* spell)
         return;
 
     SpellInfo const* info = spell->GetSpellInfo();
+    if (player->getClass() == CLASS_WARLOCK && info->Id == 217364 &&
+        !player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND))
+    {
+        if (Unit* target = spell->GetOriginalTarget())
+            player->CastSpell(target, 281295, true);
+    }
     if (UsesAscensionClassMechanics(player, CLASS_GUARDIAN))
         HandleGuardianSpellCast(player, info);
 

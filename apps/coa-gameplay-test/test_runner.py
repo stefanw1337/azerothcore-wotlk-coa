@@ -39,7 +39,7 @@ class RunnerTests(unittest.TestCase):
                 run.validate(self.scenario)
 
     def test_nearby_creature_count_filters_require_valid_scope_and_ranges(self):
-        for filters in ({}, {'min_level': 16, 'max_level': 17}, {'min_home_distance': 1}):
+        for filters in ({}, {'min_level': 16, 'max_level': 17}, {'min_home_distance': 1}, {'spell': 210866}):
             scenario = copy.deepcopy(self.scenario)
             scenario['steps'].append({'action': 'assert', 'actor': 'caster',
                                      'metric': 'nearby_creature_count', 'entry': 2070, 'equals': 2, **filters})
@@ -48,7 +48,8 @@ class RunnerTests(unittest.TestCase):
         for filters in ({'min_level': 0}, {'max_level': 256}, {'min_level': 17, 'max_level': 16},
                         {'min_level': '16'}, {'min_level': True}, {'max_level': 16.5},
                         {'min_home_distance': -1}, {'min_home_distance': float('nan')},
-                        {'min_home_distance': float('inf')}, {'min_home_distance': True}):
+                        {'min_home_distance': float('inf')}, {'min_home_distance': True},
+                        {'spell': 0}, {'spell': '210866'}, {'spell': True}):
             scenario = copy.deepcopy(self.scenario)
             scenario['steps'].append({'action': 'assert', 'actor': 'caster',
                                      'metric': 'nearby_creature_count', 'entry': 2070, 'equals': 2, **filters})
@@ -264,6 +265,48 @@ class RunnerTests(unittest.TestCase):
             scenario = copy.deepcopy(self.scenario)
             scenario['creature_scaling'] = value
             with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'creature_scaling must be boolean'):
+                run.validate(scenario)
+
+    def test_vanity_ownership_needs_unlock_all_and_accepts_starter_item_ids(self):
+        for value in ({'unlock_all': False}, {'unlock_all': True, 'starter_items': []},
+                      {'unlock_all': False, 'starter_items': [98457, 134987]}):
+            scenario = copy.deepcopy(self.scenario)
+            scenario['vanity_ownership'] = value
+            self.assertIs(run.validate(scenario), scenario)
+        for value, error in (({}, 'vanity_ownership'), ({'unlock_all': 0}, 'unlock_all must be boolean'),
+                             ({'unlock_all': False, 'starter_items': 98457}, 'starter_items must be a list'),
+                             ({'unlock_all': False, 'starter_items': [0]}, 'vanity_ownership.starter_items'),
+                             ({'unlock_all': False, 'starter_items': ['98457']}, 'vanity_ownership.starter_items'),
+                             ({'unlock_all': False, 'extra': 1}, 'vanity_ownership')):
+            scenario = copy.deepcopy(self.scenario)
+            scenario['vanity_ownership'] = value
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, error):
+                run.validate(scenario)
+
+    def test_two_side_accepts_boolean_trade_and_mail(self):
+        for value in ({}, {'trade': True}, {'trade': False, 'mail': True}):
+            scenario = copy.deepcopy(self.scenario)
+            scenario['two_side'] = value
+            self.assertIs(run.validate(scenario), scenario)
+        for value, error in ((True, 'two_side: expected an object'), ({'trade': 1}, 'two_side.trade must be boolean'),
+                             ({'mail': 'true'}, 'two_side.mail must be boolean'), ({'auction': True}, 'two_side')):
+            scenario = copy.deepcopy(self.scenario)
+            scenario['two_side'] = value
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, error):
+                run.validate(scenario)
+
+    def test_game_event_needs_an_event_id_and_a_boolean_state(self):
+        for step in ({'action': 'game_event', 'event': 12, 'active': True},
+                     {'action': 'game_event', 'event': 12, 'active': False}):
+            scenario = copy.deepcopy(self.scenario)
+            scenario['steps'].insert(0, step)
+            self.assertIs(run.validate(scenario), scenario)
+        for step, error in (({'action': 'game_event', 'event': 12, 'active': 1}, 'active must be boolean'),
+                            ({'action': 'game_event', 'event': 0, 'active': True}, r'\.event'),
+                            ({'action': 'game_event', 'event': 12}, 'step 0')):
+            scenario = copy.deepcopy(self.scenario)
+            scenario['steps'].insert(0, step)
+            with self.subTest(step=step), self.assertRaisesRegex(ValueError, error):
                 run.validate(scenario)
 
     def test_hour_timezone_is_a_posix_offset_placing_local_time_at_the_start_of_that_hour(self):
@@ -571,13 +614,14 @@ class RunnerTests(unittest.TestCase):
 
     def test_native_client_upload_actions(self):
         self.scenario['steps'].extend([
-            {'action': 'specialization', 'actor': 'caster', 'id': 60},
+            {'action': 'specialization', 'actor': 'caster', 'id': 60, 'entries': [31194]},
             {'action': 'advancement_rank', 'actor': 'caster', 'entry': 34422, 'rank': 1, 'refused': True},
             {'action': 'apply_appearances', 'actor': 'caster', 'selection': {'56': 1451, '57': 0}},
         ])
         self.assertIs(run.validate(self.scenario), self.scenario)
-        for index, key, value in ((-3, 'actor', 'target'), (-3, 'id', 0), (-2, 'rank', 4), (-2, 'actor', 'target'),
-                                   (-2, 'refused', 1), (-1, 'selection', {'x': 1}), (-1, 'selection', {'0': 1}),
+        for index, key, value in ((-3, 'actor', 'target'), (-3, 'id', 0), (-3, 'entries', []),
+                                   (-3, 'entries', [0]), (-3, 'entries', 31194), (-2, 'rank', 4),
+                                   (-2, 'actor', 'target'), (-2, 'refused', 1), (-1, 'selection', {'x': 1}), (-1, 'selection', {'0': 1}),
                                    (-1, 'selection', [1451]), (-1, 'actor', 'target')):
             invalid = copy.deepcopy(self.scenario)
             invalid['steps'][index][key] = value

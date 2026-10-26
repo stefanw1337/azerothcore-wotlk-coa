@@ -5,6 +5,7 @@
 #include "DBCStores.h"
 #include "Log.h"
 #include <algorithm>
+#include <array>
 #include <map>
 #include <set>
 
@@ -21,6 +22,17 @@ constexpr std::uint32_t SPELL_RANK_RANK = 3;
 constexpr std::uint32_t TRAINER_SPELL = 1;
 constexpr std::uint32_t SKILL_LINE_ABILITY_SKILL = 1;
 constexpr std::uint32_t SKILL_LINE_ABILITY_SPELL = 2;
+constexpr std::array<std::pair<std::uint32_t, std::uint32_t>, 1> TRAINER_RANK_REPLACEMENTS = {{
+    { 53023, 1148051 },
+}};
+
+std::uint32_t TrainerRank(std::uint32_t spellId, SpellExists const& exists)
+{
+    for (auto const& [stock, reborn] : TRAINER_RANK_REPLACEMENTS)
+        if (spellId == stock && exists(reborn))
+            return reborn;
+    return RebornSpell(spellId, exists);
+}
 
 bool Stock(Data const& data, Row const& row)
 {
@@ -67,6 +79,51 @@ bool Excluded(Data const& data, std::unordered_set<std::uint32_t> const& exclude
     std::vector<std::uint32_t> const* ladder = data.LadderOf(spellId);
     return excluded.contains(spellId) || (ladder && excluded.contains(ladder->front()));
 }
+
+constexpr std::uint32_t WARRIOR = 0x1;
+constexpr std::uint32_t PALADIN = 0x2;
+constexpr std::uint32_t HUNTER = 0x4;
+constexpr std::uint32_t ROGUE = 0x8;
+constexpr std::uint32_t PRIEST = 0x10;
+constexpr std::uint32_t SHAMAN = 0x40;
+constexpr std::uint32_t MAGE = 0x80;
+constexpr std::uint32_t WARLOCK = 0x100;
+constexpr std::uint32_t DRUID = 0x400;
+constexpr std::uint32_t ORIGINAL_CLASSES = WARRIOR | PALADIN | HUNTER | ROGUE | PRIEST | SHAMAN | MAGE | WARLOCK | DRUID;
+constexpr std::uint32_t NO_ITEM = 0xFFFFFFFF;
+
+struct StockProficiency
+{
+    std::uint32_t Spell;
+    std::uint32_t Skill;
+    std::uint32_t ItemClass;
+    std::uint32_t ItemSubClass;
+    std::uint32_t Classes;
+};
+
+constexpr std::array<StockProficiency, 21> STOCK_PROFICIENCIES = {{
+    { 196, 44, ITEM_CLASS_WEAPON_ID, 0, WARRIOR | PALADIN | HUNTER | ROGUE | SHAMAN },
+    { 197, 172, ITEM_CLASS_WEAPON_ID, 1, WARRIOR | PALADIN | HUNTER | SHAMAN },
+    { 264, 45, ITEM_CLASS_WEAPON_ID, 2, WARRIOR | HUNTER | ROGUE },
+    { 266, 46, ITEM_CLASS_WEAPON_ID, 3, WARRIOR | HUNTER | ROGUE },
+    { 198, 54, ITEM_CLASS_WEAPON_ID, 4, WARRIOR | PALADIN | ROGUE | PRIEST | SHAMAN | DRUID },
+    { 199, 160, ITEM_CLASS_WEAPON_ID, 5, WARRIOR | PALADIN | SHAMAN | DRUID },
+    { 200, 229, ITEM_CLASS_WEAPON_ID, 6, WARRIOR | PALADIN | HUNTER | DRUID },
+    { 201, 43, ITEM_CLASS_WEAPON_ID, 7, WARRIOR | PALADIN | HUNTER | ROGUE | MAGE | WARLOCK },
+    { 202, 55, ITEM_CLASS_WEAPON_ID, 8, WARRIOR | PALADIN | HUNTER },
+    { 227, 136, ITEM_CLASS_WEAPON_ID, 10, WARRIOR | HUNTER | PRIEST | SHAMAN | MAGE | WARLOCK | DRUID },
+    { 15590, 473, ITEM_CLASS_WEAPON_ID, 13, WARRIOR | HUNTER | ROGUE | SHAMAN | DRUID },
+    { 1180, 173, ITEM_CLASS_WEAPON_ID, 15, WARRIOR | HUNTER | ROGUE | PRIEST | SHAMAN | MAGE | WARLOCK | DRUID },
+    { 2567, 176, ITEM_CLASS_WEAPON_ID, 16, WARRIOR | HUNTER | ROGUE },
+    { 5011, 226, ITEM_CLASS_WEAPON_ID, 18, WARRIOR | HUNTER | ROGUE },
+    { 5009, 228, ITEM_CLASS_WEAPON_ID, 19, PRIEST | MAGE | WARLOCK },
+    { 674, 118, NO_ITEM, NO_ITEM, WARRIOR | HUNTER | ROGUE },
+    { 9078, 415, ITEM_CLASS_ARMOR_ID, 1, ORIGINAL_CLASSES },
+    { 9077, 414, ITEM_CLASS_ARMOR_ID, 2, WARRIOR | PALADIN | HUNTER | ROGUE | SHAMAN | DRUID },
+    { 8737, 413, ITEM_CLASS_ARMOR_ID, 3, WARRIOR | PALADIN | HUNTER | SHAMAN },
+    { 750, 293, ITEM_CLASS_ARMOR_ID, 4, WARRIOR | PALADIN },
+    { 9116, 433, ITEM_CLASS_ARMOR_ID, 6, WARRIOR | PALADIN | SHAMAN },
+}};
 }
 
 std::vector<std::uint32_t> NonWotlkSpells(Data const& data)
@@ -90,12 +147,37 @@ std::vector<std::uint32_t> NonWotlkSpells(Data const& data)
     return { spells.begin(), spells.end() };
 }
 
+std::uint32_t ProficiencyClassMask(std::uint32_t spellId, std::uint32_t classMask)
+{
+    for (StockProficiency const& proficiency : STOCK_PROFICIENCIES)
+        if (proficiency.Spell == spellId)
+            return ((classMask ? classMask : ~0u) & ~ORIGINAL_CLASSES) | proficiency.Classes;
+    return classMask;
+}
+
+std::uint32_t SkillClassMask(std::uint32_t skillId, std::uint32_t classMask)
+{
+    for (StockProficiency const& proficiency : STOCK_PROFICIENCIES)
+        if (proficiency.Skill == skillId)
+            return ((classMask ? classMask : ~0u) & ~ORIGINAL_CLASSES) | proficiency.Classes;
+    return classMask;
+}
+
+bool StockClassUses(std::uint32_t classId, std::uint32_t itemClass, std::uint32_t itemSubClass)
+{
+    for (StockProficiency const& proficiency : STOCK_PROFICIENCIES)
+        if (proficiency.ItemClass == itemClass && proficiency.ItemSubClass == itemSubClass)
+            return classId && (proficiency.Classes & (1u << (classId - 1)));
+    return false;
+}
+
 std::vector<Grant> const& Grants()
 {
     static std::vector<Grant> const grants = {
         { DARK_APOTHEOSIS, { DARK_APOTHEOSIS_SPELLS.begin(), DARK_APOTHEOSIS_SPELLS.end() } },
         { 1101579, { 1101515, 1100883, 1102641, 1100982, 1356991 } },
         { 1160103, { 1100674 } },
+        { 1134428, { 1132215 } },
         { 1165139, { 1133891, 1105420 } } };
     return grants;
 }
@@ -235,13 +317,16 @@ std::vector<TrainerSpell> TrainerSpells(Data const& data, Realm const& realm, st
     for (TrainerSpell spell : stock)
     {
         maxLevel = std::max(maxLevel, spell.ReqLevel);
-        std::uint32_t const spellId = RebornSpell(spell.SpellId, exists);
+        std::uint32_t const spellId = TrainerRank(spell.SpellId, exists);
         if (spellId != spell.SpellId)
         {
             TrainerSpell const retuned = reborn(spellId);
             spell.SpellId = spellId;
-            spell.ReqLevel = retuned.ReqLevel;
-            spell.MoneyCost = retuned.MoneyCost;
+            if (retuned.ReqLevel)
+            {
+                spell.ReqLevel = retuned.ReqLevel;
+                spell.MoneyCost = retuned.MoneyCost;
+            }
         }
         for (std::uint32_t& ability : spell.ReqAbility)
             ability = RebornSpell(ability, exists);
@@ -275,6 +360,7 @@ std::vector<TrainerSpell> TrainerSpells(Data const& data, Realm const& realm, st
     for (std::uint32_t spellId : missing)
     {
         TrainerSpell spell = reborn(spellId);
+        spell.ReqLevel = std::max<std::uint32_t>(spell.ReqLevel, 1);
         if (spell.ReqLevel <= maxLevel)
             spells.push_back(spell);
     }
@@ -289,6 +375,9 @@ std::vector<std::pair<std::uint32_t, std::uint32_t>> SpellTwins(std::uint32_t sp
         std::optional<SpellLayout> const stock = layout(spellId);
         if (stock && stock == layout(spellId + REBORN_SPELL_OFFSET))
             twins.emplace_back(spellId, spellId + REBORN_SPELL_OFFSET);
+        if (stock && spellId < BLIZZARD_SPELL_END && spellId + CROSSOVER_SPELL_OFFSET < spellCount &&
+            stock == layout(spellId + CROSSOVER_SPELL_OFFSET))
+            twins.emplace_back(spellId, spellId + CROSSOVER_SPELL_OFFSET);
     }
     return twins;
 }

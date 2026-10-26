@@ -508,9 +508,14 @@ bool StaysOnTheBody(uint32 form)
     return form == FORM_STEALTH || form == FORM_SHADOW || form == FORM_SPIRITOFREDEMPTION || IsRiddenForm(form);
 }
 
+uint64 FormMask(uint32 form)
+{
+    return form && form <= 64 ? uint64(1) << (form - 1) : 0;
+}
+
 bool GatesBorrowedAbilities(Player const* player, uint32 form)
 {
-    uint32 const mask = 1u << (form - 1);
+    uint64 const mask = FormMask(form);
     for (auto const& [spellId, spell] : player->GetSpellMap())
         if (spell->State != PLAYERSPELL_REMOVED && spell->Active)
             if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
@@ -548,7 +553,9 @@ uint32 OtherHalfForm(Player const* player)
 bool FitsOtherHalfForm(Player const* player, SpellInfo const* info)
 {
     uint32 const form = OtherHalfForm(player);
-    return form > LastStanceForm ? !info->Stances : info->CheckShapeshift(form) == SPELL_CAST_OK;
+    if (form > LastStanceForm)
+        return !info->Stances || (info->Stances & FormMask(form));
+    return info->CheckShapeshift(form) == SPELL_CAST_OK;
 }
 
 Powers PowerOfForm(uint32 form)
@@ -2158,7 +2165,7 @@ std::string HalfFormMessage(Player const* player, HalfForm const& half)
     if (!half.Spell)
         return "OTHERFORM 0";
     std::string allowed;
-    uint32 const mask = 1u << (half.Form - 1);
+    uint64 const mask = FormMask(half.Form);
     for (uint32 spellId : KnownBorrowedActives(player))
         if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
             info && (info->Stances & mask) && allowed.size() < HalfFormListLimit)
@@ -2262,7 +2269,7 @@ SpellInfo const* PreferredHalfForm(Player* player)
         uint32 const form = FormOfSpell(info);
         uint32 score = IsTankForm(form) == tank ? PreferredFormBonus : 0;
         for (uint32 other : actives)
-            if (SpellInfo const* gated = sSpellMgr->GetSpellInfo(other); gated && (gated->Stances & (1u << (form - 1))))
+            if (SpellInfo const* gated = sSpellMgr->GetSpellInfo(other); gated && (gated->Stances & FormMask(form)))
                 ++score;
         if (score > bestScore)
         {

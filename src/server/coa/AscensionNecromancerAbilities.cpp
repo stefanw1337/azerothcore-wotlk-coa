@@ -147,7 +147,7 @@ class necromancer_casts : public AllSpellScript
         Unit* target = spell->m_targets.GetUnitTarget();
         if (player->HasAura(500730))
             result = SPELL_FAILED_CASTER_AURASTATE;
-        if (Cost(player, id) && int32(Capacity(player)) - Used(player) < Cost(player, id))
+        if (Cost(player, id) > Capacity(player))
             result = SPELL_FAILED_ALREADY_HAVE_SUMMON;
         if (Command(info) && (player->HasAura(500983) ||
             (!Named(info, 504868) && Minions(player).empty())))
@@ -160,6 +160,8 @@ class necromancer_casts : public AllSpellScript
             !player->HasAura(801747))
             result = SPELL_FAILED_TARGET_AURASTATE;
         if (id == 802121 && Minions(player).empty())
+            result = SPELL_FAILED_NO_PET;
+        if (Family(info, 2, 67108864) && Minions(player).empty())
             result = SPELL_FAILED_NO_PET;
         if (id == 807098)
         {
@@ -255,7 +257,7 @@ class necromancer_casts : public AllSpellScript
         if (Chance(player, 92122))
             Cast(player, player, 707421);
         if (player->HasAura(704723))
-            Cast(player, player, 706504);
+            Cast(player, player, 707133);
         if (Command(info))
         {
             if (Chance(player, 300940))
@@ -325,9 +327,6 @@ class necromancer_casts : public AllSpellScript
                                 break;
                         }
                 }
-                if (player->HasAura(707133))
-                    for (uint8 stack = 0; stack < 3; ++stack)
-                        Cast(player, target, 707133);
                 if (player->HasAura(705754))
                     Cast(player, target, 500443);
             }

@@ -200,20 +200,29 @@ def insert_delete_safety_check(file: io, file_path: str) -> None:
                 statements.append((statement, text.count("\n", 0, start) + 1))
             start = token.end()
     previous_delete = None
+    temporary_tables = set()
     check_failed = False
     for statement, line_number in statements:
-        deletion = re.match(r"DELETE\s+FROM\s+`([^`]+)`", statement, re.I)
+        temporary = re.match(r"CREATE\s+TEMPORARY\s+TABLE\s+`([^`]+)`", statement, re.I)
+        if temporary:
+            temporary_tables.add(temporary[1].lower())
+        delete_statement = re.sub(
+            r"^DELETE\s+`([^`]+)`\s+FROM\s+`([^`]+)`\s+(?:AS\s+)?`\1`(?=\s|$)",
+            r"DELETE FROM `\2`", statement, flags=re.I)
+        deletion = re.match(r"DELETE\s+FROM\s+`([^`]+)`", delete_statement, re.I)
         insertion = re.match(r"INSERT\s+INTO\s+`([^`]+)`", statement, re.I)
         if deletion and deletion[1].lower() in protected:
             print(f"❌ Entries from {deletion[1]} should not be deleted! {file_path} at line {line_number}")
             check_failed = True
         if insertion:
             table = insertion[1].lower()
-            protected_upsert = table in protected and re.search(r"\bON\s+DUPLICATE\s+KEY\s+UPDATE\b", statement, re.I)
-            if previous_delete != table and not protected_upsert:
+            upsert = re.search(r"\bON\s+DUPLICATE\s+KEY\s+UPDATE\b", statement, re.I)
+            guarded = re.search(r"\bWHERE\s+NOT\s+EXISTS\s*\([^;]*?\bFROM\s+`" + re.escape(table) + r"`", statement, re.I | re.S)
+            if previous_delete != table and not upsert and not guarded and table not in temporary_tables:
                 print(f"❌ No matching DELETE before the INSERT in {file_path} at line {line_number}")
                 check_failed = True
-        previous_delete = deletion[1].lower() if deletion else None
+        previous_delete = (deletion[1].lower() if deletion else
+                           previous_delete if insertion and previous_delete == insertion[1].lower() else None)
     if check_failed:
         error_handler = True
         results["INSERT & DELETE safety usage check"] = "Failed"
@@ -296,7 +305,7 @@ def semicolon_check(file: io, file_path: str) -> None:
         # Remove inline comments after SQL (ignoring "--" inside string literals)
         stripped_line = strip_inline_comment(stripped_line)
 
-        if not query_open and stripped_line.upper().startswith("SET") and not stripped_line.endswith(";"):
+        if not query_open and stripped_line.upper().startswith("SET") and not stripped_line.endswith(";") and open_paren_balance(stripped_line) == 0:
             print(f"❌ Missing semicolon in {file_path} at line {line_number}")
             check_failed = True
 
@@ -336,7 +345,9 @@ def semicolon_check(file: io, file_path: str) -> None:
                 # Get next non-blank line to detect if we're at the last row
                 next_line = get_next_non_blank_line(line_number)
                 
-                if next_line and next_line.startswith('('):
+                if next_line and next_line.upper().startswith('ON DUPLICATE KEY UPDATE'):
+                    inside_values_block = False
+                elif next_line and next_line.startswith('('):
                     # Expect comma if another row follows
                     if not stripped_line.endswith(','):
                         print(f"❌ Missing comma in {file_path} at line {line_number}")
@@ -409,7 +420,10 @@ def backtick_check(file: io, file_path: str) -> None:
                                     "BEGIN", "COMMIT", "ROLLBACK", "SAVEPOINT", "LOCK", "UNLOCK",
                                     "WITH", "RECURSIVE", "COLUMN", "ENGINE", "CHARSET", "COLLATE",
                                     "IF", "ELSEIF", "LOOP", "WHILE", "DO", "HANDLER", "LEAVE",
-                                    "ITERATE", "DECLARE", "CURSOR", "FETCH", "OPEN", "CLOSE"}:
+                                    "ITERATE", "DECLARE", "CURSOR", "FETCH", "OPEN", "CLOSE",
+                                    "ABS", "LEAST", "COUNT", "COALESCE", "MIN", "MAX", "CONCAT", "FIELD", "SUM", "FLOOR",
+                                    "CURRENT_TIMESTAMP", "BINARY", "USING", "EXECUTE", "DEALLOCATE",
+                                    "PREPARE", "MESSAGE_TEXT"}:
                     continue
 
                 # Make sure the word is enclosed in backticks

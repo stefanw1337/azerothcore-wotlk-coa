@@ -33,6 +33,7 @@ class Player;
 class Unit;
 class ProcEventInfo;
 struct SkillLineAbilityEntry;
+struct SpellEntry;
 
 #define SPELL_RELIC_COOLDOWN      1
 
@@ -636,6 +637,44 @@ inline bool IsProfessionOrRidingSkill(uint32 skill)
     return  IsProfessionSkill(skill) || skill == SKILL_RIDING;
 }
 
+// Conquest of Azeroth adds Novice Riding (50) as riding step 1, so the classic ranks start at step 2.
+enum RidingSkillValue : uint16
+{
+    RIDING_SKILL_NOVICE        = 50,
+    RIDING_SKILL_APPRENTICE    = 75,
+    RIDING_SKILL_JOURNEYMAN    = 150,
+    RIDING_SKILL_EXPERT        = 225,
+    RIDING_SKILL_ARTISAN       = 300,
+    RIDING_SKILL_EXTRAORDINARY = 375
+};
+
+constexpr int32 NOVICE_RIDING_MOUNT_SPEED = 40;
+
+// Conquest of Azeroth mounts take their speed from the rider's riding skill instead of the mount spell.
+inline int32 GetRidingGroundMountSpeed(uint16 riding)
+{
+    if (riding >= RIDING_SKILL_JOURNEYMAN)
+        return 100;
+    return riding >= RIDING_SKILL_APPRENTICE ? 60 : NOVICE_RIDING_MOUNT_SPEED;
+}
+
+inline int32 GetRidingFlightMountSpeed(uint16 riding)
+{
+    if (riding >= RIDING_SKILL_EXTRAORDINARY)
+        return 310;
+    if (riding >= RIDING_SKILL_ARTISAN)
+        return 280;
+    return riding >= RIDING_SKILL_EXPERT ? 150 : 0;
+}
+
+inline uint16 GetSkillValueForStep(uint32 skill, uint16 step)
+{
+    if (skill == SKILL_RIDING && step)
+        return step == 1 ? RIDING_SKILL_NOVICE : (step - 1) * 75;
+
+    return step * 75;
+}
+
 // Classic professions end at Artisan (skill step 4); each expansion adds the next rank (Master, Grand Master).
 inline uint16 GetMaxProfessionSkillStep(uint8 expansion)
 {
@@ -774,6 +813,9 @@ public:
         return spellInfo;
     }
     [[nodiscard]] uint32 GetSpellInfoStoreSize() const { return mSpellInfoMap.size(); }
+
+    // Startup-only registration; the store owns the result and refuses to replace existing spells.
+    SpellInfo* RegisterRuntimeSpell(SpellEntry const& entry);
 
     // Talent Additional Set
     [[nodiscard]] bool IsAdditionalTalentSpell(uint32 spellId) const;

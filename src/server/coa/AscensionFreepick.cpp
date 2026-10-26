@@ -4,6 +4,7 @@
 #include "AscensionFreepickRules.h"
 #include "AscensionCoATalentState.h"
 #include "AscensionWildcard.h"
+#include "AscensionSpecialization.h"
 #include "Battleground.h"
 #include "Chat.h"
 #include "Config.h"
@@ -41,7 +42,6 @@ Realm ReadRealm()
     }
     if (!realm.Live && !realm.Seasonal && !realm.League && !realm.Ptr && !realm.Development)
         realm.Live = true;
-    // CoA.ClassModel accepts one model or a space-separated list ("coa wcr").
     std::string const model = sConfigMgr->GetOption<std::string>("CoA.ClassModel", "coa");
     for (std::string_view entry : Acore::Tokenize(model, ' ', false))
     {
@@ -260,7 +260,6 @@ bool IsFreepickHero(Player const* player)
 
 bool IsRebornCharacter(Player const* player)
 {
-    // On "coa wcr" the stock classes use CoA Character Advancement, not free-pick Reborn.
     if (CurrentRealm.ConquestOfAzeroth)
         return false;
     uint8 const classId = player->getClass();
@@ -312,6 +311,22 @@ UploadResult ApplyEntries(Player* player, Build const& base, std::vector<Entry> 
 }
 }
 
+std::uint32_t PrestigeSpecialization(Player* player)
+{
+    if (!IsFreepickHero(player))
+        return 0;
+    std::vector<Entry> const before = StoredEntries(player);
+    std::vector<Entry> kept;
+    for (Entry const& entry : before)
+        if (Row const* row = Loaded.Find(entry.EntryId); row && (row->Group == 1 || row->Has(ROW_RETAINED)))
+            kept.push_back(entry);
+    Store(player, kept);
+    Store(player, kept, SpecializationBuildSetting(ActiveSpecialization(player)));
+    SyncSpells(player, before, kept);
+    SendSpecializationState(player);
+    return uint32(before.size() - kept.size());
+}
+
 UploadResult ApplyUpload(Player* player, std::vector<AscensionCoATalentState::KnownEntry> const& upload)
 {
     std::vector<Entry> wanted;
@@ -355,6 +370,10 @@ bool SwitchSpecialization(Player* player, std::uint32_t index, std::string& erro
     std::uint32_t const previous = ActiveSpecialization(player);
     if (index == previous)
         return true;
+
+    error = AscensionSpecializationSwitchRefusal(player, previous + 1, index + 1);
+    if (!error.empty())
+        return false;
 
     std::vector<Entry> const before = StoredEntries(player);
     Build next(Loaded, CurrentRealm, player->GetLevel(), StoredEntries(player, SpecializationBuildSetting(index)));

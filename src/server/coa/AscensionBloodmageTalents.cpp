@@ -57,6 +57,10 @@ enum BloodmageTalentSpells : uint32
     SPELL_BLOODLORDS_CURSE = 707449,
     SPELL_BLOOD_MOON = 707623,
     SPELL_BLOOD_MOON_HEAL = 572786,
+    SPELL_APOTHEOSIS = 804195,
+    SPELL_DARK_FEAST = 804203,
+    SPELL_APOTHEOSIS_HEAL = 807857,
+    SPELL_DARK_FEAST_HEAL = 807934,
     SPELL_CURSED_BLOOD = 707435,
     SPELL_CURSED_BLOOD_RUPTURE = 707708,
     SPELL_BLOODSURGE = 553267,
@@ -70,6 +74,8 @@ enum BloodmageTalentSpells : uint32
     SPELL_BLOOD_CONSTRUCTOR = 561196,
     SPELL_THIRST = 706613,
     SPELL_THIRST_ANIMATED_BLOOD = 300796,
+    SPELL_BLOOD_STRIKE = 589023,
+    SPELL_ANIMATED_BLOOD_LEECH = 504711,
     SPELL_CRIMSON_EXPEDITION = 523727,
     SPELL_SANGUINE_SCION = 807292,
     SPELL_BLOOD_RUNS_COLD = 560257,
@@ -145,6 +151,7 @@ constexpr uint32 MortalAbilityForms[] = {680692, 801076};
 constexpr float BloodVeilSpiritScale = 1.5f;
 constexpr float BloodVeilAttackPowerScale = 0.75f;
 constexpr uint32 BloodVeilRanks[] = {504263, 572277, 572278, 572279};
+constexpr uint32 SlaughterhouseOfferingRanks[] = {1108459, 1108463, 1108493};
 
 bool IsCursedForm(uint32 id)
 {
@@ -154,6 +161,11 @@ bool IsCursedForm(uint32 id)
 bool IsBloodVeilRank(uint32 id)
 {
     return std::find(std::begin(BloodVeilRanks), std::end(BloodVeilRanks), id) != std::end(BloodVeilRanks);
+}
+
+bool IsSlaughterhouseOfferingRank(uint32 id)
+{
+    return std::find(std::begin(SlaughterhouseOfferingRanks), std::end(SlaughterhouseOfferingRanks), id) != std::end(SlaughterhouseOfferingRanks);
 }
 
 bool BloodScentTarget(Unit const* player, Unit const* target)
@@ -370,12 +382,37 @@ struct npc_ascension_animated_blood : public ScriptedAI
     void IsSummonedBy(WorldObject* summoner) override
     {
         me->SetReactState(REACT_DEFENSIVE);
+        me->AddAura(SPELL_ANIMATED_BLOOD_LEECH, me);
         Unit* owner = summoner ? summoner->ToUnit() : nullptr;
         if (!owner || !owner->IsInCombat())
             return;
         if (Unit* target = owner->GetVictim(); target && me->CanStartAttack(target, true))
             AttackStart(target);
     }
+
+    void UpdateAI(uint32 diff) override
+    {
+        if (!UpdateVictim())
+            return;
+        if (BloodStrikeTimer <= diff)
+        {
+            BloodStrikeTimer = 3000;
+            if (Unit* victim = me->GetVictim(); victim && me->IsWithinCombatRange(victim, 20.0f))
+                if (Player* owner = ObjectAccessor::GetPlayer(*me, me->GetOwnerGUID()))
+                    if (SpellInfo const* strike = sSpellMgr->GetSpellInfo(SPELL_BLOOD_STRIKE))
+                    {
+                        float sp = float(owner->SpellBaseDamageBonusDone(SPELL_SCHOOL_MASK_SHADOW));
+                        float ap = owner->GetTotalAttackPowerValue(BASE_ATTACK);
+                        int32 damage = strike->Effects[EFFECT_0].CalcValue(me) + int32(sp * 0.4f + ap * 0.15f);
+                        me->CastCustomSpell(SPELL_BLOOD_STRIKE, SPELLVALUE_BASE_POINT0, damage, victim, true);
+                    }
+        }
+        else
+            BloodStrikeTimer -= diff;
+        DoMeleeAttackIfReady();
+    }
+
+    uint32 BloodStrikeTimer = 2000;
 };
 
 void HunterAndHuntedCharge(Player* player)
@@ -548,10 +585,23 @@ public:
 
     void OnPlayerBeforeTempSummonInitStats(Player* player, TempSummon* summon, uint32& duration) override
     {
-        if (!player || !UsesAscensionClassMechanics(player, CLASS_SON_OF_ARUGAL) || !summon || !duration)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SON_OF_ARUGAL) || !summon)
             return;
         if (std::find(std::begin(AnimatedBloodSummons), std::end(AnimatedBloodSummons), summon->GetEntry())
             == std::end(AnimatedBloodSummons))
+            return;
+        summon->SetLevel(player->GetLevel());
+        float intellect = player->GetStat(STAT_INTELLECT);
+        float spellPower = float(player->SpellBaseDamageBonusDone(SPELL_SCHOOL_MASK_SHADOW));
+        float ap = (intellect + std::max(0.0f, spellPower)) * 0.4f;
+        summon->SetStatFlatModifier(UNIT_MOD_ATTACK_POWER, BASE_VALUE, ap);
+        summon->SetBaseWeaponDamage(BASE_ATTACK, MINDAMAGE, player->GetLevel());
+        summon->SetBaseWeaponDamage(BASE_ATTACK, MAXDAMAGE, player->GetLevel() * 1.5f);
+        summon->UpdateAttackPowerAndDamage();
+        summon->m_modMeleeHitChance = player->m_modMeleeHitChance;
+        summon->m_modRangedHitChance = player->m_modRangedHitChance;
+        summon->m_modSpellHitChance = player->m_modSpellHitChance;
+        if (!duration)
             return;
         if (!player->HasAura(SPELL_BLOOD_CONSTRUCTOR, player->GetGUID()))
             return;
@@ -703,6 +753,82 @@ class aura_ascension_bloodmage_blood_moon : public AuraScript
     {
         DoCheckProc += AuraCheckProcFn(aura_ascension_bloodmage_blood_moon::Check);
         OnEffectProc += AuraEffectProcFn(aura_ascension_bloodmage_blood_moon::Proc, EFFECT_0, AuraType(354));
+    }
+};
+
+class aura_ascension_bloodmage_apotheosis : public AuraScript
+{
+    PrepareAuraScript(aura_ascension_bloodmage_apotheosis);
+
+    bool Validate(SpellInfo const* info) override
+    {
+        SpellInfo const* shadow = sSpellMgr->GetSpellInfo(SPELL_APOTHEOSIS_HEAL);
+        SpellInfo const* feast = sSpellMgr->GetSpellInfo(SPELL_DARK_FEAST_HEAL);
+        return (info->Id == SPELL_APOTHEOSIS || info->Id == SPELL_DARK_FEAST) &&
+            info->Effects[EFFECT_0].IsAura(AuraType(354)) &&
+            ((info->Id == SPELL_APOTHEOSIS && info->Effects[EFFECT_0].TriggerSpell == SPELL_APOTHEOSIS_HEAL && shadow &&
+                shadow->Effects[EFFECT_0].Effect == SPELL_EFFECT_HEAL) ||
+            (info->Id == SPELL_DARK_FEAST && info->Effects[EFFECT_0].TriggerSpell == SPELL_DARK_FEAST_HEAL && feast &&
+                feast->Effects[EFFECT_0].Effect == SPELL_EFFECT_HEAL));
+    }
+
+    bool Check(ProcEventInfo& event)
+    {
+        if (!IsBloodmageDamageProc(GetTarget(), GetCaster(), event))
+            return false;
+        return GetSpellInfo()->Id != SPELL_APOTHEOSIS ||
+            (event.GetDamageInfo()->GetSchoolMask() & SPELL_SCHOOL_MASK_SHADOW);
+    }
+
+    void Proc(AuraEffect const* effect, ProcEventInfo& event)
+    {
+        PreventDefaultAction();
+        if (int32 heal = BloodmageProcShare(effect, event))
+            GetTarget()->CastCustomSpell(GetSpellInfo()->Effects[EFFECT_0].TriggerSpell, SPELLVALUE_BASE_POINT0,
+                heal, GetTarget(), TRIGGERED_FULL_MASK);
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(aura_ascension_bloodmage_apotheosis::Check);
+        OnEffectProc += AuraEffectProcFn(aura_ascension_bloodmage_apotheosis::Proc, EFFECT_0, AuraType(354));
+    }
+};
+
+class aura_ascension_bloodmage_animated_blood_leech : public AuraScript
+{
+    PrepareAuraScript(aura_ascension_bloodmage_animated_blood_leech);
+
+    bool Validate(SpellInfo const* info) override
+    {
+        return info->Id == SPELL_ANIMATED_BLOOD_LEECH && info->Effects[EFFECT_0].IsAura(AuraType(354));
+    }
+
+    bool Check(ProcEventInfo& event)
+    {
+        DamageInfo const* damage = event.GetDamageInfo();
+        Unit* actor = event.GetActor();
+        Unit* victim = event.GetActionTarget();
+        Player* owner = actor ? ObjectAccessor::GetPlayer(*actor, actor->GetOwnerGUID()) : nullptr;
+        return owner && owner->getClass() == CLASS_SON_OF_ARUGAL && owner->IsAlive() &&
+            victim && victim != owner && !owner->IsFriendlyTo(victim) && damage && damage->GetDamage();
+    }
+
+    void Proc(AuraEffect const* effect, ProcEventInfo& event)
+    {
+        PreventDefaultAction();
+        Unit* actor = event.GetActor();
+        Player* owner = actor ? ObjectAccessor::GetPlayer(*actor, actor->GetOwnerGUID()) : nullptr;
+        if (!owner)
+            return;
+        if (int32 heal = BloodmageProcShare(effect, event))
+            Unit::DealHeal(owner, owner, uint32(heal));
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(aura_ascension_bloodmage_animated_blood_leech::Check);
+        OnEffectProc += AuraEffectProcFn(aura_ascension_bloodmage_animated_blood_leech::Proc, EFFECT_0, AuraType(354));
     }
 };
 
@@ -1479,6 +1605,9 @@ public:
         if (info->Id == SPELL_SANGUINE_ESSENCE_HEAL || info->Id == SPELL_SANGUINE_ESSENCE_DAMAGE)
             info->AscensionInheritsResolvedAmount = true;
 
+        if (IsSlaughterhouseOfferingRank(info->Id) && info->Effects[EFFECT_0].IsAura(SPELL_AURA_MOD_DAMAGE_TAKEN))
+            info->AttributesCu &= ~SPELL_ATTR0_CU_NEGATIVE;
+
         ApplyBloodmageConditionalContracts(info);
 
         if (info->Id == SPELL_BLOOD_SCENT &&
@@ -1591,6 +1720,8 @@ void AddSC_AscensionBloodmageTalents()
     RegisterSpellScript(aura_ascension_bloodmage_blood_scent);
     RegisterSpellScript(aura_ascension_bloodmage_thick_pelt);
     RegisterSpellScript(aura_ascension_bloodmage_blood_moon);
+    RegisterSpellScript(aura_ascension_bloodmage_apotheosis);
+    RegisterSpellScript(aura_ascension_bloodmage_animated_blood_leech);
     RegisterSpellScript(aura_ascension_bloodmage_cursed_blood);
     RegisterSpellScript(aura_ascension_bloodmage_transgression);
     RegisterSpellScript(aura_ascension_bloodmage_essence_harvester);

@@ -42,11 +42,30 @@ constexpr uint32 StatusCheckIntervalMs = 2000;
 
 constexpr uint32 QuestsCompletedWithoutPlayerAction[] = { 3801, 3981, 3982, 4001, 4002, 4004, 4122, 4128, 4133, 4264, 4324, 4341, 4342, 4361, 4363, 5722, 5724, 7498, 7499, 7500, 7501, 7502, 7503, 7504, 7505, 7506, 7507, 7508, 8619, 8948, 11454, 11486, 11487, 12062 };
 
+struct OverworldQuestSort
+{
+    uint32 mapId;
+    uint32 questSortAreaId;
+};
+
 constexpr uint32 RazorfenKraulMapId = 47;
 constexpr uint32 RazorfenKraulOverworldQuestSortAreaId = 1717;
 
+constexpr uint32 UldamanMapId = 70;
+constexpr uint32 UldamanOverworldQuestSortAreaId = 1517;
+
 constexpr uint32 GnomereganMapId = 90;
 constexpr uint32 GnomereganQuestSortAreaId = 133;
+
+constexpr uint32 ZulFarrakMapId = 209;
+constexpr uint32 ZulFarrakOverworldQuestSortAreaId = 978;
+
+constexpr OverworldQuestSort OverworldQuestSorts[] = {
+    { RazorfenKraulMapId, RazorfenKraulOverworldQuestSortAreaId },
+    { UldamanMapId, UldamanOverworldQuestSortAreaId },
+    { GnomereganMapId, GnomereganQuestSortAreaId },
+    { ZulFarrakMapId, ZulFarrakOverworldQuestSortAreaId }
+};
 
 struct DungeonQuests
 {
@@ -115,11 +134,9 @@ std::vector<uint32> ExtraQuestSortAreas(uint32 mapId)
 {
     std::vector<uint32> areas;
 
-    if (mapId == RazorfenKraulMapId)
-        areas.push_back(RazorfenKraulOverworldQuestSortAreaId);
-
-    if (mapId == GnomereganMapId)
-        areas.push_back(GnomereganQuestSortAreaId);
+    for (OverworldQuestSort const& sort : OverworldQuestSorts)
+        if (sort.mapId == mapId)
+            areas.push_back(sort.questSortAreaId);
 
     return areas;
 }
@@ -182,13 +199,32 @@ bool Contains(std::vector<uint32> const& ids, uint32 questId)
     return std::binary_search(ids.begin(), ids.end(), questId);
 }
 
-bool CompletesWithoutPlayerAction(uint32 questId)
+bool HasPlayerObjective(Quest const* quest)
 {
-    for (uint32 excluded : QuestsCompletedWithoutPlayerAction)
-        if (excluded == questId)
+    if (quest->IsAutoComplete())
+        return false;
+
+    if (quest->HasSpecialFlag(QUEST_SPECIAL_FLAGS_KILL | QUEST_SPECIAL_FLAGS_CAST | QUEST_SPECIAL_FLAGS_SPEAKTO |
+        QUEST_SPECIAL_FLAGS_PLAYER_KILL | QUEST_SPECIAL_FLAGS_EXPLORATION_OR_EVENT))
+        return true;
+
+    if (quest->GetRewOrReqMoney() < 0 || quest->GetRepObjectiveFaction() || quest->GetRepObjectiveFaction2())
+        return true;
+
+    for (uint8 i = 0; i < QUEST_ITEM_OBJECTIVES_COUNT; ++i)
+        if (quest->RequiredItemId[i] && quest->RequiredItemId[i] != quest->GetSrcItemId())
             return true;
 
     return false;
+}
+
+bool CompletesWithoutPlayerAction(Quest const* quest)
+{
+    for (uint32 excluded : QuestsCompletedWithoutPlayerAction)
+        if (excluded == quest->GetQuestId())
+            return true;
+
+    return !HasPlayerObjective(quest);
 }
 
 std::vector<uint32> DungeonMaps()
@@ -297,7 +333,7 @@ bool CanOffer(Player* player, uint32 questId)
     if (!quest || IsPlaceholder(quest))
         return false;
 
-    if (CompletesWithoutPlayerAction(questId))
+    if (CompletesWithoutPlayerAction(quest))
         return false;
 
     if (quest->IsRepeatable())
@@ -307,9 +343,6 @@ bool CanOffer(Player* player, uint32 questId)
         return false;
 
     if (player->IsQuestRewarded(questId) && !quest->IsRepeatable())
-        return false;
-
-    if (!player->SatisfyQuestRace(quest, false))
         return false;
 
     if (!player->SatisfyQuestExclusiveGroup(quest, false))

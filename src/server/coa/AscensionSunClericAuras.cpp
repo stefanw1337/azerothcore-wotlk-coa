@@ -43,6 +43,8 @@ class aura_ascension_sun_cleric_lifecycle : public AuraScript
         uint32 id = GetId();
         Unit* target = GetTarget();
         GetAura()->SetScriptValue(SolarPower, ++State(player).sequence);
+        if (id == Sunrise || id == Sunset)
+            Cast(player, player, 500643);
         if (id == SPELL_SUNWELL)
         {
             if (Aura* visual = GetCaster()->AddAura(SPELL_SUNWELL_VISUAL, target))
@@ -87,7 +89,7 @@ class aura_ascension_sun_cleric_lifecycle : public AuraScript
         if (id == 680888)
             GetAura()->SetUsingCharges(false);
         if ((id == Dawn || id == 301265 || id == 301242) && (mode & AURA_EFFECT_HANDLE_REAPPLY))
-            GetAura()->SetCharges(id == Dawn ? 10 : id == 301265 ? 3 : 2);
+            GetAura()->SetCharges(id == Dawn ? GetAura()->CalcMaxCharges() : id == 301265 ? 3 : 2);
         if (id == Dawn || id == 301265 || id == 301242)
             GetAura()->SetUsingCharges(false);
         if (id == 301266)
@@ -140,6 +142,8 @@ class aura_ascension_sun_cleric_lifecycle : public AuraScript
         uint32 id = GetId();
         Unit* target = GetTarget();
         AuraRemoveMode mode = GetTargetApplication()->GetRemoveMode();
+        if (id == Sunrise || id == Sunset)
+            player->RemoveAurasDueToSpell(500643);
         if (id == Bless && State(player).blessed == target->GetGUID())
             State(player).blessed.Clear();
         if (id == 520647)

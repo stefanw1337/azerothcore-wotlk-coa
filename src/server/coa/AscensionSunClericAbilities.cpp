@@ -50,6 +50,8 @@ bool Useful(SpellInfo const* info)
 constexpr uint32 ScorchMarks = 807059;
 constexpr uint32 BurnTheHeretics = 560857;
 constexpr uint32 BurnTheHereticsMagicDamage = 560856;
+constexpr uint32 SunStride = 680700;
+constexpr uint32 SunStrideVisual = 681434;
 void Finish(Player* player, Spell* spell)
 {
     for (uint32 id : SunClericFinite)
@@ -174,6 +176,13 @@ public:
         if (!player || caster != player || info->SpellFamilyName != 33 || spell->IsTriggered())
             return;
         uint32 id = info->Id;
+        if (id == SunStride)
+            if (Aura* stride = player->GetAura(SunStride, player->GetGUID()))
+                if (Aura* visual = player->AddAura(SunStrideVisual, player))
+                {
+                    visual->SetMaxDuration(stride->GetMaxDuration());
+                    visual->SetDuration(stride->GetDuration());
+                }
         if (id == HammerOfKings && player->HasAura(ChosenKing, player->GetGUID()))
             Cast(player, player, Anointed);
         if (Invocation(info))
@@ -254,6 +263,10 @@ public:
         if (Named(info, 500154))
         {
             Cast(player, target, 572050);
+            if (!spell->IsTriggered())
+                for (Unit* enemy : Nearby(player, 8))
+                    if (enemy != target && player->IsValidAttackTarget(enemy) && player->isInFrontInMap(enemy, 8))
+                        Cast(player, enemy, 572050);
             if (damage && player->HasAura(680656))
                 Cast(player,player,1257670);
         }
@@ -284,8 +297,9 @@ public:
                 }
             }
         }
-        if ((info->Id == 800691 || info->Id == 802566) && damage && player->HasAura(807451))
-            Mana(player, CalculatePct(damage, Amount(807451)));
+        if (info->Id == 800691 || info->Id == 802566)
+            if (uint32 const dealt = spell->GetScriptHealthLeechDamage())
+                Mana(player, CalculatePct(dealt, Amount(807451)));
         if (healing && player->HasAura(300344) && target->HasAura(Bless, player->GetGUID()) &&
             !spell->IsTriggered() && !spell->GetScriptValue(300344))
         {
@@ -399,7 +413,7 @@ class spell_ascension_sun_cleric_ability : public SpellScript
             done = true;
             if (Aura* aura = player->GetAura(Dawn))
             {
-                aura->SetCharges(10);
+                aura->SetCharges(aura->CalcMaxCharges());
                 aura->SetDuration(aura->GetMaxDuration());
             }
         }

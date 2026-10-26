@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -17,7 +18,9 @@ class CaptureTests(unittest.TestCase):
             def database(command, *, input, **kwargs):
                 self.assertNotIn('fixture_secret', ' '.join(command))
                 option_file = Path(next(arg.split('=', 1)[1] for arg in command if arg.startswith('--defaults')))
-                self.assertEqual(option_file.stat().st_mode & 0o777, 0o600)
+                if os.name != 'nt':
+                    self.assertEqual(option_file.stat().st_mode & 0o777, 0o600)
+                self.assertTrue(option_file.is_file())
                 option_files.append(option_file)
                 queries.append(input)
                 self.assertTrue(input.startswith('SELECT '))

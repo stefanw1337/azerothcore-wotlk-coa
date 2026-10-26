@@ -73,6 +73,14 @@ class ScopedLintTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("unrelated.sql", result.stdout)
 
+    def test_sql_builtin_functions_do_not_require_identifier_quotes(self):
+        self.put(self.pending + "functions.sql", "SELECT ABS(`spell_id`), LEAST(`level` * 5, 400), SUM(`level`), FLOOR(`level` / 2) FROM `characters`;\n")
+        self.assert_passes(self.lint("sql", "--files", self.pending + "functions.sql"))
+
+    def test_sql_upsert_continues_after_the_last_value_tuple(self):
+        self.put(self.pending + "upsert.sql", "INSERT INTO `creature_template` (`entry`, `name`) VALUES\n(1, 'One'),\n(2, 'Two')\nON DUPLICATE KEY UPDATE\n`name` = VALUES(`name`);\n")
+        self.assert_passes(self.lint("sql", "--files", self.pending + "upsert.sql"))
+
     def test_sql_selected_file_keeps_style_checks(self):
         result = self.lint("sql", "--files", self.pending + "unrelated.sql")
         self.assertNotEqual(result.returncode, 0)
@@ -114,12 +122,56 @@ class ScopedLintTests(unittest.TestCase):
                        "INSERT INTO `creature_template` (`entry`, `name`) VALUES (557911, 'Soulstone Lure');\n")
         self.assertNotEqual(self.lint("sql", "--files", path).returncode, 0)
 
+    def test_sql_fresh_temporary_table_accepts_initial_rows(self):
+        path = self.pending + "temporary.sql"
+        self.put(path, "CREATE TEMPORARY TABLE `migration_guard` (`id` INT NOT NULL);\n"
+                       "INSERT INTO `migration_guard` (`id`) VALUES (1);\n")
+        self.assert_passes(self.lint("sql", "--files", path))
+
+    def test_sql_contiguous_inserts_share_the_matching_delete(self):
+        path = self.pending + "rows.sql"
+        self.put(path, "DELETE FROM `spell_script_names` WHERE `spell_id` IN (1, 2);\n"
+                       "INSERT INTO `spell_script_names` VALUES (1, 'one');\n"
+                       "INSERT INTO `spell_script_names` VALUES (2, 'two');\n")
+        self.assert_passes(self.lint("sql", "--files", path))
+
+    def test_sql_join_delete_keeps_protected_table_safety(self):
+        path = self.pending + "joined.sql"
+        for table, allowed in (("reference_loot_template", True), ("creature_template", False)):
+            with self.subTest(table=table):
+                self.put(path, f"DELETE `r` FROM `{table}` AS `r` JOIN `owned` AS `o` USING (`entry`);\n"
+                               f"INSERT INTO `{table}` (`entry`) VALUES (7);\n")
+                self.assertEqual(self.lint("sql", "--files", path).returncode == 0, allowed)
+
+    def test_sql_multiline_set_and_builtin_functions(self):
+        path = self.pending + "count.sql"
+        self.put(path, "SET @rows := (\n"
+                       "SELECT COUNT(*) FROM `creature_template`\n"
+                       ");\n")
+        self.assert_passes(self.lint("sql", "--files", path))
+
+    def test_sql_not_exists_guard_requires_the_inserted_table(self):
+        path = self.pending + "guarded.sql"
+        for guard, allowed in (("manastorm_hub_return", True), ("another_table", False)):
+            with self.subTest(guard=guard):
+                self.put(path, "INSERT INTO `manastorm_hub_return` (`id`) SELECT 1\n"
+                               f"WHERE NOT EXISTS (SELECT 1 FROM `{guard}` WHERE `id` = 1);\n")
+                self.assertEqual(self.lint("sql", "--files", path).returncode == 0, allowed)
+
+    def test_sql_module_upsert_preserves_existing_rows(self):
+        path = self.pending + "module_upsert.sql"
+        self.put(path, "INSERT INTO `manastorm_segment` (`segment_id`, `name`)\n"
+                       "VALUES (7, 'Seven')\n"
+                       "ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);\n")
+        self.assert_passes(self.lint("sql", "--files", path))
+
     def test_sql_unrelated_delete_and_quoted_upsert_do_not_bypass_safety(self):
         path = self.pending + "selected.sql"
         for text in [
             "DELETE FROM `spell_proc` WHERE `SpellId` = 123;\n"
             "INSERT INTO `spell_script_names` (`spell_id`, `ScriptName`) VALUES (123, 'example');\n",
             "INSERT INTO `creature_template` (`entry`, `name`) VALUES (557911, 'ON DUPLICATE KEY UPDATE');\n",
+            "INSERT INTO `manastorm_segment` (`segment_id`, `name`) VALUES (7, 'ON DUPLICATE KEY UPDATE');\n",
         ]:
             with self.subTest(text=text):
                 self.put(path, text)

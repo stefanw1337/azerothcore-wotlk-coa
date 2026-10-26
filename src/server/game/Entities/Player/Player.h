@@ -891,6 +891,7 @@ enum PlayerLoginQueryIndex
     PLAYER_LOGIN_QUERY_LOAD_CHARACTER_SETTINGS           = 36,
     PLAYER_LOGIN_QUERY_LOAD_PET_SLOTS                    = 37,
     PLAYER_LOGIN_QUERY_LOAD_OFFLINE_ACHIEVEMENTS_UPDATES = 38,
+    PLAYER_LOGIN_QUERY_LOAD_PORTABLE_SESSION             = 39,
     MAX_PLAYER_LOGIN_QUERY
 };
 
@@ -1193,6 +1194,7 @@ public:
     [[nodiscard]] bool isGMVisible() const { return !(m_ExtraFlags & PLAYER_EXTRA_GM_INVISIBLE); }
     void SetGMVisible(bool on);
     bool Has310Flyer(bool checkAllSpells, uint32 excludeSpellId = 0);
+    void CastRidingMount(uint32 spellId);
     void SetHas310Flyer(bool on) { if (on) m_ExtraFlags |= PLAYER_EXTRA_HAS_310_FLYER; else m_ExtraFlags &= ~PLAYER_EXTRA_HAS_310_FLYER; }
     void SetPvPDeath(bool on) { if (on) m_ExtraFlags |= PLAYER_EXTRA_PVP_DEATH; else m_ExtraFlags &= ~PLAYER_EXTRA_PVP_DEATH; }
 
@@ -1793,7 +1795,7 @@ public:
     [[nodiscard]] uint8 GetSpecsCount() const { return m_specsCount; }
     void SetSpecsCount(uint8 count) { m_specsCount = count; }
     void ActivateSpec(uint8 spec);
-    void LoadActions(PreparedQueryResult result);
+    void LoadActions(PreparedQueryResult result, bool send = true);
     void GetTalentTreePoints(uint8 (&specPoints)[3]) const;
     [[nodiscard]] uint8 GetMostPointsTalentTree() const;
     bool HasTankSpec();
@@ -1870,6 +1872,7 @@ public:
     void RemoveCategoryCooldown(uint32 cat);
     void RemoveArenaSpellCooldowns(bool removeActivePetCooldowns = false);
     void RemoveAllSpellCooldown();
+    void RemoveActivePetSpellCooldowns();
     void _LoadSpellCooldowns(PreparedQueryResult result);
     void _SaveSpellCooldowns(CharacterDatabaseTransaction trans, bool logout);
     [[nodiscard]] SpellChargeState GetSpellCharges(SpellInfo const* spellInfo) const;
@@ -2002,7 +2005,7 @@ public:
     bool UpdateSkillPro(uint16 SkillId, int32 Chance, uint32 step);
 
     void RewardProfessionXP(uint32 skillId, uint32 current, uint32 gray, uint32 green, uint32 yellow,
-        bool disenchanting = false);
+        bool disenchanting = false, bool crafted = false);
     bool UpdateCraftSkill(uint32 spellid);
     bool UpdateGatherSkill(uint32 SkillId, uint32 SkillValue, uint32 RedLevel, uint32 Multiplicator = 1);
     bool UpdateFishingSkill();
@@ -2177,8 +2180,15 @@ public:
 
     // Ephemeral instances never replace ordinary dungeon bindings or saved login positions.
     void PrepareScriptedPrivateInstance(uint32 mapId, WorldLocation const& returnLocation,
-        ObjectGuid owner = ObjectGuid::Empty, std::set<ObjectGuid> const& members = {})
+        ObjectGuid owner = ObjectGuid::Empty, std::set<ObjectGuid> const& members = {}, bool databaseSpawns = false)
     {
+        if (_scriptedPrivateMapId == MAPID_INVALID)
+        {
+            _scriptedPrivateReturnDungeonDifficulty = GetDungeonDifficulty();
+            _scriptedPrivateReturnRaidDifficulty = GetRaidDifficulty();
+        }
+
+        _scriptedPrivateDatabaseSpawns = databaseSpawns;
         _scriptedPrivateMapId = mapId;
         _scriptedPrivateInstanceId = 0;
         _scriptedPrivateReturn = returnLocation;
@@ -2187,6 +2197,7 @@ public:
         _scriptedPrivateMembers.insert(GetGUID());
     }
     void SetScriptedPrivateInstanceId(uint32 id) { _scriptedPrivateInstanceId = id; }
+    bool LoadsScriptedPrivateDatabaseSpawns() const { return _scriptedPrivateDatabaseSpawns; }
     uint32 GetScriptedPrivateMapId() const { return _scriptedPrivateMapId; }
     uint32 GetScriptedPrivateInstanceId() const { return _scriptedPrivateInstanceId; }
     ObjectGuid GetScriptedPrivateOwner() const { return _scriptedPrivateOwner; }
@@ -2194,7 +2205,9 @@ public:
     WorldLocation const& GetScriptedPrivateReturn() const { return _scriptedPrivateReturn; }
     void ClearScriptedPrivateInstance()
     {
-        _scriptedPrivateMapId = _scriptedPrivateInstanceId = 0;
+        _scriptedPrivateDatabaseSpawns = false;
+        _scriptedPrivateMapId = MAPID_INVALID;
+        _scriptedPrivateInstanceId = 0;
         _scriptedPrivateOwner.Clear();
         _scriptedPrivateMembers.clear();
     }
@@ -2230,8 +2243,8 @@ public:
     bool isHonorOrXPTarget(Unit* victim) const;
 
     bool GetsRecruitAFriendBonus(bool forXP);
-    uint8 GetGrantableLevels() { return m_grantableLevels; }
-    void SetGrantableLevels(uint8 val) { m_grantableLevels = val; }
+    uint8 GetGrantableLevels() const { return m_grantableLevels; }
+    void SetGrantableLevels(uint8 val);
 
     ReputationMgr&       GetReputationMgr()       { return *m_reputationMgr; }
     [[nodiscard]] ReputationMgr const& GetReputationMgr() const { return *m_reputationMgr; }
@@ -2911,9 +2924,15 @@ protected:
     void _SaveStats(CharacterDatabaseTransaction trans);
     void _SaveCharacter(bool create, CharacterDatabaseTransaction trans);
 
-    uint32 _scriptedPrivateMapId = 0;
+    bool _scriptedPrivateDatabaseSpawns = false;
+
+    // Map 0 is Eastern Kingdoms, so zero cannot represent "no private map".
+    // MAPID_INVALID preserves Map 0 as a valid scripted-private destination.
+    uint32 _scriptedPrivateMapId = MAPID_INVALID;
     uint32 _scriptedPrivateInstanceId = 0;
     WorldLocation _scriptedPrivateReturn;
+    Difficulty _scriptedPrivateReturnDungeonDifficulty = DUNGEON_DIFFICULTY_NORMAL;
+    Difficulty _scriptedPrivateReturnRaidDifficulty = RAID_DIFFICULTY_10MAN_NORMAL;
     ObjectGuid _scriptedPrivateOwner;
     std::set<ObjectGuid> _scriptedPrivateMembers;
     void _SaveInstanceTimeRestrictions(CharacterDatabaseTransaction trans);

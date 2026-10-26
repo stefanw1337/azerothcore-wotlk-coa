@@ -68,7 +68,8 @@ void Replacement(Player* player, uint32 word, uint32 mask, uint32 child)
     if (!player->HasSpell(child))
         player->learnSpell(child, true);
     for (auto const& [id, state] : player->GetSpellMap())
-        if (state->State != PLAYERSPELL_REMOVED && Family(sSpellMgr->GetSpellInfo(id), word, mask) && id != child)
+        if (state->State != PLAYERSPELL_REMOVED && Family(sSpellMgr->GetSpellInfo(id), word, mask) && id != child &&
+            !player->IsTemporarySpellReplacementStandIn(id))
             player->SetTemporarySpellReplacement(id, child);
 }
 
@@ -122,7 +123,9 @@ void ApplyContracts(SpellInfo* info)
         info->InterruptFlags |= SPELL_INTERRUPT_FLAG_MOVEMENT;
         info->ChannelInterruptFlags |= AURA_INTERRUPT_FLAG_MOVE;
     }
-    if ((id == 807364 || id == 805751) && info->IsChanneled())
+    if (Family(info, 0, 2) && info->HasAura(SPELL_AURA_PERIODIC_TRIGGER_SPELL_WITH_VALUE))
+        info->AttributesEx |= SPELL_ATTR1_IS_CHANNELED;
+    if ((id == 807364 || id == 805751 || Family(info, 0, 2)) && info->IsChanneled())
         info->AttributesEx5 &= ~SPELL_ATTR5_ALLOW_ACTION_DURING_CHANNEL;
     if (id == 574149 || id == 574163)
         ConvertCreatureTypeDamage(info, EFFECT_1);

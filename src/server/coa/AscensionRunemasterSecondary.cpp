@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 #include "AscensionSpecialization.h"
+#include "AscensionTalentReplacementData.h"
 #include "Player.h"
 #include "Random.h"
 #include "ScriptMgr.h"
@@ -47,6 +48,23 @@ enum RunemasterSecondarySpells : uint32
     SPELL_FIRE_ENGRAVING = 653211,
     SPELL_FIREBRAND = 653210
 };
+
+bool IsPrimordialBlast(uint32 spellId)
+{
+    if (sSpellMgr->GetFirstSpellInChain(spellId) == SPELL_PRIMORDIAL_BLAST)
+        return true;
+    return std::any_of(AscensionCompatData::TalentReplacements.begin(),
+        AscensionCompatData::TalentReplacements.end(),
+        [spellId](AscensionCompatData::TalentReplacement const& entry)
+        {
+            return entry.OriginalSpellId == SPELL_PRIMORDIAL_BLAST &&
+                std::any_of(entry.Ranks.begin(), entry.Ranks.end(),
+                    [spellId](AscensionCompatData::ReplacementRank const& rank)
+                    {
+                        return rank.SpellId == spellId;
+                    });
+        });
+}
 
 bool HasTattoo(Player* player, uint32 root)
 {
@@ -149,12 +167,13 @@ public:
             player->RemoveAurasDueToSpell(SPELL_SPELLFIRE_READY, player->GetGUID());
         bool const riftblade = player->HasAura(SPELL_RIFTBLADE, player->GetGUID());
         bool const eternalMagic = player->HasAura(SPELL_ETERNAL_MAGIC, player->GetGUID());
-        if ((root == SPELL_PRIMORDIAL_BLAST && (riftblade || eternalMagic)) ||
+        bool const primordialBlast = IsPrimordialBlast(info->Id);
+        if ((primordialBlast && (riftblade || eternalMagic)) ||
             (root == SPELL_SMOLDER && riftblade))
         {
             if (uint32 rank = KnownRank(player, SPELL_RUNEBLADE))
                 player->RestoreSpellCharge(rank,
-                    root == SPELL_PRIMORDIAL_BLAST && eternalMagic ? SPELL_ETERNAL_MAGIC_CHARGES : 1);
+                    primordialBlast && eternalMagic ? SPELL_ETERNAL_MAGIC_CHARGES : 1);
         }
         if (root == SPELL_RUNEBLADE && riftblade)
         {

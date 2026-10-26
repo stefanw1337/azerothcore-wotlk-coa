@@ -118,7 +118,7 @@ int main()
 
     for (char const* name : { "AscensionUI", "Ascension_Collections", "Ascension_CompactRaidFrames",
                               "Ascension_EnchantCollection", "Ascension_HelpUI", "Ascension_InspectUI",
-                              "Ascension_MythicPlus", "Ascension_SeasonCollection", "Ascension_TicketUI",
+                              "Ascension_Manastorm", "Ascension_MythicPlus", "Ascension_SeasonCollection", "Ascension_TicketUI",
                               "Ascension_UIDevelopmentTools", "Ascension_WildCard" })
     {
         Entry const* entry = Find(entries, name);
@@ -130,7 +130,7 @@ int main()
                               "Ascension_BuildCreator", "Ascension_ChallengesUI", "Ascension_CharacterAdvancement",
                               "Ascension_CharacterAdvancementSeason9", "Ascension_CoATalents",
                               "Ascension_Draft", "Ascension_ForcedPrimaryStat",
-                              "Ascension_Manastorm", "Ascension_NamePlates", "Ascension_NewPlayerExperience",
+                              "Ascension_NamePlates", "Ascension_NewPlayerExperience",
                               "Ascension_PTRFeedback", "Ascension_PathToAscension", "Ascension_Poll",
                               "Ascension_RandomModeShared", "Ascension_SkillCards", "Ascension_TalentUI",
                               "Ascension_VanityCollection", "Ascension_Warmode", "Ascension_WarmodeLegacy" })

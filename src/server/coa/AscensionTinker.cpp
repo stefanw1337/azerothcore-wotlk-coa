@@ -287,7 +287,8 @@ void ActivateModule(Player* player, uint32 id)
     state.moduleTargets.clear();
     state.module = id;
     SetHelper(player,707495,true);
-    SetAmount(player,707495,0,int32(id));
+    if (Aura* aura = player->GetAura(707495))
+        aura->SetScriptValue(707495,id);
     for (ObjectGuid guid : previous)
         if (Player* ally = ObjectAccessor::FindPlayer(guid))
             for (uint32 other : TinkerModules)
@@ -303,8 +304,7 @@ void ReconcileModules(Player* player)
         for (uint32 module : TinkerModules)
             if (aura->GetId() == module)
                 if (Player* owner = ObjectAccessor::FindPlayer(aura->GetCasterGUID()))
-                    if (AuraEffect const* selected = owner->GetAuraEffect(707495,EFFECT_0); selected &&
-                        selected->GetAmount() > 0 && uint32(selected->GetAmount()) != module)
+                    if (uint32 selected = State(owner).module; selected && selected != module)
                         remove.push_back(aura);
     }
     for (Aura* aura : remove)
