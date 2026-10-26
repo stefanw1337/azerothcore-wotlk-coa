@@ -907,20 +907,40 @@ local ShowTwinPreview
 local twinState = { has = false, out = false, split = false }
 local ShowTwinState
 
-local function ColoredSubclass(subclass)
-    local token = string.upper((string.gsub(subclass, " ", "")))
-    local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[token]
-    if not color then
-        return "|cffffffff(" .. subclass .. ")|r"
+local function ShowSubclassUnder(line)
+    local subclass = state and state.subclass
+    local label = line.subclassLine
+    if not subclass or subclass == "" then
+        if label then
+            label:Hide()
+        end
+        return
     end
-    return string.format("|cff%02x%02x%02x(%s)|r", color.r * 255, color.g * 255, color.b * 255, subclass)
+    if not label then
+        label = line:GetParent():CreateFontString(nil, "ARTWORK")
+        local font, size, flags = line:GetFont()
+        if font then
+            label:SetFont(font, size, flags)
+        else
+            label:SetFontObject(GameFontNormalSmall)
+        end
+        label:SetShadowColor(line:GetShadowColor())
+        label:SetShadowOffset(line:GetShadowOffset())
+        label:SetPoint("TOP", line, "BOTTOM", 0, -2)
+        line.subclassLine = label
+    end
+    local hex = state.subclassColor
+    if not hex then
+        local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[string.upper((string.gsub(subclass, " ", "")))]
+        hex = color and string.format("%02x%02x%02x", color.r * 255, color.g * 255, color.b * 255) or "ffffff"
+    end
+    label:SetText("|cff" .. hex .. subclass .. "|r")
+    label:Show()
 end
 
 local function SubclassedLevelLine()
-    local text = CharacterLevelText and CharacterLevelText:GetText()
-    local subclass = state and state.subclass
-    if text and subclass and subclass ~= "" and not text:find("(" .. subclass .. ")", 1, true) then
-        CharacterLevelText:SetText(text .. " " .. ColoredSubclass(subclass))
+    if CharacterLevelText then
+        ShowSubclassUnder(CharacterLevelText)
     end
 end
 
@@ -1368,6 +1388,9 @@ local function FitSheetModel(frame)
     local fit = SheetFit()
     local x, y, z = model:GetPosition()
     if math.abs(x - fit.zoom) > 0.001 or math.abs(y - fit.right) > 0.001 or math.abs(z - fit.up) > 0.001 then
+        if model.SetCamera then
+            model:SetCamera(1)
+        end
         model:SetPosition(fit.zoom, fit.right, fit.up)
     end
 end
@@ -1405,10 +1428,9 @@ sheetWatch:SetScript("OnUpdate", function(self, elapsed)
     if (UnitRace("player")) == "Two-Headed Ogre" then
         ShowCyclopsHelmetOn(SheetModel(frame), cyclops.model)
     end
-    local subclass = state and state.subclass
-    local line = subclass and subclass ~= "" and LevelLineIn(frame)
-    if line and not line:GetText():find("(" .. subclass .. ")", 1, true) then
-        line:SetText(line:GetText() .. " " .. ColoredSubclass(subclass))
+    local line = LevelLineIn(frame)
+    if line then
+        ShowSubclassUnder(line)
     end
     Slots.ShowEmptyOffHand(frame)
     if relicButton and relicState.eligible then

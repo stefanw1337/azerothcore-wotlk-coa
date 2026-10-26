@@ -345,10 +345,10 @@ def frame_portrait(data):
         struct.pack_into("<3f", data, camera + CAMERA_POSITION, *(target + (PORTRAIT_DISTANCE, 0.0, 0.0)))
 
 
-def put_character_camera_first(data):
+def put_portrait_camera_first(data):
     count, offset = arr(data, CAMERAS)
     cameras = [bytes(data[offset + index * CAMERA_SIZE:offset + (index + 1) * CAMERA_SIZE]) for index in range(count)]
-    cameras.sort(key=lambda camera: struct.unpack_from("<I", camera)[0] != CHARACTER_CAMERA)
+    cameras.sort(key=lambda camera: struct.unpack_from("<I", camera)[0] != PORTRAIT_CAMERA)
     lookup_count, lookup_offset = arr(data, CAMERA_LOOKUP)
     for index, camera in enumerate(cameras):
         data[offset + index * CAMERA_SIZE:offset + (index + 1) * CAMERA_SIZE] = camera
@@ -506,7 +506,7 @@ def graft(m2_path, skin_path, out_m2, out_skin, out_folder):
         offset = sk.append(bytes(payload), 4)
         struct.pack_into("<II", sk.data, header, len(payload) // size, offset)
     frame_closer(blob.data)
-    put_character_camera_first(blob.data)
+    put_portrait_camera_first(blob.data)
     seat_helmet(blob.data, helmet_index, helmet_bone, helmet_position)
     open(out_m2, "wb").write(blob.data)
     open(out_skin, "wb").write(sk.data)
@@ -527,7 +527,7 @@ if __name__ == "__main__":
         write_atlases(sys.argv[2], int(sys.argv[3]) if len(sys.argv) > 3 else 0)
     elif sys.argv[1] == "--cameras":
         model = bytearray(Path(sys.argv[2]).read_bytes())
-        put_character_camera_first(model)
+        put_portrait_camera_first(model)
         Path(sys.argv[2]).write_bytes(model)
     else:
         graft(*sys.argv[1:6])
