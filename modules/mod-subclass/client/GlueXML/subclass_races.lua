@@ -355,12 +355,29 @@ do
 	local function Plain(text)
 		return (string.gsub(string.gsub(text, "|c%x%x%x%x%x%x%x%x", ""), "|r", ""))
 	end
-	local function Subclasses()
+	local SUBCLASS_PAYLOAD_CATEGORY = "MISC_PLAYER_DATA_PAYLOAD"
+	local SUBCLASS_PAYLOAD_ID = 1398096451
+	local function SentSubclasses()
+		if not GetJsonCacheData then return end
+		local ok, sent = pcall(GetJsonCacheData, SUBCLASS_PAYLOAD_CATEGORY, SUBCLASS_PAYLOAD_ID)
+		if not ok or type(sent) ~= "string" or sent == "" then return end
+		local found = {}
+		for name, subclass, color in string.gmatch(sent, '"([^"]+)":{"name":"([^"]+)","color":"(%x*)"}') do
+			found[name] = { name = subclass, color = color ~= "" and color or nil }
+		end
+		return found
+	end
+	local function Subclasses(realm)
+		local sent = SentSubclasses()
+		if sent then return sent end
 		local found = {}
 		local ok, value = pcall(GetCVar, SUBCLASS_CVAR)
 		for key, entry in string.gmatch(ok and value or "", "([^;=]+)=([^;]+)") do
-			local name, color = string.match(entry, "^(.-):(%x%x%x%x%x%x)$")
-			found[key] = { name = name or entry, color = color }
+			local name, server = string.match(key, "^(.-)@(.*)$")
+			if name and server == realm then
+				local subclass, color = string.match(entry, "^(.-):(%x%x%x%x%x%x)$")
+				found[name] = { name = subclass or entry, color = color }
+			end
 		end
 		return found
 	end
@@ -477,14 +494,14 @@ do
 		for _, state in pairs(placed) do
 			state.shown = false
 		end
-		local subclasses = Subclasses()
 		local realm = GetServerName and GetServerName() or ""
+		local subclasses = Subclasses(realm)
 		local everyone, subclassed = {}, {}
 		for index = 1, GetNumCharacters() do
 			local name, _, class = GetCharacterInfo(index)
 			if name then
 				everyone[name] = true
-				local subclass = subclasses[name .. "@" .. realm]
+				local subclass = subclasses[name]
 				if subclass and class then
 					subclassed[name] = { class = class, subclass = subclass }
 				end

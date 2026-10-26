@@ -314,6 +314,36 @@ std::string PlainClassName(uint8 classId)
     return Acore::StringFormat("Class {}", uint32(classId));
 }
 
+constexpr uint16 MiscPlayerDataPayload = 0x77D;
+constexpr uint32 CharacterSelectSubclassesId = 0x53554243;
+
+void SendSubclassesToCharacterSelect(WorldSession* session)
+{
+    session->QueueQueryCallback(CharacterDatabase.AsyncQuery(Acore::StringFormat(
+        "SELECT `c`.`name`, `s`.`sub_class` FROM `characters` AS `c` JOIN `mod_subclass_character` AS `s` "
+        "ON `s`.`guid` = `c`.`guid` WHERE `c`.`account` = {} AND `c`.`deleteInfos_Name` IS NULL "
+        "AND `s`.`sub_class` <> 0 AND `s`.`sub_spec` <> 0", session->GetAccountId())).WithCallback(
+        [session](QueryResult result)
+        {
+            std::string payload = "{";
+            if (result)
+                do
+                {
+                    Field* fields = result->Fetch();
+                    uint8 const subClass = fields[1].Get<uint8>();
+                    std::string color = ClassColorHex(subClass);
+                    if (color == "-")
+                        color.clear();
+                    payload += Acore::StringFormat("{}\"{}\":{{\"name\":\"{}\",\"color\":\"{}\"}}",
+                        payload.size() > 1 ? "," : "", fields[0].Get<std::string>(), PlainClassName(subClass), color);
+                } while (result->NextRow());
+            payload += "}";
+            WorldPacket packet(MiscPlayerDataPayload, 4 + payload.size() + 1);
+            packet << CharacterSelectSubclassesId << payload;
+            session->SendPacket(&packet);
+        }));
+}
+
 std::string SpecializationName(uint16 specId)
 {
     for (NamedSpecialization const& named : SpecializationNames)
@@ -1677,11 +1707,25 @@ uint32 BookCopyOf(uint32 spellId)
         spellId + BookCopyOffset : 0;
 }
 
+constexpr uint32 StockAutoShot = 75;
+
+void KeepStockAutoShot(Player* player)
+{
+    uint32 const copy = BookCopyOf(StockAutoShot);
+    if (!copy || !player->HasSpell(copy) || !IsBorrowedSpell(player, copy))
+        return;
+    if (!player->HasSpell(StockAutoShot))
+        player->learnSpell(StockAutoShot, false);
+    player->removeSpell(copy, SPEC_MASK_ALL, false);
+}
+
 uint32 PreferBorrowedBookCopies(Player* player)
 {
+    KeepStockAutoShot(player);
     std::vector<uint32> stock;
     for (auto const& [spellId, known] : player->GetSpellMap())
-        if (known->State != PLAYERSPELL_REMOVED && BookCopyOf(spellId) && IsBorrowedSpell(player, spellId))
+        if (known->State != PLAYERSPELL_REMOVED && spellId != StockAutoShot && BookCopyOf(spellId) &&
+            IsBorrowedSpell(player, spellId))
             stock.push_back(spellId);
     for (uint32 spellId : stock)
     {
@@ -3481,6 +3525,8 @@ public:
 
     bool CanPacketReceive(WorldSession* session, WorldPacket const& packet) override
     {
+        if (session && packet.GetOpcode() == CMSG_CHAR_ENUM)
+            SendSubclassesToCharacterSelect(session);
         return !session || (AllowsCreation(session, packet) && KeepsRelicOutOfBank(session, packet));
     }
 };

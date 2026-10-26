@@ -2924,6 +2924,24 @@ void ShowOtherHeadGunShot(Player* player)
         player->HandleEmoteCommand(EMOTE_ONESHOT_ATTACK_OFF_PIERCE);
 }
 
+void FireOtherHeadGun(Player* player, Unit* victim, Item const* gun, bool animated)
+{
+    player->resetAttackTimer(RANGED_ATTACK);
+    ShowCastAsCopy(player, AutoShotSpell, true);
+    WorldPacket shot = ProjectilePacket(player->GetGUID(), AutoShotSpell, gun->GetEntry(), victim->GetGUID(), false);
+    player->SendMessageToSet(&shot, true);
+    if (animated)
+        ShowOtherHeadGunShot(player);
+    bool const critical = roll_chance_f(player->GetUnitCriticalChance(RANGED_ATTACK, victim));
+    uint32 damage = Unit::CalcArmorReducedDamage(player, victim, player->CalculateDamage(RANGED_ATTACK, false, true),
+        nullptr, 0, RANGED_ATTACK);
+    if (critical)
+        damage *= 2;
+    if (SpellInfo const* autoShot = sSpellMgr->GetSpellInfo(AutoShotSpell))
+        player->SendSpellNonMeleeDamageLog(victim, autoShot, damage, SPELL_SCHOOL_MASK_NORMAL, 0, 0, true, 0, critical);
+    Unit::DealDamage(player, victim, damage, nullptr, DIRECT_DAMAGE, SPELL_SCHOOL_MASK_NORMAL, nullptr, true);
+}
+
 void ShootAlong(Player* player)
 {
     DrawForTheFight(player);
@@ -2935,19 +2953,21 @@ void ShootAlong(Player* player)
         !player->isAttackReady(RANGED_ATTACK) || !player->IsWithinDistInMap(victim, AlongShotRange) ||
         !player->IsWithinLOSInMap(victim))
         return;
-    player->resetAttackTimer(RANGED_ATTACK);
-    ShowCastAsCopy(player, AutoShotSpell, true);
-    WorldPacket shot = ProjectilePacket(player->GetGUID(), AutoShotSpell, gun->GetEntry(), victim->GetGUID(), false);
-    player->SendMessageToSet(&shot, true);
-    ShowOtherHeadGunShot(player);
-    bool const critical = roll_chance_f(player->GetUnitCriticalChance(RANGED_ATTACK, victim));
-    uint32 damage = Unit::CalcArmorReducedDamage(player, victim, player->CalculateDamage(RANGED_ATTACK, false, true),
-        nullptr, 0, RANGED_ATTACK);
-    if (critical)
-        damage *= 2;
-    if (SpellInfo const* autoShot = sSpellMgr->GetSpellInfo(AutoShotSpell))
-        player->SendSpellNonMeleeDamageLog(victim, autoShot, damage, SPELL_SCHOOL_MASK_NORMAL, 0, 0, true, 0, critical);
-    Unit::DealDamage(player, victim, damage, nullptr, DIRECT_DAMAGE, SPELL_SCHOOL_MASK_NORMAL, nullptr, true);
+    FireOtherHeadGun(player, victim, gun, true);
+}
+
+void ShootWhileCasting(Player* player)
+{
+    Spell* repeating = player->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL);
+    Unit* target = repeating ? repeating->m_targets.GetUnitTarget() : nullptr;
+    Item* gun = OwnBow(player);
+    if (!target || !gun || IsBow(gun) || !OtherHeadShoots(player) ||
+        !player->IsNonMeleeSpellCast(false, false, true) || !player->isAttackReady(RANGED_ATTACK) ||
+        !target->IsAlive() || !player->IsValidAttackTarget(target) ||
+        !player->IsWithinCombatRange(target, repeating->GetSpellInfo()->GetMaxRange(false, player)) ||
+        !player->IsWithinLOSInMap(target))
+        return;
+    FireOtherHeadGun(player, target, gun, false);
 }
 
 uint32 WantedHeadsChoice(Player const* player)
@@ -3354,7 +3374,10 @@ void ForgetSharedPool(Player const* player)
 void TickSelfAura(Player* player, uint32 diff)
 {
     if (player->IsAlive())
+    {
         ShootAlong(player);
+        ShootWhileCasting(player);
+    }
     else if (HasSecondHead(player))
     {
         HoldTheGun(player, false);
@@ -5785,8 +5808,29 @@ public:
     }
 };
 
+class mod_subclass_borrowed_auras : public UnitScript
+{
+public:
+    mod_subclass_borrowed_auras() : UnitScript("mod_subclass_borrowed_auras", true, { UNITHOOK_ON_AURA_REMOVE }) { }
+
+    void OnAuraRemove(Unit* unit, AuraApplication* application, AuraRemoveMode mode) override
+    {
+        Player* player = unit ? unit->ToPlayer() : nullptr;
+        SpellInfo const* info = application ? application->GetBase()->GetSpellInfo() : nullptr;
+        if (!player || !info || !HasSecondHead(player) || info->IsPassive() || !info->IsPositive() ||
+            !IsBorrowedSpell(player, info->Id))
+            return;
+        Spell const* casting = player->GetCurrentSpell(CURRENT_GENERIC_SPELL);
+        LOG_INFO("module", "mod-subclass: {} loses {} ({}) by remove mode {} after {} ms, casting {}",
+            player->GetName(), info->SpellName[0], info->Id, uint32(mode),
+            application->GetBase()->GetMaxDuration() - application->GetBase()->GetDuration(),
+            casting ? casting->GetSpellInfo()->Id : 0);
+    }
+};
+
 void AddSC_mod_subclass_twin()
 {
+    new mod_subclass_borrowed_auras();
     new mod_subclass_own_look();
     new mod_subclass_hand_me_downs();
     new mod_subclass_twin_shots();
