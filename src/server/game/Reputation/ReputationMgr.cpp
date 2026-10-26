@@ -21,6 +21,7 @@
 #include "DatabaseEnv.h"
 #include "ObjectMgr.h"
 #include "Player.h"
+#include "SharedDefines.h"
 #include "ScriptMgr.h"
 #include "World.h"
 #include "WorldPacket.h"
@@ -29,6 +30,18 @@
 const int32 ReputationMgr::PointsInRank[MAX_REPUTATION_RANK] = {36000, 3000, 3000, 3000, 6000, 12000, 21000, 1000};
 const int32 ReputationMgr::Reputation_Cap    =  42999;
 const int32 ReputationMgr::Reputation_Bottom = -42000;
+
+// The 3.3.5 client computes DBC base reputation from (race-1)&31. Standing
+// in SMSG_INITIALIZE_FACTIONS is an offset from that client base. Using the
+// mapped starting-zone mask here made Thunder Bluff send 0 (Tauren base 4000)
+// while the client added Blood Elf base 0 → Neutral, and Silvermoon Friendly.
+static uint32 ReputationRaceMask(Player const* player)
+{
+    uint8 const race = player->getRace(true);
+    if (!race)
+        return 0;
+    return 1u << ((race - 1) & 31);
+}
 
 ReputationRank ReputationMgr::ReputationToRank(int32 standing)
 {
@@ -94,7 +107,7 @@ int32 ReputationMgr::GetBaseReputation(FactionEntry const* factionEntry) const
     if (!factionEntry)
         return 0;
 
-    uint32 raceMask = _player->getRaceMask();
+    uint32 raceMask = ReputationRaceMask(_player);
     uint32 classMask = _player->getClassMask();
     for (int i = 0; i < 4; i++)
     {
@@ -148,7 +161,7 @@ uint32 ReputationMgr::GetDefaultStateFlags(FactionEntry const* factionEntry) con
     if (!factionEntry)
         return 0;
 
-    uint32 raceMask = _player->getRaceMask();
+    uint32 raceMask = ReputationRaceMask(_player);
     uint32 classMask = _player->getClassMask();
     for (int i = 0; i < 4; i++)
     {
@@ -211,21 +224,33 @@ void ReputationMgr::SendState(FactionState const* faction)
 
 void ReputationMgr::SendInitialReputations()
 {
-    WorldPacket data(SMSG_INITIALIZE_FACTIONS, (4 + 128 * 5));
-    data << uint32 (0x00000080);
+    // Stock 3.3.5 is 128. Ascension/CoA Faction.dbc uses reputationListID >= 128;
+    // those rows never reached the client until this count is raised.
+    uint32 count = 128;
+    for (FactionStateList::const_iterator itr = _factions.begin(); itr != _factions.end(); ++itr)
+        if (itr->first + 1 > static_cast<int32>(count))
+            count = static_cast<uint32>(itr->first + 1);
+    if (count < 128)
+        count = 128;
+    if (count > 256)
+        count = 256;
+
+    WorldPacket data(SMSG_INITIALIZE_FACTIONS, (4 + count * 5));
+    data << uint32(count);
 
     RepListID a = 0;
 
     for (FactionStateList::iterator itr = _factions.begin(); itr != _factions.end(); ++itr)
     {
-        // fill in absent fields
+        if (itr->first >= static_cast<int32>(count))
+            break;
+
         for (; a != itr->first; a++)
         {
             data << uint8  (0x00);
             data << uint32 (0x00000000);
         }
 
-        // fill in encountered data
         data << uint8  (itr->second.Flags);
         data << uint32 (itr->second.Standing);
 
@@ -234,8 +259,7 @@ void ReputationMgr::SendInitialReputations()
         ++a;
     }
 
-    // fill in absent fields
-    for (; a != 128; a++)
+    for (; a != static_cast<RepListID>(count); a++)
     {
         data << uint8  (0x00);
         data << uint32 (0x00000000);
@@ -480,7 +504,7 @@ void ReputationMgr::SetVisible(FactionTemplateEntry const* factionTemplateEntry)
 
     if (FactionEntry const* factionEntry = sFactionStore.LookupEntry(factionTemplateEntry->faction))
         // Never show factions of the opposing team
-        if (!(factionEntry->BaseRepRaceMask[1] & _player->getRaceMask() && factionEntry->BaseRepValue[1] == Reputation_Bottom))
+        if (!(factionEntry->BaseRepRaceMask[1] & ReputationRaceMask(_player) && factionEntry->BaseRepValue[1] == Reputation_Bottom))
             SetVisible(factionEntry);
 }
 
@@ -637,6 +661,112 @@ void ReputationMgr::LoadFromDB(PreparedQueryResult result)
                 faction->roundedUp = false;
             }
         } while (result->NextRow());
+    }
+
+    ApplyStartingZoneReputation();
+}
+
+void ReputationMgr::ApplyStartingZoneReputation()
+{
+    uint8 const race = _player->getRace(true);
+    if (race >= 1 && race <= 11)
+        return;
+
+    enum Template : uint8 { T_HUMAN = 1, T_ORC = 2, T_DWARF = 3, T_NE = 4, T_UD = 5, T_TAUREN = 6 };
+    uint8 tmpl = T_HUMAN;
+    switch (race)
+    {
+        case 12: case 13: case 15: case 16: case 18: case 20: case 22: case 27: case 30:
+        case 32: case 47: case 50: case 65: case 71: case 79: case 80: case 82: case 103:
+            tmpl = T_HUMAN; break;
+        case 19: case 21: case 23: case 24: case 25: case 26: case 28: case 29: case 31:
+        case 49: case 51: case 53: case 55: case 56: case 57: case 58: case 69: case 70:
+        case 74: case 83: case 86: case 87: case 89: case 98: case 104:
+            tmpl = T_ORC; break;
+        case 48: case 67: case 68:
+            tmpl = T_DWARF; break;
+        case 14: case 54: case 59: case 61: case 62: case 75: case 85: case 97: case 99:
+        case 100: case 107: case 109: case 110:
+            tmpl = T_NE; break;
+        case 60: case 63: case 81: case 84: case 90: case 101:
+            tmpl = T_UD; break;
+        case 17: case 66: case 102: case 106: case 112:
+            tmpl = T_TAUREN; break;
+        default:
+        {
+            ChrRacesEntry const* raceEntry = sChrRacesStore.LookupEntry(race);
+            if (raceEntry)
+            {
+                switch (raceEntry->FactionID)
+                {
+                    case 1: tmpl = T_HUMAN; break;
+                    case 2: tmpl = T_ORC; break;
+                    case 3: tmpl = T_DWARF; break;
+                    case 4: tmpl = T_NE; break;
+                    case 5: tmpl = T_UD; break;
+                    case 6: tmpl = T_TAUREN; break;
+                    default: break;
+                }
+            }
+            break;
+        }
+    }
+
+    // Absolute standing (what the book shows). Independent of getRaceMask / DBC base.
+    struct Pair { uint32 faction; int32 value; };
+    Pair const* rows = nullptr;
+    static Pair const kHuman[] = {
+        {469, 3300}, {72, 3100}, {47, 3100}, {54, 3100}, {69, 3100}, {930, 3100},
+        {67, -42000}, {76, -42000}, {81, -42000}, {68, -42000}, {911, -42000}, {530, -42000}, {0, 0}
+    };
+    static Pair const kOrc[] = {
+        {67, 3500}, {76, 4000}, {81, 3100}, {530, 3100}, {68, 500}, {911, 400},
+        {469, -42000}, {72, -42000}, {47, -42000}, {54, -42000}, {69, -42000}, {0, 0}
+    };
+    static Pair const kDwarf[] = {
+        {469, 3300}, {47, 4000}, {54, 3100}, {72, 3100}, {69, 3100}, {930, 3100},
+        {67, -42000}, {76, -42000}, {81, -42000}, {68, -42000}, {911, -42000}, {0, 0}
+    };
+    static Pair const kNE[] = {
+        {469, 3300}, {69, 4000}, {72, 3100}, {47, 3100}, {54, 3100}, {930, 3100},
+        {67, -42000}, {76, -42000}, {81, -42000}, {68, -42000}, {911, -42000}, {530, -42000}, {0, 0}
+    };
+    static Pair const kUD[] = {
+        {67, 3500}, {68, 4000}, {911, 3100}, {76, 500}, {81, 500}, {530, 500},
+        {469, -42000}, {72, -42000}, {47, -42000}, {69, -42000}, {0, 0}
+    };
+    static Pair const kTauren[] = {
+        {67, 3500}, {81, 4000}, {76, 3100}, {530, 3100}, {68, 500}, {911, 0},
+        {469, -42000}, {72, -42000}, {47, -42000}, {69, -42000}, {54, -42000}, {0, 0}
+    };
+    switch (tmpl)
+    {
+        case T_ORC: rows = kOrc; break;
+        case T_DWARF: rows = kDwarf; break;
+        case T_NE: rows = kNE; break;
+        case T_UD: rows = kUD; break;
+        case T_TAUREN: rows = kTauren; break;
+        default: rows = kHuman; break;
+    }
+
+    for (Pair const* p = rows; p->faction; ++p)
+    {
+        FactionEntry const* factionEntry = sFactionStore.LookupEntry(p->faction);
+        if (!factionEntry || factionEntry->reputationListID < 0)
+            continue;
+        FactionStateList::iterator itr = _factions.find(factionEntry->reputationListID);
+        if (itr == _factions.end())
+            continue;
+        int32 const base = GetBaseReputation(factionEntry);
+        itr->second.Standing = p->value - base;
+        itr->second.Flags = (itr->second.Flags | FACTION_FLAG_VISIBLE) & ~FACTION_FLAG_INVISIBLE_FORCED;
+        itr->second.needSend = true;
+        itr->second.needSave = true;
+        SetVisible(&itr->second);
+        if (GetRank(factionEntry) <= REP_HOSTILE)
+            SetAtWar(&itr->second, true);
+        else if (GetRank(factionEntry) >= REP_FRIENDLY)
+            SetAtWar(&itr->second, false);
     }
 }
 

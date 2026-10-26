@@ -28,6 +28,13 @@ CoA.AllowRemoteClients = 0
 # 0 - Create a Hero. Use this on a realm with CoA.ClassModel = "hero".
 CoA.MapClass10ToWarrior = 1
 
+# Client lab probe relay: the admin command .labprobe whispers read-only CoaProbe requests to an
+# online lab character as addon messages and collects the chunked answers the addon whispers back.
+# Accepted only for accounts whose name starts with CoA.ProbeRelay.AccountPrefix (case-insensitive).
+# Enable only on a lab server. Default: 0.
+CoA.ProbeRelay.Enable = 0
+CoA.ProbeRelay.AccountPrefix = "COALAB"
+
 # Log each consumed extension packet during protocol discovery.
 CoA.LogConsumedPackets = 1
 
@@ -61,8 +68,9 @@ CoA.EquippedGearLootChance = 5
 # Every value may also be a formula of the creature's level: numbers, level, + - * /, parentheses, min(a, b) and
 # max(a, b), e.g. CoA.CreatureScaling.World.Health = "1.17 + 0.013 * level". In MapHealth/MapDamage write a formula
 # without spaces ("43:0.3+0.08*level"), or separate the entries with ';' ("43: 0.3 + 0.08 * level; 36: 2.2").
-# World is fitted to live open-world creature health seen in videos of live Ascension (levels 1-59); world damage uses
-# the same formula. Dungeon and Raid keep their earlier estimates.
+# World health is fitted to live open-world creature health seen in videos of live Ascension (levels 1-59). World
+# melee damage is half the base of the fit to a live video of a level 1 Duskbat hitting a new level 1 character
+# (72 armor) for 5-8 ("4.32 + 0.013 * level"), as the live PTR now does. Dungeon and Raid keep their earlier estimates.
 # While mod-coa-content-scaling is enabled it owns the health and damage of dungeon and raid creatures: the Dungeon,
 # Raid and Map* values below are then neutral (1.0) for them, so they never stack on its combat budget (tune that with
 # CoAContentScaling.Difficulty.Health.* instead). World values and servers without the module are not affected.
@@ -72,10 +80,24 @@ CoA.CreatureScaling.World.Health = "1.17 + 0.013 * level"
 CoA.CreatureScaling.Dungeon.Health = 2.5
 CoA.CreatureScaling.Raid.Health = 2.2
 CoA.CreatureScaling.MapHealth = "36:2.2 43:2.0 229:4.0 389:3.0 469:5.0"
-CoA.CreatureScaling.World.Damage = "1.17 + 0.013 * level"
+CoA.CreatureScaling.World.Damage = "2.16 + 0.013 * level"
 CoA.CreatureScaling.Dungeon.Damage = 1.5
 CoA.CreatureScaling.Raid.Damage = 1.0
 CoA.CreatureScaling.MapDamage = ""
+# Melee damage spread: the creature's highest normal hit over its lowest, around the same average (live open-world
+# normal creatures 1.5-1.6 from player combat logs; wider at level 1, where the same Duskbat video hits 5-8).
+# 0 keeps the stock range. Formulas and MapDamageSpread as above.
+CoA.CreatureScaling.World.DamageSpread = "max(1.55, 1.85 - 0.05 * level)"
+CoA.CreatureScaling.Dungeon.DamageSpread = 0
+CoA.CreatureScaling.Raid.DamageSpread = 0
+CoA.CreatureScaling.MapDamageSpread = ""
+# Spell and periodic damage from creatures. Damage above covers melee swings and melee/ranged spells (weapon strikes,
+# bleeds); every other open-world spell takes World.SpellDamage instead. Live creature spells hit for about their
+# spell data value at the creature's own level in player combat logs, so the default is unscaled. Dungeons and raids
+# have no spell factor of their own: their spells keep Dungeon.Damage/Raid.Damage unless MapSpellDamage names the map.
+# Formulas and MapSpellDamage as above.
+CoA.CreatureScaling.World.SpellDamage = 1
+CoA.CreatureScaling.MapSpellDamage = ""
 
 # Live-like magic resistance for NPCs not controlled by players, including Holy
 # (docs/coa/monster-linear-resistance.md). Each combat level adds PerLevel resistance to every magic school;
@@ -185,7 +207,9 @@ CoA.ItemScaling = 1
 
 # Weapons and armor that the client's ItemStat.dbc has a level ladder for keep their own entry and are
 # given a scaling level instead of a copy: the looter's level plus LootLevelOffset, from 1 to 65, set
-# once when the item is looted, won in a roll or, with QuestRewards, given by a quest. Their stats come
+# once when the item is looted, won in a roll or, with QuestRewards, given by a quest. Inside a dungeon
+# listed in DestinyWeaver.Scaling.DungeonIds loot scales for everyone and only down: an item whose own
+# item level is at or below that level keeps its authored stats. Their stats come
 # from the ladder row for that level, and the client asks for the same row with opcode 0x6FF.
 # Worldforged items and items the copy path never lifts stay as they are. While it is active the copy
 # path (CoA.ItemScaling) makes no new copies at all; copies already handed out keep working.
@@ -194,13 +218,11 @@ CoA.ItemScaling.Native = 1
 CoA.ItemScaling.Native.LootLevelOffset = 0
 CoA.ItemScaling.Native.QuestRewards = 1
 
-# LevelKeys stores the client's item key for the level instead of the level itself (level + 2 up to 20,
-# + 3 up to 30, + 4 up to 50, + 5 up to 60, the client's table above), as the Ascension client does;
-# a quest reward then takes the quest's own scaled level, or the key of the player's level.
-# Preview (needs LevelKeys) shows each character the version of an item they would receive: the
-# loot window and corpse level, roll frames, inspect, mail and auctions. Both are read at startup only.
-CoA.ItemScaling.Native.LevelKeys = 0
-CoA.ItemScaling.Native.Preview = 0
+# RebornArmor gives every class but the classless Hero the reborn armor the client shows them: the
+# ladder row's second armor column for a scaled item, ItemAddon.dbc's reborn armor for an authored one
+# (items without that value keep their own armor). The stat reply then carries both columns. With 0,
+# items give their full armor to everyone and the reply repeats it. Needs Native; read at startup only.
+CoA.ItemScaling.Native.RebornArmor = 1
 
 # Automatic progression: hand out the class abilities and rank upgrades for the
 # character's class and level as they level up. Set to 0 to stop that
@@ -445,15 +467,25 @@ HighRisk.FelCommutation.ToggleAnywhere = 0
 HighRisk.FelCommutation.ClickToggle = 0
 
 #    PvpPower.Enable
-#        Description: Item spells named "PvP Power (+N)" scale damage and healing at level 60, capped at
-#                     495 points. Damage +0.05% per point against players (and against uncontrolled
+#        Description: PvP Power on equipped items (the value in ItemAddon.dbc, else the item's "PvP Power
+#                     (+N)" spell) scales damage and healing at level 60, capped at 495 points. Damage +0.05% per point against players (and against uncontrolled
 #                     creatures for a High-Risk attacker in the open world); creature damage received
 #                     there -0.05% per point; healing and shields +0.02% per point in War Mode,
 #                     High-Risk open world and battlegrounds.
-#        Default:     0 - (Disabled)
-#                     1 - (Enabled)
+#        Default:     1 - (Enabled)
+#                     0 - (Disabled)
 
-PvpPower.Enable = 0
+PvpPower.Enable = 1
+
+#    PvePower.Enable
+#        Description: PvE Power on equipped items (the value in ItemAddon.dbc, else the item's "PvE Power
+#                     (+N)" spell) scales damage and healing at level 60, capped at 495 points. Damage dealt to creatures +0.05% per point and damage received from
+#                     creatures -0.05% per point on every map; healing and shields +0.02% per point in
+#                     dungeons and raids. Stacks with PvP Power.
+#        Default:     1 - (Enabled)
+#                     0 - (Disabled)
+
+PvePower.Enable = 1
 
 #    Bloodforged.Enable
 #        Description: Adds one independent Bloodforged roll to eligible open-world creature corpses
@@ -509,11 +541,12 @@ Ascension.PrestigiousCache.SecondTokenChancePercent = 5
 
 #
 #    Ascension.PrestigiousCache.ClassicStages
-#        Description: How many of the Classic Prestigious Caches are released, 0-8, in the
-#                     order 1287304 held for Heroic Dungeons, Zul'Gurub, Molten Core,
+#        Description: Additional Classic pool limit, 0-8. Pools must also be released by
+#                     Ascension.CallboardCache.ReleaseStage. Existing tier caches obey both limits.
+#                     Pool order: 1287304 onwards for Heroic Dungeons, Zul'Gurub, Molten Core,
 #                     Onyxia, Blackwing Lair, Ruins of Ahn'Qiraj, Temple of Ahn'Qiraj,
 #                     Naxxramas. The generic "most recent Prestigious Cache available"
-#                     resolves to the newest released one.
+#                     resolves to the newest allowed populated pool.
 #        Default:     8
 
 Ascension.PrestigiousCache.ClassicStages = 8

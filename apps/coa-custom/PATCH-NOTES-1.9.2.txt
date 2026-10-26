@@ -1,0 +1,48 @@
+CoA Custom 1.9.2 - Patch notes
+https://github.com/ilusixn/azerothcore-wotlk-coa/releases/tag/coa-custom-1.9.2
+
+Complete package. You do not need 1.9 or 1.9.1 first. Close Ascension.exe before you install. Fully quit the client after install so the MPQs reload. Restart the realm.
+
+
+WHAT 1.9.2 ADDS
+---------------
+- Hozen (race 112) are Horde. They start in Mulgore with the Tauren and use Tauren-side reputation.
+- Alliance Centaur are the same height as Horde Centaur.
+- Centaur jump uses the in-model JumpStart clip again.
+- Gallop (racial 14001006) keeps the hand-cast pose only. No horse mount visual, no ground burst at the feet.
+- Custom-race bot armor shows again (helm/cloak hide flags cleared). Centaur Talk sequences stay aliased so bots do not load the crashing .anim files.
+
+
+WHAT 1.9.1 INCLUDED
+-------------------
+Forgotten (Thin Human) is Alliance, reputation book lists Alliance factions, CHA body/face, skin 5 removed, Sylvari jump, Hozen shield socket.
+
+
+WHAT 1.9 INCLUDED
+-----------------
+Hozen, Sylvari, Ethereal, Kyrian, Centaur (Alliance); Mantid, Venthyr, Slime Giant, Centaur, Banshee (female), Faceless One (male) (Horde); racials including Centaur Gallop.
+
+
+KNOWN BUGS (not fixed in this build)
+------------------------------------
+- Drakonid bots can spawn with the wrong / broken textures. Playable Drakonid on a player character is separate; this is the random-bot appearance.
+- Some custom-race bots can still crash the client when you see them (Talk / missing .anim on some models). Turn those races off for random bots by putting their race IDs in CoA-Bots\Core\configs\modules\playerbots.conf:
+
+    AiPlayerbot.CrashingBotRaces = "98,100"
+
+  Use the race IDs that crash for you. Examples: Drakonid Horde 98, Drakonid Alliance 100, Centaur Alliance 75, Centaur Horde 102, Hozen 112, Sylvari 110, Mantid 106. Restart the bot worldserver after editing. Existing bots keep their race until you purge/recreate them (CoA-Bots\Purge-Bots.bat).
+- Realm First achievements for extra races, some Vulpera/Sethrak visuals, and trainer "Show available" follow-ups are still open.
+
+
+INSTALL
+-------
+See INSTALL-GUIDE.txt. Download all six zips from this release, extract them into the same folder (next to Start_All_Server.bat), run CoA-Custom\Install-Custom.bat.
+
+Already on 1.9.1? Extract Server + Client-5 over that folder and run Install-Custom.bat again. Client-1 to -4 are unchanged.
+
+Race-only server module: https://github.com/ilusixn/azerothcore-wotlk-coa/tree/races-core
+
+
+CREDITS
+-------
+Jealous-Sound, AzerothCore, SQUID / Zyth45, Corfirean, Kalibros (Wardens of Wen), Dex, Westen, Uncle Snowzo, Yami, FrolickingFauns, Furioz / Eunoia, Furioz420, Dokman / WXL, Medviten, Project Reforged, Sirus, romaindnd89-cmd, Project Ascension, ilusixn.

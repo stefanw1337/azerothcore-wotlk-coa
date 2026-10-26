@@ -19,6 +19,8 @@
 #include "CoaCustomRacials.h"
 #include "AscensionSpellCopy.h"
 #include "AscensionIncarnation.h"
+
+#include "AscensionQuestMarkers.h"
 #include "AccountMgr.h"
 #include "AchievementMgr.h"
 #include "AreaDefines.h"
@@ -2535,7 +2537,7 @@ void Player::SendLogXPGain(uint32 GivenXP, Unit* victim, uint32 BonusXP, bool re
     SendDirectMessage(&data);
 }
 
-void Player::GiveXP(uint32 xp, Unit* victim, float group_rate, bool isLFGReward)
+void Player::GiveXP(uint32 xp, Unit* victim, float group_rate, bool isLFGReward, PlayerXPSource xpSource)
 {
     if (xp < 1)
         return;
@@ -2590,9 +2592,10 @@ void Player::GiveXP(uint32 xp, Unit* victim, float group_rate, bool isLFGReward)
     uint32 curXP = GetUInt32Value(PLAYER_XP);
     uint32 nextLvlXP = GetUInt32Value(PLAYER_NEXT_LEVEL_XP);
     uint32 bonusLimit = xp;
-    bool recruitAFriend = !noBonusExperience && GetsRecruitAFriendBonus(true);
+    bool recruitAFriend = xpSource != XPSOURCE_PROFESSION && xpSource != XPSOURCE_PROFESSION_SKILL &&
+        !noBonusExperience && GetsRecruitAFriendBonus(true);
     if (recruitAFriend)
-        bonusLimit = 2 * xp;
+        bonusLimit = xp / 2;
 
     if (levelCap < maxLevel)
     {
@@ -2731,7 +2734,7 @@ void Player::GiveLevel(uint8 level)
     UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_REACH_LEVEL);
 
     // Refer-A-Friend
-    if (GetSession()->GetRecruiterId() && level > oldLevel)
+    if ((GetSession()->GetRecruiterId() || GetSession()->IsARecruiter()) && level > oldLevel)
     {
         uint32 const cap = sWorld->getIntConfig(CONFIG_MAX_RECRUIT_A_FRIEND_BONUS_PLAYER_LEVEL);
         uint32 const earned = std::min<uint32>(level, cap) / 2 - std::min<uint32>(oldLevel, cap) / 2;
@@ -7277,7 +7280,7 @@ void Player::_ApplyItemBonuses(ItemTemplate const* proto, uint8 slot, bool apply
             ApplySpellPowerBonus(spellbonus, apply);
 
     // If set ScalingStatValue armor get it or use item armor
-    uint32 armor = proto->Armor;
+    uint32 armor = LocalLevelScaling::WornArmorFor(this, proto, proto->Armor);
     if (ssv)
     {
         if (uint32 ssvarmor = ssv->getArmorMod(ScalingStatValue))
@@ -8247,6 +8250,7 @@ void Player::SendQuestGiverStatusMultiple()
 
     data.put<uint32>(0, count); // write real count
     SendDirectMessage(&data);
+    AscensionQuestMarkers::RefreshVisible(this);
 }
 
 /*  If in a battleground a player dies, and an enemy removes the insignia, the player's bones is lootable
@@ -12364,6 +12368,7 @@ void Player::SendInitialPacketsBeforeAddToMap()
     SendUnlearnSpells();
 
     SendInitialActionButtons();
+    m_reputationMgr->ApplyStartingZoneReputation();
     m_reputationMgr->SendInitialReputations();
     m_achievementMgr->SendAllAchievementData();
 
@@ -13608,7 +13613,7 @@ bool Player::GetsRecruitAFriendBonus(bool forXP)
                 if (!player || !player->IsInMap(this))
                     continue;
 
-                if (!player->IsAtRecruitAFriendDistance(this))
+                if (!player->IsAtRecruitAFriendDistance(this, forXP))
                     continue;                               // member (alive or dead) or his corpse at req. distance
 
                 if (forXP)
@@ -13707,7 +13712,7 @@ bool Player::IsAtLootRewardDistance(WorldObject const* pRewardSource) const
     return pRewardSource->HasAllowedLooter(GetGUID());
 }
 
-bool Player::IsAtRecruitAFriendDistance(WorldObject const* pOther) const
+bool Player::IsAtRecruitAFriendDistance(WorldObject const* pOther, bool forXP) const
 {
     if (!pOther)
         return false;
@@ -13718,7 +13723,7 @@ bool Player::IsAtRecruitAFriendDistance(WorldObject const* pOther) const
     if (player->GetMapId() != pOther->GetMapId() || player->GetInstanceId() != pOther->GetInstanceId())
         return false;
 
-    return pOther->GetDistance(player) <= sWorld->getFloatConfig(CONFIG_MAX_RECRUIT_A_FRIEND_DISTANCE);
+    return pOther->GetDistance(player) <= sWorld->getFloatConfig(forXP ? CONFIG_MAX_RECRUIT_A_FRIEND_XP_DISTANCE : CONFIG_MAX_RECRUIT_A_FRIEND_DISTANCE);
 }
 
 uint32 Player::GetBaseWeaponSkillValue(WeaponAttackType attType) const
@@ -15355,7 +15360,7 @@ bool Player::CanResummonPet(uint32 spellid)
 
     if (IsClass(CLASS_MAGE, CLASS_CONTEXT_PET))
     {
-        if (HasSpell(31687) && HasAura(70937))  //Has [Summon Water Elemental] spell and [Glyph of Eternal Water].
+        if (HasSpell(31687) && HasAuraOrTwin(70937))  //Has [Summon Water Elemental] spell and [Glyph of Eternal Water].
             return true;
     }
 

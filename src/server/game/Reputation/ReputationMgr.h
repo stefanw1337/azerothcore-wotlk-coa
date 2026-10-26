@@ -62,6 +62,7 @@ public:                                                 // constructors and glob
 
     void SaveToDB(CharacterDatabaseTransaction trans);
     void LoadFromDB(PreparedQueryResult result);
+    void ApplyStartingZoneReputation();
 public:                                                 // statics
     static const int32 PointsInRank[MAX_REPUTATION_RANK];
     static const int32 Reputation_Cap;

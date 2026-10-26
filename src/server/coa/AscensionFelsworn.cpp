@@ -105,7 +105,7 @@ void SettleDebt(Player* player)
     for (auto const& debt : state.debt)
         amount += debt.remaining;
     state.debt.clear();
-    state.timers.CancelEvent(807727);
+    state.timers.CancelEvent(StaggerTick);
     if (player->IsAlive() && amount)
         Unit::DealDamage(player, player, uint32(std::min<uint64>(amount, UINT32_MAX)), nullptr, NODAMAGE,
                          SPELL_SCHOOL_MASK_NORMAL, nullptr, false);
@@ -356,7 +356,7 @@ class felsworn_player : public PlayerScript
         state.timers.Update(diff);
         state.scheduler.Update(diff);
         while (uint32 event = state.timers.ExecuteEvent())
-            if (event == 807727)
+            if (event == StaggerTick)
             {
                 uint64 amount = 0;
                 for (auto& debt : state.debt)
@@ -373,21 +373,21 @@ class felsworn_player : public PlayerScript
                     Unit::DealDamage(player, player, uint32(std::min<uint64>(amount, UINT32_MAX)), nullptr, NODAMAGE,
                                      SPELL_SCHOOL_MASK_NORMAL, nullptr, false);
                 if (!state.debt.empty())
-                    state.timers.ScheduleEvent(807727, 1s);
+                    state.timers.ScheduleEvent(StaggerTick, 1s);
             }
         if (!player->IsAlive())
         {
             state.debt.clear();
             player->RemoveAurasDueToSpell(804216);
         }
-        if (!state.timers.HasTimeUntilEvent(1))
+        if (!state.timers.HasTimeUntilEvent(RefreshEvent))
         {
             Refresh(player);
             state.infernals.erase(
                 std::remove_if(state.infernals.begin(), state.infernals.end(),
                                [player](ObjectGuid guid) { return !ObjectAccessor::GetCreature(*player, guid); }),
                 state.infernals.end());
-            state.timers.ScheduleEvent(1, 250ms);
+            state.timers.ScheduleEvent(RefreshEvent, 250ms);
         }
     }
     void OnPlayerBeforeLogout(Player* player) override

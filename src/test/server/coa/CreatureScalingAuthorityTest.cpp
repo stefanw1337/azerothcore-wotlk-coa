@@ -96,3 +96,16 @@ TEST(CreatureScalingAuthority, WithoutAnOwnerTheResultIsTheConfiguredFormulaOrMa
                 EXPECT_FLOAT_EQ(Multiplier(settings.damage, context, mapId, lvl, NotOwned), expected(settings.damage, context, mapId, lvl));
             }
 }
+
+TEST(CreatureScalingAuthority, OwnedSpellDamageIgnoresCoreMapAndWeaponMultipliers)
+{
+    Settings settings;
+    settings.spellDamage.maps[Deadmines] = CreatureScaling::Formula::Of("7");
+    for (bool weaponSpell : { false, true })
+        EXPECT_FLOAT_EQ(CreatureScaling::SpellMultiplier(settings, Context::Dungeon, Deadmines, 20,
+            weaponSpell, Owned), 1.0f);
+    EXPECT_FLOAT_EQ(CreatureScaling::SpellMultiplier(settings, Context::Dungeon, Deadmines, 20,
+        false, NotOwned), 7.0f);
+    EXPECT_FLOAT_EQ(CreatureScaling::SpellMultiplier(settings, Context::World, NoOverrideMap, 20,
+        false, Owned), 1.0f);
+}

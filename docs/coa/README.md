@@ -431,12 +431,10 @@ zone gets its buff, players entering later get it for the time left, and a secon
 scroll of the same kind is refused while one is active. The registry lives in
 memory, so a restart clears active blessings.
 
-Keeper's Scroll: Steadfast (91770) ships as an empty dummy; the server rewrites it
-into +25% mounted speed with the stacking mount speed aura Crusader Aura uses. Its
-client row has no tooltip either. When preparing a requested client update, run
-`apps/coa-spells/keepers_scroll_steadfast.py --input <Spell.dbc> --output
-<candidate-Spell.dbc>`; it edits one row in a separate output and never packages or
-installs a client archive.
+Keeper's Scroll: Steadfast's item spell (91770) is an empty dummy with no tooltip,
+so its blessing is the aura spell 91769 instead: +25% mounted speed for one hour
+with the client's own tooltip. A scroll whose blessing is a different spell gives
+it to the user as well.
 
 ## Login and natural regeneration
 
@@ -479,6 +477,9 @@ supports. Client binaries are maintained outside this repository.
 - `SMSG_ACCOUNT_INFO` (0x09BB) is sent at login with the account's GM level and characters.
 - Help menu tickets use the ticket packets 0x0701-0x071E and the `.support` GM commands; see
   [player tickets](player-tickets.md).
+- `SMSG_PATCH_GLOBAL_STRINGS` (0x0676) carries the eight PvE and PvP Power tooltip lines at login with `%g` in
+  place of the client's `%d`, so the character sheet shows the exact percentage; see
+  [item power](item-power.md).
 - Requests the core session handles like stock ones, registered in its opcode table and let
   through the CoA packet filter: the portrait menu's reset all dungeons (`CMSG_RESET_DUNGEONS`,
   0x061F); the ghost frame's return to graveyard (`CMSG_PORT_GRAVEYARD`, 0x0544), which

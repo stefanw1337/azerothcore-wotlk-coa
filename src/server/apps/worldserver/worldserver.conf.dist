@@ -4754,17 +4754,23 @@ RecruitAFriend.MaxLevel = 60
 #    RecruitAFriend.MaxDifference
 #        Description: Highest level difference between linked Recruiter and Friend benefit from
 #                     the Recruit-A-Friend experience multiplier.
-#        Default:     4
+#        Default:     30
 
-RecruitAFriend.MaxDifference = 4
+#    Legacy value 4 is automatically treated as 30 when loading or reloading the config.
+RecruitAFriend.MaxDifference = 30
 
 #
 #    MaxRecruitAFriendBonusDistance
-#        Description: Max distance between character and and group to gain the Recruit-A-Friend
-#                     XP multiplier.
+#        Description: Max distance for Recruit-A-Friend level grants and reputation bonuses.
 #        Default:     100
 
 MaxRecruitAFriendBonusDistance = 100
+
+#    MaxRecruitAFriendXPDistance
+#        Description: Max distance between linked group members for the Recruit-A-Friend XP bonus.
+#        Default:     200
+
+MaxRecruitAFriendXPDistance = 200
 
 #
 ###################################################################################################

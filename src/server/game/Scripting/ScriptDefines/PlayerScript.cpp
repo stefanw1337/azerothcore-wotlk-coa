@@ -1076,6 +1076,11 @@ void ScriptMgr::OnPlayerLoadForeignSkill(Player const* player, uint16 skill, Ski
         script->OnPlayerLoadForeignSkill(player, skill, entry));
 }
 
+void ScriptMgr::OnPlayerGetNameQueryRace(Player* player, uint8& race)
+{
+    CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_GET_NAME_QUERY_RACE, script->OnPlayerGetNameQueryRace(player, race));
+}
+
 void ScriptMgr::OnPlayerNormalizeActionButtonSpell(Player* player, uint32& action, bool loading)
 {
     CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_NORMALIZE_ACTION_BUTTON_SPELL, script->OnPlayerNormalizeActionButtonSpell(player, action, loading));

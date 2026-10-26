@@ -1005,7 +1005,7 @@ enum PlayerCommandStates
     CHEAT_SPELLCHARGES = 0x20
 };
 
-// Used for OnGiveXP PlayerScript hook
+// Used for XP awards and the OnGiveXP PlayerScript hook
 enum PlayerXPSource
 {
     XPSOURCE_KILL = 0,
@@ -1198,7 +1198,8 @@ public:
     void SetHas310Flyer(bool on) { if (on) m_ExtraFlags |= PLAYER_EXTRA_HAS_310_FLYER; else m_ExtraFlags &= ~PLAYER_EXTRA_HAS_310_FLYER; }
     void SetPvPDeath(bool on) { if (on) m_ExtraFlags |= PLAYER_EXTRA_PVP_DEATH; else m_ExtraFlags &= ~PLAYER_EXTRA_PVP_DEATH; }
 
-    void GiveXP(uint32 xp, Unit* victim, float group_rate = 1.0f, bool isLFGReward = false);
+    void GiveXP(uint32 xp, Unit* victim, float group_rate = 1.0f, bool isLFGReward = false,
+        PlayerXPSource xpSource = XPSOURCE_KILL);
     void GiveLevel(uint8 level);
 
     void InitStatsForLevel(bool reapplyMods = false);
@@ -1509,7 +1510,7 @@ public:
     void RemoveActiveQuest(uint32 questId, bool update = true);
     void RemoveRewardedQuest(uint32 questId, bool update = true);
     void SendQuestUpdate(uint32 questId);
-    QuestGiverStatus GetQuestDialogStatus(Object* questGiver);
+    QuestGiverStatus GetQuestDialogStatus(Object* questGiver, uint32 questFilter = 0);
     float GetQuestRate(bool isDFQuest = false, int32 questLevel = 0, Quest const* quest = nullptr);
     void SetDailyQuestStatus(uint32 quest_id);
     bool IsDailyQuestDone(uint32 quest_id);
@@ -2237,7 +2238,7 @@ public:
 
     bool IsAtGroupRewardDistance(WorldObject const* pRewardSource) const;
     bool IsAtLootRewardDistance(WorldObject const* pRewardSource) const;
-    bool IsAtRecruitAFriendDistance(WorldObject const* pOther) const;
+    bool IsAtRecruitAFriendDistance(WorldObject const* pOther, bool forXP = false) const;
     void RewardPlayerAndGroupAtKill(Unit* victim, bool isBattleGround);
     void RewardPlayerAndGroupAtEvent(uint32 creature_id, WorldObject* pRewardSource);
     bool isHonorOrXPTarget(Unit* victim) const;

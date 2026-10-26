@@ -467,6 +467,7 @@ public: /* PlayerScript */
     void OnPlayerGetAmmoDisplay(Player* player, SpellInfo const* spellInfo, uint32& displayId, uint32& inventoryType);
     void OnPlayerGetShapeshiftModel(Player* player, uint8 form, uint32 spellId, uint32& modelId);
     void OnPlayerLoadForeignSkill(Player const* player, uint16 skill, SkillRaceClassInfoEntry const*& entry);
+    void OnPlayerGetNameQueryRace(Player* player, uint8& race);
     bool OnPlayerCanEquipItem(Player* player, uint8 slot, uint16& dest, Item* pItem, bool swap, bool not_loading);
     bool OnPlayerCanUnequipItem(Player* player, uint16 pos, bool swap);
     bool OnPlayerCanUseItem(Player* player, ItemTemplate const* proto, InventoryResult& result);
@@ -627,6 +628,7 @@ public: /* UnitScript */
     void OnPeriodicDamageResult(Unit* target, Unit* attacker, uint32 damage, SpellInfo const* spellInfo);
     void ModifyPeriodicDamageAurasTick(Unit* target, Unit* attacker, uint32& damage, SpellInfo const* spellInfo);
     void ModifyMeleeDamage(Unit* target, Unit* attacker, uint32& damage);
+    void ModifyMeleeDamageRange(Unit* target, Unit* attacker, float& minDamage, float& maxDamage);
     void ModifySpellDamageTaken(Unit* target, Unit* attacker, int32& damage, SpellInfo const* spellInfo);
     void ModifySpellEffectBaseValue(Unit const* caster, SpellInfo const* spellInfo,
         uint8 effectIndex, float& value);

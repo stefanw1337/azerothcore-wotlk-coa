@@ -135,6 +135,24 @@ inline std::uint8_t ScalingBlocksFor(Player const* player)
     return ChallengeBlocksFor(player);
 }
 
+/// Whether the character stands in a dungeon that scales for everyone inside it, whatever their own or
+/// their leader's choice. The module that owns the dungeon list installs the resolver.
+using ScaledDungeonResolver = bool (*)(Player const*);
+inline std::atomic<ScaledDungeonResolver> ScaledDungeonOwner{nullptr};
+
+inline bool InScaledDungeon(Player const* player)
+{
+    ScaledDungeonResolver const owner = ScaledDungeonOwner.load(std::memory_order_relaxed);
+    return owner && player && owner(player);
+}
+
+/// Whether the loot this character takes is scaled to them: only inside a scaled dungeon, and never
+/// while a challenge holds them to the authored world. Open-world loot keeps its authored stats.
+inline bool DungeonLootScales(Player const* player)
+{
+    return InScaledDungeon(player) && !(ScalingBlocksFor(player) & ChallengeBlocksCreatureScaling);
+}
+
 /// Something other than the character's own choice changed whether they see scaled content: a
 /// challenge started or stopped, or the open-world ruleset changed. The module that owns the creature
 /// view installs the resolver and re-sends what the client is holding; false means nobody did, so the
@@ -384,6 +402,18 @@ inline ItemTemplate const* InstanceTemplateFor(Item const* item, ItemTemplate co
 
     ItemTemplate const* scaled = owner(item);
     return scaled ? scaled : authored;
+}
+
+/// The armor one character gets from wearing an item built from this template. The client shows the
+/// reborn armor column to every class but the classless Hero, so the owner of item ladders answers
+/// with that column for those classes; without an owner the template's own armor applies.
+using WornArmorResolver = std::uint32_t (*)(Player const*, ItemTemplate const*, std::uint32_t armor);
+inline std::atomic<WornArmorResolver> WornArmorOwner{nullptr};
+
+inline std::uint32_t WornArmorFor(Player const* player, ItemTemplate const* proto, std::uint32_t armor)
+{
+    WornArmorResolver const owner = WornArmorOwner.load(std::memory_order_relaxed);
+    return owner && player && proto ? owner(player, proto, armor) : armor;
 }
 
 /// An item instance moved into a character's inventory from somewhere the character's login did not

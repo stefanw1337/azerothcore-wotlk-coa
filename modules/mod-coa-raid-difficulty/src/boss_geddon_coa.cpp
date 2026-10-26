@@ -1,12 +1,17 @@
 /*
  * Baron Geddon's Living Bomb (2105701 dummy -> 2105702..05 periodic carrier aura, ticking
- * 2105706 self-damage) has no explosion-on-expiry anywhere in the DBC kit (diag-G2.md item 1) -
- * this adds one per the user's own CoA memory: on natural expiry (not a dispel, not the
- * carrier's death) the carrier launches into the air and everyone else within 5 yd takes fire
- * damage. Not evidenced in any corpus log; flagged designed in docs/coa/molten-core.md. Damage
- * follows the vanilla Living Bomb explosion (20476, 3200) scaled by the same 1/1.44/1.88/2.32
- * ladder used for every other per-difficulty figure in this instance - the user's own choice of
- * coefficient, not a measured value for this spell.
+ * 2105706 self-damage) explodes when the carrier aura expires naturally (not a dispel, not the
+ * carrier's death). Ascension's combat logs (2026-05-28, 08-09, 08-16, 08-23) show one
+ * "Living Bomb Explosion" per carrier at the aura-removal millisecond, dealt to the carrier
+ * itself and to a pet standing within the hidden hit trigger's 5 yd (2105707, SpellRadius 8),
+ * immediately followed by a "Burning Ground" aura on the same carrier at the same millisecond
+ * (2026-05-28 fight 317: Ascended 2105716; 2026-08-16/08-23 fights 1630/1752: Mythic 2105715).
+ * The DBC carries the whole kit: the per-difficulty explosion 2105708/09/10/11 (damage is its
+ * own EffectBasePoints/EffectDieSides), 2105712 Knock Up (vertical KNOCK_BACK plus Feather
+ * Fall), and the per-difficulty ground fire 2105713/14/15/16 (SPELL_EFFECT_PERSISTENT_AREA_AURA,
+ * SpellRadius 7 = 2 yd, SPELL_AURA_PERIODIC_DAMAGE every 1000 ms, DBC damage 800/1067/1333/1600).
+ * Only the trigger on expiry is missing, so it casts those spells: carrier aura id 2105702 + n
+ * maps to explosion 2105708 + n and to ground fire 2105713 + n.
  *
  * Inferno's per-wave damage (2105741 Normal, 2105742 Heroic, 2105743 Mythic, 2105744 Ascended,
  * grouped by SpellDifficulty.dbc row 2119, EffectTriggerSpell[1] of the channel 2105740) is real
@@ -14,31 +19,37 @@
  * light on Ascended (near-zero raid frame drops, no deaths to it) and asked for +20% on every
  * difficulty, since nothing in the data distinguishes one tier as already correct. The single
  * tunable is INFERNO_DAMAGE_MULTIPLIER below.
+ *
+ * Each Inferno wave also gives Geddon one charge of Heating Up (2105746, +1% damage per charge):
+ * in the four logged pulls the aura (first) or the dose (after) lands 1-3 ms after every Inferno
+ * damage wave, 10 per Inferno and 60.0s apart, 50 charges at the end of a 285s pull.
  */
 
-#include "Map.h"
-#include "Player.h"
+#include "Cell.h"
+#include "CellImpl.h"
+#include "GridNotifiers.h"
+#include "GridNotifiersImpl.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
 #include "SpellAuras.h"
-#include "SpellMgr.h"
 #include "SpellScript.h"
 #include "SpellScriptLoader.h"
 #include "Unit.h"
 
-#include <algorithm>
+#include <list>
 
 namespace
 {
     enum GeddonLivingBombSpells
     {
-        SPELL_LIVING_BOMB_EXPLOSION = 2105706, // reused as the explosion's own combat-log id
+        SPELL_LIVING_BOMB_CARRIER_NORMAL   = 2105702,
+        SPELL_LIVING_BOMB_EXPLOSION_NORMAL = 2105708,
+        SPELL_LIVING_BOMB_KNOCK_UP         = 2105712,
+        SPELL_LIVING_BOMB_BURNING_GROUND_NORMAL = 2105713,
+        SPELL_HEATING_UP                   = 2105746,
     };
 
     constexpr float EXPLOSION_RADIUS = 5.0f;
-    constexpr uint32 EXPLOSION_BASE_DAMAGE = 3200;
-    constexpr float DIFFICULTY_LADDER[4] = { 1.0f, 1.44f, 1.88f, 2.32f };
-    constexpr float EXPLOSION_LAUNCH_SPEED_Z = 10.0f;
 
     constexpr float INFERNO_DAMAGE_MULTIPLIER = 1.20f;
 
@@ -53,34 +64,24 @@ namespace
                 return;
 
             Unit* carrier = GetTarget();
-            if (!carrier || !carrier->GetMap())
+            Unit* source = GetCaster();
+            if (!carrier || !source)
                 return;
 
-            Unit* source = GetCaster();
-            if (!source)
-                source = carrier;
+            uint32 const offset = GetId() - SPELL_LIVING_BOMB_CARRIER_NORMAL;
+            uint32 const explosion = SPELL_LIVING_BOMB_EXPLOSION_NORMAL + offset;
+            uint32 const burningGround = SPELL_LIVING_BOMB_BURNING_GROUND_NORMAL + offset;
 
-            SpellInfo const* info = sSpellMgr->GetSpellInfo(SPELL_LIVING_BOMB_EXPLOSION);
-            if (info)
-            {
-                uint8 const mode = std::min<uint8>(uint8(carrier->GetMap()->GetSpawnMode()), 3);
-                uint32 const damage = uint32(EXPLOSION_BASE_DAMAGE * DIFFICULTY_LADDER[mode]);
+            std::list<Unit*> targets;
+            Acore::AnyUnfriendlyUnitInObjectRangeCheck check(carrier, source, EXPLOSION_RADIUS);
+            Acore::UnitListSearcher<Acore::AnyUnfriendlyUnitInObjectRangeCheck> searcher(carrier, targets, check);
+            Cell::VisitObjects(carrier, searcher, EXPLOSION_RADIUS);
 
-                carrier->GetMap()->DoForAllPlayers([&](Player* player)
-                {
-                    if (static_cast<Unit*>(player) == carrier || !player->IsAlive() || player->IsGameMaster())
-                        return;
-                    if (!player->IsWithinDist(carrier, EXPLOSION_RADIUS))
-                        return;
+            for (Unit* target : targets)
+                source->CastSpell(target, explosion, true);
 
-                    SpellNonMeleeDamage log(source, player, info, SPELL_SCHOOL_MASK_FIRE);
-                    log.damage = std::min<uint32>(damage, player->GetHealth());
-                    source->SendSpellNonMeleeDamageLog(&log);
-                    Unit::DealDamage(source, player, log.damage, nullptr, SPELL_DIRECT_DAMAGE, SPELL_SCHOOL_MASK_FIRE, info, false);
-                });
-            }
-
-            carrier->KnockbackFrom(carrier->GetPositionX(), carrier->GetPositionY(), 0.0f, EXPLOSION_LAUNCH_SPEED_Z);
+            source->CastSpell(carrier, SPELL_LIVING_BOMB_KNOCK_UP, true);
+            source->CastSpell(carrier->GetPositionX(), carrier->GetPositionY(), carrier->GetPositionZ(), burningGround, true);
         }
 
         void Register() override
@@ -98,9 +99,16 @@ namespace
             SetHitDamage(int32(GetHitDamage() * INFERNO_DAMAGE_MULTIPLIER));
         }
 
+        void AddHeatingUp()
+        {
+            if (Unit* caster = GetCaster())
+                caster->CastSpell(caster, SPELL_HEATING_UP, true);
+        }
+
         void Register() override
         {
             OnEffectHitTarget += SpellEffectFn(spell_geddon_inferno_damage_coa::ScaleDamage, EFFECT_0, SPELL_EFFECT_SCHOOL_DAMAGE);
+            AfterCast += SpellCastFn(spell_geddon_inferno_damage_coa::AddHeatingUp);
         }
     };
 }

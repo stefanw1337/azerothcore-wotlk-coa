@@ -106,6 +106,13 @@ void ApplyContracts(SpellInfo* info)
                 effect.Effect = 0;
     if (id == 804360)
         dummy(0);
+    for (uint32 harvestPlague : {500968, 501890, 501891, 501892, 583255, 583256})
+        if (id == harvestPlague)
+        {
+            info->Effects[0].ApplyAuraName = SPELL_AURA_PERIODIC_DAMAGE;
+            if (!info->Effects[0].TargetA.GetTarget())
+                info->Effects[0].TargetA = SpellImplicitTargetInfo(TARGET_UNIT_TARGET_ENEMY);
+        }
     if (id == 573223)
     {
         dummy(0);

@@ -838,7 +838,7 @@ public:
     // Race methods
     [[nodiscard]] uint8 getRace(bool original = false) const;
     void setRace(uint8 race);
-    [[nodiscard]] uint32 getRaceMask() const { return 1u << ((getRace(true) - 1) & 31); /* races above 32 share a mask bit (CoA Custom) */ }
+    [[nodiscard]] uint32 getRaceMask() const;
     [[nodiscard]] DisplayRace GetDisplayRaceFromModelId(uint32 modelId) const;
     [[nodiscard]] DisplayRace GetDisplayRace() const { return GetDisplayRaceFromModelId(GetDisplayId()); };
 
@@ -1248,7 +1248,8 @@ public:
     void KillSelf(bool durabilityLoss = true, WeaponAttackType attackType = BASE_ATTACK, SpellInfo const* spellProto = nullptr, Spell const* spell = nullptr) { Kill(this, this, durabilityLoss, attackType, spellProto, spell); };
 
     // Calculate methods
-    uint32 CalculateDamage(WeaponAttackType attType, bool normalized, bool addTotalPct, uint8 itemDamagesMask = 0);
+    uint32 CalculateDamage(WeaponAttackType attType, bool normalized, bool addTotalPct, uint8 itemDamagesMask = 0,
+        Unit* victim = nullptr);
     virtual void CalculateMinMaxDamage(WeaponAttackType attType, bool normalized, bool addTotalPct, float& minDamage, float& maxDamage, uint8 damageIndex = 0) = 0;
     void CalculateMeleeDamage(Unit* victim, CalcDamageInfo* damageInfo, WeaponAttackType attackType = BASE_ATTACK, const bool sittingVictim = false);
     void CalculateSpellDamageTaken(SpellNonMeleeDamage* damageInfo, int32 damage, SpellInfo const* spellInfo, WeaponAttackType attackType = BASE_ATTACK, bool crit = false);
@@ -1616,7 +1617,7 @@ public:
     // set withDelayed to true to account delayed spells as casted
     // delayed+channeled spells are always accounted as casted
     // we can skip channeled or delayed checks using flags
-    [[nodiscard]] bool IsNonMeleeSpellCast(bool withDelayed, bool skipChanneled = false, bool skipAutorepeat = false, bool isAutoshoot = false, bool skipInstant = true) const;
+    [[nodiscard]] bool IsNonMeleeSpellCast(bool withDelayed, bool skipChanneled = false, bool skipAutorepeat = false, bool isAutoshoot = false, bool skipInstant = true, bool skipGeneric = false) const;
     [[nodiscard]] bool HasManastormMovementGrace() const;
 
     // set withDelayed to true to interrupt delayed spells too
@@ -1755,6 +1756,7 @@ public:
     [[nodiscard]] bool IsActionPreventedByCasting() const;
     [[nodiscard]] bool CanCastDuringChannel(SpellInfo const* info) const;
     [[nodiscard]] bool CanDefendDuringChannel() const;
+    [[nodiscard]] bool CanDefendDuringCast() const;
 
     [[nodiscard]] virtual bool CanEnterWater() const = 0;
     [[nodiscard]] virtual bool CanSwim() const;

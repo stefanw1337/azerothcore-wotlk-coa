@@ -67,6 +67,7 @@
 #include "SpellInfo.h"
 #include "SpellMgr.h"
 
+#include <algorithm>
 #include <list>
 #include <unordered_map>
 #include <unordered_set>
@@ -79,8 +80,25 @@ namespace
         TARGET_TANK = 0,
         TARGET_RANDOM_NON_TANK = 1,
         TARGET_SELF = 2,
-        TARGET_AREA = 3         // cast at the tank; the spell's own targeting makes it an area
+        TARGET_AREA = 3,        // cast at the tank; the spell's own targeting makes it an area
+        // CoA addition: candidates are alive players beyond DISTANT_TARGET_MIN_DIST yards
+        // (within DISTANT_TARGET_MAX_DIST), falling back to every alive player when none
+        // qualify - for a cast the tooltip describes as going at "a distant enemy" rather than
+        // the tank. The distance window reuses boss_magmadar.cpp's own
+        // MELEE_TARGET_LOOKUP_DIST/100.0f pair (same module, same "beyond melee range" idea);
+        // Spell.dbc has no usable range index to derive it from (RangeIndex 0 on Conjure Flame
+        // Orb, its first user). Among the candidates, the one with the most other candidates
+        // within DISTANT_TARGET_CLUSTER_RADIUS of it wins (ties go to the one farthest from the
+        // boss) - a group, not a lone player, so the orb's own AoE actually has to be played
+        // around. DISTANT_TARGET_CLUSTER_RADIUS is Conjure Flame Orb's own damage radius
+        // (2105419-22 all share Spell.dbc RadiusIndex 9 = SpellRadius.dbc row 9 = 20 yards); a
+        // future user of this mode with a different radius would need its own constant.
+        TARGET_DISTANT = 4
     };
+
+    constexpr float DISTANT_TARGET_MIN_DIST = 10.0f;
+    constexpr float DISTANT_TARGET_MAX_DIST = 100.0f;
+    constexpr float DISTANT_TARGET_CLUSTER_RADIUS = 20.0f;
 
     struct ScheduleRow
     {
@@ -91,7 +109,9 @@ namespace
         // "Hidden Area Damage" ids, not a single id the core resolves by itself).
         uint32 effect[MAX_RAID_DIFFICULTY];
         uint32 firstMs;
+        uint32 firstMaxMs;      // above firstMs: the first cast lands anywhere in the window
         uint32 periodMs;        // 0 casts once
+        uint32 periodMaxMs;     // above periodMs: each repeat is drawn from the window
         uint8 hpPct;            // > 0: once below this health instead of on a clock
         uint8 target;
     };
@@ -163,7 +183,8 @@ namespace
         uint32 rows = 0;
         if (QueryResult result = WorldDatabase.Query(
                 "SELECT entry, spell_d0, spell_d1, spell_d2, spell_d3, effect_d0, effect_d1, effect_d2, effect_d3, "
-                "first_ms, period_ms, hp_pct, target FROM coa_boss_schedule ORDER BY entry, idx"))
+                "first_ms, first_max_ms, period_ms, period_max_ms, hp_pct, target "
+                "FROM coa_boss_schedule ORDER BY entry, idx"))
         {
             do
             {
@@ -176,9 +197,11 @@ namespace
                 for (uint8 i = 0; i < MAX_RAID_DIFFICULTY; ++i)
                     row.effect[i] = f[5 + i].Get<uint32>();
                 row.firstMs = f[9].Get<uint32>();
-                row.periodMs = f[10].Get<uint32>();
-                row.hpPct = f[11].Get<uint8>();
-                row.target = f[12].Get<uint8>();
+                row.firstMaxMs = std::max(row.firstMs, f[10].Get<uint32>());
+                row.periodMs = f[11].Get<uint32>();
+                row.periodMaxMs = std::max(row.periodMs, f[12].Get<uint32>());
+                row.hpPct = f[13].Get<uint8>();
+                row.target = f[14].Get<uint8>();
 
                 g_bosses[entry].rows.push_back(row);
                 ++rows;
@@ -213,7 +236,8 @@ namespace
             // ExecuteEvent returns it to mean that nothing is due.
             for (uint32 i = 0; i < _data->rows.size(); ++i)
                 if (!_data->rows[i].hpPct)
-                    _events.ScheduleEvent(i + 1, Milliseconds(_data->rows[i].firstMs));
+                    _events.ScheduleEvent(i + 1, Milliseconds(_data->rows[i].firstMs),
+                                          Milliseconds(_data->rows[i].firstMaxMs));
 
             if (_data->berserkMs)
                 _events.ScheduleEvent(EVENT_BERSERK, Milliseconds(_data->berserkMs));
@@ -303,7 +327,7 @@ namespace
                     Cast(row, spell);
 
                 if (row.periodMs && !row.hpPct)
-                    _events.ScheduleEvent(eventId, Milliseconds(row.periodMs));
+                    _events.ScheduleEvent(eventId, Milliseconds(row.periodMs), Milliseconds(row.periodMaxMs));
 
                 // One cast per update. A second one would interrupt the first.
                 if (me->HasUnitState(UNIT_STATE_CASTING))
@@ -376,6 +400,50 @@ namespace
             return effect ? effect : row.effect[0];
         }
 
+        // CoA addition: TARGET_DISTANT's own pick - see its own comment on the enum.
+        Unit* DistantClusterTarget()
+        {
+            constexpr uint32 MAX_CANDIDATES = 100; // above any raid size this engine ever sees
+
+            std::list<Unit*> candidates;
+            SelectTargetList(candidates, MAX_CANDIDATES, SelectTargetMethod::Random, 0, [this](Unit* target)
+            {
+                return target && target->IsPlayer() && target->IsAlive()
+                       && target->GetDistance(me) > DISTANT_TARGET_MIN_DIST
+                       && target->GetDistance(me) < DISTANT_TARGET_MAX_DIST;
+            });
+
+            if (candidates.empty())
+                SelectTargetList(candidates, MAX_CANDIDATES, SelectTargetMethod::Random, 0, [](Unit* target)
+                {
+                    return target && target->IsPlayer() && target->IsAlive();
+                });
+
+            if (candidates.empty())
+                return me->GetVictim();
+
+            Unit* best = nullptr;
+            uint32 bestCount = 0;
+            float bestBossDist = 0.0f;
+            for (Unit* candidate : candidates)
+            {
+                uint32 count = 0;
+                for (Unit* other : candidates)
+                    if (candidate->GetDistance(other) <= DISTANT_TARGET_CLUSTER_RADIUS)
+                        ++count;
+
+                float const bossDist = candidate->GetDistance(me);
+                if (!best || count > bestCount || (count == bestCount && bossDist > bestBossDist))
+                {
+                    best = candidate;
+                    bestCount = count;
+                    bestBossDist = bossDist;
+                }
+            }
+
+            return best;
+        }
+
         Unit* TargetFor(ScheduleRow const& row)
         {
             switch (row.target)
@@ -387,6 +455,8 @@ namespace
                     if (Unit* other = SelectTarget(SelectTargetMethod::Random, 0, 0.0f, true, false))
                         return other;
                     return me->GetVictim();
+                case TARGET_DISTANT:
+                    return DistantClusterTarget();
                 case TARGET_TANK:
                 case TARGET_AREA:
                 default:

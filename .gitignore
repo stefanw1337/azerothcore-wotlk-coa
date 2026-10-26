@@ -10,6 +10,7 @@
 !/modules/mod-coa-mythic-plus/
 !/modules/mod-coa-custom-races/
 !/modules/mod-subclass/
+!/modules/mod-cfbg/
 !/modules/*.md
 !/modules/*.sh
 !/modules/CMakeLists.txt

@@ -52,6 +52,7 @@
 #include "World.h"
 #include "WorldPacket.h"
 #include "WorldSessionMgr.h"
+#include <algorithm>
 
 /// @todo: this import is not necessary for compilation and marked as unused by the IDE
 //  however, for some reasons removing it would cause a damn linking issue
@@ -1257,6 +1258,7 @@ bool Creature::Create(ObjectGuid::LowType guidlow, Map* map, uint32 phaseMask, u
     }
 
     LoadCreaturesAddon();
+    sObjectMgr->ApplyAscensionNpcOverheadIcon(*this);
     LoadSparringPct();
 
     //! Need to be called after LoadCreaturesAddon - MOVEMENTFLAG_HOVER is set there
@@ -2180,6 +2182,7 @@ void Creature::setDeathState(DeathState state, bool despawn)
 
         Motion_Initialize();
         LoadCreaturesAddon(true);
+        sObjectMgr->ApplyAscensionNpcOverheadIcon(*this);
         LoadSparringPct();
 
         if (GetCreatureData() && GetPhaseMask() != GetCreatureData()->phaseMask)
@@ -2797,8 +2800,11 @@ bool Creature::_IsTargetAcceptable(Unit const* target) const
 {
     ASSERT(target);
 
+    // a hostile creature fighting us is acceptable even when our faction sees it as friendly
+    bool const foughtByHostile = target->IsHostileTo(this) && IsInCombatWith(target);
+
     // if the target cannot be attacked, the target is not acceptable
-    if (IsFriendlyTo(target) || !target->isTargetableForAttack(false, this) || (m_vehicle && (IsOnVehicle(target) || m_vehicle->GetBase()->IsOnVehicle(target))))
+    if ((IsFriendlyTo(target) && !foughtByHostile) || !target->isTargetableForAttack(false, this) || (m_vehicle && (IsOnVehicle(target) || m_vehicle->GetBase()->IsOnVehicle(target))))
         return false;
 
     if (target->HasUnitState(UNIT_STATE_DIED))
@@ -2813,7 +2819,7 @@ bool Creature::_IsTargetAcceptable(Unit const* target) const
     Unit const* targetVictim = target->getAttackerForHelper();
 
     // if I'm already fighting target, or I'm hostile towards the target, the target is acceptable
-    if (IsEngagedBy(target) || IsHostileTo(target))
+    if (IsEngagedBy(target) || IsHostileTo(target) || foughtByHostile)
         return true;
 
     // if the target's victim is friendly, and the target is neutral, the target is acceptable
@@ -2927,6 +2933,11 @@ bool Creature::CanCreatureAttack(Unit const* victim, bool skipDistCheck) const
         return victim->IsWithinDist(unit, visibilityDist);
     }
 
+    return IsWithinLeashArea();
+}
+
+bool Creature::IsWithinLeashArea() const
+{
     float dist = sWorld->getFloatConfig(CONFIG_CREATURE_LEASH_RADIUS);
     if (!dist)
         return true;
@@ -2938,6 +2949,39 @@ bool Creature::CanCreatureAttack(Unit const* victim, bool skipDistCheck) const
         return IsInDist2d(x, y, dist);
     else
         return IsInDist2d(&m_homePosition, dist);
+}
+
+bool Creature::IsNpcFightingMe(Unit const* who) const
+{
+    return !who->IsControlledByPlayer() && who->GetThreatMgr().IsThreatenedBy(this);
+}
+
+void Creature::EndCombatWithUnitsLeftBehind()
+{
+    if (GetMap()->IsDungeon())
+        return;
+
+    auto const& threatenedByMe = m_threatManager.GetThreatenedByMeList();
+    if (std::none_of(threatenedByMe.begin(), threatenedByMe.end(),
+        [](auto const& entry) { return !entry.second->GetOwner()->IsControlledByPlayer(); }))
+        return;
+
+    static constexpr float LeftBehindDistance = 50.0f;
+    std::vector<ObjectGuid> leftBehind;
+    for (auto const& [guid, ref] : GetCombatManager().GetPvECombatRefs())
+    {
+        Unit* other = ref->GetOther(this);
+        if (!IsNpcFightingMe(other) && !IsWithinDist(other, LeftBehindDistance))
+            leftBehind.push_back(guid);
+    }
+
+    for (ObjectGuid const& guid : leftBehind)
+    {
+        auto const& combatRefs = GetCombatManager().GetPvECombatRefs();
+        auto ref = combatRefs.find(guid);
+        if (ref != combatRefs.end())
+            ref->second->EndCombat();
+    }
 }
 
 CreatureAddon const* Creature::GetCreatureAddon() const
@@ -3218,9 +3262,9 @@ void Creature::AddSpellCooldown(uint32 spell_id, uint32 /*itemid*/, uint32 end_t
             _AddCreatureSpellCooldown(i_scset->second, categoryId, categorycooldown);
         }
     }
-    else if (spellcooldown)
+    if (spellcooldown)
     {
-        _AddCreatureSpellCooldown(spellInfo->Id, 0, spellcooldown);
+        _AddCreatureSpellCooldown(spellInfo->Id, categorycooldown ? categoryId : 0, spellcooldown);
     }
 
     if (sSpellMgr->HasSpellCooldownOverride(spellInfo->Id))

@@ -3,6 +3,8 @@
 #define COA_CREATURE_SCALING_H
 
 class Creature;
+
+class SpellInfo;
 class Unit;
 
 namespace CreatureScaling
@@ -14,6 +16,7 @@ void SetHealthBudgetAuthority(CombatAuthority authority);
 
 float HealthMultiplier(Creature const* creature);
 float DamageMultiplier(Unit const* target, Unit const* attacker);
+float SpellDamageMultiplier(Unit const* target, Unit const* attacker, SpellInfo const* spell);
 
 class TestOverride
 {

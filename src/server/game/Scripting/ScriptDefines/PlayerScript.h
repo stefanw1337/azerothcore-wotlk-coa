@@ -267,6 +267,7 @@ enum PlayerHook
     PLAYERHOOK_ON_BEFORE_BOARDED_BY,
     PLAYERHOOK_ON_GET_SHAPESHIFT_MODEL,
     PLAYERHOOK_ON_LOAD_FOREIGN_SKILL,
+    PLAYERHOOK_ON_GET_NAME_QUERY_RACE,
     PLAYERHOOK_END
 };
 
@@ -284,7 +285,25 @@ enum class CoAProgressEvent : uint8
     VanityDelivered,
     VanityCollected,
     AppearanceCollected,
-    ExperimentalTeleporter
+    ExperimentalTeleporter,
+    OutfitSaved,
+    MysticScrollPurchased,
+    MysticScrollReforged,
+    MysticExtractEarned,
+    MysticEnchantExtracted,
+    MysticCollectionApplied,
+    MysticScrollApplied,
+    MysticPresetActivated,
+    ArchitectOpened,
+    BuildActivated,
+    SoloArenaQueued,
+    WildcardScrollUnlearned,
+    WildcardEntryLocked,
+    WildcardCardPackOpened,
+    WildcardStarterCardSet,
+    WildcardScrollsClaimed,
+    WildcardScrollsRepurchased,
+    WildcardRapidRolled
 };
 
 class PlayerScript : public ScriptObject
@@ -717,6 +736,9 @@ public:
     // A loading character keeps a skill its own race and class do not list when a script supplies the entry
     // that ranges it; leaving entry null deletes the skill.
     virtual void OnPlayerLoadForeignSkill(Player const* /*player*/, uint16 /*skill*/, SkillRaceClassInfoEntry const*& /*entry*/) { }
+
+    // Race sent in name query responses; the client places a battleground scoreboard row by its faction.
+    virtual void OnPlayerGetNameQueryRace(Player* /*player*/, uint8& /*race*/) { }
 
     [[nodiscard]] virtual bool OnPlayerCanEquipItem(Player* /*player*/, uint8 /*slot*/, uint16& /*dest*/, Item* /*pItem*/, bool /*swap*/, bool /*not_loading*/) { return true; }
 

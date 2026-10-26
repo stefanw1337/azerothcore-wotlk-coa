@@ -1,0 +1,47 @@
+CoA Custom 1.9.2 - Install guide
+==============================
+Full package: no earlier version needed (not 1.9.1). Close the game (Ascension.exe) first. The installer also dumps your characters.
+
+A) With the installer (recommended, Windows)
+--------------------------------------------
+1. Download from https://github.com/ilusixn/azerothcore-wotlk-coa/releases/tag/coa-custom-1.9.2
+     CoA-Custom-1.9.2-Server.zip
+     CoA-Custom-1.9.2-Client-1.zip
+     CoA-Custom-1.9.2-Client-2.zip
+     CoA-Custom-1.9.2-Client-3.zip
+     CoA-Custom-1.9.2-Client-4.zip
+     CoA-Custom-1.9.2-Client-5.zip
+2. Extract ALL SIX zips into THE SAME folder (next to Start_All_Server.bat; overwrite if asked).
+3. Run CoA-Custom\Install-Custom.bat. Point it at the repack folder and at the game folder (Ascension.exe + Data).
+4. Start the servers (Start_All_Server.bat, or CoA-Bots\Start_All_Bots.bat for bots) and play.
+
+Already on 1.9.1? Extract Server + Client-5 only, then run Install-Custom.bat again.
+
+B) Manual install (no installer, game on another PC)
+----------------------------------------------------
+Server side:
+  - CoA-Custom\files\worldserver.exe  -> CoA-Bots\Core\worldserver.exe   (keep a copy of the old one)
+  - CoA-Custom\files\dbc\*.dbc        -> Data\dbc\
+  - CoA-Custom\files\dbc_clientset\CreatureDisplayInfo.dbc -> Data\dbc_clientset\
+  - CoA-Custom\files\sql\*.sql: run every file in numeric order (0, 1, 2 ... 15; 1_world.sql before 10_...). Each file
+    selects its own database (acore_world, acore_characters, acore_auth). Run each file ONCE: some move data.
+  - CoA-Custom\files\modules\coa_custom_races.conf.dist -> CoA-Bots\Core\configs\modules\ (also as coa_custom_races.conf)
+  - worldserver.conf: NoResetTalentsCost = 1 (free talent reset)
+Client side (the game PC), all from the five Client zips:
+  - files\client\*.MPQ                 -> <game>\Data\
+  - files\client\dinput8.dll           -> next to Ascension.exe
+  - files\client_root\*                -> next to Ascension.exe (Ascension.exe, EsteriaAppearance.dll, Esteria*.bin, *.cur); its sub folder Data\Retail\Assets\EquipmentFitting\
+    -> <game>\Data\Retail\Assets\EquipmentFitting\
+  - the folders in files\addons\ (CoAWC2Cursor, CoA_TalentReset, CoAHideArmor, UnBot, CoAQuestSafe) -> <game>\Interface\AddOns\
+Restart the game fully. If a loose file is in use, close the game first.
+
+C) Linux
+--------
+See LINUX.md in the Server zip (database, server build, Wine client).
+
+Troubleshooting
+---------------
+- Client crashes on the character screen: rename d3d9.dll in the game folder to d3d9.dll.off.
+- White or untextured races: run the installer again, or copy the client files again.
+- Allow EsteriaAppearance.dll and dinput8.dll in your antivirus.
+- Custom-race bot crashes the client: set AiPlayerbot.CrashingBotRaces in CoA-Bots\Core\configs\modules\playerbots.conf to that race's ID (see PATCH-NOTES-1.9.2.txt), restart the bot worldserver, purge bots if they already exist.

@@ -1730,7 +1730,7 @@ void Player::SendQuestUpdate(uint32 questId)
     UpdateForQuestWorldObjects();
 }
 
-QuestGiverStatus Player::GetQuestDialogStatus(Object* questgiver)
+QuestGiverStatus Player::GetQuestDialogStatus(Object* questgiver, uint32 questFilter)
 {
     QuestRelationBounds qr;
     QuestRelationBounds qir;
@@ -1742,7 +1742,7 @@ QuestGiverStatus Player::GetQuestDialogStatus(Object* questgiver)
         case TYPEID_GAMEOBJECT:
         {
             QuestGiverStatus questStatus = QuestGiverStatus(sScriptMgr->GetDialogStatus(this, questgiver->ToGameObject()));
-            if (questStatus != DIALOG_STATUS_SCRIPTED_NO_STATUS)
+            if (!questFilter && questStatus != DIALOG_STATUS_SCRIPTED_NO_STATUS)
                 return questStatus;
             qr = sObjectMgr->GetGOQuestRelationBounds(questgiver->GetEntry());
             qir = sObjectMgr->GetGOQuestInvolvedRelationBounds(questgiver->GetEntry());
@@ -1751,7 +1751,7 @@ QuestGiverStatus Player::GetQuestDialogStatus(Object* questgiver)
         case TYPEID_UNIT:
         {
             QuestGiverStatus questStatus = QuestGiverStatus(sScriptMgr->GetDialogStatus(this, questgiver->ToCreature()));
-            if (questStatus != DIALOG_STATUS_SCRIPTED_NO_STATUS)
+            if (!questFilter && questStatus != DIALOG_STATUS_SCRIPTED_NO_STATUS)
                 return questStatus;
             qr = sObjectMgr->GetCreatureQuestRelationBounds(questgiver->GetEntry());
             qir = sObjectMgr->GetCreatureQuestInvolvedRelationBounds(questgiver->GetEntry());
@@ -1769,6 +1769,8 @@ QuestGiverStatus Player::GetQuestDialogStatus(Object* questgiver)
     {
         QuestGiverStatus result2 = DIALOG_STATUS_NONE;
         uint32 questId = i->second;
+        if (questFilter && questId != questFilter)
+            continue;
         Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
         if (!quest)
             continue;
@@ -1803,6 +1805,8 @@ QuestGiverStatus Player::GetQuestDialogStatus(Object* questgiver)
     {
         QuestGiverStatus result2 = DIALOG_STATUS_NONE;
         uint32 questId = i->second;
+        if (questFilter && questId != questFilter)
+            continue;
         Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
         if (!quest)
             continue;
@@ -2413,6 +2417,16 @@ bool Player::HasQuestForItem(uint32 itemid, uint32 excludeQuestId /* 0 */, bool 
             continue;
 
         QuestStatusData const& q_status = qs_itr->second;
+
+        // A loot window built after the objective was finished must hide the item, not show it locked
+        if (showInLoot && !turnIn && q_status.Status == QUEST_STATUS_COMPLETE)
+        {
+            if (Quest const* qinfo = sObjectMgr->GetQuestTemplate(questid))
+                for (uint8 j = 0; j < QUEST_ITEM_OBJECTIVES_COUNT; ++j)
+                    if (qinfo->RequiredItemId[j] == itemid)
+                        *showInLoot = false;
+            continue;
+        }
 
         if ((q_status.Status == QUEST_STATUS_INCOMPLETE) || (turnIn && q_status.Status == QUEST_STATUS_COMPLETE))
         {

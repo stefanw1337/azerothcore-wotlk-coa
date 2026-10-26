@@ -337,6 +337,7 @@ void ApplyContracts(SpellInfo* info)
     {
         info->Effects[EFFECT_2].Effect = 0;
         info->AuraInterruptFlags |= AURA_INTERRUPT_FLAG_TAKE_DAMAGE | AURA_INTERRUPT_FLAG_DIRECT_DAMAGE;
+        info->AttributesCu |= SPELL_ATTR0_CU_POSITIVE_EFF1;
     }
     if (id == 805773 || id == 92093)
         for (SpellEffectInfo& effect : info->Effects)
@@ -395,6 +396,30 @@ class witch_hunter_scaling : public UnitScript
     }
 };
 
+class witch_hunter_silver_bolts_shadow_trap : public UnitScript
+{
+  public:
+    witch_hunter_silver_bolts_shadow_trap()
+        : UnitScript("witch_hunter_silver_bolts_shadow_trap", true, {UNITHOOK_MODIFY_SPELL_DAMAGE_TAKEN})
+    {
+    }
+
+    void ModifySpellDamageTaken(Unit* target, Unit* attacker, int32& damage, SpellInfo const* spellInfo) override
+    {
+        Player* player = attacker ? Owner(attacker) : nullptr;
+        if (!player || !target || !spellInfo || !target->HasAura(SPELL_SHADOW_TRAPPED))
+            return;
+        for (AuraEffect* effect : player->GetAuraEffectsByType(SPELL_AURA_MOD_DAMAGE_DONE_VERSUS))
+            if (effect->GetId() == SPELL_SILVER_BOLTS && effect->IsAffectedOnSpell(spellInfo))
+            {
+                if (target->GetCreatureTypeMask() & effect->GetMiscValue())
+                    return;
+                AddPct(damage, effect->GetSpellInfo()->Effects[EFFECT_2].CalcValue(player));
+                return;
+            }
+    }
+};
+
 class spell_ascension_witch_hunter_copy : public SpellScript
 {
     PrepareSpellScript(spell_ascension_witch_hunter_copy);
@@ -419,5 +444,6 @@ void AddAscensionWitchHunterCompletionScripts()
 {
     new witch_hunter_scaling();
     new witch_hunter_resources();
+    new witch_hunter_silver_bolts_shadow_trap();
     RegisterSpellScript(spell_ascension_witch_hunter_copy);
 }
