@@ -1587,11 +1587,22 @@ std::vector<std::pair<uint32, uint32>> GearProficiencies()
     return found;
 }
 
+void LearnGearProficiency(Player* player, uint32 skill, uint32 spellId)
+{
+    if (player->HasSpell(spellId))
+    {
+        if (player->HasSkill(uint16(skill)))
+            return;
+        player->removeSpell(spellId, SPEC_MASK_ALL, false);
+    }
+    player->learnSpell(spellId, false);
+}
+
 void LearnStandardWeapons(Player* player, uint8 playableClass)
 {
     for (auto const& [skill, spellId] : GearProficiencies())
-        if (!player->HasSpell(spellId) && ClassWields(playableClass, player->getRace(), skill))
-            player->learnSpell(spellId, false);
+        if (ClassWields(playableClass, player->getRace(), skill))
+            LearnGearProficiency(player, skill, spellId);
 }
 
 void ForgetStandardWeapons(Player* player, uint8 playableClass)
@@ -1619,8 +1630,38 @@ void LearnCoAWeapons(Player* player, uint8 subClass)
     if (IsAscensionCustomClassId(player->getClass()))
         return;
     for (auto const& [skill, spellId] : GearProficiencies())
-        if (!player->HasSpell(spellId) && CoAClassWields(subClass, skill))
-            player->learnSpell(spellId, false);
+        if (CoAClassWields(subClass, skill))
+            LearnGearProficiency(player, skill, spellId);
+}
+
+SkillRaceClassInfoEntry const* SkillEntryOfClass(Player const* player, uint16 skill, uint8 playableClass)
+{
+    if (SkillRaceClassInfoEntry const* entry = GetSkillRaceClassInfo(skill, player->getRace(), playableClass))
+        return entry;
+    for (uint8 race : ProficiencyRaces)
+        if (SkillRaceClassInfoEntry const* entry = GetSkillRaceClassInfo(skill, race, playableClass))
+            return entry;
+    return nullptr;
+}
+
+SkillRaceClassInfoEntry const* AnySkillEntry(uint16 skill)
+{
+    for (SkillRaceClassInfoEntry const* entry : sSkillRaceClassInfoStore)
+        if (entry && entry->SkillID == skill)
+            return entry;
+    return nullptr;
+}
+
+SkillRaceClassInfoEntry const* SubclassSkillEntry(Player const* player, uint16 skill)
+{
+    Subclass::Choice const choice = ChoiceOf(player);
+    if (!choice.Complete())
+        return nullptr;
+    if (IsStandardCatalogClass(choice.SubClass))
+        return SkillEntryOfClass(player, skill, PlayableClassOf(choice.SubClass));
+    if (SkillRaceClassInfoEntry const* entry = SkillEntryOfClass(player, skill, choice.SubClass))
+        return entry;
+    return CoAClassWields(choice.SubClass, skill) ? AnySkillEntry(skill) : nullptr;
 }
 
 void ForgetCoAWeapons(Player* player, uint8 subClass)
@@ -2737,8 +2778,15 @@ public:
     mod_subclass_player() : PlayerScript("mod_subclass_player", { PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_LOGOUT,
         PLAYERHOOK_ON_CREATE, PLAYERHOOK_ON_DELETE, PLAYERHOOK_ON_LEVEL_CHANGED, PLAYERHOOK_ON_GOSSIP_SELECT,
         PLAYERHOOK_ON_QUEST_ABANDON, PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT, PLAYERHOOK_ON_PLAYER_IS_CLASS,
-        PLAYERHOOK_ON_PLAYER_HAS_ACTIVE_POWER_TYPE, PLAYERHOOK_ON_LEARN_SPELL, PLAYERHOOK_CAN_EQUIP_ITEM })
+        PLAYERHOOK_ON_PLAYER_HAS_ACTIVE_POWER_TYPE, PLAYERHOOK_ON_LEARN_SPELL, PLAYERHOOK_CAN_EQUIP_ITEM,
+        PLAYERHOOK_ON_LOAD_FOREIGN_SKILL })
     {
+    }
+
+    void OnPlayerLoadForeignSkill(Player const* player, uint16 skill, SkillRaceClassInfoEntry const*& entry) override
+    {
+        if (!entry)
+            entry = SubclassSkillEntry(player, skill);
     }
 
     bool OnPlayerCanEquipItem(Player* player, uint8 /*slot*/, uint16& /*dest*/, Item* item, bool /*swap*/,

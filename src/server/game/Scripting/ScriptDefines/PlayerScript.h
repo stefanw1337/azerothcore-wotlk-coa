@@ -266,6 +266,7 @@ enum PlayerHook
     PLAYERHOOK_ON_KEEPS_OWN_LOOK,
     PLAYERHOOK_ON_BEFORE_BOARDED_BY,
     PLAYERHOOK_ON_GET_SHAPESHIFT_MODEL,
+    PLAYERHOOK_ON_LOAD_FOREIGN_SKILL,
     PLAYERHOOK_END
 };
 
@@ -712,6 +713,10 @@ public:
 
     // Model the player takes in a shapeshift form; leaving modelId at 0 keeps the form's own model.
     virtual void OnPlayerGetShapeshiftModel(Player* /*player*/, uint8 /*form*/, uint32 /*spellId*/, uint32& /*modelId*/) { }
+
+    // A loading character keeps a skill its own race and class do not list when a script supplies the entry
+    // that ranges it; leaving entry null deletes the skill.
+    virtual void OnPlayerLoadForeignSkill(Player const* /*player*/, uint16 /*skill*/, SkillRaceClassInfoEntry const*& /*entry*/) { }
 
     [[nodiscard]] virtual bool OnPlayerCanEquipItem(Player* /*player*/, uint8 /*slot*/, uint16& /*dest*/, Item* /*pItem*/, bool /*swap*/, bool /*not_loading*/) { return true; }
 

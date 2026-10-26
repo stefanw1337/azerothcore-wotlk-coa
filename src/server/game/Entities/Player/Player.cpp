@@ -14766,6 +14766,8 @@ void Player::_LoadSkills(PreparedQueryResult result)
 
             SkillRaceClassInfoEntry const* rcEntry = GetSkillRaceClassInfo(skill, getRace(), getClass());
             if (!rcEntry)
+                sScriptMgr->OnPlayerLoadForeignSkill(this, skill, rcEntry);
+            if (!rcEntry)
             {
                 LOG_ERROR("entities.player", "Player {} (GUID: {}), has skill ({}) that is invalid for the race/class combination (Race: {}, Class: {}). Will be deleted.",
                     GetName(), GetGUID().GetCounter(), skill, getRace(), getClass());

@@ -1070,6 +1070,12 @@ void ScriptMgr::OnPlayerGetShapeshiftModel(Player* player, uint8 form, uint32 sp
         script->OnPlayerGetShapeshiftModel(player, form, spellId, modelId));
 }
 
+void ScriptMgr::OnPlayerLoadForeignSkill(Player const* player, uint16 skill, SkillRaceClassInfoEntry const*& entry)
+{
+    CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_LOAD_FOREIGN_SKILL,
+        script->OnPlayerLoadForeignSkill(player, skill, entry));
+}
+
 void ScriptMgr::OnPlayerNormalizeActionButtonSpell(Player* player, uint32& action, bool loading)
 {
     CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_NORMALIZE_ACTION_BUTTON_SPELL, script->OnPlayerNormalizeActionButtonSpell(player, action, loading));
