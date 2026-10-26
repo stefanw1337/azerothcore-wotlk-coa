@@ -2832,12 +2832,14 @@ void AimFromAfar(Player* player)
     bool const aiming = target && gun && player->IsAlive() && OtherHeadShoots(player) &&
         player->GetSheath() == SHEATH_STATE_MELEE &&
         target->IsAlive() && !player->IsWithinMeleeRange(target) && !player->isMoving() &&
-        !player->IsNonMeleeSpellCast(false, true, true) && (IsBow(gun) || !MainHalfCasts(player));
-    uint32 const wanted = aiming ? (IsBow(gun) ? EMOTE_STATE_READY_BOW : OtherHeadReadyRifleEmote) :
+        !player->IsNonMeleeSpellCast(false, true, true);
+    uint32 const wanted = aiming ? (IsBow(gun) ? EMOTE_STATE_READY_BOW :
+        MainHalfCasts(player) ? EMOTE_STATE_READY1H : OtherHeadReadyRifleEmote) :
         !AimsHerOwnGun(player) && RestsGunOnShoulder(player) ? GunOnShoulderEmote : 0;
     uint32 const current = player->GetUInt32Value(UNIT_NPC_EMOTESTATE);
     bool const ours = current == EMOTE_STATE_READY_BOW || current == OtherHeadReadyRifleEmote ||
-        current == GunOnShoulderEmote || current == EMOTE_STATE_READY_RIFLE || current == HoldCrossbowEmote;
+        current == GunOnShoulderEmote || current == EMOTE_STATE_READY_RIFLE || current == HoldCrossbowEmote ||
+        current == EMOTE_STATE_READY1H;
     bool const otherHeadCasting = current == LeftHandReadyAtTarget || current == LeftHandReadyAround;
     if (current == wanted || (!wanted && !ours) || otherHeadCasting)
         return;
