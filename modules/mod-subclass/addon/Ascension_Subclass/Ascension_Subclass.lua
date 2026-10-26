@@ -924,7 +924,7 @@ local function SubclassedLevelLine()
     end
 end
 
-function Ascension_Subclass.RememberSubclassForCharacterSelect(subclass)
+function Ascension_Subclass.RememberSubclassForCharacterSelect(subclass, color)
     local cvar = "coaSubclassNames"
     if not (RegisterCVar and SetCVar and GetCVar) then
         return
@@ -938,7 +938,7 @@ function Ascension_Subclass.RememberSubclassForCharacterSelect(subclass)
         end
     end
     if subclass then
-        kept[#kept + 1] = key .. "=" .. subclass
+        kept[#kept + 1] = key .. "=" .. subclass .. (color and (":" .. color) or "")
     end
     local value = table.concat(kept, ";")
     if value ~= (GetCVar(cvar) or "") then
@@ -1896,6 +1896,8 @@ local function Receive(message)
             gates = {}, presets = {}, classPoints = 0, specPoints = 0, resources = {}, powers = {}, runes = false }
     elseif command == "SUBCLASS" and incoming then
         incoming.subclass = rest ~= "-" and rest or nil
+    elseif command == "SUBCLASSCOLOR" and incoming then
+        incoming.subclassColor = string.match(rest, "^%x%x%x%x%x%x$")
     elseif command == "AUTORANGED" and incoming then
         incoming.autoRanged = tonumber(rest)
     elseif not incoming then
@@ -1969,7 +1971,7 @@ local function Receive(message)
         UpdateResourceFrame()
         UpdateLentRunes()
         ShowSubclassInLevelLine()
-        Ascension_Subclass.RememberSubclassForCharacterSelect(state.subclass)
+        Ascension_Subclass.RememberSubclassForCharacterSelect(state.subclass, state.subclassColor)
         if SetAutoRangedCombatSpell and (state.autoRanged or 0) > 0 then
             SetAutoRangedCombatSpell(state.autoRanged)
         end

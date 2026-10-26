@@ -2,7 +2,7 @@
 area: modules
 type: added
 audience: players
-title: Character select shows your subclass after your class
+title: Character select shows your subclass under your class
 ---
-Two-Headed Ogres and Thin Twins with a subclass read like "Witch Hunter (Bloodmage)" in the character list. A
-character shows it after you have played it once with this update.
+Two-Headed Ogres and Thin Twins with a subclass get a line under their class, such as "Bloodmage", in the
+subclass's class colour. A character shows it after you have played it once with this update.

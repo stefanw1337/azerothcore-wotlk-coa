@@ -298,6 +298,14 @@ std::string ClassName(uint8 classId)
     return Acore::StringFormat("class {}", uint32(classId));
 }
 
+std::string ClassColorHex(uint8 classId)
+{
+    for (NamedClass const& named : Classes)
+        if (Names(named, classId))
+            return std::string(named.Color).substr(4);
+    return "-";
+}
+
 std::string PlainClassName(uint8 classId)
 {
     for (NamedClass const& named : Classes)
@@ -1109,6 +1117,7 @@ void SendSubclassState(Player* player)
     ShowQuestOnTwin(player, offered);
     Subclass::Choice const choice = ChoiceOf(player);
     SendAddon(player, "SUBCLASS " + (choice.Complete() ? PlainClassName(choice.SubClass) : std::string("-")));
+    SendAddon(player, "SUBCLASSCOLOR " + (choice.Complete() ? ClassColorHex(choice.SubClass) : std::string("-")));
     SendAddon(player, Acore::StringFormat("AUTORANGED {}", LentAutoRangedSpell(player)));
     std::vector<std::string> otherSpells;
     std::vector<std::string> offGlobalCooldown;

@@ -350,20 +350,24 @@ do
 end
 do
 	local SUBCLASS_CVAR = "coaSubclassNames"
+	local SUBCLASS_FONT_SCALE = 0.85
+	local SUBCLASS_LINE_GAP = 1
 	local function Plain(text)
 		return (string.gsub(string.gsub(text, "|c%x%x%x%x%x%x%x%x", ""), "|r", ""))
 	end
 	local function Subclasses()
 		local found = {}
 		local ok, value = pcall(GetCVar, SUBCLASS_CVAR)
-		for key, subclass in string.gmatch(ok and value or "", "([^;=]+)=([^;]+)") do
-			found[key] = subclass
+		for key, entry in string.gmatch(ok and value or "", "([^;=]+)=([^;]+)") do
+			local name, color = string.match(entry, "^(.-):(%x%x%x%x%x%x)$")
+			found[key] = { name = name or entry, color = color }
 		end
 		return found
 	end
 	local function TextsIn(frame, found)
 		for _, region in ipairs({ frame:GetRegions() }) do
-			if region.GetObjectType and region:GetObjectType() == "FontString" and region:IsVisible() and region:GetText() then
+			if region.GetObjectType and region:GetObjectType() == "FontString" and region:IsVisible()
+				and region:GetText() and not region.coaSubclassLine then
 				found[#found + 1] = region
 			end
 		end
@@ -389,12 +393,6 @@ do
 		end
 		return labels
 	end
-	local function WithSubclass(text, class, subclass)
-		local tag = "(" .. subclass .. ")"
-		local _, last = string.find(text, class, 1, true)
-		if not last or string.find(text, tag, 1, true) then return end
-		return string.sub(text, 1, last) .. " " .. tag .. string.sub(text, last + 1)
-	end
 	local function ClassLinesOf(label, everyone, class)
 		local holder = label.region:GetParent()
 		while holder and holder ~= CharacterSelect do
@@ -408,10 +406,67 @@ do
 				end
 			end
 			if crowded then return {} end
-			if #lines > 0 then return lines end
+			if #lines > 0 then return lines, holder end
 			holder = holder:GetParent()
 		end
 		return {}
+	end
+	local function LineBelow(line, holder)
+		local top, below = line:GetTop()
+		if not top then return end
+		for _, other in ipairs(TextsIn(holder, {})) do
+			local otherTop = other:GetTop()
+			if other ~= line and otherTop and otherTop < top - 1 and (not below or otherTop > below:GetTop()) then
+				below = other
+			end
+		end
+		return below
+	end
+	local placed = {}
+	local function ShowSubclassLine(line, subclass, holder)
+		local state = placed[line]
+		if not state then
+			local sub = line:GetParent():CreateFontString(nil, "OVERLAY")
+			sub.coaSubclassLine = true
+			state = { sub = sub, below = LineBelow(line, holder), points = {} }
+			if state.below then
+				for index = 1, state.below:GetNumPoints() do
+					state.points[index] = { state.below:GetPoint(index) }
+				end
+			end
+			placed[line] = state
+		end
+		local font, size, flags = line:GetFont()
+		if font then
+			state.sub:SetFont(font, size * SUBCLASS_FONT_SCALE, flags)
+		end
+		state.sub:SetShadowOffset(line:GetShadowOffset())
+		state.sub:SetShadowColor(line:GetShadowColor())
+		state.sub:SetJustifyH("LEFT")
+		state.sub:ClearAllPoints()
+		state.sub:SetPoint("TOPLEFT", line, "BOTTOMLEFT", 0, -SUBCLASS_LINE_GAP)
+		state.sub:SetText(subclass.color and ("|cff" .. subclass.color .. subclass.name .. "|r") or subclass.name)
+		state.sub:Show()
+		if state.below and select(2, state.below:GetPoint(1)) ~= state.sub then
+			state.below:ClearAllPoints()
+			state.below:SetPoint("TOPLEFT", state.sub, "BOTTOMLEFT", 0, -SUBCLASS_LINE_GAP)
+		end
+		state.shown = true
+	end
+	local function HideSubclassLine(state)
+		state.sub:Hide()
+		if state.below and select(2, state.below:GetPoint(1)) == state.sub then
+			state.below:ClearAllPoints()
+			for _, point in ipairs(state.points) do
+				state.below:SetPoint(unpack(point))
+			end
+		end
+	end
+	local function WithoutSubclass(text, subclass)
+		local tag = " (" .. subclass.name .. ")"
+		local from, last = string.find(text, tag, 1, true)
+		if not from then return end
+		return string.sub(text, 1, from - 1) .. string.sub(text, last + 1)
 	end
 	local listWatch = CreateFrame("Frame")
 	listWatch:SetScript("OnUpdate", function(self, elapsed)
@@ -419,8 +474,10 @@ do
 		if self.wait < 0.3 then return end
 		self.wait = 0
 		if not (CharacterSelect and CharacterSelect:IsShown() and GetNumCharacters and EnumerateFrames) then return end
+		for _, state in pairs(placed) do
+			state.shown = false
+		end
 		local subclasses = Subclasses()
-		if not next(subclasses) then return end
 		local realm = GetServerName and GetServerName() or ""
 		local everyone, subclassed = {}, {}
 		for index = 1, GetNumCharacters() do
@@ -433,14 +490,22 @@ do
 				end
 			end
 		end
-		if not next(subclassed) then return end
-		for _, label in ipairs(NameLabels(subclassed)) do
-			local wanted = subclassed[label.name]
-			for _, line in ipairs(ClassLinesOf(label, everyone, wanted.class)) do
-				local shown = WithSubclass(line:GetText(), wanted.class, wanted.subclass)
-				if shown then
-					line:SetText(shown)
+		if next(subclassed) then
+			for _, label in ipairs(NameLabels(subclassed)) do
+				local wanted = subclassed[label.name]
+				local lines, holder = ClassLinesOf(label, everyone, wanted.class)
+				for _, line in ipairs(lines) do
+					local cleaned = WithoutSubclass(line:GetText(), wanted.subclass)
+					if cleaned then
+						line:SetText(cleaned)
+					end
+					ShowSubclassLine(line, wanted.subclass, holder)
 				end
+			end
+		end
+		for _, state in pairs(placed) do
+			if not state.shown then
+				HideSubclassLine(state)
 			end
 		end
 	end)
