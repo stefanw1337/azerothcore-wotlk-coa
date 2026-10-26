@@ -22,10 +22,12 @@ Step 'worldserver.exe from the local build'
 $exe = Get-ChildItem (Join-Path $Build 'build') -Recurse -Filter worldserver.exe | Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
 if (-not $exe) { throw "No worldserver.exe under $Build\build: run Build local build.bat first." }
-$built = (git -C (Join-Path $Build 'src') log -1 --format=%h).Trim()
-if (-not $info.core.StartsWith($built) -and -not $built.StartsWith($info.core)) {
-    throw "The local build is at $built but the package was assembled at $($info.core). Build again first."
-}
+$src = Join-Path $Build 'src'
+git -C $src fetch --quiet origin
+git -C $src diff --quiet HEAD $info.core -- src data modules ':(exclude)modules/mod-subclass/package' `
+    ':(exclude)modules/mod-subclass/tools' ':(exclude)modules/mod-subclass/addon' ':(exclude)modules/mod-subclass/client' `
+    ':(exclude)modules/mod-livemon/gui'
+if ($LASTEXITCODE) { throw "The local build differs from the package's server code ($($info.core)). Build again first." }
 Copy-Item $exe.FullName (Join-Path $files 'worldserver.exe')
 
 Step 'Client patches and addons'
