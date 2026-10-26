@@ -2832,6 +2832,25 @@ bool RestsGunOnShoulder(Player* player)
         !player->IsNonMeleeSpellCast(false, true, true) && !ShootsNow(player);
 }
 
+uint32 CombatReadyEmote(Player* player)
+{
+    switch (player->GetSheath())
+    {
+        case SHEATH_STATE_RANGED:
+            return FiresHerOwnGun(player) ? GunOnShoulderEmote : EMOTE_STATE_READY1H;
+        case SHEATH_STATE_MELEE:
+            return EMOTE_STATE_READY1H;
+        default:
+            return EMOTE_STATE_READY_UNARMED;
+    }
+}
+
+bool HoldsCombatStance(Player* player)
+{
+    return player->IsAlive() && player->IsInCombat() && !player->HasUnitState(UNIT_STATE_MELEE_ATTACKING) &&
+        !ShootsNow(player);
+}
+
 void AimFromAfar(Player* player)
 {
     Unit* target = AimedAt(player);
@@ -2840,13 +2859,18 @@ void AimFromAfar(Player* player)
         player->GetSheath() == SHEATH_STATE_MELEE &&
         target->IsAlive() && !player->IsWithinMeleeRange(target) && !player->isMoving() &&
         !player->IsNonMeleeSpellCast(false, true, true);
-    uint32 const wanted = aiming ? (IsBow(gun) ? EMOTE_STATE_READY_BOW :
+    uint32 wanted = aiming ? (IsBow(gun) ? EMOTE_STATE_READY_BOW :
         MainHalfCasts(player) ? EMOTE_STATE_READY1H : OtherHeadReadyRifleEmote) :
         !AimsHerOwnGun(player) && RestsGunOnShoulder(player) ? GunOnShoulderEmote : 0;
     uint32 const current = player->GetUInt32Value(UNIT_NPC_EMOTESTATE);
     bool const ours = current == EMOTE_STATE_READY_BOW || current == OtherHeadReadyRifleEmote ||
         current == GunOnShoulderEmote || current == EMOTE_STATE_READY_RIFLE || current == HoldCrossbowEmote ||
-        current == EMOTE_STATE_READY1H;
+        current == EMOTE_STATE_READY1H || current == EMOTE_STATE_READY_UNARMED;
+    if (!wanted && HoldsCombatStance(player))
+    {
+        bool const busy = player->isMoving() || player->IsNonMeleeSpellCast(false, true, true);
+        wanted = busy ? (ours ? current : 0) : CombatReadyEmote(player);
+    }
     bool const otherHeadCasting = current == LeftHandReadyAtTarget || current == LeftHandReadyAround;
     if (current == wanted || (!wanted && !ours) || otherHeadCasting)
         return;
