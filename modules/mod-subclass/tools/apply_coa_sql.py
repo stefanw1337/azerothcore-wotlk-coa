@@ -206,6 +206,38 @@ class Source:
         return keys
 
 
+class Manifest:
+    def __init__(self, folder):
+        self.folder = folder
+        listing = folder / "manifest.json"
+        if not listing.exists():
+            raise RuntimeError(f"{listing} is missing.")
+        self.data = json.loads(listing.read_text(encoding="utf-8"))
+
+    def head(self):
+        return self.data["head"]
+
+    def updates(self):
+        return [Update(entry["kind"], entry["id"], entry["relative"], self.folder / entry["relative"])
+                for entry in self.data["updates"]]
+
+    def keys_at(self, commit):
+        return set()
+
+
+def export(source, base, folder):
+    released = source.keys_at(base)
+    updates = [update for update in source.updates() if update.key not in released]
+    for update in updates:
+        target = folder / update.relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(update.path, target)
+    listing = {"head": source.head(), "base": base,
+               "updates": [{"kind": update.kind, "id": update.id, "relative": update.relative} for update in updates]}
+    (folder / "manifest.json").write_text(json.dumps(listing, indent=1), encoding="utf-8")
+    print(f"Exported {len(updates)} SQL files newer than {base[:12]} to {folder}")
+
+
 def release_commit(root):
     provenance = root / "Scripts/binary-provenance.json"
     if not provenance.exists():
@@ -225,7 +257,7 @@ def plan(server, source, base, log):
     older = [update for update in missing if update.key in released]
     todo = [update for update in missing if update.key not in released]
     log(f"Source: {source.head()}")
-    log(f"Database release: {base[:12]}")
+    log(f"Database release: {base[:12] if base else 'not needed for a manifest'}")
     log(f"SQL files in source: {len(updates)}, already in the database: {len(updates) - len(missing)}, "
         f"to apply: {len(todo)}")
     if older:
@@ -263,11 +295,18 @@ def main():
     parser = argparse.ArgumentParser(description="Applies the CoA SQL updates a locally built worldserver needs.")
     parser.add_argument("--server", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--source", type=Path, help="Git checkout the worldserver was built from.")
+    parser.add_argument("--manifest", type=Path, help="Folder written by --export, instead of --source.")
+    parser.add_argument("--export", type=Path, help="Write the SQL newer than --base from --source to this folder.")
     parser.add_argument("--base", help="Release commit of the database (default: Scripts/binary-provenance.json).")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--no-backup", action="store_true")
     parser.add_argument("--restore", type=Path, help="Backup folder to restore instead of applying anything.")
     args = parser.parse_args()
+    if args.export:
+        if not (args.source and args.base):
+            raise RuntimeError("--export needs --source and --base.")
+        export(Source(args.source.resolve()), args.base, args.export.resolve())
+        return 0
     root = args.server.resolve()
     server = Server(root)
     log = Log(root / "Core/Logs/apply-coa-sql.log")
@@ -279,9 +318,12 @@ def main():
         server.restore(args.restore, log)
         log("Restore finished.")
         return 0
-    if not args.source:
-        raise RuntimeError("--source is required.")
-    todo = plan(server, Source(args.source.resolve()), args.base or release_commit(root), log)
+    if args.manifest:
+        todo = plan(server, Manifest(args.manifest.resolve()), None, log)
+    elif args.source:
+        todo = plan(server, Source(args.source.resolve()), args.base or release_commit(root), log)
+    else:
+        raise RuntimeError("--source or --manifest is required.")
     if not todo:
         log("The database already has every SQL update this source needs.")
         return 0
