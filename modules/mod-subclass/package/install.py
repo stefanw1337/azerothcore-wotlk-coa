@@ -78,8 +78,9 @@ def file_targets(root, client):
     targets = {FILES / "worldserver.exe": core / "worldserver.exe"}
     for dist in sorted((FILES / "configs").glob("*.conf.dist")):
         targets[dist] = core / "configs" / "modules" / dist.name
-    for table in sorted((FILES / "dbc_races").glob("*.dbc")):
-        targets[table] = root / "Data" / "dbc_races" / table.name
+    for folder in ("dbc_races", "dbc_clientset"):
+        for table in sorted((FILES / folder).glob("*.dbc")):
+            targets[table] = root / "Data" / folder / table.name
     for item in sorted(p for p in (FILES / "LiveMon").rglob("*") if p.is_file()):
         targets[item] = root / "LiveMon" / item.relative_to(FILES / "LiveMon")
     if client:

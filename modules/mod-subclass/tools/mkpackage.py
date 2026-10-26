@@ -1,8 +1,9 @@
 """Assemble the source-side part of the subclass test package.
     python mkpackage.py <repo> <carried server tables> <database release commit> <out folder> <LiveMon.exe>
+        <client CreatureDisplayInfo.dbc>
 Writes <out folder>/CoA-Subclass with the installer, configs, SQL (CoA updates newer than the release commit plus the
-module's own), server tables and LiveMon. Make-Package.ps1 on the build PC adds worldserver.exe, the client patches
-and the SpellActivationOverlay addon."""
+module's own), server tables, the patched client's display table for the server's display stream and LiveMon.
+Make-Package.ps1 on the build PC adds worldserver.exe, the client patches and the SpellActivationOverlay addon."""
 import json
 import shutil
 import subprocess
@@ -17,7 +18,7 @@ def windows_text(source, target):
     target.write_bytes(source.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
 
 
-def main(repo, tables, base, out, livemon):
+def main(repo, tables, base, out, livemon, client_displays):
     repo, tables, out = Path(repo).resolve(), Path(tables).resolve(), Path(out).resolve()
     module = repo / "modules" / "mod-subclass"
     package = out / "CoA-Subclass"
@@ -47,6 +48,8 @@ def main(repo, tables, base, out, livemon):
             for sql in sorted(folder.glob("*.sql")):
                 shutil.copy2(sql, target / sql.name)
     shutil.copytree(tables, files / "dbc_races")
+    (files / "dbc_clientset").mkdir()
+    shutil.copy2(client_displays, files / "dbc_clientset" / "CreatureDisplayInfo.dbc")
     shutil.copytree(module / "addon" / "Ascension_Subclass", files / "addons" / "Ascension_Subclass",
                     ignore=shutil.ignore_patterns("__pycache__"))
     (files / "LiveMon").mkdir()
@@ -61,4 +64,4 @@ def main(repo, tables, base, out, livemon):
 
 
 if __name__ == "__main__":
-    main(*sys.argv[1:6])
+    main(*sys.argv[1:7])
