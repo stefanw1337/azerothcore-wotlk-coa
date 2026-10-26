@@ -10,6 +10,7 @@
 #include "AscensionCustomResourceData.h"
 #include "AscensionLiveBaselineData.h"
 #include "AscensionPooledVitality.h"
+#include "AscensionSpecLoot.h"
 #include "DBCStores.h"
 #include "AscensionSpecialization.h"
 #include "AscensionTaughtAbilityData.h"
@@ -2243,8 +2244,20 @@ bool MainHalfShoots(Player const* player)
     return ClassShoots(player->getClass());
 }
 
-bool MainHalfCasts(Player const* player)
+bool MainSpecCasts(Player const* player)
 {
+    for (uint8 stat : AscensionSpecLoot::ActivePrimaryStats(player))
+        switch (stat)
+        {
+            case ITEM_MOD_INTELLECT:
+            case ITEM_MOD_SPIRIT:
+                return true;
+            case ITEM_MOD_AGILITY:
+            case ITEM_MOD_STRENGTH:
+                return false;
+            default:
+                break;
+        }
     switch (PlayableClassOf(player->getClass()))
     {
         case CLASS_MAGE:
@@ -2252,8 +2265,14 @@ bool MainHalfCasts(Player const* player)
         case CLASS_WARLOCK:
             return true;
         default:
-            break;
+            return false;
     }
+}
+
+bool MainHalfCasts(Player const* player)
+{
+    if (MainSpecCasts(player))
+        return true;
     Item const* weapon = player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND);
     return weapon && weapon->GetTemplate()->Class == ITEM_CLASS_WEAPON &&
         weapon->GetTemplate()->SubClass == ITEM_SUBCLASS_WEAPON_STAFF;
