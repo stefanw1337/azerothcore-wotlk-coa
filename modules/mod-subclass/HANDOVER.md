@@ -52,7 +52,13 @@ v2.2.1) builds as before. Nothing depends on Corfirean's bot module or on Conten
   helmet attachment raised; `EsteriaAppearanceGeometry.bin` carries our skin under that path (the DLL substitutes it,
   and the original one crashed with a cloak). 1.9.2 moved the Forgotten to `Character\thinhuman\male\`, so nothing of
   yours uses the old path any more. Their looks are the 1.8 race 32 rows in `client/thin_twins_sections.tsv`; the
-  textures are still in your `patch-ZE7`/`patch-ZE8`.
+  textures are still in your `patch-ZE7`/`patch-ZE8`. Build order from the clean `patch-ZE7` model: `tools/mkcape.py`
+  (cape, collar behind the shoulders, helmet seat), `tools/mkhathair.py` (geoset 1, a short crop on the scalp), then
+  `tools/embedskin.py` into `EsteriaAppearanceGeometry.bin`.
+- Thin Twins hair: geoset 1 is hairstyle 0 and also the hair the client shows under any hat that hides hair. The
+  client forces the hair group to geoset 1 (`0x4EF1DD`) by a race bit that 96 shares with 32, so it cannot be switched
+  off for 96 alone. Hairstyles 1 to 3 are the 1.8 ones; bald is last (4, geoset 5, which the model leaves empty).
+- The Ogre's capes are reshaped by `tools/mkogrecape.py` so they drape over her hump.
 
 ## Data
 
@@ -94,10 +100,8 @@ feature to the standard classes.
 
 ## Known issues
 
-- Under hats the Thin Twins show one short cut whatever their hairstyle (the client switches the hair group to
-  geoset 1, which `tools/mkhathair.py` fills; their bald style moved to geoset 5).
+- Under hats the Thin Twins show their short crop whatever their hairstyle (see Thin Twins hair above).
 - When Auto Shot starts, the Ogre's gun jumps to the other hand for a moment.
-- The Ogre's cape could sit closer to the body.
 
 Seen in your code and data while merging:
 

@@ -1,8 +1,8 @@
 """Clone CoA Custom's race 32 into our Thin Human (96, male) and race 53 into our Two-Headed Ogre (85, female) in a
 set of client or server DBCs. Both get their own display and model path, so their fixes never reach the CoA races: the
 Two-Headed Ogre for her eyes, the Thin Human for the cape and helmet fit of the model CoA Custom 1.8 shipped, whose
-looks come from client/thin_twins_sections.tsv instead of race 32's current rows. Their bald style moves off geoset 1,
-which mkhathair.py fills with the hair shown under hats.
+looks come from client/thin_twins_sections.tsv instead of race 32's current rows. Their first hairstyle is the short
+crop mkhathair.py adds as geoset 1, which the game also shows under hats; their bald style moves to the end.
     python mkraces.py <source folder> <output folder>
 Every table found in the source folder is written to the output folder with the new rows appended.
     python mkraces.py --eyes <CharSections.dbc>...
@@ -50,8 +50,8 @@ SECTION_HAIR = 3
 SECTION_TEXTURE = 4
 SECTION_VARIATION = 8
 SECTION_COLOR = 9
+HAIR_VARIATION = 3
 HAIR_GEOSET = 4
-HAT_HAIR_GEOSET = 1
 
 
 @dataclass(frozen=True)
@@ -138,6 +138,11 @@ def frozen_sections(dbc):
             textures = looks.setdefault((int(section), int(variation), int(color), int(flags)), ["", "", ""])
             if slot != "-":
                 textures[int(slot)] = texture
+        if race.bald_geoset:
+            last = max(variation for section, variation, _, _ in looks if section == SECTION_HAIR)
+            for (section, variation, color, flags), textures in list(looks.items()):
+                if section == SECTION_HAIR and variation == last:
+                    looks[(section, last + 1, color, flags)] = list(textures)
         dbc.rows = [row for row in dbc.rows if dbc.value(row, 1) != race.race_id or dbc.value(row, 2) != race.sex]
         next_id = dbc.next_id()
         for (section, variation, color, flags), textures in looks.items():
@@ -153,16 +158,20 @@ def frozen_sections(dbc):
     return added
 
 
-def bald_hair(dbc):
-    moved = 0
+def bald_last(dbc):
+    added = 0
     for race in RACES:
         if not race.bald_geoset:
             continue
-        for row in dbc.rows:
-            if dbc.value(row, 1) == race.race_id and dbc.value(row, HAIR_GEOSET) == HAT_HAIR_GEOSET:
-                dbc.set(row, HAIR_GEOSET, race.bald_geoset)
-                moved += 1
-    return moved
+        styles = [row for row in dbc.rows if dbc.value(row, 1) == race.race_id and dbc.value(row, 2) == race.sex]
+        last = max(styles, key=lambda row: dbc.value(row, HAIR_VARIATION))
+        bald = bytearray(last)
+        dbc.set(bald, 0, dbc.next_id())
+        dbc.set(bald, HAIR_VARIATION, dbc.value(last, HAIR_VARIATION) + 1)
+        dbc.set(bald, HAIR_GEOSET, race.bald_geoset)
+        dbc.rows.append(bald)
+        added += 1
+    return added
 
 
 def eye_sections(dbc):
@@ -313,7 +322,7 @@ def main(source, output):
             dbc = Dbc(source / table.file)
             print(table.file, clone_rows(dbc, table))
             if table.file == "CharHairGeosets.dbc":
-                print("bald styles off the hat hair", bald_hair(dbc))
+                print("bald style after the others", bald_last(dbc))
             if table.file == "CharSections.dbc":
                 print("frozen looks", frozen_sections(dbc))
                 print("eye colours", eye_sections(dbc))

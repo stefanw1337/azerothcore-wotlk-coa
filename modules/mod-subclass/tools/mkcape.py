@@ -23,11 +23,9 @@ TOP, BOTTOM = 1.62, 0.50
 HUG_GAP, CLEARANCE = 0.025, 0.012
 SURFACE_WINDOW_Y, SURFACE_WINDOW_Z = 0.06, 0.05
 COLLAR_V = 0.06
-STRAP_FROM = 0.12
-SHOULDER_GAP = 0.02
+COLLAR_DROP, COLLAR_CLEARANCE, COLLAR_BAND, BELOW_COLLAR = 0.05, 0.01, 0.015, 0.04
 FLARE = 0.16
 NECK_TOP = 1.70
-BEHIND_NECK = (-0.10, 1.66)
 TEXTURE_CAPE = 2
 TEXTURE_EDGE, TEXTURE_MIDDLE = 0.258, 0.984
 TWO_SIDED_MATERIAL = 0
@@ -91,13 +89,12 @@ def body_points(m2, skin):
 
 def collar(points):
     shoulders = points[(points[:, 2] < NECK_TOP) & (points[:, 2] > UPPER_BACK)]
-    def over_shoulder(y):
-        if abs(y) < STRAP_FROM:
-            return (BEHIND_NECK[0], y, BEHIND_NECK[1])
+    def behind_shoulder(y):
         near = shoulders[np.abs(shoulders[:, 1] - y) < 0.03]
-        top = near[np.argmax(near[:, 2])]
-        return (float(top[0]), y, float(top[2]) + SHOULDER_GAP)
-    return over_shoulder
+        seat = near[:, 2].max() - COLLAR_DROP
+        band = near[np.abs(near[:, 2] - seat) < COLLAR_BAND]
+        return (float(band[:, 0].min()) - COLLAR_CLEARANCE, y, float(seat))
+    return behind_shoulder
 
 def texture_u(side):
     return TEXTURE_EDGE + (1.0 - abs(side)) * (TEXTURE_MIDDLE - TEXTURE_EDGE)
@@ -192,13 +189,14 @@ def cape_mesh(back, skin=None, surface=None, shoulder_line=None):
             side = (u - 0.5) * 2
             y = -side * half
             x = centre + 0.05 * side * side
-            skin_x = surface(y, z) if surface else None
+            height = min(z, shoulder_line(y)[2] - BELOW_COLLAR) if shoulder_line and row == 0 else z
+            skin_x = surface(y, height) if surface else None
             if skin_x is not None:
-                share = hug_share(z)
+                share = hug_share(height)
                 x = min(share * (skin_x - HUG_GAP) + (1.0 - share) * x, skin_x - CLEARANCE)
             texture_v = COLLAR_V + v * (1.0 - COLLAR_V) if shoulder_line else v
-            vertices.append(((x, y, z), (texture_u(side), texture_v),
-                             bone_weights(z, (x, y, z), skin)))
+            vertices.append(((x, y, height), (texture_u(side), texture_v),
+                             bone_weights(height, (x, y, height), skin)))
     triangles = []
     for row in range(len(vertices) // COLUMNS - 1):
         for column in range(COLUMNS - 1):
