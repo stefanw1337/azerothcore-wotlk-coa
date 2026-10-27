@@ -1,8 +1,10 @@
 """Let the Two-Headed Ogre's capes drape over her hump instead of standing off her back like a board, without her
 body poking through them while she stands, shuffles or readies a weapon. Every cape vertex is moved, in the space
 of its own bones, just behind the furthest-back point her body reaches at or above its height in any frame of those
-animations (her legs count only while she stands); the surface is then smoothed. Walking, running and casting swing
-the cape on its own bones as before. The cape keeps its bones, animations and texture.
+animations (her legs count only while she stands); the surface is then smoothed. The top of the cape, straps
+included, is laid onto her shoulders and upper back as she stands, so nothing stands up between her heads and no gap
+opens over her shoulders. Walking, running and casting swing the cape on its own bones as before. The cape keeps its
+bones, animations and texture.
     python mkogrecape.py <m2> <skin> <out m2>
     python mkogrecape.py --check <m2> <skin>
 --check prints, per animation, how far her body reaches through the capes."""
@@ -27,8 +29,7 @@ CLEARANCE, FLARE, FLARE_DEPTH = 0.06, 0.12, 0.60
 OVER_SHOULDER = 0.02
 SMOOTHING = 8
 CHECK_BAND = 0.10
-TOP_ROW_V, PEAK_HALF, PEAK_DROP = 0.01, 0.05, 0.02
-EASE_STEPS = 2
+WRAP_V, WRAP_CLEARANCE, PEAK_HALF, MIDDLE_HALF = 0.18, 0.04, 0.05, 0.15
 
 
 def triangles(skin, keep):
@@ -196,31 +197,62 @@ def draped(positions, cape, groups, cloud, neighbours):
     return target, behind
 
 
-def eased_from_shoulders(bind, positions, cape, behind, neighbours):
-    distance = {index: 0 for index in cape if index not in behind}
-    frontier = list(distance)
-    while frontier:
-        reached = []
-        for index in frontier:
-            for other in neighbours[index]:
-                if other not in distance:
-                    distance[other] = distance[index] + 1
-                    reached.append(other)
-        frontier = reached
-    eased = positions.copy()
+def outward_faces(skin, positions, normals):
+    faces = triangles(skin, lambda geoset: geoset not in CAPES)
+    raw = np.cross(positions[faces[:, 1]] - positions[faces[:, 0]], positions[faces[:, 2]] - positions[faces[:, 0]])
+    facing = np.sign(np.einsum("ij,ij->i", raw, normals[faces].sum(axis=1)))
+    facing[facing == 0] = 1.0
+    return faces, facing
+
+
+def closest_on_triangles(point, a, b, c):
+    def dot(first, second):
+        return np.einsum("ij,ij->i", first, second)
+    first, second = b - a, c - a
+    normal = np.cross(first, second)
+    flat = point - normal * (dot(point - a, normal) / np.maximum(dot(normal, normal), 1e-18))[:, None]
+    rel = flat - a
+    d00, d01, d11 = dot(first, first), dot(first, second), dot(second, second)
+    d20, d21 = dot(rel, first), dot(rel, second)
+    denominator = d00 * d11 - d01 * d01
+    denominator = np.where(np.abs(denominator) > 1e-18, denominator, 1e-18)
+    v, w = (d11 * d20 - d01 * d21) / denominator, (d00 * d21 - d01 * d20) / denominator
+    inside = (v >= 0) & (w >= 0) & (v + w <= 1) & (dot(normal, normal) > 1e-12)
+    best = flat.copy()
+    distance = np.where(inside, np.linalg.norm(flat - point, axis=1), np.inf)
+    for start, finish in ((a, b), (b, c), (c, a)):
+        edge = finish - start
+        share = np.clip(dot(point - start, edge) / np.maximum(dot(edge, edge), 1e-18), 0.0, 1.0)
+        candidate = start + edge * share[:, None]
+        reach = np.linalg.norm(candidate - point, axis=1)
+        better = reach < distance
+        best[better], distance[better] = candidate[better], reach[better]
+    return best, distance
+
+
+def wrapped_over_shoulders(bind, positions, normals, weights, bones, cape, uv, m2, skin):
+    pose = Pose(m2, g.sequence_index(m2, STAND), 0)
+    faces, facing = outward_faces(skin, positions, normals)
+    body = np.unique(faces)
+    standing = positions.copy()
+    standing[body] = skinned(positions[body], weights[body], bones[body], pose)
+    a, b, c = standing[faces[:, 0]], standing[faces[:, 1]], standing[faces[:, 2]]
+    outward = np.cross(b - a, c - a) * facing[:, None]
+    outward /= np.linalg.norm(outward, axis=1, keepdims=True) + 1e-12
+    middle = np.abs((a[:, 1] + b[:, 1] + c[:, 1]) / 3) < MIDDLE_HALF
+    wrapped = 0
     for index in cape:
-        share = min(1.0, max(0.0, (distance.get(index, EASE_STEPS + 1) - 1) / EASE_STEPS))
-        eased[index] = positions[index] + share * (bind[index] - positions[index])
-    return eased
-
-
-def flat_top(bind, cape, uv, neighbours):
-    top = {index for index in cape if uv[index, 1] <= TOP_ROW_V}
-    for index in top:
-        sides = [other for other in neighbours[index] if other in top and abs(bind[other, 1]) >= PEAK_HALF]
-        if abs(bind[index, 1]) < PEAK_HALF and sides:
-            bind[index, 2] = min(bind[index, 2], np.mean(bind[sides, 2]) - PEAK_DROP)
-    return bind
+        if uv[index, 1] > WRAP_V:
+            continue
+        rotation, shift = blend(pose, weights[index], bones[index])
+        point = rotation @ positions[index] + shift
+        chosen = middle if abs(point[1]) < PEAK_HALF else np.ones(len(faces), bool)
+        closest, distance = closest_on_triangles(point, a[chosen], b[chosen], c[chosen])
+        nearest = np.argmin(distance)
+        surface, normal = closest[nearest], outward[chosen][nearest]
+        bind[index] = np.linalg.solve(rotation, surface + normal * WRAP_CLEARANCE - shift)
+        wrapped += 1
+    return bind, wrapped
 
 
 def smoothed(target, behind, positions, cape, neighbours):
@@ -259,12 +291,12 @@ def reach_through(positions, groups, clouds, draped_part):
 
 def with_draped_capes(m2, skin):
     positions, normals, cape, groups, cloud, _ = body_seen_by_cape(m2, skin)
+    _, _, weights, bones = vertices(m2)
     faces = triangles(skin, lambda geoset: geoset in CAPES)
     neighbours = neighbours_of(cape, faces)
     target, behind = draped(positions, cape, groups, cloud, neighbours)
     bind = smoothed(target, behind, positions, cape, neighbours)
-    bind = eased_from_shoulders(bind, positions, cape, behind, neighbours)
-    bind = flat_top(bind, cape, texture_coordinates(m2), neighbours)
+    bind, _ = wrapped_over_shoulders(bind, positions, normals, weights, bones, cape, texture_coordinates(m2), m2, skin)
     face_normals = np.cross(bind[faces[:, 1]] - bind[faces[:, 0]], bind[faces[:, 2]] - bind[faces[:, 0]])
     summed = np.zeros_like(bind)
     for corner in range(3):
