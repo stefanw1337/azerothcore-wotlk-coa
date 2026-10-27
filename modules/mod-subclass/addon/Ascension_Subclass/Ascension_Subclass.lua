@@ -684,12 +684,12 @@ local function RenderTree(tree, canvas)
 end
 
 local NAMINGS = {
-    Ogre = {
+    ["Two-Headed Ogre"] = {
         tab = "Two-Head",
         waiting = "Your second head has no second way yet. Find the Book of Origins in Shadowfang Keep.",
         insight = "Your second head holds an insight. Visit any class trainer to choose a second way.",
     },
-    ThinHuman = {
+    ["Thin Human"] = {
         tab = "Two-Thins",
         waiting = "Your twin has no way of his own yet. Find your father's Bravery Badge in the Deadmines.",
         insight = "Your twin wears the Bravery Badge. Visit any class trainer so he can choose his own way.",
@@ -702,8 +702,18 @@ local DEFAULT_NAMING = {
 }
 
 local function Naming()
-    local _, race = UnitRace("player")
-    return NAMINGS[race] or DEFAULT_NAMING
+    return NAMINGS[(UnitRace("player"))] or DEFAULT_NAMING
+end
+
+function Ascension_Subclass.ShowSecondWayTab()
+    if not tab then
+        return
+    end
+    if state.eligible or #state.trees > 0 then
+        tab:Show()
+    else
+        tab:Hide()
+    end
 end
 
 local function Render()
@@ -1986,6 +1996,7 @@ local function Receive(message)
         incoming = nil
         pending = false
         BuildTrees()
+        Ascension_Subclass.ShowSecondWayTab()
         Render()
         if Ascension_Subclass.UpdatePowerBars then
             Ascension_Subclass.UpdatePowerBars(state.powers)
@@ -2246,7 +2257,8 @@ end
 local function KeepTabsInRow(first, gap)
     local height = first:GetHeight()
     local function Arrange()
-        local previous = tab
+        Ascension_Subclass.ShowSecondWayTab()
+        local previous = tab:IsShown() and tab or first
         for _, other in ipairs(TabsAfter(first, height)) do
             if not other.subclassHooked then
                 other.subclassHooked = true
@@ -2815,7 +2827,10 @@ local function CreateBook()
     tab = BookTab(2, Naming().tab, false)
     tab:SetPoint("LEFT", own, "RIGHT", -15, 0)
     PanelTemplates_SetNumTabs(book, 2)
-    book:SetScript("OnShow", function() ShowPage(true) end)
+    book:SetScript("OnShow", function()
+        Ascension_Subclass.ShowSecondWayTab()
+        ShowPage(true)
+    end)
 
     local talentEvents = CreateFrame("Frame", nil, book)
     talentEvents:RegisterEvent("CHARACTER_POINTS_CHANGED")
@@ -2992,6 +3007,7 @@ local twinRedressPending = false
 local function DressesCyclops()
     return (UnitRace("player")) == "Two-Headed Ogre"
 end
+
 local twinButton
 
 local TWIN_SLOT_OF_CATEGORY = { 1, 2, 10, 4, 11, 3, 8, 9, 5, 6, 7, 14, 12, 13 }
@@ -3388,8 +3404,7 @@ local function AttachTwinButton()
     if twinButton then
         return true
     end
-    local _, race = UnitRace("player")
-    if race ~= "ThinHuman" and not DressesCyclops() then
+    if (UnitRace("player")) ~= "Thin Human" and not DressesCyclops() then
         return true
     end
     local anchor = FindButton("Disable Transmog") or FindButton("Enable Transmog")
