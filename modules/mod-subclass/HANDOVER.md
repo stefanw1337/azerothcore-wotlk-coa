@@ -94,7 +94,8 @@ feature to the standard classes.
 
 ## Known issues
 
-- Thin Twins are bald under hats; their hair is not yet cut to fit under them.
+- Under hats the Thin Twins show one short cut whatever their hairstyle (the client switches the hair group to
+  geoset 1, which `tools/mkhathair.py` fills; their bald style moved to geoset 5).
 - When Auto Shot starts, the Ogre's gun jumps to the other hand for a moment.
 - The Ogre's cape could sit closer to the body.
 

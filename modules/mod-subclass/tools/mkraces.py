@@ -1,7 +1,8 @@
 """Clone CoA Custom's race 32 into our Thin Human (96, male) and race 53 into our Two-Headed Ogre (85, female) in a
 set of client or server DBCs. Both get their own display and model path, so their fixes never reach the CoA races: the
 Two-Headed Ogre for her eyes, the Thin Human for the cape and helmet fit of the model CoA Custom 1.8 shipped, whose
-looks come from client/thin_twins_sections.tsv instead of race 32's current rows.
+looks come from client/thin_twins_sections.tsv instead of race 32's current rows. Their bald style moves off geoset 1,
+which mkhathair.py fills with the hair shown under hats.
     python mkraces.py <source folder> <output folder>
 Every table found in the source folder is written to the output folder with the new rows appended.
     python mkraces.py --eyes <CharSections.dbc>...
@@ -29,10 +30,11 @@ class Race:
     eye_textures: tuple = ()
     helmet_prefix: str = ""
     sections: str = ""
+    bald_geoset: int = 0
 
 
 THIN_HUMAN = Race(96, 32, "Thin Human", MALE, "custom\\thinhuman\\native\\male\\thinhumanmale.mdx", 977601, 901401,
-                  sections="thin_twins_sections.tsv")
+                  sections="thin_twins_sections.tsv", bald_geoset=5)
 TWO_HEADED_OGRE = Race(85, 53, "Two-Headed Ogre", FEMALE, "Character\\Ogre\\Female\\TwoHeadedOgre.mdx", 977600, 901400,
                        1.0, tuple(eye_texture_name(index) for index in range(len(EYE_SETS))), "Tw")
 RACES = (THIN_HUMAN, TWO_HEADED_OGRE)
@@ -48,6 +50,8 @@ SECTION_HAIR = 3
 SECTION_TEXTURE = 4
 SECTION_VARIATION = 8
 SECTION_COLOR = 9
+HAIR_GEOSET = 4
+HAT_HAIR_GEOSET = 1
 
 
 @dataclass(frozen=True)
@@ -147,6 +151,18 @@ def frozen_sections(dbc):
             next_id += 1
             added += 1
     return added
+
+
+def bald_hair(dbc):
+    moved = 0
+    for race in RACES:
+        if not race.bald_geoset:
+            continue
+        for row in dbc.rows:
+            if dbc.value(row, 1) == race.race_id and dbc.value(row, HAIR_GEOSET) == HAT_HAIR_GEOSET:
+                dbc.set(row, HAIR_GEOSET, race.bald_geoset)
+                moved += 1
+    return moved
 
 
 def eye_sections(dbc):
@@ -296,6 +312,8 @@ def main(source, output):
         if (source / table.file).exists():
             dbc = Dbc(source / table.file)
             print(table.file, clone_rows(dbc, table))
+            if table.file == "CharHairGeosets.dbc":
+                print("bald styles off the hat hair", bald_hair(dbc))
             if table.file == "CharSections.dbc":
                 print("frozen looks", frozen_sections(dbc))
                 print("eye colours", eye_sections(dbc))
