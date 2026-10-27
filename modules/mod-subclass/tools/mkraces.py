@@ -1,5 +1,7 @@
 """Clone CoA Custom's race 32 into our Thin Human (96, male) and race 53 into our Two-Headed Ogre (85, female) in a
-set of client or server DBCs. The Two-Headed Ogre gets her own model path so her eyes never reach race 53.
+set of client or server DBCs. Both get their own display and model path, so their fixes never reach the CoA races: the
+Two-Headed Ogre for her eyes, the Thin Human for the cape and helmet fit of the model CoA Custom 1.8 shipped, whose
+looks come from client/thin_twins_sections.tsv instead of race 32's current rows.
     python mkraces.py <source folder> <output folder>
 Every table found in the source folder is written to the output folder with the new rows appended.
     python mkraces.py --eyes <CharSections.dbc>...
@@ -26,9 +28,11 @@ class Race:
     camera_distance: float = 1.0
     eye_textures: tuple = ()
     helmet_prefix: str = ""
+    sections: str = ""
 
 
-THIN_HUMAN = Race(96, 32, "Thin Human", MALE)
+THIN_HUMAN = Race(96, 32, "Thin Human", MALE, "custom\\thinhuman\\native\\male\\thinhumanmale.mdx", 977601, 901401,
+                  sections="thin_twins_sections.tsv")
 TWO_HEADED_OGRE = Race(85, 53, "Two-Headed Ogre", FEMALE, "Character\\Ogre\\Female\\TwoHeadedOgre.mdx", 977600, 901400,
                        1.0, tuple(eye_texture_name(index) for index in range(len(EYE_SETS))), "Tw")
 RACES = (THIN_HUMAN, TWO_HEADED_OGRE)
@@ -116,6 +120,33 @@ def clone_rows(dbc, table):
             added.append(copy)
     dbc.rows += added
     return len(added)
+
+
+def frozen_sections(dbc):
+    added = 0
+    for race in RACES:
+        if not race.sections:
+            continue
+        looks = {}
+        lines = (Path(__file__).resolve().parent.parent / "client" / race.sections).read_text().splitlines()[1:]
+        for line in lines:
+            section, variation, color, flags, slot, texture = line.split("\t")
+            textures = looks.setdefault((int(section), int(variation), int(color), int(flags)), ["", "", ""])
+            if slot != "-":
+                textures[int(slot)] = texture
+        dbc.rows = [row for row in dbc.rows if dbc.value(row, 1) != race.race_id or dbc.value(row, 2) != race.sex]
+        next_id = dbc.next_id()
+        for (section, variation, color, flags), textures in looks.items():
+            row = bytearray(dbc.size)
+            for field, value in ((0, next_id), (1, race.race_id), (2, race.sex), (3, section), (7, flags),
+                                 (SECTION_VARIATION, variation), (SECTION_COLOR, color)):
+                dbc.set(row, field, value)
+            for slot, texture in enumerate(textures):
+                dbc.set(row, SECTION_TEXTURE + slot, dbc.text(texture) if texture else 0)
+            dbc.rows.append(row)
+            next_id += 1
+            added += 1
+    return added
 
 
 def eye_sections(dbc):
@@ -266,6 +297,7 @@ def main(source, output):
             dbc = Dbc(source / table.file)
             print(table.file, clone_rows(dbc, table))
             if table.file == "CharSections.dbc":
+                print("frozen looks", frozen_sections(dbc))
                 print("eye colours", eye_sections(dbc))
             dbc.save(output / table.file)
     if (source / "UICameras.dbc").exists() and (output / "UICameraAppearanceChrRaces.dbc").exists():

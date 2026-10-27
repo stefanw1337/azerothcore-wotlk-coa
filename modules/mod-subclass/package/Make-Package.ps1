@@ -1,10 +1,11 @@
 <#
   Completes the subclass test package on the build PC and zips it.
-  Inputs in -Work: CoA-Subclass-source.zip and the patch-ZZZZS.MPQ.part* files from the source side.
-  Adds the worldserver.exe of the local build, the SpellActivationOverlay addon and our client patches.
+  Inputs in -Work (default: this folder): CoA-Subclass-source.zip and the patch-ZZZZS.MPQ.part* files.
+  Adds the worldserver.exe of the local build, the SpellActivationOverlay addon, our client patches and the
+  Esteria geometry with the Thin Twins' cape fit from the game folder.
 #>
 param(
-    [string]$Work = 'L:\CoA-Subclass-Package',
+    [string]$Work = $PSScriptRoot,
     [string]$Build = 'L:\coa-build',
     [string]$Client = 'L:\CoA Client'
 )
@@ -39,6 +40,7 @@ $target = [IO.File]::Create((Join-Path $clientFiles 'patch-ZZZZS.MPQ'))
 foreach ($part in $parts) { $bytes = [IO.File]::ReadAllBytes($part.FullName); $target.Write($bytes, 0, $bytes.Length) }
 $target.Close()
 foreach ($name in 'patch-ZZZZC.MPQ', 'patch-ZZZZW.MPQ') { Copy-Item (Join-Path $Client "Data\$name") $clientFiles }
+Copy-Item (Join-Path $Client 'EsteriaAppearanceGeometry.bin') $clientFiles
 $sao = Join-Path $Client 'Interface\AddOns\SpellActivationOverlay-for-CoA'
 Copy-Item $sao (Join-Path $files 'addons') -Recurse -Force
 

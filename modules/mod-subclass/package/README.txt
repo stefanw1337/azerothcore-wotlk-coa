@@ -28,7 +28,8 @@ LiveMon: start LiveMon\LiveMon.exe in the repack folder while the server runs.
 
 Known issues
 ------------
-- Thin Twins use CoA Custom 1.9.2's new Thin Human model as it is; their cape and helmet fit are not redone yet.
+- Thin Twins are bald under hats and helmets; their hair is not cut to fit under them yet.
+- The Forgotten's hat floats above the head in CoA Custom 1.9.2. That is CoA's model; the Thin Twins have their own.
 - When Auto Shot starts, the gun of a Hunter subclass jumps to the other hand for a moment.
 
 Feedback: tell Stefan (stefanw1337) what you tried, what happened and when.
