@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellInfo.h"
@@ -31,7 +32,7 @@ class spell_ascension_primordial_spirit : public SpellScript
 
     bool Load() override
     {
-        return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_WILDWALKER;
+        return GetCaster()->IsPlayer() && UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_WILDWALKER);
     }
 
     void Summon(SpellEffIndex index)
@@ -79,7 +80,8 @@ class aura_ascension_eternally_chosen : public AuraScript
     bool Check(ProcEventInfo& event)
     {
         Unit* owner = GetTarget();
-        return owner->IsPlayer() && owner->getClass() == CLASS_WILDWALKER && owner->IsAlive() &&
+        return owner->IsPlayer() && UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_WILDWALKER) &&
+            owner->IsAlive() &&
             GetCaster() == owner && event.GetActor() == owner;
     }
 
@@ -98,7 +100,7 @@ public:
         if (!caster || info->Id != LesserSpiritCharge || (index != EFFECT_1 && index != EFFECT_2))
             return;
         Unit const* owner = caster->IsPlayer() ? caster : caster->GetOwner();
-        if (!owner || !owner->IsPlayer() || owner->getClass() != CLASS_WILDWALKER)
+        if (!owner || !owner->IsPlayer() || !UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_WILDWALKER))
             return;
 
         value += 0.2f * (std::max(0, const_cast<Unit*>(owner)->SpellBaseDamageBonusDone(SPELL_SCHOOL_MASK_NATURE)) +

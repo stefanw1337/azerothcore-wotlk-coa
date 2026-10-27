@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Pet.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -26,7 +27,7 @@ class aura_ascension_rexxar_might : public AuraScript
 
     bool Load() override
     {
-        return GetUnitOwner()->IsPlayer() && GetUnitOwner()->getClass() == CLASS_WILDWALKER;
+        return UsesAscensionClassMechanics(GetUnitOwner()->ToPlayer(), CLASS_WILDWALKER);
     }
 
     void Remove(AuraEffect const*, AuraEffectHandleModes)
@@ -57,7 +58,7 @@ class aura_ascension_rexxar_ready : public AuraScript
         Player* owner = pet ? pet->GetOwner() : nullptr;
         DamageInfo const* damage = event.GetDamageInfo();
         Unit* victim = event.GetActionTarget();
-        return owner && owner->getClass() == CLASS_WILDWALKER && owner->HasAura(RexxarMight) &&
+        return owner && UsesAscensionClassMechanics(owner, CLASS_WILDWALKER) && owner->HasAura(RexxarMight) &&
             GetCasterGUID() == owner->GetGUID() && event.GetActor() == pet && victim &&
             !pet->IsFriendlyTo(victim) && damage && damage->GetDamage();
     }
@@ -89,7 +90,7 @@ public:
             info->Effects[EFFECT_0].ApplyAuraName != SPELL_AURA_PERIODIC_DAMAGE)
             return;
         Player const* owner = static_cast<Pet const*>(caster)->GetOwner();
-        if (!owner || owner->getClass() != CLASS_WILDWALKER)
+        if (!owner || !UsesAscensionClassMechanics(owner, CLASS_WILDWALKER))
             return;
 
         double amount = double(value) + 0.15 * std::max(0.0f, owner->GetTotalAttackPowerValue(BASE_ATTACK));

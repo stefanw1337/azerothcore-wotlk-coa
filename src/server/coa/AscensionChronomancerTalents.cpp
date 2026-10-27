@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 #include "AscensionChronomancerTalents.h"
+#include "AscensionSpecialization.h"
 #include "Group.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -54,7 +55,7 @@ bool IsAeonActivation(uint32 id)
 
 bool CanSwapPlayers(Player* player, Player* target)
 {
-    if (!player || !target || player == target || player->getClass() != CLASS_CHRONOMANCER ||
+    if (!player || !target || player == target || !UsesAscensionClassMechanics(player, CLASS_CHRONOMANCER) ||
         !player->IsAlive() || !target->IsAlive() || !player->IsInWorld() || !target->IsInWorld() ||
         player->GetMap() != target->GetMap() || !player->InSamePhase(target))
         return false;
@@ -120,7 +121,8 @@ class spell_ascension_unmaker_of_realities : public AuraScript
     bool CheckProc(ProcEventInfo& eventInfo)
     {
         Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
-        if (!caster || caster->getClass() != CLASS_CHRONOMANCER || !caster->HasSpell(SPELL_UNMAKER_OF_REALITIES))
+        if (!caster || !UsesAscensionClassMechanics(caster, CLASS_CHRONOMANCER) ||
+            !caster->HasSpell(SPELL_UNMAKER_OF_REALITIES))
             return false;
         DamageInfo* damage = eventInfo.GetDamageInfo();
         if (!damage || !damage->GetDamage() || !eventInfo.GetActionTarget())
@@ -365,7 +367,7 @@ public:
     void OnSpellCast(Spell* spell, Unit* caster, SpellInfo const* info, bool) override
     {
         Player* player = caster ? caster->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_CHRONOMANCER || info->SpellFamilyName != 28 ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_CHRONOMANCER) || info->SpellFamilyName != 28 ||
             spell->HasTriggeredCastFlag(TRIGGERED_IGNORE_GCD) || !IsAeonActivation(info->Id))
             return;
         if (player->HasAura(SPELL_SHIMMERING_SHARD))

@@ -4,6 +4,7 @@
 #define ASCENSION_WARCRAFT_REBORN_RULES_H
 
 #include "AscensionFreepickRules.h"
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <functional>
@@ -27,6 +28,19 @@ constexpr std::size_t REQUIRED_ABILITY_COUNT = 3;
 constexpr std::uint32_t DARK_APOTHEOSIS = 1154321;
 constexpr std::array<std::uint32_t, 2> DARK_APOTHEOSIS_PASSIVES = { 1154322, 1154323 };
 constexpr std::array<std::uint32_t, 3> DARK_APOTHEOSIS_SPELLS = { 1159674, 1161363, 1161294 };
+constexpr std::array<std::uint32_t, 56> NON_WOTLK_ENTRIES = {
+    1359, 1693, 1754, 1897, 1898, 1899, 1904, 1905, 1931, 1948, 1962, 2007, 2018, 2019, 2023, 2026,
+    2034, 2061, 2065, 2066, 2076, 2081, 2083, 2135, 2137, 2139, 12797, 12798, 12799, 12800, 13099,
+    13400, 13401, 13537, 13538, 13653, 13655, 13659, 13701, 13825, 13853, 14242, 14243, 14244, 18572,
+    18573, 18619, 18657, 18804, 18805, 18806, 18836, 18840, 18843, 32232, 137836 };
+constexpr std::array<std::uint32_t, 20> NON_WOTLK_SPELLS = {
+    1100760, 1106118, 1122361, 1122486, 1122536, 1182010, 1325782, 1325894, 1325898, 1325899, 1325916,
+    1325918, 1327141, 1327143, 1348933, 1348934, 1348937, 1348938, 1954807, 1954861 };
+
+constexpr bool WotlkEntry(std::uint32_t entryId)
+{
+    return std::find(NON_WOTLK_ENTRIES.begin(), NON_WOTLK_ENTRIES.end(), entryId) == NON_WOTLK_ENTRIES.end();
+}
 
 struct Grant
 {
@@ -51,6 +65,8 @@ struct Data
 bool LoadData(Data& data);
 
 std::vector<std::vector<std::uint32_t>> RankChains(Data const& data);
+
+std::vector<std::uint32_t> NonWotlkSpells(Data const& data);
 
 std::vector<std::uint32_t> StartingSpells(Data const& data, AscensionFreepick::Realm const& realm,
     std::uint32_t classId, std::uint32_t level);

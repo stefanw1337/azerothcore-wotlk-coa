@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 #include "AscensionReaperTalents.h"
+#include "AscensionSpecialization.h"
 #include "CellImpl.h"
 #include "GridNotifiersImpl.h"
 #include "ObjectAccessor.h"
@@ -189,7 +190,7 @@ class aura_ascension_reaper_dark_soul : public AuraScript
     bool Load() override
     {
         Player* player = GetUnitOwner() ? GetUnitOwner()->ToPlayer() : nullptr;
-        return player && player->getClass() == CLASS_REAPER && GetCasterGUID() == player->GetGUID();
+        return player && UsesAscensionClassMechanics(player, CLASS_REAPER) && GetCasterGUID() == player->GetGUID();
     }
 
     void UpdateStamina()
@@ -343,7 +344,7 @@ class aura_ascension_harvester : public AuraScript
     {
         Unit* owner = GetTarget();
         Unit* victim = event.GetActionTarget();
-        return owner->IsPlayer() && owner->getClass() == CLASS_REAPER && owner->IsAlive() &&
+        return owner->IsPlayer() && UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_REAPER) && owner->IsAlive() &&
             event.GetActor() == owner && victim && victim != owner && !owner->IsFriendlyTo(victim) &&
             event.GetDamageInfo() && event.GetDamageInfo()->GetDamage();
     }
@@ -474,7 +475,8 @@ struct npc_ascension_reaper_spectral_warden : public ScriptedAI
             return;
 
         Player* owner = ObjectAccessor::GetPlayer(*me, me->GetOwnerGUID());
-        if (!owner || !owner->IsAlive() || owner->getClass() != CLASS_REAPER || !owner->HasAura(SPELL_LIFE_TAP))
+        if (!owner || !owner->IsAlive() || !UsesAscensionClassMechanics(owner, CLASS_REAPER) ||
+            !owner->HasAura(SPELL_LIFE_TAP))
             return;
 
         SpellInfo const* lifeTap = sSpellMgr->GetSpellInfo(SPELL_LIFE_TAP);
@@ -597,7 +599,7 @@ public:
     void OnAuraApply(Unit* unit, Aura* aura) override
     {
         Player* player = unit ? unit->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_REAPER || !aura ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_REAPER) || !aura ||
             aura->GetCasterGUID() != player->GetGUID() ||
             (aura->GetId() != SPELL_UNDERWALK && aura->GetId() != SPELL_BEYOND_THE_VEIL))
             return;
@@ -611,7 +613,7 @@ public:
     void OnAuraRemove(Unit* unit, AuraApplication* application, AuraRemoveMode mode) override
     {
         Player* player = unit ? unit->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_REAPER || !application)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_REAPER) || !application)
             return;
         Aura* aura = application->GetBase();
         if (aura->GetCasterGUID() != player->GetGUID())
@@ -629,11 +631,13 @@ public:
 
     void ModifySpellEffectBaseValue(Unit const* caster, SpellInfo const* info, uint8 index, float& value) override
     {
-        if (caster && caster->IsPlayer() && caster->getClass() == CLASS_REAPER && info->Id == SPELL_SPECTRAL_WARDEN &&
+        if (caster && caster->IsPlayer() && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_REAPER) &&
+            info->Id == SPELL_SPECTRAL_WARDEN &&
             info->SpellFamilyName == 36 && index == EFFECT_1 && info->Effects[index].IsAura(SPELL_AURA_SCHOOL_ABSORB))
             value += caster->GetStat(STAT_STAMINA) * 1.5f;
 
-        if (caster && caster->IsPlayer() && caster->getClass() == CLASS_REAPER && info->Id == SPELL_SOUL_SPLINTER &&
+        if (caster && caster->IsPlayer() && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_REAPER) &&
+            info->Id == SPELL_SOUL_SPLINTER &&
             info->SpellFamilyName == 36 && index == EFFECT_0 && info->Effects[index].IsAura(SPELL_AURA_PERIODIC_DAMAGE))
             value += std::max(0.0f, caster->GetStat(STAT_STAMINA)) * 0.035f;
     }
@@ -642,7 +646,7 @@ public:
 
 bool HandleAscensionReaperResource(Player* player, uint32 spellId, int32 amount)
 {
-    if (player->getClass() != CLASS_REAPER || spellId != SPELL_REAPED_SOUL)
+    if (!UsesAscensionClassMechanics(player, CLASS_REAPER) || spellId != SPELL_REAPED_SOUL)
         return false;
     Aura* aura = player->GetAura(spellId, player->GetGUID());
     uint8 previous = aura ? aura->GetStackAmount() : 0;
@@ -664,7 +668,7 @@ bool HandleAscensionReaperResource(Player* player, uint32 spellId, int32 amount)
 
 void ApplyAscensionReaperSoulInfusionGained(Player* player)
 {
-    if (!player || player->getClass() != CLASS_REAPER || !player->IsAlive())
+    if (!player || !UsesAscensionClassMechanics(player, CLASS_REAPER) || !player->IsAlive())
         return;
 
     CastTalentTrigger(player, SPELL_DAMNED, SPELL_DAMNED_HASTE);
@@ -674,7 +678,7 @@ void ApplyAscensionReaperSoulInfusionGained(Player* player)
 
 void ApplyAscensionReaperSoulInfusionSpent(Player* player)
 {
-    if (!player || player->getClass() != CLASS_REAPER || !player->IsAlive())
+    if (!player || !UsesAscensionClassMechanics(player, CLASS_REAPER) || !player->IsAlive())
         return;
 
     CastTalentTrigger(player, SPELL_ESSENCE_INVIGORATION, SPELL_ESSENCE_INVIGORATION_HEAL);

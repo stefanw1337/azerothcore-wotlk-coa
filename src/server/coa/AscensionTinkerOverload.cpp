@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionTinkerOverload.h"
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -140,7 +141,7 @@ bool IsDamageHelper(SpellInfo const* spellInfo, uint32 id)
 bool IsSelfOwnedTinker(Unit* owner, ObjectGuid caster)
 {
     Player* player = owner ? owner->ToPlayer() : nullptr;
-    return player && player->getClass() == CLASS_TINKER && caster == player->GetGUID();
+    return player && UsesAscensionClassMechanics(player, CLASS_TINKER) && caster == player->GetGUID();
 }
 
 int32 OverloadDamage(uint32 damage, int32 percent)
@@ -261,7 +262,7 @@ public:
 
     void OnPlayerLogin(Player* player) override
     {
-        if (player && player->getClass() == CLASS_TINKER &&
+        if (player && UsesAscensionClassMechanics(player, CLASS_TINKER) &&
             (!player->HasSpell(SPELL_EXTENDER) || !player->HasAura(SPELL_EXTENDER, player->GetGUID())))
             player->RemoveAurasDueToSpell(SPELL_MECHANICAL_ARM, player->GetGUID());
     }

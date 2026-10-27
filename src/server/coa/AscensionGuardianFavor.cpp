@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -23,7 +24,7 @@ class aura_ascension_guardian_favor_gain : public AuraScript
     bool Check(ProcEventInfo& event)
     {
         Player* owner = GetTarget()->ToPlayer();
-        return owner && owner->getClass() == CLASS_GUARDIAN && event.GetActor() == owner &&
+        return owner && UsesAscensionClassMechanics(owner, CLASS_GUARDIAN) && event.GetActor() == owner &&
             ((event.GetTypeMask() & PROC_FLAG_KILL) ||
                 (event.GetDamageInfo() && (event.GetHitMask() & PROC_HIT_CRITICAL)) ||
                 ((event.GetTypeMask() & PROC_FLAG_DONE_MELEE_AUTO_ATTACK) &&

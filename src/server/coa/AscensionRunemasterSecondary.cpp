@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "AscensionTalentReplacementData.h"
 #include "Player.h"
 #include "Random.h"
@@ -104,7 +105,7 @@ public:
     void OnAuraApply(Unit* unit, Aura* aura) override
     {
         Player* player = unit ? unit->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_SPIRIT_MAGE || !aura)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SPIRIT_MAGE) || !aura)
             return;
         uint32 root = sSpellMgr->GetFirstSpellInChain(aura->GetId());
         if (root == SPELL_UNLEASHED_TATTOOS || root == SPELL_FIRE_TATTOO || root == SPELL_WATER_TATTOO)
@@ -114,7 +115,7 @@ public:
     void OnAuraRemove(Unit* unit, AuraApplication* application, AuraRemoveMode) override
     {
         Player* player = unit ? unit->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_SPIRIT_MAGE || !application)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SPIRIT_MAGE) || !application)
             return;
         Aura* aura = application->GetBase();
         uint32 root = sSpellMgr->GetFirstSpellInChain(aura->GetId());
@@ -131,7 +132,7 @@ public:
     void ModifySpellEffectBaseValue(Unit const* caster, SpellInfo const* info, uint8 index, float& value) override
     {
         Player* player = caster ? const_cast<Unit*>(caster)->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_SPIRIT_MAGE || index != EFFECT_0)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SPIRIT_MAGE) || index != EFFECT_0)
             return;
         if (info->Id == SPELL_LEYSTONE_MANA)
         {
@@ -158,7 +159,8 @@ public:
     void OnSpellCast(Spell* spell, Unit* caster, SpellInfo const* info, bool) override
     {
         Player* player = caster ? caster->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_SPIRIT_MAGE || !player->IsAlive() || spell->IsTriggered())
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SPIRIT_MAGE) || !player->IsAlive() ||
+            spell->IsTriggered())
             return;
         uint32 root = sSpellMgr->GetFirstSpellInChain(info->Id);
         if (root == SPELL_SMOLDER)
@@ -200,8 +202,8 @@ public:
     void OnSpellHitResult(Spell* spell, Unit* target, uint8 miss, uint32 damage, uint32, bool) override
     {
         Player* player = spell->GetCaster()->ToPlayer();
-        if (!player || player->getClass() != CLASS_SPIRIT_MAGE || !player->IsAlive() || !player->IsInWorld() ||
-            spell->IsTriggered() || !damage ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SPIRIT_MAGE) || !player->IsAlive() ||
+            !player->IsInWorld() || spell->IsTriggered() || !damage ||
             miss != SPELL_MISS_NONE || !target || !target->IsAlive() || target == player ||
             player->IsFriendlyTo(target) || !player->GetWeaponForAttack(OFF_ATTACK, true) ||
             sSpellMgr->GetFirstSpellInChain(spell->GetSpellInfo()->Id) != SPELL_RUNEBLADE ||
@@ -231,8 +233,8 @@ class aura_ascension_arcane_palm_sigil : public AuraScript
         Unit* player = GetTarget();
         DamageInfo const* damage = event.GetDamageInfo();
         Unit* target = event.GetActionTarget();
-        return player->IsPlayer() && player->getClass() == CLASS_SPIRIT_MAGE && player->IsAlive() &&
-            GetCaster() == player && event.GetActor() == player && target && target->IsAlive() &&
+        return player->IsPlayer() && UsesAscensionClassMechanics(player->ToPlayer(), CLASS_SPIRIT_MAGE) &&
+            player->IsAlive() && GetCaster() == player && event.GetActor() == player && target && target->IsAlive() &&
             target != player && !player->IsFriendlyTo(target) && damage && damage->GetDamage() &&
             damage->GetDamageType() == SPELL_DIRECT_DAMAGE && (damage->GetSchoolMask() & SPELL_SCHOOL_MASK_MAGIC);
     }
@@ -273,8 +275,8 @@ class aura_ascension_damage_palm_sigil : public AuraScript
         Unit* target = event.GetActionTarget();
         DamageInfo const* damage = event.GetDamageInfo();
         bool const physicalSpellAllowed = GetSpellInfo()->Effects[EFFECT_0].TriggerSpell == SPELL_FIRE_SIGIL_HIT;
-        return player->IsPlayer() && player->getClass() == CLASS_SPIRIT_MAGE && player->IsAlive() &&
-            GetCaster() == player && event.GetActor() == player && target && target->IsAlive() &&
+        return player->IsPlayer() && UsesAscensionClassMechanics(player->ToPlayer(), CLASS_SPIRIT_MAGE) &&
+            player->IsAlive() && GetCaster() == player && event.GetActor() == player && target && target->IsAlive() &&
             target != player && !player->IsFriendlyTo(target) && damage && damage->GetDamage() &&
             damage->GetDamageType() == SPELL_DIRECT_DAMAGE &&
             (physicalSpellAllowed || (damage->GetSchoolMask() & SPELL_SCHOOL_MASK_MAGIC));
@@ -306,7 +308,8 @@ class aura_ascension_runemaster_fire_engraving : public AuraScript
         Unit* player = GetTarget();
         DamageInfo const* damage = event.GetDamageInfo();
         Unit* target = event.GetActionTarget();
-        return player->IsPlayer() && player->getClass() == CLASS_SPIRIT_MAGE && event.GetActor() == player &&
+        return player->IsPlayer() && UsesAscensionClassMechanics(player->ToPlayer(), CLASS_SPIRIT_MAGE) &&
+            event.GetActor() == player &&
             target && target != player && target->IsAlive() && damage && damage->GetDamage() &&
             damage->GetDamageType() != DOT;
     }

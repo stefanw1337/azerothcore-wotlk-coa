@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 #include "AscensionPooledVitality.h"
+#include "AscensionSpecialization.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "Random.h"
@@ -86,7 +87,7 @@ class spell_ascension_bloodmage_bloodfang_bite : public SpellScript
 
     bool Load() override
     {
-        return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_SON_OF_ARUGAL;
+        return UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_SON_OF_ARUGAL);
     }
 
     void ApplyWound()
@@ -116,7 +117,7 @@ class aura_ascension_bloodmage_bite_wound : public AuraScript
     {
         Unit* caster = GetCaster();
         DamageInfo const* damage = event.GetDamageInfo();
-        return caster && caster->IsPlayer() && caster->getClass() == CLASS_SON_OF_ARUGAL &&
+        return caster && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_SON_OF_ARUGAL) &&
             caster->IsAlive() && caster->IsInWorld() && event.GetActor() == caster && damage &&
             damage->GetVictim() == GetTarget() && damage->GetDamage() &&
             (event.GetTypeMask() & (PROC_FLAG_TAKEN_MELEE_AUTO_ATTACK | PROC_FLAG_TAKEN_RANGED_AUTO_ATTACK));
@@ -162,7 +163,8 @@ class aura_ascension_bloodmage_sacrificial_rite : public AuraScript
             return;
 
         Player* player = GetTarget()->ToPlayer();
-        if (!player || player->getClass() != CLASS_SON_OF_ARUGAL || !player->IsAlive() || !player->IsInWorld())
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SON_OF_ARUGAL) || !player->IsAlive() ||
+            !player->IsInWorld())
             return;
 
         player->CastSpell(player, SPELL_SACRIFICIAL_RITE_HEALING, TRIGGERED_FULL_MASK);
@@ -201,7 +203,7 @@ bool IsBloodmoonBlast(uint32 id)
 Player* Bloodmage(Spell* spell)
 {
     Player* player = spell->GetCaster()->ToPlayer();
-    return player && player->getClass() == CLASS_SON_OF_ARUGAL &&
+    return player && UsesAscensionClassMechanics(player, CLASS_SON_OF_ARUGAL) &&
         spell->GetSpellInfo()->SpellFamilyName == 26 ? player : nullptr;
 }
 
@@ -394,7 +396,8 @@ public:
         }
         for (ObjectGuid const& guid : owners)
             if (Unit* unit = ObjectAccessor::GetUnit(*target, guid))
-                if (Player* player = unit->ToPlayer(); player && player->getClass() == CLASS_SON_OF_ARUGAL &&
+                if (Player* player = unit->ToPlayer();
+                    player && UsesAscensionClassMechanics(player, CLASS_SON_OF_ARUGAL) &&
                     player->IsAlive() && player->IsInWorld() && player->InSamePhase(target) && target->IsAlive() &&
                     player->IsValidAttackTarget(target))
                 {
@@ -439,7 +442,7 @@ class aura_ascension_bloodmage_thirst_for_blood : public AuraScript
     void Evaluate(AuraEffect const*)
     {
         Player* player = GetTarget() ? GetTarget()->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_SON_OF_ARUGAL || !player->IsAlive())
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SON_OF_ARUGAL) || !player->IsAlive())
             return;
         Aura const* thirst = player->GetAura(SPELL_BLOOD_THIRST);
         uint32 stacks = thirst ? thirst->GetStackAmount() : 0;
@@ -533,7 +536,8 @@ class spell_ascension_blood_feast_drain : public SpellScript
     {
         Player* player = GetCaster()->ToPlayer();
         Unit* corpse = GetHitUnit();
-        if (player && player->getClass() == CLASS_SON_OF_ARUGAL && player->IsAlive() && !player->IsInCombat() &&
+        if (player && UsesAscensionClassMechanics(player, CLASS_SON_OF_ARUGAL) && player->IsAlive() &&
+            !player->IsInCombat() &&
             corpse && !corpse->IsAlive() && corpse != player && !player->IsFriendlyTo(corpse))
             player->CastSpell(player, SPELL_BLOOD_FEAST_RESTORE, true);
     }
@@ -585,7 +589,7 @@ class aura_ascension_waves_of_blood : public AuraScript
     {
         Unit* player = GetTarget();
         DamageInfo const* damage = event.GetDamageInfo();
-        return player->IsPlayer() && player->getClass() == CLASS_SON_OF_ARUGAL && player->IsAlive() &&
+        return UsesAscensionClassMechanics(player->ToPlayer(), CLASS_SON_OF_ARUGAL) && player->IsAlive() &&
             player->IsInWorld() && event.GetActor() == player && damage && damage->GetDamage();
     }
 

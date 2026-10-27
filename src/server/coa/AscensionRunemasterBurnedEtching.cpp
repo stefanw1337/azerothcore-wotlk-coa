@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
@@ -22,7 +23,7 @@ constexpr uint32 RUNEMASTER_SPELL_FAMILY = 38;
 
 bool IsRunemaster(Unit const* unit)
 {
-    return unit && unit->IsPlayer() && unit->getClass() == CLASS_SPIRIT_MAGE;
+    return unit && unit->IsPlayer() && UsesAscensionClassMechanics(unit->ToPlayer(), CLASS_SPIRIT_MAGE);
 }
 
 bool IsBurnedEtchingSource(uint32 spellId)

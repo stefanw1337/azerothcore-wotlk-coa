@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
@@ -32,7 +33,7 @@ class spell_ascension_witch_hunter_torchlight_mark : public AuraScript
     bool Load() override
     {
         Unit* caster = GetCaster();
-        return caster && caster->IsPlayer() && caster->getClass() == CLASS_WITCH_HUNTER &&
+        return caster && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_WITCH_HUNTER) &&
             GetUnitOwner() && GetUnitOwner() != caster;
     }
 

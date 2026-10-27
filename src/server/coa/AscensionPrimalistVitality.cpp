@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellScript.h"
@@ -14,7 +15,7 @@ class aura_ascension_vitality_surge : public AuraScript
     {
         Unit* owner = GetTarget();
         HealInfo const* heal = event.GetHealInfo();
-        return owner->IsPlayer() && owner->getClass() == CLASS_WILDWALKER &&
+        return owner->IsPlayer() && UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_WILDWALKER) &&
             GetCasterGUID() == owner->GetGUID() && event.GetActor() == owner && heal &&
             heal->GetHealer() == owner && heal->GetEffectiveHeal() > 0;
     }

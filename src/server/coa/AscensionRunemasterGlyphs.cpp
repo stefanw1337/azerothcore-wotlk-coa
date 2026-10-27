@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionRunemasterGlyphs.h"
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -72,7 +73,7 @@ bool IsGlyphHelper(uint32 id)
 
 bool IsRunemaster(Unit* caster)
 {
-    return caster && caster->IsPlayer() && caster->getClass() == CLASS_SPIRIT_MAGE;
+    return caster && caster->IsPlayer() && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_SPIRIT_MAGE);
 }
 
 void GenerateGlyph(Unit* caster)

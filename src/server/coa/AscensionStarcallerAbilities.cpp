@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "AscensionStarcaller.h"
 #include "AscensionStarcallerData.h"
 #include "ObjectAccessor.h"
@@ -434,7 +435,7 @@ class aura_ascension_starcaller_shattered_stars : public AuraScript
     void Extend(AuraEffect const* effect)
     {
         Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_STARCALLER || player != GetTarget() ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_STARCALLER) || player != GetTarget() ||
             int32(effect->GetTickNumber()) != effect->GetTotalTicks())
             return;
         AuraEffect const* talent = player->GetAuraEffect(704771, EFFECT_0, player->GetGUID());

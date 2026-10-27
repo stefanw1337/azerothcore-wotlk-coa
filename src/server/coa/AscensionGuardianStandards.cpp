@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionGuardianStandardData.h"
+#include "AscensionSpecialization.h"
 #include "Creature.h"
 #include "EventMap.h"
 #include "Map.h"
@@ -76,7 +77,7 @@ Player* StandardOwner(Unit* caster)
     if (!caster || !caster->IsCreature() || !FindStandard(caster->GetEntry(), true))
         return nullptr;
     Player* owner = caster->GetCharmerOrOwnerPlayerOrPlayerItself();
-    return owner && owner->getClass() == CLASS_GUARDIAN && owner->IsAlive() && owner->IsInWorld() &&
+    return owner && UsesAscensionClassMechanics(owner, CLASS_GUARDIAN) && owner->IsAlive() && owner->IsInWorld() &&
         owner->GetMap() == caster->GetMap() ? owner : nullptr;
 }
 }
@@ -120,7 +121,7 @@ struct npc_ascension_guardian_standard : ScriptedAI
     {
         Player* owner = summoner ? summoner->ToPlayer() : nullptr;
         auto const* contract = FindStandard(me->GetEntry(), true);
-        if (!owner || owner->getClass() != CLASS_GUARDIAN || !contract)
+        if (!owner || !UsesAscensionClassMechanics(owner, CLASS_GUARDIAN) || !contract)
         {
             me->DespawnOrUnsummon();
             return;
@@ -176,7 +177,7 @@ class spell_ascension_guardian_standard : public SpellScript
     bool Load() override
     {
         Player* player = GetCaster()->ToPlayer();
-        return player && player->getClass() == CLASS_GUARDIAN && FindStandard(GetSpellInfo()->Id);
+        return player && UsesAscensionClassMechanics(player, CLASS_GUARDIAN) && FindStandard(GetSpellInfo()->Id);
     }
 
     void Summon(SpellEffIndex index)
@@ -230,7 +231,7 @@ class spell_ascension_guardian_reclaim : public SpellScript
     bool Load() override
     {
         Player* owner = GetCaster()->ToPlayer();
-        return owner && owner->getClass() == CLASS_GUARDIAN;
+        return owner && UsesAscensionClassMechanics(owner, CLASS_GUARDIAN);
     }
     void Reclaim(SpellEffIndex index)
     {

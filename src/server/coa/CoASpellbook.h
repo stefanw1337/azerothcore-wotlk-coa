@@ -2,6 +2,7 @@
 #define COA_SPELLBOOK_H
 
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 class Player;
@@ -20,7 +21,11 @@ namespace CoASpellbook
         std::vector<std::uint32_t> (*UpgradeRanksAbove)(Player*, std::uint8_t) = nullptr;
     };
 
+    using ExtraClasses = std::vector<std::pair<std::uint8_t, std::uint32_t>> (*)(Player const*);
+
     void SetProvider(Provider provider);
+    void SetExtraClasses(ExtraClasses provider);
+    std::vector<std::pair<std::uint8_t, std::uint32_t>> ExtraClassesOf(Player const* player);
     bool Available();
     double RowCount(Player* player);
     double OffersSpell(Player* player, std::uint32_t spellId);

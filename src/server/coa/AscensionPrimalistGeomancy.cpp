@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -46,7 +47,7 @@ class aura_ascension_tectonic_resonance_slow : public AuraScript
     void Calculate(AuraEffect const*, int32& amount, bool&)
     {
         Unit* caster = GetCaster();
-        if (caster && caster->IsPlayer() && caster->getClass() == CLASS_WILDWALKER)
+        if (caster && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_WILDWALKER))
             if (AuraEffect const* talent = caster->GetAuraEffect(TectonicResonance, EFFECT_2))
                 amount += talent->GetAmount();
     }
@@ -69,7 +70,7 @@ class aura_ascension_rockslide : public AuraScript
         Unit* owner = GetTarget();
         Spell const* source = event.GetProcSpell();
         Unit* victim = source ? source->m_targets.GetUnitTarget() : nullptr;
-        return owner->IsPlayer() && owner->getClass() == CLASS_WILDWALKER && owner->IsAlive() &&
+        return UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_WILDWALKER) && owner->IsAlive() &&
             event.GetActor() == owner && source && source->GetCaster() == owner &&
             source->GetSpellInfo()->SpellFamilyName == 37 &&
             sSpellMgr->GetFirstSpellInChain(source->GetSpellInfo()->Id) == StoneshardFirst &&

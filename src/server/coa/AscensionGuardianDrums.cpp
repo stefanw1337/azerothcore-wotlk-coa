@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "CellImpl.h"
 #include "EventMap.h"
 #include "GameObject.h"
@@ -79,7 +80,7 @@ class spell_ascension_guardian_drums : public SpellScript
 
     bool Load() override
     {
-        return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_GUARDIAN;
+        return UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_GUARDIAN);
     }
 
     void Skip(SpellEffIndex index)

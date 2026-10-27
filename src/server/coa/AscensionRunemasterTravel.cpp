@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 #include "AscensionRunemasterTalents.h"
+#include "AscensionSpecialization.h"
 #include "Creature.h"
 #include "EventMap.h"
 #include "Map.h"
@@ -69,7 +70,8 @@ void ForgetMarker(ObjectGuid owner, uint32 spell, ObjectGuid marker)
 
 bool CanTravel(Player* player)
 {
-    return player && player->getClass() == CLASS_SPIRIT_MAGE && player->IsAlive() && player->IsInWorld() &&
+    return player && UsesAscensionClassMechanics(player, CLASS_SPIRIT_MAGE) && player->IsAlive() &&
+        player->IsInWorld() &&
         !player->IsBeingTeleported() && !player->IsInFlight() && !player->GetTransport() && !player->GetVehicle();
 }
 
@@ -271,7 +273,7 @@ class spell_ascension_runemaster_return : public SpellScript
         Player* player = GetCaster()->ToPlayer();
         uint32 spell = GetSpellInfo()->Id == SPELL_ECHO_RETURN ? SPELL_ECHO_RUNE : SPELL_WARPDAGGER;
         if (spell == SPELL_ECHO_RUNE && GetSpell()->IsTriggered() && player &&
-            player->getClass() == CLASS_SPIRIT_MAGE && player->IsAlive() && player->IsInWorld())
+            UsesAscensionClassMechanics(player, CLASS_SPIRIT_MAGE) && player->IsAlive() && player->IsInWorld())
             return SPELL_CAST_OK;
         return CanReturn(player, spell) ? SPELL_CAST_OK : SPELL_FAILED_CANT_DO_THAT_RIGHT_NOW;
     }
@@ -312,7 +314,7 @@ public:
     void OnAuraRemove(Unit* unit, AuraApplication* application, AuraRemoveMode mode) override
     {
         Player* player = unit ? unit->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_SPIRIT_MAGE || !application)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SPIRIT_MAGE) || !application)
             return;
         Aura* aura = application->GetBase();
         if (aura->GetCasterGUID() != player->GetGUID())
@@ -339,7 +341,7 @@ public:
 
     void Clear(Player* player)
     {
-        if (player->getClass() == CLASS_SPIRIT_MAGE)
+        if (UsesAscensionClassMechanics(player, CLASS_SPIRIT_MAGE))
             for (uint32 spell : {SPELL_ECHO_RUNE, SPELL_WARPDAGGER})
                 ClearTravel(player, spell);
     }
@@ -350,13 +352,14 @@ public:
 
     void OnPlayerForgotSpell(Player* player, uint32 spell) override
     {
-        if (player->getClass() == CLASS_SPIRIT_MAGE && (spell == SPELL_ECHO_RUNE || spell == SPELL_WARPDAGGER))
+        if (UsesAscensionClassMechanics(player, CLASS_SPIRIT_MAGE) &&
+            (spell == SPELL_ECHO_RUNE || spell == SPELL_WARPDAGGER))
             ClearTravel(player, spell);
     }
 
     void OnPlayerUpdate(Player* player, uint32) override
     {
-        if (player->getClass() != CLASS_SPIRIT_MAGE)
+        if (!UsesAscensionClassMechanics(player, CLASS_SPIRIT_MAGE))
             return;
         for (uint32 spell : {SPELL_ECHO_RUNE, SPELL_WARPDAGGER})
             if ((MarkerGuid(player->GetGUID(), spell) || player->GetTemporarySpellReplacement(spell) != spell) &&

@@ -2,6 +2,7 @@
 
 #include "AscensionCoATalentData.h"
 #include "AscensionFreepick.h"
+#include "AscensionWarcraftRebornRules.h"
 #include "ClientDBC.h"
 #include "DBCStores.h"
 #include "ItemTemplate.h"
@@ -18,6 +19,7 @@
 namespace AscensionCompatData
 {
 std::vector<CoATalentEntry> CoATalentEntries;
+bool CoAStockClassesNative = false;
 std::vector<CoASelectableFreeEntry> CoASelectableFreeEntries;
 std::vector<CoAAutomaticDependency> CoAAutomaticDependencies;
 std::vector<CoASpecialization> CoASpecializations;
@@ -117,6 +119,16 @@ struct AdvancementClassType
     uint32 ClassId;
     bool IsCustomClass;
 };
+
+bool IsCoAClassType(AdvancementClassType const& classType)
+{
+    return classType.IsCustomClass && classType.ClassId >= 12 && classType.ClassId <= 32;
+}
+
+bool IsBorrowOnlyClassType(AdvancementClassType const& classType)
+{
+    return !classType.IsCustomClass && classType.ClassId >= 1 && classType.ClassId <= 11 && classType.ClassId != 10;
+}
 }
 
 bool GetCoATalentBudget(std::uint8_t classId, std::uint8_t level, std::uint32_t& ae, std::uint32_t& te)
@@ -147,6 +159,7 @@ bool LoadCoATalentData()
 
     AscensionFreepick::Realm const classRealm = AscensionFreepick::ReadRealm();
     bool const unified = classRealm.ConquestOfAzeroth && classRealm.WarcraftReborn;
+    CoAStockClassesNative = unified;
 
     ClientDBC classes, classTypes, tabTypes, specs, advancement, essence;
     if (!classes.Load(GetClientDBCPath("ChrClasses.dbc"), 56) ||
@@ -219,16 +232,17 @@ bool LoadCoATalentData()
         auto classType = classTypeById.find(record.GetUInt32(ADVANCEMENT_CLASS_TYPE));
         if (classType == classTypeById.end())
             continue;
-        bool const customType = classType->second.IsCustomClass &&
-            classType->second.ClassId >= 12 && classType->second.ClassId <= 32;
-        bool const stockType = unified &&
-            classType->second.ClassId >= 1 && classType->second.ClassId <= 11 && classType->second.ClassId != 10;
+        bool const customType = IsCoAClassType(classType->second);
+        bool const stockType = IsBorrowOnlyClassType(classType->second);
         if (!customType && !stockType)
+            continue;
+        if (stockType && classRealm.WotlkOnly && !AscensionWarcraftReborn::WotlkEntry(entryId))
             continue;
         if (advancement.GetRecordSize() >= 483 && (record.GetUInt32At(479) & 0x9))
             continue;
 
         uint32 const classId = classType->second.ClassId;
+        uint8 const catalogClassId = customType || unified ? uint8(classId) : CoABorrowOnlyClassOf(uint8(classId));
         uint32 const tab = record.GetUInt32(ADVANCEMENT_TAB);
         uint32 specId = 0;
         if (tab != SHARED_CLASS_TAB_ID)
@@ -241,7 +255,7 @@ bool LoadCoATalentData()
 
         Node node{};
         node.Entry.EntryId = entryId;
-        node.Entry.ClassId = uint8(classId);
+        node.Entry.ClassId = catalogClassId;
         node.Entry.SpecId = uint16(specId);
         node.Entry.AECost = uint8(record.GetUInt32(ADVANCEMENT_AE_COST));
         node.Entry.TECost = uint8(record.GetUInt32(ADVANCEMENT_TE_COST));
@@ -269,7 +283,7 @@ bool LoadCoATalentData()
 
         if (tooManyRanks)
         {
-            LOG_ERROR("coa", "Skipped CoA talent entry {} with more than 3 ranks", entryId);
+            LOG_ERROR("coa", "Skipped CoA talent entry {} with more than {} ranks", entryId, CoATalentMaxRanks);
             continue;
         }
 

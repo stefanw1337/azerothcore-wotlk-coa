@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionRunemasterBrand.h"
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -39,7 +40,7 @@ enum RunemasterTalentProcSpells : uint32
 
 bool IsRunemaster(Unit const* unit)
 {
-    return unit && unit->IsPlayer() && unit->getClass() == CLASS_SPIRIT_MAGE;
+    return unit && unit->IsPlayer() && UsesAscensionClassMechanics(unit->ToPlayer(), CLASS_SPIRIT_MAGE);
 }
 
 void ReduceSharedCooldowns(Player* player, uint32 spellId, int32 delta)

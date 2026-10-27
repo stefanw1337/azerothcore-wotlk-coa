@@ -1,0 +1,159 @@
+[worldserver]
+
+###################################################################################################
+#  mod-subclass
+#
+#  Lets eligible CoA characters add a second class: the borrowed class's Class tree and one of
+#  its specializations open next to their own Class tree and active specialization. Who is
+#  eligible lives in the world table `mod_subclass_pair` (race, gender, main class, subclass,
+#  subclass specialization). The default row allows two-headed Ogres (female Ogres, race 53).
+###################################################################################################
+
+#    Subclass.Enable
+#        Open the chosen borrowed trees.
+#        Default: 1 - enabled
+#                 0 - disabled (choices are kept but no borrowed tree opens)
+
+Subclass.Enable = 1
+
+#    Subclass.MinLevel
+#        Level from which the borrowed trees open.
+#        Default: 20
+
+Subclass.MinLevel = 20
+
+#    Subclass.BorrowedPointsPercent
+#        Extra class and specialization points while the borrowed trees are open, as a percentage
+#        of the character's normal points (100 = double). For now the extra points join the normal
+#        pools; a separate pool for the borrowed trees is planned.
+#        Default: 100
+
+Subclass.BorrowedPointsPercent = 100
+
+#    Subclass.QuestId
+#        The second head's quest ("Two Heads, One Book"). 0 turns the quest off. Races with a row in
+#        mod_subclass_story use the quest of that row instead.
+#        Default: 9530010
+
+Subclass.QuestId = 9530010
+
+#    Subclass.BookItemId
+#        The Book of Origins item. Reading it gives one insight, which a class trainer turns
+#        into a subclass choice. Races with a row in mod_subclass_story use the relic of that row.
+#        Default: 9530010
+
+Subclass.BookItemId = 9530010
+
+#    Subclass.BookDropChance
+#        Chance in percent that an eligible character who finished the quest finds another
+#        Book of Origins when a dungeon boss dies (5-player dungeons only).
+#        Default: 5
+
+Subclass.BookDropChance = 5
+
+#    Subclass.StandardClasses
+#        Offer the standard classes (Warrior ... Druid) at class trainers. Each lends two of
+#        its specializations. A Death Knight brother lends his runes and runic power. Off while standard classes are not ready on CoA realms; GMs can
+#        still use .subclass set.
+#        Default: 0 - CoA classes only
+#                 1 - also standard classes
+
+Subclass.StandardClasses = 0
+
+#    Subclass.StandardMains
+#        Open the standard classes (Warrior ... Druid, not Death Knight) on the creation screen of a
+#        CoA realm. Any race may create one when the world database has start data for that race and
+#        class; female Ogres and male Thin Twins also get the weapon skills of every race playing it
+#        and may take a subclass.
+#        Default: 0 - CoA classes only
+#                 1 - also standard classes
+
+Subclass.StandardMains = 0
+
+#    Subclass.ThinHuman.Enable
+#    Subclass.TwoHeadedOgre.Enable
+#        Turn one of the two subclass races off entirely. New characters of that race are refused,
+#        and existing ones lose the brother or second head; a subclass they had is removed at their
+#        next login.
+#        Default: 1 - enabled
+#                 0 - disabled
+
+Subclass.ThinHuman.Enable = 1
+Subclass.TwoHeadedOgre.Enable = 1
+
+#    Subclass.HeroRaces.Security
+#        The Thin Twin and the Two-Headed Ogre are Hero Races. The lowest account security level that may
+#        create one. Characters that already exist are not affected.
+#        Default: 0 - every player
+#                 1 - moderators and up
+#                 2 - game masters and up
+#                 3 - administrators only
+
+Subclass.HeroRaces.Security = 0
+
+#    Subclass.HeroRaces.RequiredLevel
+#        Like the Death Knight, a Hero Race needs a character of at least this level on the account on this
+#        realm first. GM accounts skip it.
+#        Default: 60
+#                 0 - no level requirement
+
+Subclass.HeroRaces.RequiredLevel = 60
+
+#    Subclass.TravelForms.WholeBody
+#        Ghost Wolf, Wargstride and the druid's Travel Form turn the whole body, also for a Two-Headed
+#        Ogre using them from her subclass, and the Thin Twins brother rides on the beast's back. Off,
+#        a borrowed travel form keeps the ogre's own body and turns the brother instead, and he walks
+#        beside a shapeshifted twin. Takes effect after a restart; no client patch change is needed.
+#        Default: 1 - enabled
+#                 0 - disabled
+
+Subclass.TravelForms.WholeBody = 1
+
+#    Subclass.MainClasses
+#        Which main classes may take a subclass. A character whose main class is no longer allowed
+#        loses its subclass at the next login.
+#        Default: 0 - every class (CoA classes, and standard classes when Subclass.StandardMains = 1)
+#                 1 - standard classes only (Warrior ... Druid)
+#                 2 - CoA classes only
+
+Subclass.MainClasses = 0
+
+#    Subclass.SubClasses
+#        Which classes a trainer offers as the subclass. Subclass.StandardClasses still decides
+#        whether CoA mains see standard classes. Standard mains are offered the other standard classes
+#        and the CoA classes; a borrowed CoA class brings its class tree, basic kit, weapons and the
+#        CoA class's own talent budget for its level.
+#        Default: 0 - every allowed class
+#                 1 - standard classes only
+#                 2 - CoA classes only
+
+Subclass.SubClasses = 0
+
+#    Subclass.StandardTrees
+#    Subclass.CoATrees
+#        How many specialization trees a borrowed standard class or CoA class lends (1-5). When the
+#        number reaches the class's specialization count, all of them are lent; 2 lets the player pick
+#        two at the trainer. A CoA class always lends its class tree as well.
+#        Default: StandardTrees 3 (all), CoATrees 1
+
+Subclass.StandardTrees = 3
+Subclass.CoATrees = 1
+
+#    Subclass.Bots.Force
+#        Test setting: bots of the subclass races take a subclass at their next login without the quest
+#        and play their borrowed half on their own. Ogre bots become female and Thin Human bots male,
+#        as the story requires. Pairs follow mod_subclass_pair and are handed out evenly, borrowed
+#        points are spent for them, and .subclass bots reports which pairs work. Real players are
+#        never touched. Turning it off removes the forced subclass at the bots' next login.
+#        Fill the server with them with .botcmd spawnfleet 85 <level> and .botcmd spawnfleet 96 <level>.
+#        Default: 0 - disabled
+#                 1 - enabled
+
+Subclass.Bots.Force = 0
+
+#    Subclass.Bots.RebuildHours
+#        With Subclass.Bots.Force: every this many hours online, a bot clears its borrowed points and
+#        spends them again in another order, so the bots try different builds over a long test.
+#        Default: 4 (0 keeps the first build)
+
+Subclass.Bots.RebuildHours = 4

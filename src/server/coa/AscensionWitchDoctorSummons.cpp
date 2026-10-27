@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "AscensionWitchDoctorCompletion.h"
 #include "Creature.h"
 #include "MotionMaster.h"
@@ -208,7 +209,7 @@ class npc_ascension_witch_doctor : public ScriptedAI
     void IsSummonedBy(WorldObject* summoner) override
     {
         Player* player = summoner ? summoner->ToPlayer() : nullptr;
-        if (player && player->getClass() == CLASS_REAPER && me->GetEntry() == NpcHauntVisage)
+        if (player && me->GetEntry() == NpcHauntVisage && UsesAscensionClassMechanics(player, CLASS_REAPER))
         {
             _owner = player->GetGUID();
             me->SetOwnerGUID(_owner);
@@ -221,7 +222,7 @@ class npc_ascension_witch_doctor : public ScriptedAI
             RunAwayFrom(player);
             return;
         }
-        if (!player || player->getClass() != CLASS_WITCH_DOCTOR)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_WITCH_DOCTOR))
             return;
         _owner = player->GetGUID();
         me->SetOwnerGUID(_owner);
@@ -391,7 +392,7 @@ class npc_ascension_witch_doctor : public ScriptedAI
             me->DespawnOrUnsummon();
             return;
         }
-        if (player->getClass() == CLASS_WITCH_DOCTOR)
+        if (UsesAscensionClassMechanics(player, CLASS_WITCH_DOCTOR))
             me->SetByteValue(UNIT_FIELD_BYTES_2, 1, player->GetByteValue(UNIT_FIELD_BYTES_2, 1));
         if (me->GetEntry() == NpcHauntVisage)
             return;
@@ -566,7 +567,7 @@ class spell_ascension_witch_doctor_spiritual_recall : public SpellScript
     {
         PreventHitDefaultEffect(index);
         Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_WITCH_DOCTOR)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_WITCH_DOCTOR))
             return;
         int32 mana = 0;
         auto summons = State(player).summons;

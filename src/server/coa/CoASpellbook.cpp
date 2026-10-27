@@ -3,6 +3,17 @@
 namespace
 {
     CoASpellbook::Provider SpellbookProvider;
+    CoASpellbook::ExtraClasses ExtraClassesProvider = nullptr;
+}
+
+void CoASpellbook::SetExtraClasses(ExtraClasses provider)
+{
+    ExtraClassesProvider = provider;
+}
+
+std::vector<std::pair<std::uint8_t, std::uint32_t>> CoASpellbook::ExtraClassesOf(Player const* player)
+{
+    return ExtraClassesProvider ? ExtraClassesProvider(player) : std::vector<std::pair<std::uint8_t, std::uint32_t>>{};
 }
 
 void CoASpellbook::SetProvider(Provider provider)

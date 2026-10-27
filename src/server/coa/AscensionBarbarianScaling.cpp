@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionBarbarianScaling.h"
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "Spell.h"
 #include "SpellMgr.h"
@@ -24,7 +25,7 @@ void PrepareAscensionBarbarianScaling(Spell* spell)
         return;
 
     Player* player = spell->GetCaster()->ToPlayer();
-    if (!player || player->getClass() != CLASS_BARBARIAN)
+    if (!player || !UsesAscensionClassMechanics(player, CLASS_BARBARIAN))
         return;
 
     SpellEffectInfo const& effect = info->Effects[EFFECT_0];

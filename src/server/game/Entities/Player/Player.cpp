@@ -10515,7 +10515,8 @@ void Player::ApplySpellMod(uint32 spellId, SpellModOp op, T& basevalue, Spell* s
     // The module snapshots readiness before prepare calculates cost/cast time.
     // Keep the modifiers on that cast, including delayed summon effects, without
     // installing permanent empowered auras on the player.
-    if (spell && spell->GetCaster() == this && !spell->IsTriggered() && getClass() == CLASS_SON_OF_ARUGAL &&
+    if (spell && spell->GetCaster() == this && !spell->IsTriggered() &&
+        IsClass(CLASS_SON_OF_ARUGAL, CLASS_CONTEXT_ABILITY) &&
         spellInfo->SpellFamilyName == 26 && spell->GetSpellInfo()->Id == spellId && !temporaryPet)
     {
         using namespace AscensionBloodmage;
@@ -13198,6 +13199,23 @@ float Player::GetReputationPriceDiscount(FactionTemplateEntry const* factionTemp
     return discount;
 }
 
+bool Player::IsAnyClassOfMask(uint32 classMask, ClassContext context) const
+{
+    for (uint8 classId = CLASS_WARRIOR; classId < MAX_CLASSES; ++classId)
+        if ((classMask & (1u << (classId - 1))) && IsClass(Classes(classId), context))
+            return true;
+    return false;
+}
+
+bool Player::LendsSkillLine(uint32 skillLine) const
+{
+    for (uint8 classId = CLASS_WARRIOR; classId < MAX_CLASSES; ++classId)
+        if (classId != getClass() && IsClass(Classes(classId), CLASS_CONTEXT_ABILITY) &&
+            GetSkillRaceClassInfo(skillLine, getRace(), classId))
+            return true;
+    return false;
+}
+
 bool Player::IsSpellFitByClassAndRace(uint32 spell_id) const
 {
     uint32 racemask  = getRaceMask();
@@ -13214,11 +13232,13 @@ bool Player::IsSpellFitByClassAndRace(uint32 spell_id) const
             continue;
 
         // skip wrong class skills
-        if (_spell_idx->second->ClassMask && (_spell_idx->second->ClassMask & classmask) == 0)
+        if (_spell_idx->second->ClassMask && (_spell_idx->second->ClassMask & classmask) == 0 &&
+            !IsAnyClassOfMask(_spell_idx->second->ClassMask, CLASS_CONTEXT_ABILITY))
             continue;
 
-        // skip wrong class and race skill saved in SkillRaceClassInfo.dbc
-        if (!GetSkillRaceClassInfo(_spell_idx->second->SkillLine, getRace(), getClass()))
+        // skip wrong class and race skill saved in SkillRaceClassInfo.dbc; a module may lend another class's skills
+        if (!GetSkillRaceClassInfo(_spell_idx->second->SkillLine, getRace(), getClass()) &&
+            !LendsSkillLine(_spell_idx->second->SkillLine))
             continue;
 
         return true;
@@ -14750,6 +14770,8 @@ void Player::_LoadSkills(PreparedQueryResult result)
             uint16 max      = fields[2].Get<uint16>();
 
             SkillRaceClassInfoEntry const* rcEntry = GetSkillRaceClassInfo(skill, getRace(), getClass());
+            if (!rcEntry)
+                sScriptMgr->OnPlayerLoadForeignSkill(this, skill, rcEntry);
             if (!rcEntry)
             {
                 LOG_ERROR("entities.player", "Player {} (GUID: {}), has skill ({}) that is invalid for the race/class combination (Race: {}, Class: {}). Will be deleted.",

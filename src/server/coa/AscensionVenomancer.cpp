@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 #include "AscensionVenomancer.h"
+#include "AscensionSpecialization.h"
 #include "AscensionVenomancerData.h"
 #include "CellImpl.h"
 #include "DynamicObject.h"
@@ -34,7 +35,7 @@ Player* Owner(Unit const* unit)
     Player* player = const_cast<Unit*>(unit)->ToPlayer();
     if (!player && unit->GetOwner())
         player = unit->GetOwner()->ToPlayer();
-    return player && player->getClass() == CLASS_PROPHET ? player : nullptr;
+    return player && UsesAscensionClassMechanics(player, CLASS_PROPHET) ? player : nullptr;
 }
 VenomancerState& State(Player* player)
 {
@@ -228,7 +229,7 @@ bool Chance(Player* player, uint32 id, uint32 cooldown)
 }
 bool Resource(Player* player, uint32 id, int32 delta)
 {
-    if (!player || player->getClass() != CLASS_PROPHET || id != Brood)
+    if (!player || !UsesAscensionClassMechanics(player, CLASS_PROPHET) || id != Brood)
         return false;
     uint32 maximum = sSpellMgr->GetSpellInfo(Brood)->CalcMaxAuraStacks(player);
     uint32 after = uint32(std::clamp<int64>(int64(Count(player, Brood)) + delta, 0, maximum));

@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 #include "AscensionFelsworn.h"
 #include "AscensionFelswornData.h"
+#include "AscensionSpecialization.h"
 #include "CellImpl.h"
 #include "Creature.h"
 #include "GridNotifiers.h"
@@ -29,7 +30,12 @@ std::mutex stateMutex;
 Player* Owner(Unit const* unit)
 {
     Player* player = unit ? const_cast<Unit*>(unit)->ToPlayer() : nullptr;
-    return player && player->getClass() == CLASS_DEMON_HUNTER ? player : nullptr;
+    return player && UsesAscensionClassMechanics(player, CLASS_DEMON_HUNTER) ? player : nullptr;
+}
+bool HasState(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(stateMutex);
+    return states.count(player->GetGUID()) != 0;
 }
 FelswornState& State(Player* player)
 {
@@ -337,7 +343,7 @@ class felsworn_player : public PlayerScript
     void OnPlayerLogin(Player* player) override
     {
         using namespace AscensionFelsworn;
-        if (!Owner(player))
+        if (!HasState(player))
             return;
         RefreshUnphased(player);
     }
@@ -386,7 +392,7 @@ class felsworn_player : public PlayerScript
     }
     void OnPlayerBeforeLogout(Player* player) override
     {
-        if (AscensionFelsworn::Owner(player))
+        if (AscensionFelsworn::HasState(player))
             AscensionFelsworn::SettleDebt(player);
     }
     void OnPlayerLogout(Player* player) override

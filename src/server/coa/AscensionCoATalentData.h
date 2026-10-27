@@ -7,6 +7,20 @@
 
 namespace AscensionCompatData
 {
+constexpr std::uint8_t CoABorrowOnlyClassBase = 100;
+
+constexpr std::uint8_t CoABorrowOnlyClassOf(std::uint8_t classId)
+{
+    return std::uint8_t(CoABorrowOnlyClassBase + classId);
+}
+
+constexpr bool IsCoABorrowOnlyClass(std::uint8_t catalogClassId)
+{
+    return catalogClassId > CoABorrowOnlyClassBase;
+}
+
+constexpr std::size_t CoATalentMaxRanks = 5;
+
 struct CoATalentEntry
 {
     std::uint32_t EntryId;
@@ -16,7 +30,7 @@ struct CoATalentEntry
     std::uint8_t AECost;
     std::uint8_t TECost;
     std::uint8_t RequiredLevel;
-    std::array<std::uint32_t, 3> SpellIds;
+    std::array<std::uint32_t, CoATalentMaxRanks> SpellIds;
     bool Talent = false;
     bool FreeUnlearn = false;
     std::array<std::uint32_t, 3> RequiredEntryIds{};
@@ -54,6 +68,7 @@ struct CoATalentBudget
 };
 
 extern std::vector<CoATalentEntry> CoATalentEntries;
+extern bool CoAStockClassesNative;
 extern std::vector<CoASelectableFreeEntry> CoASelectableFreeEntries;
 extern std::vector<CoAAutomaticDependency> CoAAutomaticDependencies;
 extern std::vector<CoASpecialization> CoASpecializations;

@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Creature.h"
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
@@ -36,7 +37,7 @@ bool DrowningByCaster(Unit* victim, ObjectGuid caster)
 
 bool SummonsElectrifiedWater(Player* owner)
 {
-    return owner->getClass() == CLASS_STORMBRINGER &&
+    return UsesAscensionClassMechanics(owner, CLASS_STORMBRINGER) &&
         (owner->HasAura(SPELL_ELECTRIFIED_WATERS) || owner->HasAura(SPELL_STATIC_ELECTRICITY));
 }
 

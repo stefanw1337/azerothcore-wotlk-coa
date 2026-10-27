@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
@@ -22,8 +23,8 @@ class aura_ascension_earths_guidance : public AuraScript
     bool Check(ProcEventInfo& event)
     {
         Unit* owner = GetTarget();
-        if (!owner->IsPlayer() || owner->getClass() != CLASS_WILDWALKER || !owner->IsAlive() ||
-            GetCaster() != owner || event.GetActor() != owner)
+        if (!owner->IsPlayer() || !UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_WILDWALKER) ||
+            !owner->IsAlive() || GetCaster() != owner || event.GetActor() != owner)
             return false;
         if (HealInfo const* heal = event.GetHealInfo())
             return heal->GetEffectiveHeal() > 0;

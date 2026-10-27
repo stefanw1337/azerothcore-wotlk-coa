@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
@@ -36,7 +37,8 @@ bool IsRippleHelper(uint32 id)
 
 bool IsChannelActive(Unit* caster)
 {
-    return caster && caster->IsPlayer() && caster->getClass() == CLASS_CHRONOMANCER && caster->IsAlive() &&
+    return caster && caster->IsPlayer() && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_CHRONOMANCER) &&
+        caster->IsAlive() &&
         caster->IsInWorld() && caster->HasAura(EternityWarper) && caster->HasAura(Ripple, caster->GetGUID());
 }
 
@@ -57,7 +59,8 @@ public:
             return;
         Aura* aura = application->GetBase();
         Unit* caster = aura->GetCaster();
-        if (aura->GetId() == Clasp && caster && caster->IsPlayer() && caster->getClass() == CLASS_CHRONOMANCER &&
+        if (aura->GetId() == Clasp && caster && caster->IsPlayer() &&
+            UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_CHRONOMANCER) &&
             caster->IsAlive() && caster->IsInWorld() && caster->HasAura(EndOfTime) &&
             caster->GetMap() == target->GetMap() && caster->InSamePhase(target) && caster->IsValidAttackTarget(target))
             caster->CastSpell(target, EndOfTimeRelease, true);

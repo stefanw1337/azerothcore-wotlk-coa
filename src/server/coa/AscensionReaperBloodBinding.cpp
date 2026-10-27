@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -25,7 +26,7 @@ public:
 
     void OnPlayerSpellCast(Player* player, Spell* spell, bool) override
     {
-        if (!player || !spell || spell->IsTriggered() || player->getClass() != CLASS_REAPER)
+        if (!player || !spell || spell->IsTriggered() || !UsesAscensionClassMechanics(player, CLASS_REAPER))
             return;
 
         uint32 const spellId = spell->GetSpellInfo()->Id;

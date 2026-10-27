@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "AscensionVenomancerVenomProcs.h"
 #include "AscensionVenomancerVenomData.h"
 #include "ObjectAccessor.h"
@@ -125,7 +126,7 @@ class aura_ascension_venomancer_venom_proc : public AuraScript
     {
         Player* owner = GetTarget() ? GetTarget()->ToPlayer() : nullptr;
         Spell const* source = event.GetProcSpell();
-        return owner && owner->getClass() == CLASS_PROPHET && GetCasterGUID() == owner->GetGUID() &&
+        return owner && UsesAscensionClassMechanics(owner, CLASS_PROPHET) && GetCasterGUID() == owner->GetGUID() &&
             GetUnitOwner() == owner && !GetAura()->IsRemoved() && !GetAura()->IsExpired() &&
             IsActivation(GetSpellInfo()) && event.GetActor() == owner && source && !source->IsTriggered() &&
             source->GetCaster() == owner && source->GetOriginalCaster() == owner &&

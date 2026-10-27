@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellMgr.h"
@@ -43,7 +44,7 @@ class aura_ascension_primalist_direct_damage : public AuraScript
 
     bool Load() override
     {
-        return GetUnitOwner()->IsPlayer() && GetUnitOwner()->getClass() == CLASS_WILDWALKER;
+        return UsesAscensionClassMechanics(GetUnitOwner()->ToPlayer(), CLASS_WILDWALKER);
     }
 
     bool Check(ProcEventInfo& event)
@@ -70,7 +71,7 @@ class spell_ascension_protector_of_the_grove : public SpellScript
 
     bool Load() override
     {
-        return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_WILDWALKER;
+        return UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_WILDWALKER);
     }
 
     void Reduce(SpellEffIndex index)
@@ -93,7 +94,7 @@ class spell_ascension_thanes_guidance : public SpellScript
 
     bool Load() override
     {
-        return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_WILDWALKER;
+        return UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_WILDWALKER);
     }
 
     void Reduce(SpellEffIndex index)
@@ -117,7 +118,7 @@ class spell_ascension_spiritbound_cooldowns : public SpellScript
 
     bool Load() override
     {
-        return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_WILDWALKER;
+        return UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_WILDWALKER);
     }
 
     void Reduce(SpellEffIndex index)
@@ -143,7 +144,7 @@ class spell_ascension_rupturer_lance : public SpellScript
 
     bool Load() override
     {
-        return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_WILDWALKER;
+        return UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_WILDWALKER);
     }
 
     void Reduce(SpellEffIndex index)

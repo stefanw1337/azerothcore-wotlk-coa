@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Creature.h"
 #include "DBCStores.h"
 #include "EventMap.h"
@@ -35,8 +36,8 @@ public:
     void OnSpellCast(Spell* spell, Unit* caster, SpellInfo const* info, bool) override
     {
         Player* player = caster ? caster->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_SPIRIT_MAGE || !player->IsAlive() || !player->IsInWorld() ||
-            spell->IsTriggered() || info->Id != SPELL_PHASE_OUT ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SPIRIT_MAGE) || !player->IsAlive() ||
+            !player->IsInWorld() || spell->IsTriggered() || info->Id != SPELL_PHASE_OUT ||
             !player->HasAura(SPELL_RIFT_CLONES, player->GetGUID()))
             return;
         SpellInfo const* summon = sSpellMgr->GetSpellInfo(SPELL_RIFT_CLONE_SUMMON);
@@ -57,7 +58,7 @@ struct npc_ascension_rift_clone : ScriptedAI
     {
         Player* owner = summoner ? summoner->ToPlayer() : nullptr;
         SpellInfo const* summon = sSpellMgr->GetSpellInfo(SPELL_RIFT_CLONE_SUMMON);
-        if (!owner || owner->getClass() != CLASS_SPIRIT_MAGE || !summon)
+        if (!owner || !UsesAscensionClassMechanics(owner, CLASS_SPIRIT_MAGE) || !summon)
         {
             me->DespawnOrUnsummon();
             return;
@@ -109,7 +110,7 @@ public:
                 return;
             owner = clone->GetOwner();
         }
-        if (owner && owner->IsPlayer() && owner->getClass() == CLASS_SPIRIT_MAGE)
+        if (owner && owner->IsPlayer() && UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_SPIRIT_MAGE))
             value += std::max(0.0f, owner->GetTotalAttackPowerValue(BASE_ATTACK)) * 0.195f;
     }
 };

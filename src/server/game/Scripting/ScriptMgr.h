@@ -85,6 +85,7 @@ class SpellScriptLoader;
 
 struct AchievementCriteriaData;
 struct AuctionEntry;
+struct SkillRaceClassInfoEntry;
 struct Mail;
 struct Condition;
 struct ConditionSourceInfo;
@@ -465,6 +466,7 @@ public: /* PlayerScript */
     void OnPlayerApplyAmmoBonuses(Player* player, ItemTemplate const* proto, float& currentAmmoDPS);
     void OnPlayerGetAmmoDisplay(Player* player, SpellInfo const* spellInfo, uint32& displayId, uint32& inventoryType);
     void OnPlayerGetShapeshiftModel(Player* player, uint8 form, uint32 spellId, uint32& modelId);
+    void OnPlayerLoadForeignSkill(Player const* player, uint16 skill, SkillRaceClassInfoEntry const*& entry);
     void OnPlayerGetNameQueryRace(Player* player, uint8& race);
     bool OnPlayerCanEquipItem(Player* player, uint8 slot, uint16& dest, Item* pItem, bool swap, bool not_loading);
     bool OnPlayerCanUnequipItem(Player* player, uint16 pos, bool swap);
@@ -536,6 +538,9 @@ public: /* PlayerScript */
     void OnPlayerCoAPrestigeSaved(Player* player);
     void OnPlayerMasterLootItem(Player* player, Item* item, uint32 count, ObjectGuid lootguid);
     std::optional<uint32> OnPlayerGetGameModeMask(Player const* player);
+    std::optional<uint32> OnPlayerGetQuestRaceMask(Player const* player);
+    bool OnPlayerKeepsOwnLook(Player const* player, uint32 spellId);
+    void OnPlayerBeforeBoardedBy(Player* player, Unit* clicker);
 
     // Anti cheat
     void AnticheatSetCanFlybyServer(Player* player, bool apply);

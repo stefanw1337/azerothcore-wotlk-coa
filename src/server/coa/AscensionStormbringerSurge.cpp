@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
@@ -26,7 +27,7 @@ public:
     void ModifySpellEffectBaseValue(Unit const* caster, SpellInfo const* info, uint8 index,
         float& value) override
     {
-        if (caster && caster->IsPlayer() && caster->getClass() == CLASS_STORMBRINGER &&
+        if (caster && caster->IsPlayer() && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_STORMBRINGER) &&
             info->Id == SurgeOfMight && index == EFFECT_0)
             value += 0.7f * float(std::max(0,
                 const_cast<Unit*>(caster)->SpellBaseDamageBonusDone(SPELL_SCHOOL_MASK_NATURE)));

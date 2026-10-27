@@ -152,6 +152,15 @@ CoA.LearnOwnedCompanions = 1
 # from the first login, including level-one characters. No profession grants.
 CoA.MaxRidingFromStart = 1
 
+# Talent points of the standard classes (Warrior ... Druid) on a realm where they use the character
+# advancement trees, as a percentage of the table's amount. The Wrath trees are built for 71 points at
+# level 80; on a level 60 realm 140 gives them that budget (51 -> 71) while CoA classes keep theirs.
+CoA.StandardClassTalentPercent = 100
+
+# Highest level whose talent points the CoA classes get; 0 follows the table to the realm's level cap.
+# 60 keeps them at the budget CoA was designed for on a level 80 realm.
+CoA.CustomClassTalentLevelCap = 0
+
 # Mount flight rules.
 # 0 - Players fly with Expert Riding or better in Outland, and in Northrend once they know Cold
 #     Weather Flying; never in Azeroth, battlegrounds, battlefields or no-fly areas. Every mount
@@ -268,6 +277,18 @@ CoA.RealmType = "live"
 #
 
 CoA.ClassModel = "coa wcr"
+
+#
+#    CoA.WarcraftReborn.WotlkOnly
+#        Description: Keep the Warcraft Reborn classes to their Wrath of the Lich King abilities.
+#                     Ascension's additions (Quick Shot, Shadow Artillery, Black Widow Strike, trap
+#                     launching, Starsurge, Healing Rain, ...) leave the trainers, the abilities learned
+#                     on level-up and the talent pages, and characters forget them at login.
+#        Default:     0 - keep Ascension's additions
+#                     1 - WotLK abilities only
+#
+
+CoA.WarcraftReborn.WotlkOnly = 0
 
 #
 #    CoA.GameModeMask

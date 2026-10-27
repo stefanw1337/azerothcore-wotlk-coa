@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "CellImpl.h"
 #include "DBCStores.h"
 #include "GridNotifiers.h"
@@ -65,7 +66,7 @@ constexpr int32 PrivatePeriodicSpellPowerCoefficientPct = 40;
 Player* Chronomancer(Unit* caster)
 {
     Player* player = caster ? caster->ToPlayer() : nullptr;
-    return player && player->getClass() == CLASS_CHRONOMANCER ? player : nullptr;
+    return player && UsesAscensionClassMechanics(player, CLASS_CHRONOMANCER) ? player : nullptr;
 }
 
 bool IsRank(uint32 spell, uint32 root)

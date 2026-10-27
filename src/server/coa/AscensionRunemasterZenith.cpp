@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionRunemasterZenith.h"
+#include "AscensionSpecialization.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -22,7 +23,7 @@ constexpr uint32 SPELL_RUNELORD_BUFF = 807379;
 
 bool IsRunemasterPlayer(Unit const* caster)
 {
-    return caster && caster->IsPlayer() && caster->getClass() == CLASS_SPIRIT_MAGE;
+    return caster && caster->IsPlayer() && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_SPIRIT_MAGE);
 }
 
 bool HasPlainAttributes(SpellInfo const* info)

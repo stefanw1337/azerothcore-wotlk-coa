@@ -1,0 +1,695 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LiveMon</title>
+<link rel="icon" href="troll-icon.png">
+<style>
+@font-face { font-family: "Friz"; src: url("wow/font?path=Fonts%5CFRIZQT__.TTF"); }
+@font-face { font-family: "WowNumbers"; src: url("wow/font?path=Fonts%5CARIALN.TTF"); }
+:root {
+  --gold: #ffd100; --gold-dim: #c8a24a; --metal-hi: #f3d68a; --metal: #a07a2c; --metal-lo: #4a3410;
+  --text: #ffffff; --muted: #a9a9a9; --green: #1eff00; --red: #ff2020; --blue: #0070dd;
+  --frame-bg: rgba(8, 8, 12, .86); --row: rgba(255, 255, 255, .035); --hover: rgba(255, 209, 0, .12);
+  --sel: rgba(0, 112, 221, .28); --bar: url("wow/texture?path=Interface%5CTargetingFrame%5CUI-StatusBar");
+}
+* { box-sizing: border-box; }
+html { background: #050506; }
+body { margin: 0; color: var(--text); font: 13px/1.35 "WowNumbers", "Arial Narrow", Arial, sans-serif; min-height: 100vh;
+  background: radial-gradient(ellipse at 50% -10%, rgba(80, 60, 30, .35), transparent 60%),
+    url("wow/texture?path=Interface%5CDialogFrame%5CUI-DialogBox-Background-Dark") repeat, #0c0b0a; }
+h1, h2, th, .tile span, label, .gold { font-family: "Friz", "Cinzel", Georgia, serif; }
+.gold { color: var(--gold); }
+
+.unitframe { position: relative; width: 330px; height: 112px; flex: none; }
+.portrait { position: absolute; left: 6px; top: 6px; width: 100px; height: 100px; border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%, #3b2a1a, #120c08 70%); overflow: hidden;
+  box-shadow: 0 0 0 3px #1a1006, 0 0 0 7px var(--metal), 0 0 0 9px var(--metal-lo), 0 0 0 10px #000,
+    inset 0 0 12px #000, 0 4px 14px rgba(0, 0, 0, .8); z-index: 2; }
+.portrait::after { content: ""; position: absolute; inset: 0; border-radius: 50%;
+  background: conic-gradient(from 210deg, rgba(255, 240, 190, .55), transparent 25%, rgba(255, 240, 190, .25) 50%,
+    transparent 75%, rgba(255, 240, 190, .55)); mix-blend-mode: overlay; pointer-events: none; }
+.portrait img { position: absolute; width: 122px; left: -16px; top: -4px; }
+.ring { position: absolute; left: -1px; top: -1px; width: 114px; height: 114px; border-radius: 50%; z-index: 3;
+  background: conic-gradient(var(--metal-hi), var(--metal), var(--metal-lo), var(--metal), var(--metal-hi),
+    var(--metal-lo), var(--metal), var(--metal-hi));
+  -webkit-mask: radial-gradient(circle, transparent 50px, #000 51px, #000 56px, transparent 57px);
+  mask: radial-gradient(circle, transparent 50px, #000 51px, #000 56px, transparent 57px); }
+.level { position: absolute; left: 2px; top: 76px; width: 32px; height: 32px; border-radius: 50%; z-index: 4;
+  display: grid; place-items: center; font: 600 14px "Friz", Georgia, serif; color: var(--gold);
+  background: radial-gradient(circle at 40% 35%, #3a2a12, #0b0703); box-shadow: 0 0 0 2px var(--metal), 0 0 0 3px #000; }
+.plate { position: absolute; left: 92px; top: 22px; width: 232px; padding: 5px 10px 7px 26px; z-index: 1;
+  background: linear-gradient(#1b1610, #0a0806); border: 2px solid var(--metal); border-left: 0;
+  border-radius: 0 8px 8px 0; box-shadow: inset 0 0 0 1px #000, 0 3px 10px rgba(0, 0, 0, .7); }
+.plate h1 { margin: 0 0 3px; font-size: 16px; color: var(--gold); text-shadow: 1px 1px 0 #000; font-weight: 400; }
+.unitbar { position: relative; height: 13px; margin-top: 2px; background: #000; border: 1px solid #000;
+  box-shadow: 0 0 0 1px #3a2c12; }
+.unitbar i { position: absolute; inset: 0 auto 0 0; width: 100%; background: var(--bar), currentColor;
+  background-size: 100% 100%; background-blend-mode: multiply; transition: width .4s; }
+.unitbar span { position: relative; display: block; color: #fff; text-align: center; font-size: 11px; line-height: 13px;
+  text-shadow: 1px 1px 0 #000; }
+
+header { display: flex; align-items: center; gap: 22px; padding: 10px 20px 4px; }
+.spacer { flex: 1; }
+label { color: var(--gold); font-size: 12px; }
+select { font: 12px "Friz", Georgia, serif; color: var(--gold); padding: 4px 26px 4px 10px; border-radius: 4px;
+  border: 1px solid #000; box-shadow: 0 0 0 1px var(--metal), inset 0 1px 0 rgba(255, 255, 255, .15);
+  background: linear-gradient(#8e1414, #4a0505 60%, #2b0202); appearance: none; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--gold) 50%), linear-gradient(135deg, var(--gold) 50%, transparent 50%),
+    linear-gradient(#8e1414, #4a0505 60%, #2b0202);
+  background-position: right 12px top 50%, right 7px top 50%, 0 0; background-size: 5px 5px, 5px 5px, 100% 100%;
+  background-repeat: no-repeat; }
+select option { background: #160c08; color: var(--gold); }
+
+main { padding: 14px 20px 24px; display: grid; gap: 26px 18px; grid-template-columns: minmax(0, 1fr) 380px; }
+section { position: relative; background: var(--frame-bg); padding: 26px 14px 12px; min-width: 0; border-radius: 6px;
+  border: 3px solid transparent;
+  background-image: linear-gradient(var(--frame-bg), var(--frame-bg)),
+    linear-gradient(160deg, var(--metal-hi), var(--metal) 30%, var(--metal-lo) 55%, var(--metal) 80%, var(--metal-hi));
+  background-origin: border-box; background-clip: padding-box, border-box;
+  box-shadow: 0 0 0 1px #000, inset 0 0 0 1px #000, 0 6px 18px rgba(0, 0, 0, .75); }
+section::before, section::after { content: ""; position: absolute; top: -7px; width: 12px; height: 12px;
+  transform: rotate(45deg); background: radial-gradient(circle at 35% 35%, #ffe9a8, var(--metal) 55%, var(--metal-lo));
+  box-shadow: 0 0 0 1px #000; }
+section::before { left: -7px; } section::after { right: -7px; }
+section h2 { position: absolute; top: -15px; left: 50%; transform: translateX(-50%); margin: 0; white-space: nowrap;
+  padding: 5px 26px 6px; font-size: 13px; font-weight: 400; color: var(--gold); text-shadow: 1px 1px 0 #000;
+  background: linear-gradient(#3a2a12, #160f06); border: 2px solid var(--metal); border-radius: 3px;
+  box-shadow: 0 0 0 1px #000, inset 0 1px 0 rgba(255, 230, 160, .25), 0 3px 8px rgba(0, 0, 0, .8); }
+section h2 small { color: var(--muted); font-size: 11px; margin-left: 6px; }
+.wide { grid-column: 1 / -1; }
+.tiles { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+.tile { text-align: center; padding: 7px 6px 8px; background: linear-gradient(rgba(255, 255, 255, .05), transparent);
+  border: 1px solid #2c2416; border-radius: 4px; }
+.tile b { display: block; font: 600 22px "WowNumbers", "Arial Narrow", sans-serif; color: #fff;
+  text-shadow: 1px 1px 0 #000; font-variant-numeric: tabular-nums; }
+.tile span { color: var(--gold); font-size: 11px; }
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { padding: 4px 7px; text-align: right; white-space: nowrap; }
+th { color: var(--gold); font-weight: 400; font-size: 11px; cursor: pointer; user-select: none;
+  border-bottom: 1px solid #5a4520; text-shadow: 1px 1px 0 #000; }
+th:hover { color: #fff; }
+th.sorted::after { content: " \25BE"; }
+th.sorted.asc::after { content: " \25B4"; }
+tbody tr:nth-child(even) td, tr:nth-child(even) td { background: var(--row); }
+td { text-shadow: 1px 1px 0 #000; }
+td.l, th.l { text-align: left; }
+tr.pick { cursor: pointer; }
+tr.pick:hover td { background: var(--hover); }
+tr.selected td { background: var(--sel); }
+tr.offline td { color: #777; }
+.hp { width: 76px; height: 10px; display: inline-block; background: #000; border: 1px solid #000;
+  box-shadow: 0 0 0 1px #3a2c12; position: relative; vertical-align: middle; }
+.hp i { position: absolute; inset: 0 auto 0 0; color: var(--green); background: var(--bar), currentColor;
+  background-size: 100% 100%; background-blend-mode: multiply; }
+.fight { color: var(--red); }
+.bars div { display: grid; grid-template-columns: 22px var(--label, 120px) 1fr 66px; gap: 7px; align-items: center;
+  margin: 3px 0; }
+.bars.noicons div { grid-template-columns: var(--label, 120px) 1fr 66px; }
+.bars img, .bars .noicon { width: 22px; height: 22px; border: 1px solid #000; box-shadow: 0 0 0 1px #5a4520; }
+.bars .noicon { background: #222; }
+.bars em { font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fff;
+  text-shadow: 1px 1px 0 #000; }
+.bars s { position: relative; display: block; height: 16px; text-decoration: none; min-width: 2px; color: #c41f1f;
+  background: var(--bar), currentColor; background-size: 100% 100%; background-blend-mode: multiply;
+  border: 1px solid #000; }
+.bars s.heal { color: #2fbf2f; }
+.bars s.dps { color: #c79c3a; }
+.bars b { text-align: right; font-weight: 400; color: #fff; text-shadow: 1px 1px 0 #000; }
+.bars p { margin: 6px 0 4px; color: var(--gold); font-family: "Friz", Georgia, serif; font-size: 12px; }
+.muted { color: var(--muted); }
+.up { color: var(--green); }
+.down { color: var(--red); }
+canvas { width: 100%; height: 90px; display: block; background: rgba(0, 0, 0, .45); border: 1px solid #2c2416; }
+.empty { color: var(--muted); padding: 18px 0; text-align: center; }
+@media (max-width: 1050px) { main { grid-template-columns: 1fr; } .tiles { grid-template-columns: repeat(3, 1fr); }
+  header { flex-wrap: wrap; } }
+
+nav.tabs { display: flex; gap: 4px; padding: 6px 20px 0; border-bottom: 2px solid var(--metal-lo); }
+nav.tabs button { font: 13px "Friz", Georgia, serif; color: var(--gold-dim); cursor: pointer; padding: 7px 18px 6px;
+  border: 2px solid var(--metal-lo); border-bottom: 0; border-radius: 6px 6px 0 0;
+  background: linear-gradient(#1c150c, #0b0806); text-shadow: 1px 1px 0 #000; }
+nav.tabs button:hover { color: #fff; }
+nav.tabs button.on { color: var(--gold); border-color: var(--metal); background: linear-gradient(#3a2a12, #160f06); }
+nav.tabs button[hidden] { display: none; }
+nav.tabs .close { margin-left: 10px; padding: 0 2px; color: var(--muted); font-size: 15px; line-height: 1; }
+nav.tabs .close:hover { color: #ff5a3c; }
+.tab { display: none; } .tab.on { display: grid; }
+button.act { font: 12px "Friz", Georgia, serif; color: var(--gold); padding: 4px 12px; border-radius: 4px; cursor: pointer;
+  border: 1px solid #000; box-shadow: 0 0 0 1px var(--metal); background: linear-gradient(#8e1414, #4a0505 60%, #2b0202); }
+button.act:hover { color: #fff; }
+tr.thin td { opacity: .45; }
+.records { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 26px 18px; }
+.rec ol { margin: 0; padding-left: 22px; } .rec li { margin: 3px 0; } .rec li b { color: #fff; float: right; margin-left: 10px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 14px; }
+.stats div { display: flex; justify-content: space-between; border-bottom: 1px solid #2c2416; padding: 2px 0; }
+.stats span { color: var(--gold-dim); font-family: "Friz", Georgia, serif; font-size: 11px; }
+.gear div, .talents div.t { display: grid; grid-template-columns: 26px 1fr auto; gap: 7px; align-items: center; margin: 3px 0; }
+.gear img, .talents img, td img.ic { width: 24px; height: 24px; border: 1px solid #000; box-shadow: 0 0 0 1px #5a4520;
+  vertical-align: middle; }
+.q0 { color: #9d9d9d; } .q1 { color: #fff; } .q2 { color: #1eff00; } .q3 { color: #0070dd; } .q4 { color: #a335ee; }
+.q5 { color: #ff8000; } .q6, .q7 { color: #e6cc80; }
+.talents h3 { margin: 10px 0 4px; font: 400 13px "Friz", Georgia, serif; color: var(--gold); }
+.badge { font-size: 10px; padding: 0 5px; border-radius: 3px; background: #4a2a6a; color: #e8d8ff; margin-left: 5px; }
+.pct { color: var(--green); }
+.cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 26px 18px; }
+.seg button { font: 11px "Friz", Georgia, serif; color: var(--gold-dim); background: #120d07; border: 1px solid var(--metal-lo);
+  padding: 3px 10px; cursor: pointer; } .seg button.on { color: var(--gold); border-color: var(--metal); }
+@media (max-width: 1050px) { .cols2 { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="unitframe">
+    <div class="portrait"><img src="troll.png" alt="" onerror="this.remove()"></div>
+    <div class="ring"></div>
+    <div class="level" id="online" title="Characters online">0</div>
+    <div class="plate">
+      <h1>LiveMon</h1>
+      <div class="unitbar" style="color:#1eff00"><i id="hpBar"></i><span id="status">Connecting…</span></div>
+      <div class="unitbar" style="color:#0070dd"><i id="manaBar"></i><span id="uptime">&nbsp;</span></div>
+    </div>
+  </div>
+  <div class="spacer"></div>
+  <label>History <select id="window">
+    <option value="15">15 minutes</option><option value="60" selected>1 hour</option>
+    <option value="360">6 hours</option><option value="1440">24 hours</option><option value="10080">7 days</option>
+    <option value="525600">All</option>
+  </select></label>
+  <label>Group by <select id="group">
+    <option value="combo">Race · class · subclass</option><option value="pair">Class + subclass</option>
+    <option value="class">Main class</option><option value="race">Race</option>
+  </select></label>
+  <label>Trust after <select id="trust">
+    <option value="1">1 min</option><option value="5" selected>5 min</option><option value="15">15 min</option>
+    <option value="60">1 hour</option>
+  </select> in combat</label>
+  <button class="act" id="clearGone" title="Removes stored data of characters that no longer exist">Clear deleted</button>
+  <button class="act" id="clearAll" title="Removes all stored LiveMon data and records">Clear all data</button>
+</header>
+<nav class="tabs" id="tabs">
+  <button data-tab="characters" class="on">Characters</button><button data-tab="combos">Combos</button>
+  <button data-tab="records">Records</button><button data-tab="character" id="characterTab" hidden><span
+    id="characterName">Character</span><span class="close" id="closeCharacter"
+    title="Close this tab">&times;</span></button>
+</nav>
+<main class="tab on" id="tab-characters">
+  <section class="wide"><h2>Realm</h2><div class="tiles" id="tiles"></div></section>
+  <section class="wide">
+    <h2>Characters<small>this server session · click a name for details</small></h2>
+    <div class="scroll"><table id="live"></table></div>
+  </section>
+</main>
+<main class="tab" id="tab-combos">
+  <section class="wide">
+    <h2>Combos<small id="historyNote"></small></h2>
+    <div class="scroll"><table id="combos"></table></div>
+  </section>
+  <section class="wide">
+    <h2>Damage per second in combat</h2>
+    <div class="bars noicons" id="comboBars" style="--label: 360px"></div>
+  </section>
+</main>
+<main class="tab" id="tab-records">
+  <section class="wide"><h2>Records<small>best per character, kept until you clear the data</small></h2>
+    <div class="records" id="records"></div></section>
+</main>
+<main class="tab" id="tab-character">
+  <section class="wide"><h2 id="charTitle">Pick a character on the Characters tab</h2>
+    <div id="charHead" class="muted"></div>
+    <canvas id="timeline" width="1400" height="160" style="height:120px;margin-top:8px"></canvas>
+    <p class="muted" id="timelineLabel" style="margin:6px 0 0"></p>
+  </section>
+  <section><h2>Abilities<small>
+    <span class="seg" id="scope"><button data-scope="session" class="on">This session</button><button data-scope="allTime">All time</button></span>
+  </small></h2>
+    <div class="scroll"><table id="abilities"></table></div>
+    <div class="scroll" style="margin-top:12px"><table id="healAbilities"></table></div>
+  </section>
+  <section><h2>Talents<small>share of their damage and healing</small></h2><div class="talents" id="talents"></div></section>
+  <section><h2>Stats</h2><div class="stats" id="stats"></div></section>
+  <section><h2>Gear</h2><div class="gear" id="gear"></div></section>
+  <section><h2>Crowd control given</h2><div class="scroll"><table id="ccGiven"></table></div></section>
+  <section><h2>Buffs given to others</h2><div class="scroll"><table id="buffsGiven"></table></div></section>
+  <section class="wide"><h2>Their records</h2><div class="records" id="charRecords"></div></section>
+</main>
+<script>
+const CLASS_COLORS = { 1: "#c79c6e", 2: "#f58cba", 3: "#abd473", 4: "#fff569", 5: "#ffffff", 6: "#c41f3b",
+  7: "#0070de", 8: "#69ccf0", 9: "#9482c9", 11: "#ff7d0a" };
+const SPECS = { 1: ["Arms", "Fury", "Protection"], 2: ["Holy", "Protection", "Retribution"],
+  3: ["Beast Mastery", "Marksmanship", "Survival"], 4: ["Assassination", "Combat", "Subtlety"],
+  5: ["Discipline", "Holy", "Shadow"], 6: ["Blood", "Frost", "Unholy"], 7: ["Elemental", "Enhancement", "Restoration"],
+  8: ["Arcane", "Fire", "Frost"], 9: ["Affliction", "Demonology", "Destruction"], 11: ["Balance", "Feral", "Restoration"] };
+const SLOTS = ["Head", "Neck", "Shoulders", "Shirt", "Chest", "Waist", "Legs", "Feet", "Wrists", "Hands", "Finger",
+  "Finger", "Trinket", "Trinket", "Back", "Main hand", "Off hand", "Ranged", "Tabard"];
+const POWERS = ["Mana", "Rage", "Focus", "Energy", "Happiness", "Runes", "Runic power"];
+const RECORDS = [["hit", "Biggest hit", v => fmt(v)], ["heal", "Biggest heal", v => fmt(v)],
+  ["fightDps", "Best fight DPS (15 s or longer)", v => fmt(v)], ["fightHps", "Best fight HPS (15 s or longer)", v => fmt(v)],
+  ["speed", "Fastest run speed", v => speedText(v)]];
+const BASE_RUN = 7;
+const standardSpec = (classId, tree) => classId <= 11 ? (SPECS[classId] || [])[tree] || "" : "";
+const state = { live: null, history: null, records: null, character: null, previous: {}, rates: {}, samples: {},
+  selected: null, tab: "characters", scope: "session",
+  liveSort: { key: "dpsNow", asc: false }, comboSort: { key: "dps", asc: false },
+  abilitySort: { key: "amount", asc: false }, healSort: { key: "amount", asc: false } };
+const $ = id => document.getElementById(id);
+const fmt = n => n >= 1e9 ? (n / 1e9).toFixed(2) + "B" : n >= 1e6 ? (n / 1e6).toFixed(2) + "M" :
+  n >= 1e4 ? (n / 1e3).toFixed(1) + "k" : Math.round(n).toLocaleString();
+const secs = ms => ms >= 3600000 ? (ms / 3600000).toFixed(1) + "h" : ms >= 60000 ? (ms / 60000).toFixed(1) + "m" :
+  (ms / 1000).toFixed(1) + "s";
+const speedText = v => `${Number(v).toFixed(1)} yd/s (${Math.round(100 * v / BASE_RUN)}%)`;
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const colored = (name, id) => `<span style="color:${CLASS_COLORS[id] || "#c9ced6"}">${esc(name)}</span>`;
+const classCell = (name, id, sub) => colored(name, id) + (sub ? ` <span class="muted">+ ${esc(sub)}</span>` : "");
+const perSec = (value, ms) => ms > 0 ? value / (ms / 1000) : 0;
+const spellIcon = (icon, id) => id === 0 ? "wow/texture?path=" + encodeURIComponent("Interface\\Icons\\INV_Sword_04") :
+  icon ? "wow/spellicon?id=" + icon : "";
+const img = src => src ? `<img class="ic" src="${src}" alt="" onerror="this.style.visibility='hidden'">` : "";
+const trustMs = () => Number($("trust").value) * 60000;
+
+function sortRows(rows, sort) {
+  return rows.sort((a, b) => {
+    const x = a[sort.key], y = b[sort.key];
+    const order = typeof x === "string" ? String(x).localeCompare(y) : (x ?? -Infinity) - (y ?? -Infinity);
+    return sort.asc ? order : -order;
+  });
+}
+
+function renderTable(table, columns, rows, sort, onPick, rowClass) {
+  const head = "<tr>" + columns.map(c => `<th data-key="${c.key}" class="${c.left ? "l " : ""}${sort.key === c.key ?
+    "sorted" + (sort.asc ? " asc" : "") : ""}">${c.label}</th>`).join("") + "</tr>";
+  const body = rows.map(r => `<tr class="${onPick ? "pick " : ""}${rowClass ? rowClass(r) : ""}" data-id="${r.id ?? ""}">` +
+    columns.map(c => `<td class="${c.left ? "l" : ""}">${c.show ? c.show(r) : esc(r[c.key] ?? "")}</td>`).join("") +
+    "</tr>").join("");
+  table.innerHTML = head + (body || `<tr><td class="empty" colspan="${columns.length}">Nothing yet</td></tr>`);
+  table.querySelectorAll("th").forEach(th => th.onclick = () => {
+    sort.asc = sort.key === th.dataset.key ? !sort.asc : false;
+    sort.key = th.dataset.key;
+    render();
+  });
+  if (onPick) table.querySelectorAll("tr.pick").forEach(tr => tr.onclick = () => onPick(tr.dataset.id));
+}
+
+function specLabel(c) {
+  return c.spec || standardSpec(c.classId, c.tree);
+}
+
+const liveColumns = [
+  { key: "name", label: "Name", left: true, show: r => (r.inCombat ? '<span class="fight">⚔</span> ' : "") +
+    `<span class="gold">${esc(r.name)}</span>` },
+  { key: "race", label: "Race", left: true },
+  { key: "class", label: "Class", left: true, show: r => colored(r.class, r.classId) +
+    (r.spec ? ` <span class="muted">${esc(r.spec)}</span>` : "") },
+  { key: "subclass", label: "Subclass", left: true, show: r => r.subclass ? esc(r.subclass) +
+    (r.subSpecName ? ` <span class="muted">${esc(r.subSpecName)}</span>` : "") : '<span class="muted">–</span>' },
+  { key: "level", label: "Lvl" },
+  { key: "hpPct", label: "Health", show: r => `<span class="hp"><i style="width:${r.hpPct}%"></i></span>` },
+  { key: "dpsNow", label: "DPS now", show: r => fmt(r.dpsNow) },
+  { key: "dps", label: "DPS", show: r => fmt(r.dps) },
+  { key: "hps", label: "HPS", show: r => fmt(r.hps) },
+  { key: "dtps", label: "Taken/s", show: r => fmt(r.dtps) },
+  { key: "damage", label: "Damage", show: r => fmt(r.damage) },
+  { key: "healing", label: "Healing", show: r => fmt(r.healing) },
+  { key: "controlGivenMs", label: "CC given", show: r => secs(r.controlGivenMs) },
+  { key: "buffGivenMs", label: "Buffs given", show: r => secs(r.buffGivenMs) },
+  { key: "kills", label: "Kills" },
+  { key: "deaths", label: "Deaths" },
+  { key: "combatMs", label: "In combat", show: r => secs(r.combatMs) },
+  { key: "runSpeed", label: "Run speed", show: r => `${Math.round(100 * r.runSpeed / BASE_RUN)}%` },
+  { key: "moving", label: "Moving", show: r => r.moving > 0.5 ? r.moving.toFixed(1) + " yd/s" : '<span class="muted">–</span>' },
+];
+
+function liveRows() {
+  if (!state.live) return [];
+  return state.live.characters.map(c => {
+    const s = c.session;
+    return { id: String(c.guid), name: c.name, race: c.race, class: c.class, classId: c.classId, spec: specLabel(c),
+      subclass: c.subclass, subSpecName: c.subSpecName, level: c.level, online: c.online, inCombat: c.inCombat,
+      hpPct: c.maxHealth ? Math.round(100 * c.health / c.maxHealth) : 0, dpsNow: state.rates[c.guid] || 0,
+      dps: perSec(s.damage, s.combatMs), hps: perSec(s.healing, s.combatMs), dtps: perSec(s.damageTaken, s.combatMs),
+      runSpeed: c.runSpeed, moving: c.moving, ...s, raw: c };
+  });
+}
+
+function renderTiles(rows) {
+  const online = rows.filter(r => r.online);
+  const sum = key => rows.reduce((t, r) => t + (r[key] || 0), 0);
+  const tiles = [
+    ["Online", online.length], ["In combat", online.filter(r => r.inCombat).length],
+    ["Damage now /s", fmt(online.reduce((t, r) => t + r.dpsNow, 0))], ["Subclassed", rows.filter(r => r.subclass).length],
+    ["Crowd control", secs(sum("controlGivenMs"))], ["Deaths", sum("deaths")],
+  ];
+  $("tiles").innerHTML = tiles.map(([label, value]) => `<div class="tile"><b>${value}</b><span>${label}</span></div>`).join("");
+}
+
+function renderBars(target, list, title) {
+  if (!list || !list.length) { target.innerHTML = '<div class="empty">Nothing trustworthy yet</div>'; return; }
+  const top = list[0].amount || 1;
+  target.innerHTML = `<p>${title}</p>` + list.map(s => `<div><em title="${esc(s.name)}">${esc(s.name)}</em>` +
+    `<s class="dps" style="width:${100 * s.amount / top}%"></s><b>${fmt(s.amount)}</b></div>`).join("");
+}
+
+const groupKeys = {
+  combo: r => `${r.race} · ${standardSpec(r.classId, r.tree) ? standardSpec(r.classId, r.tree) + " " : ""}${r.class}` +
+    (r.subclass ? ` + ${r.subclass}${r.subSpecName ? " (" + r.subSpecName + ")" : ""}` : ""),
+  pair: r => `${r.class}${r.subclass ? " + " + r.subclass + (r.subSpecName ? " (" + r.subSpecName + ")" : "") : ""}`,
+  class: r => r.class,
+  race: r => r.race,
+};
+
+function comboRows() {
+  if (!state.history || !state.history.combos) return [];
+  const groups = {}, classBase = {};
+  for (const r of state.history.combos) {
+    const key = groupKeys[$("group").value](r);
+    const g = groups[key] ||= { id: key, name: key, class: r.class, classId: r.classId,
+      subclass: $("group").value === "race" ? "" : r.subclass, characters: 0, damage: 0, healing: 0, damageTaken: 0,
+      controlGivenMs: 0, controlTakenMs: 0, deaths: 0, kills: 0, combatMs: 0, movedYards: 0, levelSum: 0, minutes: 0 };
+    for (const k of ["characters", "damage", "healing", "damageTaken", "controlGivenMs", "controlTakenMs", "deaths",
+      "kills", "combatMs", "movedYards", "minutes"]) g[k] += Number(r[k]) || 0;
+    g.levelSum += (Number(r.level) || 0) * (Number(r.characters) || 0);
+    if (!r.subclass) {
+      const base = classBase[r.class] ||= { damage: 0, combatMs: 0 };
+      base.damage += Number(r.damage) || 0; base.combatMs += Number(r.combatMs) || 0;
+    }
+  }
+  const rows = Object.values(groups);
+  const total = rows.reduce((t, g) => t + g.characters, 0) || 1;
+  const trust = trustMs();
+  for (const g of rows) {
+    g.trusted = g.combatMs >= trust;
+    g.share = 100 * g.characters / total;
+    g.dps = perSec(g.damage, g.combatMs); g.hps = perSec(g.healing, g.combatMs); g.dtps = perSec(g.damageTaken, g.combatMs);
+    g.ccPerMin = g.combatMs ? g.controlGivenMs / 1000 / (g.combatMs / 60000) : 0;
+    g.deathsPerHour = g.combatMs ? g.deaths / (g.combatMs / 3600000) : 0;
+    g.yardsPerMin = g.minutes ? g.movedYards / g.minutes : 0;
+    g.level = g.characters ? g.levelSum / g.characters : 0;
+    const base = classBase[g.class];
+    const baseTrusted = base && base.combatMs >= trust;
+    g.vsClass = $("group").value !== "race" && g.subclass && g.trusted && baseTrusted ?
+      100 * (g.dps / perSec(base.damage, base.combatMs) - 1) : null;
+  }
+  return rows;
+}
+
+const comboColumns = [
+  { key: "name", label: "Combo", left: true, show: r => colored(r.name, r.classId) +
+    (r.trusted ? "" : ' <span class="muted" title="Too little time in combat to trust these numbers">(too little data)</span>') },
+  { key: "characters", label: "Characters" },
+  { key: "share", label: "Popularity", show: r => r.share.toFixed(1) + "%" },
+  { key: "level", label: "Avg lvl", show: r => r.level.toFixed(0) },
+  { key: "combatMs", label: "Combat time", show: r => secs(r.combatMs) },
+  { key: "dps", label: "DPS", show: r => fmt(r.dps) },
+  { key: "vsClass", label: "vs main class", show: r => r.vsClass === null ? '<span class="muted">–</span>' :
+    `<span class="${r.vsClass >= 0 ? "up" : "down"}">${r.vsClass >= 0 ? "+" : ""}${r.vsClass.toFixed(1)}%</span>` },
+  { key: "hps", label: "HPS", show: r => fmt(r.hps) },
+  { key: "dtps", label: "Taken/s", show: r => fmt(r.dtps) },
+  { key: "ccPerMin", label: "CC s/min", show: r => r.ccPerMin.toFixed(1) },
+  { key: "deathsPerHour", label: "Deaths/h", show: r => r.deathsPerHour.toFixed(1) },
+  { key: "kills", label: "Kills" },
+  { key: "yardsPerMin", label: "Yards/min", show: r => fmt(r.yardsPerMin) },
+];
+
+function recordCard(kind, title, show, list) {
+  return `<section class="rec"><h2>${title}</h2>${list && list.length ? "<ol>" + list.map(r =>
+    `<li>${img(r.icon ? spellIcon(r.icon) : "")} <span class="gold pickname" data-id="${r.guid}" style="cursor:pointer">${esc(r.name)}</span>
+     <span class="muted">${esc(r.race)}</span> ${classCell(r.class, r.classId, r.subclass)}
+     ${r.spell ? `<span class="muted">· ${esc(r.spell)}</span>` : ""}<b>${show(r.value)}</b></li>`).join("") + "</ol>" :
+    '<div class="empty">Nothing yet</div>'}</section>`;
+}
+
+function renderRecords(target, filter) {
+  if (!state.records) { target.innerHTML = '<div class="empty">Loading…</div>'; return; }
+  target.innerHTML = RECORDS.map(([kind, title, show]) =>
+    recordCard(kind, title, show, (state.records[kind] || []).filter(filter))).join("");
+  target.querySelectorAll(".pickname").forEach(el => el.onclick = () => openCharacter(el.dataset.id));
+}
+
+function talentIndex(snapshot) {
+  const index = {};
+  for (const t of (snapshot && snapshot.talents) || []) index[t.key] = t;
+  return index;
+}
+
+function sourceLabel(spell, talents) {
+  if (spell.id === 0) return '<span class="muted">Melee</span>';
+  const key = spell.source;
+  if (!key) return '<span class="muted">Ability or proc</span>';
+  const t = talents[key];
+  if (!t) return '<span class="muted">Talent (not in current build)</span>';
+  return `${esc(t.name)}${t.borrowed ? '<span class="badge">subclass</span>' : ""}`;
+}
+
+function abilityRows(list, sources, talents) {
+  const total = list.reduce((t, s) => t + Number(s.amount), 0) || 1;
+  return list.map(s => ({ ...s, id: String(s.id), amount: Number(s.amount), count: Number(s.count),
+    source: s.source ?? (sources ? sources[s.id] || 0 : 0), share: 100 * Number(s.amount) / total,
+    perHit: Number(s.count) ? Number(s.amount) / Number(s.count) : 0 }))
+    .map(s => ({ ...s, sourceText: sourceLabel(s, talents) }));
+}
+
+const abilityColumns = kind => [
+  { key: "name", label: kind, left: true, show: r => `${img(spellIcon(r.icon, Number(r.id)))} ${esc(r.name)}` },
+  { key: "sourceText", label: "From", left: true, show: r => r.sourceText },
+  { key: "amount", label: "Total", show: r => fmt(r.amount) },
+  { key: "share", label: "Share", show: r => r.share.toFixed(1) + "%" },
+  { key: "count", label: "Hits" },
+  { key: "perHit", label: "Per hit", show: r => fmt(r.perHit) },
+];
+
+const uptimeColumns = [
+  { key: "name", label: "Spell", left: true, show: r => `${img(spellIcon(r.icon, -1))} ${esc(r.name)}` },
+  { key: "amount", label: "Total time", show: r => secs(Number(r.amount)) },
+  { key: "count", label: "Times" },
+  { key: "avg", label: "Average", show: r => secs(r.avg) },
+];
+
+function renderTalents(snapshot, contributions, total) {
+  if (!snapshot) return '<div class="empty">Waiting for the character to be online…</div>';
+  const groups = {};
+  for (const t of snapshot.talents) {
+    const tree = t.tree || (t.tab !== undefined ? standardSpec(t.classId, t.tab) || "Tree " + (t.tab + 1) : "");
+    (groups[`${t.class} · ${tree}`] ||= { borrowed: t.borrowed, classId: t.classId, list: [] }).list.push(t);
+  }
+  const keys = Object.keys(groups).sort((a, b) => groups[a].borrowed - groups[b].borrowed);
+  if (!keys.length) return '<div class="empty">No talents learned</div>';
+  return keys.map(k => `<h3>${colored(k, groups[k].classId)}${groups[k].borrowed ? '<span class="badge">subclass</span>' : ""}</h3>` +
+    groups[k].list.sort((a, b) => (contributions[b.key] || 0) - (contributions[a.key] || 0)).map(t => {
+      const share = total ? 100 * (contributions[t.key] || 0) / total : 0;
+      return `<div class="t">${img(spellIcon(t.icon, -1))}<span>${esc(t.name)} <span class="muted">${t.rank}/${t.maxRank}</span></span>
+        <span>${contributions[t.key] ? `<span class="pct">${share.toFixed(1)}%</span>` :
+        '<span class="muted" title="Passive bonuses change other abilities and cannot be measured on their own">passive</span>'}</span></div>`;
+    }).join("")).join("");
+}
+
+function renderStats(snapshot) {
+  if (!snapshot) return '<div class="empty">Waiting for the character to be online…</div>';
+  const s = snapshot.stats;
+  const rows = [["Strength", s.strength], ["Agility", s.agility], ["Stamina", s.stamina], ["Intellect", s.intellect],
+    ["Spirit", s.spirit], ["Health", fmt(s.health)], [POWERS[s.powerType] || "Power", fmt(s.power)],
+    ["Attack power", s.attackPower], ["Ranged attack power", s.rangedAttackPower], ["Spell power", s.spellPower],
+    ["Healing power", s.healingPower], ["Melee crit", s.meleeCrit.toFixed(2) + "%"],
+    ["Ranged crit", s.rangedCrit.toFixed(2) + "%"], ["Spell crit", s.spellCrit.toFixed(2) + "%"],
+    ["Melee haste", s.meleeHaste.toFixed(2) + "%"], ["Spell haste", s.spellHaste.toFixed(2) + "%"],
+    ["Melee hit", s.meleeHit.toFixed(2) + "%"], ["Spell hit", s.spellHit.toFixed(2) + "%"], ["Armor", s.armor],
+    ["Dodge", s.dodge.toFixed(2) + "%"], ["Parry", s.parry.toFixed(2) + "%"], ["Block", s.block.toFixed(2) + "%"],
+    ["Run speed", speedText(s.runSpeed)]];
+  return rows.map(([label, value]) => `<div><span>${label}</span><b>${value}</b></div>`).join("");
+}
+
+function renderGear(snapshot) {
+  if (!snapshot) return '<div class="empty">Waiting for the character to be online…</div>';
+  if (!snapshot.gear.length) return '<div class="empty">Nothing equipped</div>';
+  return snapshot.gear.map(g => `<div>${img("wow/itemicon?display=" + g.display)}<span class="q${g.quality}">${esc(g.name)}
+    <span class="muted">· ${SLOTS[g.slot] || ""}</span></span><span class="muted">ilvl ${g.level}</span></div>`).join("");
+}
+
+function renderTimeline(minutes) {
+  const canvas = $("timeline"), ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const points = [...minutes].reverse().filter(m => m[3] > 0).map(m => ({ minute: m[0],
+    dps: m[1] / (m[3] / 1000), hps: m[2] / (m[3] / 1000), build: m[5] }));
+  if (points.length < 2) { $("timelineLabel").textContent = "Damage and healing per second in combat, per minute: not enough minutes in combat yet."; return; }
+  const top = Math.max(1, ...points.map(p => Math.max(p.dps, p.hps)));
+  const x = i => canvas.width * i / (points.length - 1), y = v => canvas.height - 6 - (canvas.height - 16) * v / top;
+  ctx.strokeStyle = "rgba(255,255,255,.18)";
+  points.forEach((p, i) => { if (i && p.build !== points[i - 1].build) { ctx.beginPath(); ctx.moveTo(x(i), 0); ctx.lineTo(x(i), canvas.height); ctx.stroke(); } });
+  for (const [key, color] of [["dps", "#ffd100"], ["hps", "#2fbf2f"]]) {
+    ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.beginPath();
+    points.forEach((p, i) => i ? ctx.lineTo(x(i), y(p[key])) : ctx.moveTo(x(i), y(p[key])));
+    ctx.stroke();
+  }
+  const builds = new Set(points.map(p => p.build)).size;
+  $("timelineLabel").innerHTML = `<span style="color:#ffd100">Damage</span> and <span style="color:#2fbf2f">healing</span>
+    per second in combat over their last ${points.length} fighting minutes, peak ${fmt(top)}.
+    ${builds > 1 ? `Thin lines mark a talent build change (${builds} builds).` : "One talent build all along."}`;
+}
+
+function renderCharacter() {
+  const data = state.character;
+  const c = state.live && state.live.characters.find(x => String(x.guid) === state.selected);
+  if (!state.selected || (!c && !data)) return;
+  if (c) {
+    $("charTitle").innerHTML = `${esc(c.name)} · ${colored(c.class, c.classId)}${c.subclass ? " + " + esc(c.subclass) : ""}`;
+    $("characterName").textContent = c.name;
+    $("charHead").innerHTML = `Level ${c.level} ${esc(c.race)} · ${esc(specLabel(c) || "no spec")}` +
+      (c.subclass ? ` · subclass ${esc(c.subclass)}${c.subSpecName ? " (" + esc(c.subSpecName) + ")" : ""}` : "") +
+      ` · run speed ${speedText(c.runSpeed)} · ${c.online ? (c.inCombat ? '<span class="fight">in combat</span>' : "online") : "offline"}`;
+  }
+  if (!data) return;
+  if (!c && isGone(data)) return closeCharacter();
+  const snapshot = data.snapshot, live = data.live;
+  const talents = talentIndex(snapshot);
+  const scope = state.scope === "allTime" ? data.allTime : live || data.allTime;
+  const spells = abilityRows(scope.spells || [], live && live.sources, talents);
+  const heals = abilityRows(scope.heals || [], live && live.sources, talents);
+  renderTable($("abilities"), abilityColumns("Damage"), sortRows(spells, state.abilitySort), state.abilitySort);
+  renderTable($("healAbilities"), abilityColumns("Healing"), sortRows(heals, state.healSort), state.healSort);
+  const contributions = {};
+  for (const s of [...spells, ...heals]) if (s.source) contributions[s.source] = (contributions[s.source] || 0) + s.amount;
+  const total = [...spells, ...heals].reduce((t, s) => t + s.amount, 0);
+  $("talents").innerHTML = renderTalents(snapshot, contributions, total);
+  $("stats").innerHTML = renderStats(snapshot);
+  $("gear").innerHTML = renderGear(snapshot);
+  const uptime = list => (list || []).map(s => ({ ...s, id: String(s.id), amount: Number(s.amount),
+    count: Number(s.count), avg: Number(s.count) ? Number(s.amount) / Number(s.count) : 0 }));
+  renderTable($("ccGiven"), uptimeColumns, uptime(live && live.controls), { key: "amount", asc: false });
+  renderTable($("buffsGiven"), uptimeColumns, uptime(live && live.buffs), { key: "amount", asc: false });
+  renderTimeline(data.minutes || []);
+  renderRecords($("charRecords"), r => String(r.guid) === state.selected);
+}
+
+function render() {
+  const rows = sortRows(liveRows(), state.liveSort);
+  renderTiles(rows);
+  renderTable($("live"), liveColumns, rows, state.liveSort, openCharacter,
+    r => (r.online ? "" : "offline ") + (r.id === state.selected ? "selected" : ""));
+  const combos = sortRows(comboRows(), state.comboSort);
+  renderTable($("combos"), comboColumns, combos, state.comboSort, null, r => r.trusted ? "" : "thin");
+  const byDps = combos.filter(g => g.trusted).sort((a, b) => b.dps - a.dps).slice(0, 25)
+    .map(g => ({ id: g.id, name: g.name, amount: g.dps }));
+  renderBars($("comboBars"), byDps, `Top 25 with at least ${$("trust").selectedOptions[0].text} in combat`);
+  if (state.tab === "records") renderRecords($("records"), () => true);
+  if (state.tab === "character") renderCharacter();
+}
+
+function showTab(tab) {
+  state.tab = tab;
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
+  document.querySelectorAll("main.tab").forEach(m => m.classList.toggle("on", m.id === "tab-" + tab));
+  if (tab === "records") pollRecords();
+  if (tab === "character") pollCharacter();
+  render();
+}
+
+function openCharacter(id) {
+  if (state.selected !== id) state.character = null;
+  state.selected = id;
+  const c = state.live && state.live.characters.find(x => String(x.guid) === id);
+  $("characterName").textContent = c ? c.name : "Character";
+  $("characterTab").hidden = false;
+  showTab("character");
+}
+
+function closeCharacter() {
+  state.selected = null;
+  state.character = null;
+  $("characterTab").hidden = true;
+  $("characterName").textContent = "Character";
+  $("charTitle").textContent = "Pick a character on the Characters tab";
+  if (state.tab === "character") showTab("characters");
+}
+
+function isGone(data) {
+  return !data.snapshot && !data.live && !data.minutes.length && !data.allTime.spells.length &&
+    !data.allTime.heals.length;
+}
+
+async function pollLive() {
+  try {
+    const live = await (await fetch("feed/live", { cache: "no-store" })).json();
+    if (live.offline) throw new Error("offline");
+    const now = live.serverTimeMs;
+    for (const c of live.characters) {
+      const before = state.previous[c.guid];
+      if (before && now > before.at) {
+        const rate = Math.max(0, (c.session.damage - before.damage) / ((now - before.at) / 1000));
+        state.rates[c.guid] = (state.rates[c.guid] || 0) * 0.5 + rate * 0.5;
+      }
+      state.previous[c.guid] = { at: now, damage: c.session.damage };
+    }
+    state.live = live;
+    const up = live.uptimeSeconds;
+    $("hpBar").style.width = "100%";
+    $("status").textContent = "Live";
+    $("manaBar").style.width = Math.min(100, 100 * up / 86400) + "%";
+    $("uptime").textContent = `Up ${Math.floor(up / 3600)}h ${Math.floor(up % 3600 / 60)}m`;
+    $("online").textContent = live.characters.filter(c => c.online).length;
+  } catch (e) {
+    $("hpBar").style.width = "0%";
+    $("status").textContent = "Worldserver offline";
+    $("manaBar").style.width = "0%";
+    $("uptime").textContent = "Is mod-livemon enabled?";
+  }
+  render();
+}
+
+async function getJson(path) {
+  const data = await (await fetch(path, { cache: "no-store" })).json();
+  if (data.offline) throw new Error("offline");
+  return data;
+}
+
+async function pollHistory() {
+  try {
+    state.history = await getJson("feed/history?minutes=" + $("window").value);
+    $("historyNote").textContent = $("window").selectedOptions[0].text.toLowerCase() +
+      ", greyed rows have less than " + $("trust").selectedOptions[0].text + " in combat";
+  } catch (e) { }
+  render();
+}
+
+async function pollRecords() {
+  try { state.records = await getJson("feed/records"); } catch (e) { }
+  render();
+}
+
+async function pollCharacter() {
+  if (state.tab !== "character" || !state.selected) return;
+  try { state.character = await getJson("feed/character?guid=" + state.selected); } catch (e) { }
+  render();
+}
+
+async function clearData(scope, question) {
+  if (!confirm(question)) return;
+  try { await getJson("feed/reset?scope=" + scope); } catch (e) { }
+  state.previous = {}; state.rates = {}; state.character = null;
+  await pollLive();
+  if (state.selected && !(state.live && state.live.characters.some(x => String(x.guid) === state.selected)))
+    closeCharacter();
+  pollHistory(); pollRecords();
+}
+
+document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => b.dataset.tab === "character" && !state.selected ?
+  showTab("characters") : showTab(b.dataset.tab));
+document.querySelectorAll("#scope button").forEach(b => b.onclick = () => {
+  state.scope = b.dataset.scope;
+  document.querySelectorAll("#scope button").forEach(x => x.classList.toggle("on", x === b));
+  render();
+});
+$("closeCharacter").onclick = event => { event.stopPropagation(); closeCharacter(); };
+$("clearGone").onclick = () => clearData("gone", "Remove stored data of characters that no longer exist, and of everyone offline from this session's list?");
+$("clearAll").onclick = () => clearData("all", "Remove ALL stored LiveMon data and records? This cannot be undone.");
+$("window").onchange = pollHistory;
+$("group").onchange = render;
+$("trust").onchange = pollHistory;
+pollLive(); pollHistory();
+setInterval(pollLive, 1000);
+setInterval(pollHistory, 15000);
+setInterval(() => state.tab === "records" && pollRecords(), 10000);
+setInterval(pollCharacter, 2000);
+</script>
+</body>
+</html>

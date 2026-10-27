@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionRealmClock.h"
+#include "AscensionSpecialization.h"
 #include "AscensionWitchHunterCompletion.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -435,7 +436,7 @@ class witch_hunter_state : public UnitScript
     {
         auto disguise = [](Unit const* player, Unit const* creature)
         {
-            return player->IsPlayer() && player->getClass() == CLASS_WITCH_HUNTER && player->HasAura(802281) &&
+            return UsesAscensionClassMechanics(player->ToPlayer(), CLASS_WITCH_HUNTER) && player->HasAura(802281) &&
                    creature->IsCreature() && !creature->IsControlledByPlayer();
         };
         if (unit && target && (disguise(unit, target) || disguise(target, unit)))

@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "CellImpl.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
@@ -29,7 +30,7 @@ class aura_ascension_spiritual_frenzy : public AuraScript
     bool Check(ProcEventInfo& event)
     {
         Player* owner = GetTarget()->ToPlayer();
-        return owner && owner->getClass() == CLASS_WILDWALKER && owner->IsAlive() &&
+        return owner && UsesAscensionClassMechanics(owner, CLASS_WILDWALKER) && owner->IsAlive() &&
             event.GetActor() == owner && owner->GetPet() && owner->GetPet()->IsAlive();
     }
 
@@ -58,7 +59,7 @@ class aura_ascension_spiritual_frenzy_pet : public AuraScript
         Pet* pet = GetTarget()->ToPet();
         Player* owner = pet && pet->GetOwner() ? pet->GetOwner()->ToPlayer() : nullptr;
         DamageInfo const* damage = event.GetDamageInfo();
-        return !_cleaving && pet && pet->IsAlive() && owner && owner->getClass() == CLASS_WILDWALKER &&
+        return !_cleaving && pet && pet->IsAlive() && owner && UsesAscensionClassMechanics(owner, CLASS_WILDWALKER) &&
             owner->IsAlive() && owner->HasAura(SpiritualFrenzy, owner->GetGUID()) &&
             event.GetActor() == pet && !event.GetSpellInfo() && damage && damage->GetDamage() &&
             (event.GetTypeMask() & PROC_FLAG_DONE_MELEE_AUTO_ATTACK);

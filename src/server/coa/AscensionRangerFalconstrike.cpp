@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -21,14 +22,14 @@ constexpr std::array<uint32, 8> Falconstrikes = {806345, 806437, 806438, 806439,
 
 bool FalconstrikeReady(Player* player)
 {
-    return player && player->getClass() == CLASS_RANGER && player->IsAlive() && player->IsInWorld() &&
+    return player && UsesAscensionClassMechanics(player, CLASS_RANGER) && player->IsAlive() && player->IsInWorld() &&
         player->HasAura(SPELL_FALCONSTRIKE_TALENT) &&
         player->HasAura(SPELL_FALCONSTRIKE_READY, player->GetGUID());
 }
 
 void SyncFalconstrike(Player* player)
 {
-    if (player->getClass() != CLASS_RANGER)
+    if (!UsesAscensionClassMechanics(player, CLASS_RANGER))
         return;
     if (!player->HasAura(SPELL_FALCONSTRIKE_TALENT))
     {
@@ -68,7 +69,8 @@ public:
     void OnSpellCast(Spell* spell, Unit* caster, SpellInfo const* info, bool) override
     {
         Player* player = caster ? caster->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_RANGER || info->SpellFamilyName != 27 || spell->IsTriggered() ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_RANGER) || info->SpellFamilyName != 27 ||
+            spell->IsTriggered() ||
             !player->IsAlive() || !player->IsInWorld() || !player->HasAura(SPELL_FALCONSTRIKE_TALENT))
             return;
         if (info->SpellFamilyFlags[1] & 4194304)

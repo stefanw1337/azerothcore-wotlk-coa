@@ -65,7 +65,7 @@ PrimordialAlteration const* AlterationByBlast(uint32 blast)
 
 bool IsRunemaster(Unit const* unit)
 {
-    return unit && unit->IsPlayer() && unit->getClass() == CLASS_SPIRIT_MAGE;
+    return unit && UsesAscensionClassMechanics(unit->ToPlayer(), CLASS_SPIRIT_MAGE);
 }
 
 class spell_ascension_runemaster_primeval_carving : public SpellScript

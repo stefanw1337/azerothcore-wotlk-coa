@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionReaperPainmail.h"
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "Spell.h"
 #include "SpellAuras.h"
@@ -75,7 +76,7 @@ bool HasPainmailContract()
 void HandleAscensionReaperPainmailHit(Spell* spell, Player* player,
     Unit* target, uint8 missInfo, uint32 damage)
 {
-    if (!spell || !player || player != spell->GetCaster() || player->getClass() != CLASS_REAPER ||
+    if (!spell || !player || player != spell->GetCaster() || !UsesAscensionClassMechanics(player, CLASS_REAPER) ||
         !player->IsAlive() || !target || target == player || player->IsFriendlyTo(target) ||
         missInfo != SPELL_MISS_NONE || !damage || !player->HasAura(SPELL_PAINMAIL_TALENT) ||
         !IsPainmailAttack(spell->GetSpellInfo()) || !HasPainmailContract())

@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionReaperTalentProcs.h"
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -38,7 +39,8 @@ class aura_ascension_reaper_souls_for_slaughter : public AuraScript
         Unit* player = GetTarget();
         Unit* target = event.GetActionTarget();
         DamageInfo const* damage = event.GetDamageInfo();
-        return player->IsPlayer() && player->getClass() == CLASS_REAPER && player->IsAlive() &&
+        return player->IsPlayer() && UsesAscensionClassMechanics(player->ToPlayer(), CLASS_REAPER) &&
+            player->IsAlive() &&
             player == GetCaster() && event.GetActor() == player && !event.GetSpellInfo() && target &&
             target != player && !player->IsFriendlyTo(target) && damage && damage->GetDamage() &&
             (event.GetTypeMask() & PROC_FLAG_DONE_MELEE_AUTO_ATTACK);
@@ -79,7 +81,7 @@ class aura_ascension_reaper_jailers_will_helper : public AuraScript
     bool Load() override
     {
         Unit* owner = GetUnitOwner();
-        return owner && owner->IsPlayer() && owner->getClass() == CLASS_REAPER &&
+        return owner && owner->IsPlayer() && UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_REAPER) &&
             GetCasterGUID() == owner->GetGUID() && owner->HasAura(JailersWill);
     }
 

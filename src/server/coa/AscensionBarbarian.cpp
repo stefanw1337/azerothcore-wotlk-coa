@@ -2,6 +2,7 @@
 
 #include "AscensionBarbarian.h"
 #include "AscensionBarbarianCompletion.h"
+#include "AscensionSpecialization.h"
 #include "Item.h"
 #include "Player.h"
 #include "Random.h"
@@ -70,7 +71,7 @@ void ApplyAscensionBarbarianSpellChanges(SpellInfo* info)
 
 void HandleAscensionBarbarianAura(Player* player, uint32 spellId, bool apply)
 {
-    if (!player || player->getClass() != CLASS_BARBARIAN)
+    if (!player || !UsesAscensionClassMechanics(player, CLASS_BARBARIAN))
         return;
 
     uint32 helper = 0;
@@ -106,7 +107,7 @@ void HandleAscensionBarbarianAura(Player* player, uint32 spellId, bool apply)
 
 void HandleAscensionBarbarianAttackPower(Player* player, float& modifier, bool ranged)
 {
-    if (!player || player->getClass() != CLASS_BARBARIAN || ranged ||
+    if (!player || !UsesAscensionClassMechanics(player, CLASS_BARBARIAN) || ranged ||
         player->GetStat(STAT_STRENGTH) < player->GetStat(STAT_AGILITY))
         return;
 
@@ -119,7 +120,7 @@ void HandleAscensionBarbarianCast(Spell* spell)
     if (!spell || spell->IsTriggered())
         return;
     Player* player = spell->GetCaster()->ToPlayer();
-    if (!player || player->getClass() != CLASS_BARBARIAN)
+    if (!player || !UsesAscensionClassMechanics(player, CLASS_BARBARIAN))
         return;
 
     SpellInfo const* info = spell->GetSpellInfo();

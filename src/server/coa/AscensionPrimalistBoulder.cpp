@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -53,7 +54,7 @@ public:
     void OnSpellCheckCast(Spell* spell, bool, SpellCastResult& result) override
     {
         Unit* caster = spell->GetCaster();
-        if (caster->IsPlayer() && caster->getClass() == CLASS_WILDWALKER && !spell->IsTriggered() &&
+        if (UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_WILDWALKER) && !spell->IsTriggered() &&
             caster->HasAura(BoulderDash, caster->GetGUID()))
             result = SPELL_FAILED_SPELL_IN_PROGRESS;
     }

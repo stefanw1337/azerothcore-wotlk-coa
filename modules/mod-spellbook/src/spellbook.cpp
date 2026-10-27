@@ -60,6 +60,7 @@
 #include "AscensionPyromancerData.h"
 #include "AscensionSpellProgressionData.h"
 #include "AscensionTalentReplacementData.h"
+#include "CoASpellbook.h"
 #include "SpellbookCostData.h"
 #include "SpellbookOfferData.h"
 #include "SpellbookRankData.h"
@@ -275,155 +276,159 @@ namespace
         if (!player)
             return rows;
 
-        uint8 const classId = uint8(player->getClass());
-        uint32 const spec = ActiveSpec(player);
+        std::vector<std::pair<uint8, uint32>> classes = { { uint8(player->getClass()), ActiveSpec(player) } };
+        for (auto const &extra : CoASpellbook::ExtraClassesOf(player))
+            classes.emplace_back(extra);
 
-        auto add = [&rows, classId, windowView, player, spec](uint32 spellId, uint8 requiredLevel,
-                                                uint32 requiredAbility)
+        for (auto const &[classId, spec] : classes)
         {
-            if (!spellId || !sSpellMgr->GetSpellInfo(spellId))
-                return;
-            if (!AscensionFelsworn::CanLearnRift(player, spellId))
-                return;
-            if (windowView && classId == CLASS_FLESHWARDEN && player->HasAura(301302) &&
-                sSpellMgr->GetFirstSpellInChain(spellId) == 801016)
-                return;
-            if (windowView && classId == CLASS_GUARDIAN && AscensionGuardian::Ballad(spellId) &&
-                (spec != 20 || !player->HasAura(505344)))
-                return;
-
-            // A spell the talent trees grant is the tree's to hand out, whatever source
-            // below would otherwise reach it through.
-            if (windowView && IsTreeSpell(classId, spellId))
-                return;
-
-            // Explode while Echo of Nozdormu replaces it: neither its known ranks nor its
-            // upgrades are listed, so the window cannot sell back a spell the conversion
-            // just took off the bars.
-            if (windowView && ReplacedByEchoOfNozdormu(player, spellId))
-                return;
-
-            if (windowView && !CanLearnTalentReplacement(player, spellId))
-                return;
-
-            for (Row const &known : rows)
-                if (known.SpellId == spellId)
+            auto add = [&rows, classId, windowView, player, spec](uint32 spellId, uint8 requiredLevel,
+                                                    uint32 requiredAbility)
+            {
+                if (!spellId || !sSpellMgr->GetSpellInfo(spellId))
+                    return;
+                if (!AscensionFelsworn::CanLearnRift(player, spellId))
+                    return;
+                if (windowView && classId == CLASS_FLESHWARDEN && player->HasAura(301302) &&
+                    sSpellMgr->GetFirstSpellInChain(spellId) == 801016)
+                    return;
+                if (windowView && classId == CLASS_GUARDIAN && AscensionGuardian::Ballad(spellId) &&
+                    (spec != 20 || !player->HasAura(505344)))
                     return;
 
-            Row row;
-            row.SpellId = spellId;
-            row.RequiredLevel = requiredLevel;
-            row.RequiredAbility = requiredAbility;
-            row.SkillLine = SkillLineForSpell(spellId);
+                // A spell the talent trees grant is the tree's to hand out, whatever source
+                // below would otherwise reach it through.
+                if (windowView && IsTreeSpell(classId, spellId))
+                    return;
 
-            // Priced at the level the window gates the row at. A source that carries no level
-            // for the spell falls back to Spell.dbc's BaseLevel, the same fallback the rank
-            // chains above use, so a row is never free because one source left its level blank.
-            uint8 const pricedLevel = requiredLevel ? requiredLevel
-                : uint8(std::min<uint32>(sSpellMgr->AssertSpellInfo(spellId)->BaseLevel, 255));
-            row.Cost = SpellbookCostData::Price(pricedLevel, spellId);
+                // Explode while Echo of Nozdormu replaces it: neither its known ranks nor its
+                // upgrades are listed, so the window cannot sell back a spell the conversion
+                // just took off the bars.
+                if (windowView && ReplacedByEchoOfNozdormu(player, spellId))
+                    return;
 
-            rows.push_back(row);
-        };
+                if (windowView && !CanLearnTalentReplacement(player, spellId))
+                    return;
 
-        for (auto const &entry : AscensionCompatData::ClassSpells)
-            if (entry.ClassId == classId)
-                add(entry.SpellId, entry.RequiredLevel, 0);
+                for (Row const &known : rows)
+                    if (known.SpellId == spellId)
+                        return;
 
-        // Each ladder's ranks, in the order the data gives them, so every row can require the
-        // rank directly under it. That is the requirement the original trainer window published
-        // - the captured offer list carries "Witchblight (Rank 2)" on the rank-3 row - and the
-        // one the client checks against the character. Pointing every rank at the ladder's first
-        // rank instead reads fine on the bare state byte, but breaks on screen: the character's
-        // first rank is superseded as soon as the second is bought, so the client greys every row
-        // above it for a requirement the character no longer holds.
-        std::map<uint32, std::vector<std::pair<uint8, uint32>>> ladders;   // root -> (level, spell)
-        for (auto const &entry : AscensionProgression::Ranks)
-        {
-            if (entry.ClassId != classId)
-                continue;
+                Row row;
+                row.SpellId = spellId;
+                row.RequiredLevel = requiredLevel;
+                row.RequiredAbility = requiredAbility;
+                row.SkillLine = SkillLineForSpell(spellId);
 
-            auto &members = ladders[entry.FirstSpellId];
-            if (members.empty())
-                if (SpellInfo const *first = sSpellMgr->GetSpellInfo(entry.FirstSpellId))
-                    members.emplace_back(uint8(std::min<uint32>(first->BaseLevel, 255)),
-                                         entry.FirstSpellId);
+                // Priced at the level the window gates the row at. A source that carries no level
+                // for the spell falls back to Spell.dbc's BaseLevel, the same fallback the rank
+                // chains above use, so a row is never free because one source left its level blank.
+                uint8 const pricedLevel = requiredLevel ? requiredLevel
+                    : uint8(std::min<uint32>(sSpellMgr->AssertSpellInfo(spellId)->BaseLevel, 255));
+                row.Cost = SpellbookCostData::Price(pricedLevel, spellId);
 
-            members.emplace_back(entry.RequiredLevel, entry.SpellId);
-        }
+                rows.push_back(row);
+            };
 
-        // The rank under \p spellId in its ladder, at the level its row is gated at. A ladder
-        // this window knows nothing about falls back to the root, and the root needs no rank
-        // under it.
-        auto rankBelow = [&ladders](uint32 root, uint8 level, uint32 spellId) -> uint32
-        {
-            auto const found = ladders.find(root);
-            if (found != ladders.end())
+            for (auto const &entry : AscensionCompatData::ClassSpells)
+                if (entry.ClassId == classId)
+                    add(entry.SpellId, entry.RequiredLevel, 0);
+
+            // Each ladder's ranks, in the order the data gives them, so every row can require the
+            // rank directly under it. That is the requirement the original trainer window published
+            // - the captured offer list carries "Witchblight (Rank 2)" on the rank-3 row - and the
+            // one the client checks against the character. Pointing every rank at the ladder's first
+            // rank instead reads fine on the bare state byte, but breaks on screen: the character's
+            // first rank is superseded as soon as the second is bought, so the client greys every row
+            // above it for a requirement the character no longer holds.
+            std::map<uint32, std::vector<std::pair<uint8, uint32>>> ladders;   // root -> (level, spell)
+            for (auto const &entry : AscensionProgression::Ranks)
             {
-                uint32 below = 0;
-                for (auto const &member : found->second)
-                    if (member.second != spellId && member.first < level)
-                        below = member.second;
+                if (entry.ClassId != classId)
+                    continue;
 
-                if (below)
-                    return below;
+                auto &members = ladders[entry.FirstSpellId];
+                if (members.empty())
+                    if (SpellInfo const *first = sSpellMgr->GetSpellInfo(entry.FirstSpellId))
+                        members.emplace_back(uint8(std::min<uint32>(first->BaseLevel, 255)),
+                                             entry.FirstSpellId);
+
+                members.emplace_back(entry.RequiredLevel, entry.SpellId);
             }
 
-            return spellId != root ? root : 0;
-        };
+            // The rank under \p spellId in its ladder, at the level its row is gated at. A ladder
+            // this window knows nothing about falls back to the root, and the root needs no rank
+            // under it.
+            auto rankBelow = [&ladders](uint32 root, uint8 level, uint32 spellId) -> uint32
+            {
+                auto const found = ladders.find(root);
+                if (found != ladders.end())
+                {
+                    uint32 below = 0;
+                    for (auto const &member : found->second)
+                        if (member.second != spellId && member.first < level)
+                            below = member.second;
 
-        // The first rank is offered as well: it is the class's base ability, and for 199 of
-        // them the generated class data carries no level at all, so without this the window
-        // hides whole abilities. Spell.dbc's BaseLevel is where those levels come from - it
-        // matches the level the generated data records for 236 of the 242 first ranks it does
-        // have, and both first ranks the captured original trainer window was seen selling
-        // (Chronomancer's Nozdormu's Wisdom, Pyromancer's Seal of Alysrazor) are level 1 in the
-        // capture and BaseLevel 1 in the client data.
-        for (auto const &entry : AscensionProgression::Ranks)
-        {
-            if (entry.ClassId != classId)
-                continue;
+                    if (below)
+                        return below;
+                }
 
-            if (SpellInfo const *first = sSpellMgr->GetSpellInfo(entry.FirstSpellId))
-                if (first->BaseLevel >= 1 && first->BaseLevel <= MAX_LEVEL)
-                    add(entry.FirstSpellId, uint8(first->BaseLevel), 0);
+                return spellId != root ? root : 0;
+            };
 
-            add(entry.SpellId, entry.RequiredLevel,
-                rankBelow(entry.FirstSpellId, entry.RequiredLevel, entry.SpellId));
+            // The first rank is offered as well: it is the class's base ability, and for 199 of
+            // them the generated class data carries no level at all, so without this the window
+            // hides whole abilities. Spell.dbc's BaseLevel is where those levels come from - it
+            // matches the level the generated data records for 236 of the 242 first ranks it does
+            // have, and both first ranks the captured original trainer window was seen selling
+            // (Chronomancer's Nozdormu's Wisdom, Pyromancer's Seal of Alysrazor) are level 1 in the
+            // capture and BaseLevel 1 in the client data.
+            for (auto const &entry : AscensionProgression::Ranks)
+            {
+                if (entry.ClassId != classId)
+                    continue;
+
+                if (SpellInfo const *first = sSpellMgr->GetSpellInfo(entry.FirstSpellId))
+                    if (first->BaseLevel >= 1 && first->BaseLevel <= MAX_LEVEL)
+                        add(entry.FirstSpellId, uint8(first->BaseLevel), 0);
+
+                add(entry.SpellId, entry.RequiredLevel,
+                    rankBelow(entry.FirstSpellId, entry.RequiredLevel, entry.SpellId));
+            }
+
+            for (auto const &entry : AscensionCompatData::CoATalentEntries)
+                if (entry.ClassId == classId && !entry.AECost && !entry.TECost &&
+                    (!entry.SpecId || !spec || entry.SpecId == spec))
+                    for (uint32 spellId : entry.SpellIds)
+                        add(spellId, entry.RequiredLevel, 0);
+
+            // Services the original trainer window sold but this realm's generated class data
+            // never resolved to a level. Without them the window is missing whole rank chains for
+            // some classes: Stormbringer's Torrential Wrath and Brine, the Guardian Ballads,
+            // Pyromancer's Echo of Nozdormu, the Ranger's Bushcraft kit. See SpellbookOfferData.h.
+            for (SpellbookOfferData::Offer const &offer : SpellbookOfferData::Offers)
+                if (offer.ClassId == classId)
+                    add(offer.SpellId, offer.RequiredLevel,
+                        rankBelow(offer.FirstSpellId, offer.RequiredLevel, offer.SpellId));
+
+            // Class trainer rows the realm's own NPCTrainer.dbc teaches under this class's tab
+            // name, that no other source sells: the top ranks of ladders the captured window only
+            // showed part of (Devotion of Grace rank 8, Chromie's Wisdom 5, the Ranger's Bushcraft
+            // tiers, the Venomancer's fourth form). See SpellbookTrainerData.h.
+            for (SpellbookTrainerData::Offer const &offer : SpellbookTrainerData::Offers)
+                if (offer.ClassId == classId)
+                    add(offer.SpellId, offer.RequiredLevel,
+                        rankBelow(offer.FirstSpellId, offer.RequiredLevel, offer.SpellId));
+
+            // Upgrades of abilities this window already sells that the realm's generated
+            // progression data never resolved - the client's own rank ladders carry them, and
+            // without them the last ranks of those abilities were unreachable from any book.
+            // See SpellbookRankData.h. The requirement is the highest rank this window offers
+            // below them, so an upgrade still needs the rank under it.
+            for (SpellbookRankData::Rank const &rank : SpellbookRankData::Ranks)
+                if (rank.ClassId == classId)
+                    add(rank.SpellId, rank.RequiredLevel, rank.RequiredSpellId);
         }
-
-        for (auto const &entry : AscensionCompatData::CoATalentEntries)
-            if (entry.ClassId == classId && !entry.AECost && !entry.TECost &&
-                (!entry.SpecId || !spec || entry.SpecId == spec))
-                for (uint32 spellId : entry.SpellIds)
-                    add(spellId, entry.RequiredLevel, 0);
-
-        // Services the original trainer window sold but this realm's generated class data
-        // never resolved to a level. Without them the window is missing whole rank chains for
-        // some classes: Stormbringer's Torrential Wrath and Brine, the Guardian Ballads,
-        // Pyromancer's Echo of Nozdormu, the Ranger's Bushcraft kit. See SpellbookOfferData.h.
-        for (SpellbookOfferData::Offer const &offer : SpellbookOfferData::Offers)
-            if (offer.ClassId == classId)
-                add(offer.SpellId, offer.RequiredLevel,
-                    rankBelow(offer.FirstSpellId, offer.RequiredLevel, offer.SpellId));
-
-        // Class trainer rows the realm's own NPCTrainer.dbc teaches under this class's tab
-        // name, that no other source sells: the top ranks of ladders the captured window only
-        // showed part of (Devotion of Grace rank 8, Chromie's Wisdom 5, the Ranger's Bushcraft
-        // tiers, the Venomancer's fourth form). See SpellbookTrainerData.h.
-        for (SpellbookTrainerData::Offer const &offer : SpellbookTrainerData::Offers)
-            if (offer.ClassId == classId)
-                add(offer.SpellId, offer.RequiredLevel,
-                    rankBelow(offer.FirstSpellId, offer.RequiredLevel, offer.SpellId));
-
-        // Upgrades of abilities this window already sells that the realm's generated
-        // progression data never resolved - the client's own rank ladders carry them, and
-        // without them the last ranks of those abilities were unreachable from any book.
-        // See SpellbookRankData.h. The requirement is the highest rank this window offers
-        // below them, so an upgrade still needs the rank under it.
-        for (SpellbookRankData::Rank const &rank : SpellbookRankData::Ranks)
-            if (rank.ClassId == classId)
-                add(rank.SpellId, rank.RequiredLevel, rank.RequiredSpellId);
 
         // The ladder the rows themselves carry: a row requires the rank under it, so the row
         // that requires this one is the rank above it. A rank the character already holds above

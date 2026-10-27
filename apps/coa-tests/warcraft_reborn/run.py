@@ -364,6 +364,43 @@ int main(int, char** argv)
     Check(twinned(1464, 1101464) && rankTwinned(1464, 1101465) && rankTwinned(1464, 1101466) && rankTwinned(1464, 1101467),
         "Reborn Slam ranks 2-4 take stock Slam's chain (1464), not the unranked old Slam spells at their own ids");
 
+    AscensionFreepick::Realm wotlk = reborn;
+    wotlk.WotlkOnly = true;
+    bool ownRows = true;
+    for (std::uint32_t entryId : NON_WOTLK_ENTRIES)
+    {
+        AscensionFreepick::Row const* row = data.Catalog.Find(entryId);
+        ownRows = ownRows && row && data.Catalog.ClassTypes.at(row->ClassType).Stock;
+    }
+    Check(ownRows && std::all_of(NON_WOTLK_SPELLS.begin(), NON_WOTLK_SPELLS.end(), exists),
+        "every Ascension-made entry left out belongs to a Reborn class, and every left-out spell exists");
+    std::vector<std::uint32_t> const wotlkHunter = StartingSpells(data, wotlk, HUNTER, 1);
+    Check(Holds(wotlkHunter, 75) && Holds(wotlkHunter, 1102973) && !Holds(wotlkHunter, 1121004),
+        "a WotLK-only Reborn Hunter starts with Auto Shot and Raptor Strike, without Quick Shot");
+    std::vector<TrainerSpell> const wotlkShaman = TrainerSpells(data, wotlk, 7,
+        { Stock(529, 100, 8), Stock(49271, 5000, 80) }, exists, added);
+    Check(!Row(wotlkShaman, 1954861) && !Row(wotlkShaman, 1182010) && !Row(wotlkShaman, 1954891) &&
+            Row(wotlkShaman, 1100529) != nullptr,
+        "a WotLK-only Shaman trainer sells Lightning Bolt, not Healing Rain, Unleash Earth or Elemental Blast");
+    std::vector<TrainerSpell> const wotlkPaladin = TrainerSpells(data, wotlk, PALADIN,
+        { Stock(639, 100, 6), Stock(48782, 5000, 80) }, exists, added);
+    Check(Row(paladin, 1325782) && !Row(wotlkPaladin, 1325782) && Row(wotlkPaladin, 1125782),
+        "WotLK-only trainers keep Greater Blessing of Might and drop Ascension's Sanctified Blessing of Might");
+    std::vector<TrainerSpell> const wotlkDruid = TrainerSpells(data, wotlk, 11,
+        { Stock(5176, 100, 1), Stock(48461, 5000, 80) }, exists, added);
+    Check(!Row(wotlkDruid, 1100790) && !Row(wotlkDruid, 2305029),
+        "a WotLK-only Druid trainer sells no Thrash or Starsurge");
+    std::vector<std::uint32_t> const forgotten = NonWotlkSpells(data);
+    Check(Holds(forgotten, 1578104) && Holds(forgotten, 1590873) && Holds(forgotten, 1578936) &&
+            Holds(forgotten, 1121018) && Holds(forgotten, 1325782) && Holds(forgotten, DARK_APOTHEOSIS) &&
+            Holds(forgotten, DARK_APOTHEOSIS_SPELLS[1]) &&
+            Holds(forgotten, data.LadderOf(DARK_APOTHEOSIS_SPELLS[1])->back()),
+        "characters forget Shadow Artillery, Black Widow Strike, trap launching, every Quick Shot rank, "
+        "Sanctified blessings and Dark Apotheosis with what it grants");
+    Check(!Holds(forgotten, 1125782) && !Holds(forgotten, 1102973) && !Holds(forgotten, 1119740) &&
+            !Holds(forgotten, 674) && !Holds(forgotten, 1101098),
+        "they keep Greater Blessing of Might, Raptor Strike, Blessing of Might, Dual Wield and Enslave Demon");
+
     return failures ? 1 : 0;
 }
 """

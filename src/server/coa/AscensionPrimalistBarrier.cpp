@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
@@ -28,7 +29,7 @@ class aura_ascension_earthmother_protection_link : public AuraScript
 
     bool Load() override
     {
-        return GetUnitOwner()->IsPlayer() && GetUnitOwner()->getClass() == CLASS_WILDWALKER;
+        return GetUnitOwner()->IsPlayer() && UsesAscensionClassMechanics(GetUnitOwner()->ToPlayer(), CLASS_WILDWALKER);
     }
 
     void Applied(AuraEffect const*, AuraEffectHandleModes)
@@ -69,7 +70,7 @@ public:
 
     void ModifySpellEffectBaseValue(Unit const* caster, SpellInfo const* info, uint8 index, float& value) override
     {
-        if (!caster || !caster->IsPlayer() || caster->getClass() != CLASS_WILDWALKER ||
+        if (!caster || !caster->IsPlayer() || !UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_WILDWALKER) ||
             info->SpellFamilyName != 37 || info->Id != RockBarrier || index != EFFECT_0 ||
             info->Effects[index].ApplyAuraName != SPELL_AURA_MOD_RESISTANCE)
             return;
@@ -104,8 +105,8 @@ class aura_ascension_fury_of_earthmother : public AuraScript
     {
         Unit* owner = GetTarget();
         DamageInfo const* damage = event.GetDamageInfo();
-        return owner->IsPlayer() && owner->getClass() == CLASS_WILDWALKER && owner->IsAlive() &&
-            event.GetActor() == owner && damage && damage->GetDamage() &&
+        return owner->IsPlayer() && UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_WILDWALKER) &&
+            owner->IsAlive() && event.GetActor() == owner && damage && damage->GetDamage() &&
             owner->HasAura(RockBarrier, owner->GetGUID());
     }
 
@@ -121,7 +122,7 @@ class spell_ascension_fury_of_earthmother_charge : public SpellScript
 
     bool Load() override
     {
-        return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_WILDWALKER;
+        return GetCaster()->IsPlayer() && UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_WILDWALKER);
     }
 
     void Restore()

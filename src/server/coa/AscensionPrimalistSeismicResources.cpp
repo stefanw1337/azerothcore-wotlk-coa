@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -25,7 +26,7 @@ Player* PrimalistCaster(Spell* spell)
     if (!spell || spell->IsTriggered() || spell->GetSpellInfo()->SpellFamilyName != 37)
         return nullptr;
     Player* player = spell->GetCaster()->ToPlayer();
-    return player && player->getClass() == CLASS_WILDWALKER && player->IsAlive() ? player : nullptr;
+    return player && UsesAscensionClassMechanics(player, CLASS_WILDWALKER) && player->IsAlive() ? player : nullptr;
 }
 
 class primalist_seismic_resources : public AllSpellScript

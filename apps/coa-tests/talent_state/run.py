@@ -23,10 +23,20 @@ from client_data import dbc_dir  # noqa: E402
 MAIN = r"""
 #include "AscensionCoATalentData.h"
 #include "AscensionCoATalentState.h"
+#include "AscensionFreepick.h"
 #include "DBCStores.h"
 #include <algorithm>
 #include <cstdio>
+#include <map>
 #include <set>
+
+namespace AscensionFreepick
+{
+Realm ReadRealm()
+{
+    return {};
+}
+}
 
 using namespace AscensionCompatData;
 using namespace AscensionCoATalentState;
@@ -138,7 +148,7 @@ int main(int, char** argv)
 
     std::set<std::uint8_t> specializedClasses;
     for (CoATalentEntry const& entry : CoATalentEntries)
-        if (entry.SpecId)
+        if (entry.SpecId && !IsCoABorrowOnlyClass(entry.ClassId))
             specializedClasses.insert(entry.ClassId);
     std::set<std::uint8_t> identifiedClasses;
     bool identitiesBelong = !CoASpecializations.empty();
@@ -159,6 +169,31 @@ int main(int, char** argv)
     Check(identifiedClasses == specializedClasses, "every class with specialization talents has identity entries");
     Check(switchesDetected,
           "a switch upload names exactly the specialization it enters and chooses none of its talents");
+
+    {
+        std::uint8_t const borrowedMage = CoABorrowOnlyClassOf(8);
+        CoATalentEntry const* frostTalent = nullptr;
+        bool borrowedClassTree = false;
+        for (CoATalentEntry const& entry : CoATalentEntries)
+        {
+            if (entry.ClassId != borrowedMage)
+                continue;
+            borrowedClassTree = borrowedClassTree || !entry.SpecId;
+            if (!frostTalent && entry.SpecId == 87 && entry.TECost)
+                frostTalent = &entry;
+        }
+        Check(frostTalent && !borrowedClassTree,
+              "standard class trees load as borrow-only specializations without a class tree");
+        Check(KnownEntries(8, [](std::uint32_t) { return true; }).empty(),
+              "a standard class character owns no borrow-only entries");
+        TalentAccess borrowing{ 31, 58, { { borrowedMage, 87 } }, {} };
+        TalentAccess native{ 31, 58, {}, {} };
+        Check(frostTalent && IsTreeOpen(borrowing, *frostTalent) && OwnsEntry(borrowing, *frostTalent) &&
+              !IsTreeOpen(native, *frostTalent) && !OwnsEntry(native, *frostTalent),
+              "a borrowed standard specialization opens only through an extra tree");
+        Check(frostTalent && WithoutExtraTrees(borrowing, { { frostTalent->EntryId, 1 } }).empty(),
+              "the native talent window is not sent borrowed entries");
+    }
 
     CoATalentEntry const* classTalent = spec ? FirstPaid(spec->ClassId, true) : nullptr;
     std::vector<CoASpecialization> specializations;
@@ -304,6 +339,144 @@ int main(int, char** argv)
     Check(specTalent && !IsUnpricedRemoval(*specTalent), "an ordinary specialization talent is charged when removed");
     RemovalPayment const nothing = PayForRemovals({ UnlearnPriceAt(10, fresh) }, 0, 0);
     Check(nothing.Affordable && !nothing.Marks && !nothing.Money, "free removals need no payment");
+
+    std::map<std::uint8_t, std::vector<std::uint16_t>> specializationsOf;
+    for (CoASpecialization const& specialization : CoASpecializations)
+        specializationsOf[specialization.ClassId].push_back(specialization.SpecId);
+    auto const mainClass = std::find_if(specializationsOf.begin(), specializationsOf.end(),
+        [](auto const& item) { return item.second.size() >= 3; });
+    auto const subClass = std::find_if(specializationsOf.begin(), specializationsOf.end(),
+        [mainClass](auto const& item) { return item.first != mainClass->first && item.second.size() >= 2; });
+    Check(mainClass != specializationsOf.end() && subClass != specializationsOf.end(),
+          "a class with three specializations and another class with two exist");
+    if (mainClass != specializationsOf.end() && subClass != specializationsOf.end())
+    {
+        std::uint8_t const mainId = mainClass->first;
+        std::uint16_t const active = mainClass->second[0];
+        std::uint16_t const second = mainClass->second[1];
+        std::uint16_t const closed = mainClass->second[2];
+        std::uint8_t const subId = subClass->first;
+        std::uint16_t const borrowed = subClass->second[0];
+        std::uint16_t const unborrowed = subClass->second[1];
+
+        TalentAccess const native{ mainId, active, {} };
+        bool nativeRule = true;
+        for (CoATalentEntry const& entry : CoATalentEntries)
+            nativeRule = nativeRule && !IsExtraTree(native, entry) &&
+                OwnsEntry(native, entry) == (entry.ClassId == mainId) &&
+                IsTreeOpen(native, entry) == (entry.ClassId == mainId && (!entry.SpecId || entry.SpecId == active));
+        Check(nativeRule, "without extra trees only the own class tree and the active specialization are open");
+
+        HasSpell const everything = [](std::uint32_t) { return true; };
+        std::vector<KnownEntry> const byClass = KnownEntries(mainId, everything);
+        std::vector<KnownEntry> const byAccess = KnownEntries(native, everything);
+        Check(byClass.size() == byAccess.size() && std::equal(byClass.begin(), byClass.end(), byAccess.begin(),
+                  [](KnownEntry const& left, KnownEntry const& right)
+                  {
+                      return left.EntryId == right.EntryId && left.Rank == right.Rank;
+                  }),
+              "without extra trees the known entries are the class's known entries");
+
+        TalentAccess const hybrid{ mainId, active, { { mainId, second }, { subId, borrowed } } };
+        bool secondOpen = false;
+        bool borrowedOpen = false;
+        bool othersClosed = true;
+        for (CoATalentEntry const& entry : CoATalentEntries)
+        {
+            if (entry.ClassId == mainId && entry.SpecId == second)
+                secondOpen = secondOpen || (IsTreeOpen(hybrid, entry) && IsExtraTree(hybrid, entry));
+            if (entry.ClassId == subId && entry.SpecId == borrowed)
+                borrowedOpen = borrowedOpen || (IsTreeOpen(hybrid, entry) && OwnsEntry(hybrid, entry));
+            if ((entry.ClassId == mainId && entry.SpecId == closed) ||
+                (entry.ClassId == subId && (entry.SpecId == unborrowed || !entry.SpecId)))
+                othersClosed = othersClosed && !IsTreeOpen(hybrid, entry) &&
+                    (entry.ClassId == mainId || !OwnsEntry(hybrid, entry));
+        }
+        Check(secondOpen, "an extra tree of the own class opens a second specialization");
+        Check(borrowedOpen, "an extra tree of another class opens that specialization");
+        Check(othersClosed, "trees that were not granted stay closed");
+
+        auto const identityOf = [](std::uint16_t specId)
+        {
+            for (CoASpecialization const& specialization : CoASpecializations)
+                if (specialization.SpecId == specId)
+                    return specialization.IdentityEntryId;
+            return std::uint32_t(0);
+        };
+        std::vector<KnownEntry> const upload = { { identityOf(active), 1 }, { identityOf(second), 1 },
+            { identityOf(borrowed), 1 } };
+        Check(SpecializationOf(upload).Mixed, "identities of three specializations mix a plain upload");
+        UploadedSpecialization const own = SpecializationOf(WithoutExtraTrees(hybrid, upload));
+        Check(!own.Mixed && own.SpecId == active, "without the extra trees the upload names the active specialization");
+
+        CoATalentEntry const* ownPaid = FirstPaid(mainId, true);
+        CoATalentEntry const* borrowedPaid = nullptr;
+        for (CoATalentEntry const& entry : CoATalentEntries)
+            if (!borrowedPaid && entry.ClassId == subId && entry.SpecId == borrowed && (entry.AECost || entry.TECost))
+                borrowedPaid = &entry;
+        if (ownPaid && borrowedPaid)
+        {
+            std::vector<KnownEntry> const both = { { ownPaid->EntryId, 1 }, { borrowedPaid->EntryId, 1 } };
+            SpentPoints const all = Spent(both);
+            SpentPoints const mainOnly = Spent({ { ownPaid->EntryId, 1 } });
+            SpentPoints const charged = OwnSpent(hybrid, both);
+            Check(charged.AE == mainOnly.AE && charged.TE == mainOnly.TE && all.AE + all.TE > charged.AE + charged.TE,
+                  "points spent in a borrowed tree are not charged to the own budget");
+        }
+        else
+            Check(false, "a paid entry exists in the own class tree and in the borrowed specialization");
+
+        HasSpell const none = [](std::uint32_t) { return false; };
+        CoATalentEntry const* granted = nullptr;
+        for (CoATalentEntry const& entry : CoATalentEntries)
+            if (!granted && entry.ClassId == subId && entry.SpecId == borrowed &&
+                CanGrantAutomatic(entry, subId, 80, borrowed, none))
+                granted = &entry;
+        Check(granted && CanGrantAutomatic(*granted, hybrid, 80, none) &&
+                  !CanGrantAutomatic(*granted, native, 80, none),
+              "an extra tree's automatic entries are granted only while the tree is open");
+
+        TalentAccess swapped{ mainId, borrowed, {}, { { second, { subId, borrowed } } } };
+        Check(IsSelectableSpecialization(swapped, borrowed) && !IsSelectableSpecialization(swapped, second) &&
+                  IsSelectableSpecialization(swapped, active) && !IsSelectableSpecialization(native, borrowed) &&
+                  IsSelectableSpecialization(native, second),
+              "a swap makes the borrowed specialization selectable and the replaced one not");
+        bool borrowedActiveOpen = false;
+        bool swappedOthersClosed = true;
+        bool classTreeStays = false;
+        for (CoATalentEntry const& entry : CoATalentEntries)
+        {
+            if (entry.ClassId == subId && entry.SpecId == borrowed)
+                borrowedActiveOpen = borrowedActiveOpen || (IsTreeOpen(swapped, entry) && OwnsEntry(swapped, entry));
+            if (entry.ClassId == mainId && !entry.SpecId)
+                classTreeStays = classTreeStays || IsTreeOpen(swapped, entry);
+            if ((entry.ClassId == mainId && entry.SpecId) || (entry.ClassId == subId && entry.SpecId != borrowed))
+                swappedOthersClosed = swappedOthersClosed && !IsTreeOpen(swapped, entry);
+        }
+        Check(borrowedActiveOpen && classTreeStays && swappedOthersClosed,
+              "an active borrowed specialization opens with the own class tree and closes every other tree");
+        TalentAccess swappedIdle = swapped;
+        swappedIdle.ActiveSpecId = active;
+        Check(granted && CanGrantAutomatic(*granted, swapped, 80, none) &&
+                  !CanGrantAutomatic(*granted, swappedIdle, 80, none),
+              "a borrowed specialization's automatic entries are granted only while it is active");
+
+        SpecializationSlot const nativeSlot{ mainId, active, {}, {} };
+        std::vector<KnownEntry> const legacySlot = SlotKnownEntries(nativeSlot, 80, none);
+        std::vector<KnownEntry> const accessSlot = SlotKnownEntries(nativeSlot, native, 80, none);
+        Check(legacySlot.size() == accessSlot.size() &&
+                  std::equal(legacySlot.begin(), legacySlot.end(), accessSlot.begin(),
+                      [](KnownEntry const& left, KnownEntry const& right)
+                      {
+                          return left.EntryId == right.EntryId && left.Rank == right.Rank;
+                      }),
+              "without providers a slot resolves to the same known entries as before");
+        SpecializationSlot const borrowedSlot{ mainId, borrowed, {}, {} };
+        std::vector<KnownEntry> const borrowedKnown = SlotKnownEntries(borrowedSlot, swapped, 80, none);
+        Check(granted && std::any_of(borrowedKnown.begin(), borrowedKnown.end(),
+                  [granted](KnownEntry const& item) { return item.EntryId == granted->EntryId; }),
+              "a slot of the borrowed specialization holds its automatic entries");
+    }
 
     return failures ? 1 : 0;
 }

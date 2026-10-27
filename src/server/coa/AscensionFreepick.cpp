@@ -51,6 +51,7 @@ Realm ReadRealm()
         realm.WarcraftReborn = realm.WarcraftReborn || entry == "wcr";
         realm.Classless = realm.Classless || entry == "hero";
     }
+    realm.WotlkOnly = sConfigMgr->GetOption<bool>("CoA.WarcraftReborn.WotlkOnly", false);
     uint32 const maxLevel = sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL);
     realm.Ruleset = maxLevel <= 60 ? 0 : maxLevel <= 70 ? 1 : 2;
     return realm;

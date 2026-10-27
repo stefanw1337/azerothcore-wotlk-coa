@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionGuardianCompletion.h"
+#include "AscensionSpecialization.h"
 #include "EventProcessor.h"
 #include "Map.h"
 #include "MoveSpline.h"
@@ -57,7 +58,7 @@ class spell_ascension_guardian_ability : public SpellScript
 
     bool Load() override
     {
-        return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_GUARDIAN;
+        return GetCaster()->IsPlayer() && UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_GUARDIAN);
     }
 
     void Before()

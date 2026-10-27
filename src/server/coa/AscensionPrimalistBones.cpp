@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Pet.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -21,7 +22,7 @@ Player* PetPrimalist(Unit* unit)
 {
     Pet* pet = unit ? unit->ToPet() : nullptr;
     Player* owner = pet ? pet->GetOwner() : nullptr;
-    return owner && owner->getClass() == CLASS_WILDWALKER && owner->GetPet() == pet ? owner : nullptr;
+    return owner && UsesAscensionClassMechanics(owner, CLASS_WILDWALKER) && owner->GetPet() == pet ? owner : nullptr;
 }
 
 class spell_ascension_bring_their_bones : public SpellScript
@@ -29,7 +30,10 @@ class spell_ascension_bring_their_bones : public SpellScript
     PrepareSpellScript(spell_ascension_bring_their_bones);
 
     bool Validate(SpellInfo const*) override { return ValidateSpellInfo({BonesStacks, BonesListener}); }
-    bool Load() override { return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_WILDWALKER; }
+    bool Load() override
+    {
+        return GetCaster()->IsPlayer() && UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_WILDWALKER);
+    }
 
     SpellCastResult CheckPet()
     {

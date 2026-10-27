@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 #include "AscensionRunemasterTalents.h"
+#include "AscensionSpecialization.h"
 #include "Log.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
@@ -75,7 +76,8 @@ void ApplyPermafrostAura(Unit* unit, Aura* aura)
     if (id != SPELL_PERMAFROST_RUNE)
         return;
     Player* caster = ObjectAccessor::FindPlayer(aura->GetCasterGUID());
-    if (!caster || caster->getClass() != CLASS_SPIRIT_MAGE || !caster->HasAura(SPELL_RUNESHROUD, caster->GetGUID()))
+    if (!caster || !UsesAscensionClassMechanics(caster, CLASS_SPIRIT_MAGE) ||
+        !caster->HasAura(SPELL_RUNESHROUD, caster->GetGUID()))
         return;
     uint32 remaining = caster->GetSpellCooldownDelay(SPELL_PERMAFROST_RUNE);
     if (remaining)
@@ -101,14 +103,15 @@ public:
     void OnAuraApply(Unit* unit, Aura* aura) override
     {
         Player* player = unit ? unit->ToPlayer() : nullptr;
-        if (player && aura && player->getClass() == CLASS_SPIRIT_MAGE && aura->GetId() == SPELL_RUNIC_TEMPEST)
+        if (player && aura && UsesAscensionClassMechanics(player, CLASS_SPIRIT_MAGE) &&
+            aura->GetId() == SPELL_RUNIC_TEMPEST)
             KeepRunicTempestMarker(player);
     }
 
     void OnAuraRemove(Unit* unit, AuraApplication* application, AuraRemoveMode) override
     {
         Player* player = unit ? unit->ToPlayer() : nullptr;
-        if (!player || !application || player->getClass() != CLASS_SPIRIT_MAGE)
+        if (!player || !application || !UsesAscensionClassMechanics(player, CLASS_SPIRIT_MAGE))
             return;
         uint32 id = application->GetBase()->GetId();
         if (id == SPELL_RUNIC_TEMPEST && player->IsInWorld())
@@ -129,7 +132,7 @@ public:
         if (unit && aura)
             ApplyPermafrostAura(unit, aura);
         Player* player = unit ? unit->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_SPIRIT_MAGE || !aura)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SPIRIT_MAGE) || !aura)
             return;
         uint32 id = aura->GetId();
         if (id == 707157 || id == 712310 || IsEarthTattoo(id))
@@ -143,7 +146,7 @@ public:
         if (unit && application && application->GetBase()->GetId() == SPELL_PERMAFROST_RUNE)
             unit->RemoveAurasDueToSpell(SPELL_PERMAFROST_MARKER, application->GetBase()->GetCasterGUID());
         Player* player = unit ? unit->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_SPIRIT_MAGE || !application)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SPIRIT_MAGE) || !application)
             return;
         Aura* aura = application->GetBase();
         uint32 id = aura->GetId();
@@ -166,7 +169,7 @@ public:
 
     void OnPlayerLogin(Player* player) override
     {
-        if (player->getClass() != CLASS_SPIRIT_MAGE)
+        if (!UsesAscensionClassMechanics(player, CLASS_SPIRIT_MAGE))
             return;
         SyncRuneshroudOrWaveforged(player);
         KeepRunicTempestMarker(player);

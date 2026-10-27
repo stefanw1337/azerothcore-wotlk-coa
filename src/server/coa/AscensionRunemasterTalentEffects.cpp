@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -26,7 +27,7 @@ constexpr uint8 HARNESSED_LEYLINES_STACKS = 10;
 
 bool IsRunemaster(Unit const* unit)
 {
-    return unit && unit->IsPlayer() && unit->getClass() == CLASS_SPIRIT_MAGE;
+    return unit && unit->IsPlayer() && UsesAscensionClassMechanics(unit->ToPlayer(), CLASS_SPIRIT_MAGE);
 }
 
 class spell_ascension_runemaster_earth_wind_and_fire : public SpellScript

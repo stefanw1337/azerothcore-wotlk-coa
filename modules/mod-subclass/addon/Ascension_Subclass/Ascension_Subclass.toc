@@ -1,0 +1,15 @@
+## Interface: 30300
+## Title: Ascension Subclass
+## Notes: The Two-Head / Two-Thins tab: your subclass's talent trees.
+## Version: 0.1.0
+## SavedVariables: Ascension_SubclassDump
+## OptionalDeps: Bartender4, SpellActivationOverlay-for-CoA
+SubclassRaceBackground.lua
+Ascension_Subclass.lua
+SubclassBar.lua
+SubclassCastBar.lua
+SubclassPowerBar.lua
+SubclassOrbs.lua
+SubclassNodes.lua
+SubclassChoices.lua
+SubclassGlow.lua

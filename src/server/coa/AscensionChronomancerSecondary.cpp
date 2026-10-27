@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -54,7 +55,7 @@ constexpr uint32 AnomalySpikeFamilyFlag0 = 0x08000000;
 Player* SecondaryChronomancer(Unit* unit)
 {
     Player* player = unit ? unit->ToPlayer() : nullptr;
-    return player && player->getClass() == CLASS_CHRONOMANCER && player->IsAlive() && player->IsInWorld()
+    return player && UsesAscensionClassMechanics(player, CLASS_CHRONOMANCER) && player->IsAlive() && player->IsInWorld()
         ? player : nullptr;
 }
 
@@ -306,7 +307,7 @@ class aura_ascension_echo_duration : public AuraScript
     bool Load() override
     {
         return GetCaster() == GetUnitOwner() && GetCaster() && GetCaster()->IsPlayer() &&
-            GetCaster()->getClass() == CLASS_CHRONOMANCER;
+            UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_CHRONOMANCER);
     }
 
     void Sync(AuraEffect const*, AuraEffectHandleModes)

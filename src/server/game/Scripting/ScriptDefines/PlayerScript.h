@@ -262,7 +262,11 @@ enum PlayerHook
     PLAYERHOOK_ON_COA_PRESTIGE,
     PLAYERHOOK_ON_COA_PRESTIGE_SAVED,
     PLAYERHOOK_ON_MASTER_LOOT_ITEM,
+    PLAYERHOOK_ON_GET_QUEST_RACE_MASK,
+    PLAYERHOOK_ON_KEEPS_OWN_LOOK,
+    PLAYERHOOK_ON_BEFORE_BOARDED_BY,
     PLAYERHOOK_ON_GET_SHAPESHIFT_MODEL,
+    PLAYERHOOK_ON_LOAD_FOREIGN_SKILL,
     PLAYERHOOK_ON_GET_NAME_QUERY_RACE,
     PLAYERHOOK_END
 };
@@ -729,6 +733,10 @@ public:
     // Model the player takes in a shapeshift form; leaving modelId at 0 keeps the form's own model.
     virtual void OnPlayerGetShapeshiftModel(Player* /*player*/, uint8 /*form*/, uint32 /*spellId*/, uint32& /*modelId*/) { }
 
+    // A loading character keeps a skill its own race and class do not list when a script supplies the entry
+    // that ranges it; leaving entry null deletes the skill.
+    virtual void OnPlayerLoadForeignSkill(Player const* /*player*/, uint16 /*skill*/, SkillRaceClassInfoEntry const*& /*entry*/) { }
+
     // Race sent in name query responses; the client places a battleground scoreboard row by its faction.
     virtual void OnPlayerGetNameQueryRace(Player* /*player*/, uint8& /*race*/) { }
 
@@ -1171,6 +1179,32 @@ public:
      * @return true when the script resolved the mask
      */
     [[nodiscard]] virtual bool OnPlayerGetGameModeMask(Player const* /*player*/, uint32& /*mask*/) { return false; }
+
+    /**
+     * @brief This hook is called to resolve the race mask a character's quest race requirements are checked against.
+     *
+     * @param player Contains information about the Player
+     * @param mask Receives the race mask
+     * @return true when the script resolved the mask
+     */
+    [[nodiscard]] virtual bool OnPlayerGetQuestRaceMask(Player const* /*player*/, uint32& /*mask*/) { return false; }
+
+    /**
+     * @brief This hook is called before a shapeshift or transform spell changes a character's model.
+     *
+     * @param player Contains information about the Player
+     * @param spellId The shapeshift or transform spell
+     * @return true to keep the character's own model while the spell's other effects apply
+     */
+    [[nodiscard]] virtual bool OnPlayerKeepsOwnLook(Player const* /*player*/, uint32 /*spellId*/) { return false; }
+
+    /**
+     * @brief Called when a unit clicks a player's vehicle to ride along, before a seat is chosen
+     *
+     * @param player Contains information about the Player whose vehicle is clicked
+     * @param clicker The unit that wants a seat
+     */
+    virtual void OnPlayerBeforeBoardedBy(Player* /*player*/, Unit* /*clicker*/) { }
 };
 
 #endif

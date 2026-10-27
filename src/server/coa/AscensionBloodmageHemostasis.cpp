@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -19,7 +20,7 @@ enum HemostasisSpells : uint32
 Player* HemostasisCaster(Unit* unit)
 {
     Player* player = unit ? unit->ToPlayer() : nullptr;
-    return player && player->getClass() == CLASS_SON_OF_ARUGAL ? player : nullptr;
+    return player && UsesAscensionClassMechanics(player, CLASS_SON_OF_ARUGAL) ? player : nullptr;
 }
 
 Unit* HemostasisTarget(Player* player)

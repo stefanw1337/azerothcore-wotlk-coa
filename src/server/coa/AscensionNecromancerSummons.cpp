@@ -2,6 +2,7 @@
 
 #include "AscensionNecromancer.h"
 #include "AscensionNecromancerData.h"
+#include "AscensionSpecialization.h"
 #include "Creature.h"
 #include "DBCStores.h"
 #include "MotionMaster.h"
@@ -392,7 +393,7 @@ class npc_ascension_necromancer : public ScriptedAI
     void IsSummonedBy(WorldObject* summoner) override
     {
         Player* player = summoner ? summoner->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_NECROMANCER)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_NECROMANCER))
             return;
         _owner = player->GetGUID();
         _spell = me->GetUInt32Value(UNIT_CREATED_BY_SPELL);

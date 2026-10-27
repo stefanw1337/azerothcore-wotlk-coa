@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -36,7 +37,7 @@ class spell_ascension_runemaster_phase_out : public SpellScript
     bool Load() override
     {
         Unit* caster = GetCaster();
-        return caster && caster->IsPlayer() && caster->getClass() == CLASS_SPIRIT_MAGE;
+        return caster && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_SPIRIT_MAGE);
     }
 
     void ApplyRuneshroud(SpellEffIndex effIndex)
@@ -62,7 +63,7 @@ public:
     void OnSpellCast(Spell* spell, Unit* caster, SpellInfo const* info, bool) override
     {
         Player* player = caster ? caster->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_SPIRIT_MAGE || info->Id != SPELL_PHASE_OUT ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_SPIRIT_MAGE) || info->Id != SPELL_PHASE_OUT ||
             spell->IsTriggered())
             return;
 

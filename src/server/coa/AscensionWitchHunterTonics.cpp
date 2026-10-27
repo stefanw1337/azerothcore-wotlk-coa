@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "AscensionWitchHunterTonics.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -22,7 +23,7 @@ constexpr uint32 TONIC_CREATURE_TYPES = (1 << (CREATURE_TYPE_DEMON - 1)) | (1 <<
 
 bool IsWitchHunter(Unit* unit)
 {
-    return unit && unit->IsPlayer() && unit->ToPlayer()->getClass() == CLASS_WITCH_HUNTER;
+    return unit && unit->IsPlayer() && UsesAscensionClassMechanics(unit->ToPlayer(), CLASS_WITCH_HUNTER);
 }
 
 bool IsDarkTonicContract(SpellInfo const* spellInfo)

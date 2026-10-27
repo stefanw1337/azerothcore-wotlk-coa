@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellInfo.h"
@@ -21,7 +22,7 @@ public:
 private:
     static void Reset(Player* player)
     {
-        if (!player || player->getClass() != CLASS_REAPER)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_REAPER))
             return;
 
         for (uint32 spellId : GhostClawSpells)

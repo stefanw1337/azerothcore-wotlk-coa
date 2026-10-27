@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionBarbarianCompletion.h"
+#include "AscensionSpecialization.h"
 #include "Creature.h"
 #include "DBCStores.h"
 #include "Item.h"
@@ -21,7 +22,7 @@ namespace AscensionBarbarian
 Player* Owner(Unit* unit)
 {
     Player* player = unit ? unit->ToPlayer() : nullptr;
-    return player && player->getClass() == CLASS_BARBARIAN ? player : nullptr;
+    return player && UsesAscensionClassMechanics(player, CLASS_BARBARIAN) ? player : nullptr;
 }
 
 Unit* Ancestor(Player* player)
@@ -39,7 +40,7 @@ public:
     void OnPetAddToWorld(Pet* pet) override
     {
         Player* player = pet ? pet->GetOwner() : nullptr;
-        if (!player || player->getClass() != CLASS_BARBARIAN || pet->GetEntry() != 51265)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_BARBARIAN) || pet->GetEntry() != 51265)
             return;
 
         uint32 const displayId = player->getRace() == RACE_DWARF ? 260901 : 173031;
@@ -238,7 +239,7 @@ public:
     void ModifySpellEffectBaseValue(Unit const* caster, SpellInfo const* info, uint8 index, float& value) override
     {
         Player const* player = caster ? caster->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_BARBARIAN || info->SpellFamilyName != 18)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_BARBARIAN) || info->SpellFamilyName != 18)
             return;
         if (!index && Family(info, 1, 262144) && player->HasAura(570242))
             value += player->GetStat(STAT_AGILITY) * 0.2f;

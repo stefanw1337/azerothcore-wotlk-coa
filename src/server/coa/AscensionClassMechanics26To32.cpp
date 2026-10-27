@@ -2,6 +2,7 @@
 
 #include "AscensionClassMechanics26To32.h"
 #include "AscensionPrimalistEarthshaping.h"
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "Random.h"
 #include "Spell.h"
@@ -58,63 +59,55 @@ void HandleAscensionClassMechanics26To32Hit(Spell* spell, Player* player,
         return;
 
     std::uint32_t spellId = spell->GetSpellInfo()->Id;
-    switch (player->getClass())
+    if (UsesAscensionClassMechanics(player, CLASS_SUN_CLERIC))
     {
-        case CLASS_SUN_CLERIC:
+        if (damage && spellId == SPELL_SUN_CLERIC_SOLAR_FLARE &&
+            player->HasAura(SPELL_SUN_CLERIC_SUNS_HOPE))
         {
-            if (damage && spellId == SPELL_SUN_CLERIC_SOLAR_FLARE &&
-                player->HasAura(SPELL_SUN_CLERIC_SUNS_HOPE))
-            {
-                player->CastSpell(player,
-                    SPELL_SUN_CLERIC_GAIN_SOLAR_POWER, true);
-                player->CastSpell(target,
-                    SPELL_SUN_CLERIC_SUNS_HOPE_DEBUFF, true);
-            }
-
-            if (IsSolarNova(spellId))
-            {
-                player->CastSpell(player,
-                    SPELL_SUN_CLERIC_SOLAR_NOVA_COOLDOWN, true);
-            }
-            break;
+            player->CastSpell(player,
+                SPELL_SUN_CLERIC_GAIN_SOLAR_POWER, true);
+            player->CastSpell(target,
+                SPELL_SUN_CLERIC_SUNS_HOPE_DEBUFF, true);
         }
-        case CLASS_TINKER:
+
+        if (IsSolarNova(spellId))
         {
-            if (damage && critical && player->HasAura(SPELL_TINKER_COGMASTER) &&
-                IsRangedWeaponAttack(spell->GetSpellInfo()) &&
-                roll_chance_i(TINKER_COGMASTER_CHANCE))
-            {
-                player->CastSpell(player, SPELL_TINKER_COGMASTER_SCRAP, true);
-            }
-            break;
+            player->CastSpell(player,
+                SPELL_SUN_CLERIC_SOLAR_NOVA_COOLDOWN, true);
         }
-        case CLASS_REAPER:
+    }
+    if (UsesAscensionClassMechanics(player, CLASS_TINKER))
+    {
+        if (damage && critical && player->HasAura(SPELL_TINKER_COGMASTER) &&
+            IsRangedWeaponAttack(spell->GetSpellInfo()) &&
+            roll_chance_i(TINKER_COGMASTER_CHANCE))
         {
-            if (damage && spellId == SPELL_REAPER_DIRGE_HIT && critical &&
-                player->HasAura(SPELL_REAPER_SOUL_GENERATOR))
-            {
-                player->ModifyPower(POWER_RUNIC_POWER,
-                    REAPER_SOUL_GENERATOR_RUNIC_POWER);
-            }
-
-            if (spellId == SPELL_REAPER_SCYTHE_RUSH && !spell->IsTriggered())
-            {
-                player->AddAura(SPELL_REAPER_SCYTHE_RUSH_ROOT, target);
-
-                player->CastSpell(target,
-                    SPELL_REAPER_SCYTHE_RUSH_ENERGIZE, true);
-            }
-            break;
+            player->CastSpell(player, SPELL_TINKER_COGMASTER_SCRAP, true);
         }
-        default:
-            break;
+    }
+    if (UsesAscensionClassMechanics(player, CLASS_REAPER))
+    {
+        if (damage && spellId == SPELL_REAPER_DIRGE_HIT && critical &&
+            player->HasAura(SPELL_REAPER_SOUL_GENERATOR))
+        {
+            player->ModifyPower(POWER_RUNIC_POWER,
+                REAPER_SOUL_GENERATOR_RUNIC_POWER);
+        }
+
+        if (spellId == SPELL_REAPER_SCYTHE_RUSH && !spell->IsTriggered())
+        {
+            player->AddAura(SPELL_REAPER_SCYTHE_RUSH_ROOT, target);
+
+            player->CastSpell(target,
+                SPELL_REAPER_SCYTHE_RUSH_ENERGIZE, true);
+        }
     }
 }
 
 void HandleAscensionClassMechanics26To32SuccessfulInterrupt(Spell* spell,
     Player* player)
 {
-    if (!spell || !player || player->getClass() != CLASS_WILDWALKER ||
+    if (!spell || !player || !UsesAscensionClassMechanics(player, CLASS_WILDWALKER) ||
         spell->GetSpellInfo()->Id != SPELL_PRIMALIST_CAVE_IN)
         return;
 

@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "AscensionVenomancerVenomTalents.h"
 #include "AscensionVenomancerVenomData.h"
 #include "Player.h"
@@ -66,7 +67,7 @@ bool IsIntoxicating(SpellInfo const* info)
 Player* Venomancer(Unit* unit)
 {
     Player* player = unit ? unit->ToPlayer() : nullptr;
-    return player && player->getClass() == CLASS_PROPHET ? player : nullptr;
+    return player && UsesAscensionClassMechanics(player, CLASS_PROPHET) ? player : nullptr;
 }
 
 Aura* OwnAura(Player* player, uint32 id)
@@ -90,7 +91,7 @@ bool CanExtend(Player* player)
 
 void RefreshMycosisModifiers(Player* player)
 {
-    if (!player || player->getClass() != CLASS_PROPHET)
+    if (!player || !UsesAscensionClassMechanics(player, CLASS_PROPHET))
         return;
 
     for (uint32 id : {805731u, 805775u})

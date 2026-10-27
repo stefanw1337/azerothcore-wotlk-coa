@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -22,7 +23,7 @@ enum DirtyFighterSpells : uint32
 Player* DirtyFighter(Unit* unit)
 {
     Player* player = unit ? unit->ToPlayer() : nullptr;
-    return player && player->getClass() == CLASS_RANGER ? player : nullptr;
+    return player && UsesAscensionClassMechanics(player, CLASS_RANGER) ? player : nullptr;
 }
 
 bool CanSuckerPunch(Player* player)

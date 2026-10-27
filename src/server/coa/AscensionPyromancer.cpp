@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 #include "AscensionPyromancer.h"
 #include "AscensionPyromancerData.h"
+#include "AscensionSpecialization.h"
 #include "CellImpl.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
@@ -29,7 +30,7 @@ Player* Owner(Unit const* unit)
     Player* player = const_cast<Unit*>(unit)->ToPlayer();
     if (!player && unit->GetOwner())
         player = unit->GetOwner()->ToPlayer();
-    return player && player->getClass() == CLASS_PYROMANCER ? player : nullptr;
+    return player && UsesAscensionClassMechanics(player, CLASS_PYROMANCER) ? player : nullptr;
 }
 PyromancerState& State(Player* player)
 {
@@ -211,7 +212,7 @@ void Spent(Player* player, uint32 count)
 }
 bool Resource(Player* player, uint32 id, int32 delta)
 {
-    if (!player || player->getClass() != CLASS_PYROMANCER || (id != HeatAura && id != EmberAura))
+    if (!player || !UsesAscensionClassMechanics(player, CLASS_PYROMANCER) || (id != HeatAura && id != EmberAura))
         return false;
     int32 before = Count(player, id);
     int64 total = std::max<int64>(0, int64(before) + delta);

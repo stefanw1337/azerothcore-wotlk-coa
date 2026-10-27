@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "DBCStores.h"
 #include "Item.h"
 #include "Player.h"
@@ -64,7 +65,7 @@ Augmentation const* GetAugmentation(SpellInfo const* spellInfo)
 
 Item* GetAugmentationGun(Player* player, SpellInfo const* spellInfo)
 {
-    if (!player || player->getClass() != CLASS_TINKER || !GetAugmentation(spellInfo))
+    if (!player || !UsesAscensionClassMechanics(player, CLASS_TINKER) || !GetAugmentation(spellInfo))
         return nullptr;
 
     Item* gun = player->GetWeaponForAttack(RANGED_ATTACK);
@@ -169,7 +170,7 @@ class spell_ascension_tinker_augmentation_damage : public SpellScript
     {
         Unit* caster = GetOriginalCaster();
         Player* player = caster ? caster->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_TINKER || !GetSpell()->IsTriggered() ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_TINKER) || !GetSpell()->IsTriggered() ||
             !UsesAugmentationBaseScaling(GetSpellInfo()))
             return;
 
@@ -189,7 +190,7 @@ class spell_ascension_tinker_augmentation_damage : public SpellScript
         Unit* target = GetHitUnit();
         float coefficient = GetAugmentationRangedCoefficient(GetSpellInfo());
         SpellBonusEntry const* bonus = sSpellMgr->GetSpellBonusData(GetSpellInfo()->Id);
-        if (!player || player->getClass() != CLASS_TINKER || !target || !GetSpell()->IsTriggered() ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_TINKER) || !target || !GetSpell()->IsTriggered() ||
             (coefficient <= 0.0f && !UsesAugmentationBaseScaling(GetSpellInfo())) ||
             !bonus || bonus->ap_bonus != 0.0f)
             return;
@@ -246,7 +247,7 @@ class spell_ascension_tinker_tracer : public SpellScript
         Unit* target = GetExplTargetUnit();
         SpellInfo const* spellInfo = GetSpellInfo();
         SpellBonusEntry const* bonus = sSpellMgr->GetSpellBonusData(spellInfo->Id);
-        if (!player || player->getClass() != CLASS_TINKER || !target || !GetSpell()->IsTriggered() ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_TINKER) || !target || !GetSpell()->IsTriggered() ||
             !IsTracerMark(spellInfo) || !bonus || bonus->ap_dot_bonus != 0.0f)
             return;
 
@@ -316,7 +317,7 @@ class aura_ascension_tinker_tracer : public AuraScript
     {
         Unit* caster = GetCaster();
         Player* player = caster ? caster->ToPlayer() : nullptr;
-        if (player && player->getClass() == CLASS_TINKER)
+        if (player && UsesAscensionClassMechanics(player, CLASS_TINKER))
             caster->CastSpell(GetTarget(), SPELL_TRACER_REVEAL, true, nullptr, effect);
     }
 
@@ -370,7 +371,7 @@ class aura_ascension_tinker_stim : public AuraScript
         Player* player = GetTarget()->ToPlayer();
         HealInfo const* heal = eventInfo.GetHealInfo();
         SpellInfo const* spellInfo = heal ? heal->GetSpellInfo() : nullptr;
-        return player && player->getClass() == CLASS_TINKER && eventInfo.GetActor() == player &&
+        return player && UsesAscensionClassMechanics(player, CLASS_TINKER) && eventInfo.GetActor() == player &&
             heal && heal->GetHealer() == player && heal->GetTarget() && heal->GetEffectiveHeal() &&
             spellInfo && spellInfo->Id != SPELL_STIM_HEAL &&
             !(eventInfo.GetTypeMask() & PROC_FLAG_DONE_PERIODIC);

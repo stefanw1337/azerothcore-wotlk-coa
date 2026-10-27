@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "SpellAuraEffects.h"
 #include "SpellInfo.h"
@@ -48,7 +49,7 @@ class aura_ascension_tinker_hacking : public AuraScript
     void RestrictTarget(AuraEffect const* effect, SpellModifier*& modifier)
     {
         Player* player = GetUnitOwner() ? GetUnitOwner()->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_TINKER || !effect || !modifier ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_TINKER) || !effect || !modifier ||
             !IsHackingEffect(effect->GetSpellInfo(), effect->GetEffIndex()) ||
             modifier->ownerAura != GetAura() || modifier->spellId != SPELL_HACKING_THE_ENEMY ||
             modifier->type != SPELLMOD_FLAT || modifier->op != SpellModOp(effect->GetMiscValue()) ||

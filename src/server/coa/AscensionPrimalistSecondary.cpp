@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -41,7 +42,7 @@ public:
     void OnAuraApply(Unit* unit, Aura* aura) override
     {
         Player* player = unit ? unit->ToPlayer() : nullptr;
-        if (player && player->getClass() == CLASS_WILDWALKER && aura &&
+        if (player && UsesAscensionClassMechanics(player, CLASS_WILDWALKER) && aura &&
             aura->GetId() == SPELL_ANCIENT_OF_LORE && aura->GetCasterGUID() == player->GetGUID() &&
             !player->HasAura(SPELL_ANCIENT_SLOW, player->GetGUID()))
             player->AddAura(SPELL_ANCIENT_SLOW, player);
@@ -50,7 +51,7 @@ public:
     void OnAuraRemove(Unit* unit, AuraApplication* application, AuraRemoveMode mode) override
     {
         Player* player = unit ? unit->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_WILDWALKER || !application)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_WILDWALKER) || !application)
             return;
         Aura* aura = application->GetBase();
         if (aura->GetCasterGUID() != player->GetGUID())
@@ -76,7 +77,7 @@ class spell_ascension_totem_warrior : public SpellScript
 
     bool Load() override
     {
-        return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_WILDWALKER;
+        return UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_WILDWALKER);
     }
 
     void Repeat()
@@ -111,7 +112,7 @@ class aura_ascension_volcanic_blast : public AuraScript
         Unit* player = GetTarget();
         Unit* victim = event.GetActionTarget();
         DamageInfo const* damage = event.GetDamageInfo();
-        return player->IsPlayer() && player->getClass() == CLASS_WILDWALKER && player->IsAlive() &&
+        return UsesAscensionClassMechanics(player->ToPlayer(), CLASS_WILDWALKER) && player->IsAlive() &&
             GetCaster() == player && event.GetActor() == player && victim && victim != player &&
             !player->IsFriendlyTo(victim) && damage && damage->GetDamage() &&
             (event.GetHitMask() & PROC_HIT_CRITICAL) &&
@@ -147,7 +148,7 @@ class aura_ascension_natures_blessing : public AuraScript
 
     bool Load() override
     {
-        return GetUnitOwner()->IsPlayer() && GetUnitOwner()->getClass() == CLASS_WILDWALKER;
+        return UsesAscensionClassMechanics(GetUnitOwner()->ToPlayer(), CLASS_WILDWALKER);
     }
 
     bool Check(ProcEventInfo& event)
@@ -186,7 +187,7 @@ class aura_ascension_hammer_of_life : public AuraScript
         Unit* player = GetTarget();
         Unit* victim = event.GetActionTarget();
         DamageInfo const* damage = event.GetDamageInfo();
-        return player->IsPlayer() && player->getClass() == CLASS_WILDWALKER && player->IsAlive() &&
+        return UsesAscensionClassMechanics(player->ToPlayer(), CLASS_WILDWALKER) && player->IsAlive() &&
             GetCaster() == player && event.GetActor() == player && victim && victim != player &&
             !player->IsFriendlyTo(victim) && damage && damage->GetDamage();
     }
@@ -225,7 +226,7 @@ public:
     void OnSpellHitResult(Spell* spell, Unit* target, uint8 miss, uint32, uint32, bool) override
     {
         Player* player = spell->GetCaster()->ToPlayer();
-        if (!player || player->getClass() != CLASS_WILDWALKER || !player->IsAlive() ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_WILDWALKER) || !player->IsAlive() ||
             spell->GetSpellInfo()->Id != SPELL_VOLCANIC_BLAST || miss != SPELL_MISS_NONE ||
             !target || target == player || player->IsFriendlyTo(target) ||
             !player->HasAura(SPELL_CRACKING_EARTH, player->GetGUID()))
@@ -241,7 +242,7 @@ class spell_ascension_gaze_of_theradras : public SpellScript
 {
     PrepareSpellScript(spell_ascension_gaze_of_theradras);
 
-    bool Load() override { return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_WILDWALKER; }
+    bool Load() override { return UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_WILDWALKER); }
 
     void Before(SpellMissInfo miss)
     {
@@ -342,7 +343,7 @@ public:
 
     bool OnPlayerHasActivePowerType(Player const* player, Powers power) override
     {
-        return player && player->getClass() == CLASS_WILDWALKER && power == POWER_RAGE;
+        return player && power == POWER_RAGE && UsesAscensionClassMechanics(player, CLASS_WILDWALKER);
     }
 };
 }

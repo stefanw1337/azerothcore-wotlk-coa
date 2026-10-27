@@ -63,6 +63,5 @@ public:
 
 void AddSC_CoaEsteriaRacials()
 {
-
     new CoaRacialSync();
 }

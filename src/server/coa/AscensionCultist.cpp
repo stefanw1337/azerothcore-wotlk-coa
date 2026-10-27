@@ -2,6 +2,7 @@
 #include "AscensionCultist.h"
 #include "AscensionCultistData.h"
 #include "AscensionCustomResourceData.h"
+#include "AscensionSpecialization.h"
 #include "CellImpl.h"
 #include "GridNotifiers.h"
 #include "GridNotifiersImpl.h"
@@ -34,7 +35,7 @@ Player* Owner(Unit const* unit)
     Player* player = const_cast<Unit*>(unit)->ToPlayer();
     if (!player && unit->GetOwner())
         player = unit->GetOwner()->ToPlayer();
-    return player && player->getClass() == CLASS_CULTIST ? player : nullptr;
+    return player && UsesAscensionClassMechanics(player, CLASS_CULTIST) ? player : nullptr;
 }
 CultistState& State(Player* player)
 {
@@ -159,7 +160,7 @@ void SetAmount(Player* player, uint32 id, uint8 slot, int32 amount)
 }
 bool Resource(Player* player, uint32 id, int32 delta, bool force)
 {
-    if (!player || player->getClass() != CLASS_CULTIST || id != Insanity)
+    if (!player || !UsesAscensionClassMechanics(player, CLASS_CULTIST) || id != Insanity)
         return false;
     if (delta < 0 && player->HasAura(Madness) && !force)
         return true;

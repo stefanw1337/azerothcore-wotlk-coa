@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
@@ -26,7 +27,7 @@ class aura_ascension_totemic_echoes : public AuraScript
         Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
         Unit* target = GetTarget();
         if (GetTargetApplication()->GetRemoveMode() != AURA_REMOVE_BY_EXPIRE || !caster ||
-            caster->getClass() != CLASS_WILDWALKER || !caster->IsAlive() || !target->IsAlive() ||
+            !UsesAscensionClassMechanics(caster, CLASS_WILDWALKER) || !caster->IsAlive() || !target->IsAlive() ||
             !caster->HasAura(TotemicEchoes, caster->GetGUID()) || !caster->IsWithinDistInMap(target, 5.0f) ||
             !caster->IsValidAttackTarget(target))
             return;

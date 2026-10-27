@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Creature.h"
 #include "DBCStores.h"
 #include "Map.h"
@@ -67,7 +68,8 @@ struct npc_ascension_power_sphere : ScriptedAI
         timer = 100;
         Player* owner = me->GetCharmerOrOwnerPlayerOrPlayerItself();
         Unit* target = ObjectAccessor::GetUnit(*me, targetGuid);
-        if (!owner || owner->getClass() != CLASS_STORMBRINGER || !owner->IsAlive() || !owner->IsInWorld() ||
+        if (!owner || !UsesAscensionClassMechanics(owner, CLASS_STORMBRINGER) || !owner->IsAlive() ||
+            !owner->IsInWorld() ||
             !owner->HasAura(SPELL_SPHERES_OF_POWER) || owner->GetMap() != me->GetMap() || !owner->InSamePhase(me) ||
             !target || !target->IsAlive() || !target->IsInWorld() || target->GetMap() != me->GetMap() ||
             !me->InSamePhase(target) || !owner->IsValidAttackTarget(target))
@@ -117,7 +119,7 @@ public:
     {
         Player* owner = spell->GetCaster()->ToPlayer();
         SpellInfo const* info = spell->GetSpellInfo();
-        if (!owner || owner->getClass() != CLASS_STORMBRINGER || info->SpellFamilyName != 22 ||
+        if (!owner || !UsesAscensionClassMechanics(owner, CLASS_STORMBRINGER) || info->SpellFamilyName != 22 ||
             !owner->HasAura(SPELL_SPHERES_OF_POWER) || !target || !target->IsAlive() ||
             !owner->IsValidAttackTarget(target) || miss != SPELL_MISS_NONE || info->Id == SPELL_POWER_SPHERE)
             return;

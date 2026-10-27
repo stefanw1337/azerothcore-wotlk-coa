@@ -3634,7 +3634,7 @@ SpellCastResult Spell::prepare(SpellCastTargets const* targets, AuraEffect const
     // don't allow channeled spells / spells with cast time to be casted while moving
     // (even if they are interrupted on moving, spells with almost immediate effect get to have their effect processed before movement interrupter kicks in)
     if ((m_spellInfo->IsChanneled() || m_casttime) && m_caster->IsPlayer() && m_caster->isMoving() &&
-        m_spellInfo->InterruptFlags & SPELL_INTERRUPT_FLAG_MOVEMENT && !IsTriggered() &&
+        m_spellInfo->InterruptFlags & SPELL_INTERRUPT_FLAG_MOVEMENT && !HasTriggeredCastFlag(TRIGGERED_FULL_MASK) &&
         !m_caster->HasManastormMovementGrace() && !m_caster->CanCastSpellWhileMoving(m_spellInfo))
     {
         // 1. Has casttime, 2. Or doesn't have flag to allow action during channel
@@ -4509,7 +4509,7 @@ void Spell::update(uint32 difftime)
             (m_spellInfo->Effects[0].Effect != SPELL_EFFECT_STUCK || !m_caster->HasUnitMovementFlag(MOVEMENTFLAG_FALLING_FAR)))
     {
         // don't cancel for melee, autorepeat, triggered and instant spells
-        if (!IsNextMeleeSwingSpell() && !IsAutoRepeat() && !IsTriggered())
+        if (!IsNextMeleeSwingSpell() && !IsAutoRepeat() && !HasTriggeredCastFlag(TRIGGERED_FULL_MASK))
             cancel(true);
     }
 
@@ -4821,7 +4821,9 @@ void Spell::SendSpellStart()
 
     uint32 castFlags = CAST_FLAG_HAS_TRAJECTORY;
 
-    if (((IsTriggered() && !m_spellInfo->IsAutoRepeatRangedSpell()) || m_triggeredByAuraSpell) && !m_cast_count && !(m_spellInfo->IsChanneled() || (m_spellInfo->CastTimeEntry && m_spellInfo->CastTimeEntry->CastTime > 0)))
+    if (((HasTriggeredCastFlag(TRIGGERED_FULL_MASK) && !m_spellInfo->IsAutoRepeatRangedSpell()) ||
+            m_triggeredByAuraSpell) && !m_cast_count && !(m_spellInfo->IsChanneled() ||
+            (m_spellInfo->CastTimeEntry && m_spellInfo->CastTimeEntry->CastTime > 0)))
         castFlags |= CAST_FLAG_PENDING;
 
     if (m_spellInfo->HasAttribute(SPELL_ATTR0_USES_RANGED_SLOT) || m_spellInfo->HasAttribute(SPELL_ATTR0_CU_NEEDS_AMMO_DATA))
@@ -4903,7 +4905,9 @@ void Spell::SendSpellGo()
     uint32 castFlags = CAST_FLAG_UNKNOWN_9;
 
     // triggered spells with spell visual != 0
-    if (((IsTriggered() && !m_spellInfo->IsAutoRepeatRangedSpell()) || m_triggeredByAuraSpell) && !m_cast_count && !(m_spellInfo->IsChanneled() || (m_spellInfo->CastTimeEntry && m_spellInfo->CastTimeEntry->CastTime > 0)))
+    if (((HasTriggeredCastFlag(TRIGGERED_FULL_MASK) && !m_spellInfo->IsAutoRepeatRangedSpell()) ||
+            m_triggeredByAuraSpell) && !m_cast_count && !(m_spellInfo->IsChanneled() ||
+            (m_spellInfo->CastTimeEntry && m_spellInfo->CastTimeEntry->CastTime > 0)))
         castFlags |= CAST_FLAG_PENDING;
 
     if (m_spellInfo->HasAttribute(SPELL_ATTR0_USES_RANGED_SLOT) || m_spellInfo->HasAttribute(SPELL_ATTR0_CU_NEEDS_AMMO_DATA))
@@ -5466,7 +5470,8 @@ void Spell::TakePower()
     if (PowerType == POWER_HEALTH)
     {
         int32 spent = m_caster->ModifyHealth(-(int32)m_powerCost);
-        if (spent < 0 && m_caster->IsPlayer() && m_caster->getClass() == CLASS_SON_OF_ARUGAL &&
+        if (spent < 0 && m_caster->IsPlayer() &&
+            m_caster->ToPlayer()->IsClass(CLASS_SON_OF_ARUGAL, CLASS_CONTEXT_ABILITY) &&
             m_spellInfo->SpellFamilyName == 26 && !IsTriggered() &&
             m_caster->HasAura(AscensionBloodmage::PooledVitalityTalent))
             SetScriptValue(AscensionBloodmage::PooledVitality, 1);
@@ -5939,7 +5944,7 @@ SpellCastResult Spell::CheckCast(bool strict, uint32* /*param1*/, uint32* /*para
 
     // cancel autorepeat spells if cast start when moving
     // (not wand currently autorepeat cast delayed to moving stop anyway in spell update code)
-    if (m_caster->IsPlayer() && m_caster->ToPlayer()->isMoving() && !IsTriggered() &&
+    if (m_caster->IsPlayer() && m_caster->ToPlayer()->isMoving() && !HasTriggeredCastFlag(TRIGGERED_FULL_MASK) &&
         !m_caster->CanCastSpellWhileMoving(m_spellInfo))
     {
         // skip stuck spell to allow use it in falling case and apply spell limitations at movement
@@ -8319,7 +8324,7 @@ bool Spell::IsIgnoringCooldowns() const
 bool Spell::IsAutoActionResetSpell() const
 {
     /// @todo changed SPELL_INTERRUPT_FLAG_AUTOATTACK -> SPELL_INTERRUPT_FLAG_INTERRUPT to fix compile - is this check correct at all?
-    if (IsTriggered() || !(m_spellInfo->InterruptFlags & SPELL_INTERRUPT_FLAG_INTERRUPT))
+    if (HasTriggeredCastFlag(TRIGGERED_FULL_MASK) || !(m_spellInfo->InterruptFlags & SPELL_INTERRUPT_FLAG_INTERRUPT))
     {
         return false;
     }

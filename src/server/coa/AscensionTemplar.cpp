@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "AscensionTemplar.h"
 #include "AscensionTemplarData.h"
 #include "CellImpl.h"
@@ -29,7 +30,7 @@ constexpr uint32 oaths[] = {804903, 804904, 804922, 804924, 805332};
 Player* Owner(Unit const* unit)
 {
     Player* player = unit ? const_cast<Unit*>(unit)->ToPlayer() : nullptr;
-    return player && player->getClass() == CLASS_MONK ? player : nullptr;
+    return player && UsesAscensionClassMechanics(player, CLASS_MONK) ? player : nullptr;
 }
 TemplarState& State(Player* player)
 {

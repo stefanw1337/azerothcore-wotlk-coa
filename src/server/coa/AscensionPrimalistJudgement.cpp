@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -24,7 +25,8 @@ class aura_ascension_primalist_judgement : public AuraScript
         Unit* victim = event.GetActionTarget();
         DamageInfo const* damage = event.GetDamageInfo();
         SpellInfo const* info = event.GetSpellInfo();
-        return owner->IsPlayer() && owner->getClass() == CLASS_WILDWALKER && owner->IsAlive() &&
+        return owner->IsPlayer() && UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_WILDWALKER) &&
+            owner->IsAlive() &&
             GetCaster() == owner && event.GetActor() == owner && victim && victim != owner &&
             !owner->IsFriendlyTo(victim) && damage && damage->GetDamage() &&
             damage->GetDamageType() != DOT && (!info || info->Id != JudgementDamage);
@@ -64,7 +66,7 @@ public:
     void OnSpellCalculatedTarget(Spell* spell, Unit*, TargetInfo& hit) override
     {
         Player* player = spell->GetCaster()->ToPlayer();
-        if (!player || player->getClass() != CLASS_WILDWALKER ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_WILDWALKER) ||
             spell->GetSpellInfo()->Id != JudgementDamage || hit.damage <= 0)
             return;
         player->ApplySpellMod(MountainHammer, SPELLMOD_DAMAGE, hit.damage);

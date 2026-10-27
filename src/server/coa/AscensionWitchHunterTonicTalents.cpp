@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -61,7 +62,8 @@ class spell_ascension_witch_hunter_tonic_supply : public SpellScript
     bool Load() override
     {
         Unit* caster = GetCaster();
-        return caster && caster->IsPlayer() && caster->ToPlayer()->getClass() == CLASS_WITCH_HUNTER && !GetSpell()->IsTriggered();
+        return caster && caster->IsPlayer() && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_WITCH_HUNTER) &&
+            !GetSpell()->IsTriggered();
     }
 
     void ReduceOtherTonics()

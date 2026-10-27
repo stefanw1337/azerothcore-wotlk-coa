@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "AscensionVenomancerVenomPayloads.h"
 #include "Player.h"
 #include "ScriptMgr.h"
@@ -79,7 +80,8 @@ public:
     void ModifySpellEffectBaseValue(Unit const* caster, SpellInfo const* info, uint8 index, float& value) override
     {
         Player const* player = caster ? caster->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_PROPHET || index != EFFECT_0 || !IsPeriodicBase(info) ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_PROPHET) || index != EFFECT_0 ||
+            !IsPeriodicBase(info) ||
             !std::isfinite(value))
             return;
 

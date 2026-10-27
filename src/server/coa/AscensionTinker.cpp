@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "AscensionTinker.h"
 #include "AscensionTinkerData.h"
 #include "AscensionCustomResourceData.h"
@@ -35,7 +36,7 @@ Player* Owner(Unit const* unit)
     Player* player = const_cast<Unit*>(unit)->ToPlayer();
     if (!player && unit->GetOwner())
         player = unit->GetOwner()->ToPlayer();
-    return player && player->getClass() == CLASS_TINKER ? player : nullptr;
+    return player && UsesAscensionClassMechanics(player, CLASS_TINKER) ? player : nullptr;
 }
 TinkerState& State(Player* player)
 {
@@ -239,7 +240,7 @@ void ExitMechsuit(Player* player)
 }
 bool Resource(Player* player, uint32 id, int32 delta)
 {
-    if (!player || player->getClass() != CLASS_TINKER || id != Scrap)
+    if (!player || !UsesAscensionClassMechanics(player, CLASS_TINKER) || id != Scrap)
         return false;
     uint32 after = uint32(std::clamp<int64>(int64(Count(player,Scrap)) + delta,0,
         int64(AscensionCompatData::TINKER_SCRAP_MAX)));

@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionSpecialization.h"
 #include "Creature.h"
 #include "EventMap.h"
 #include "MotionMaster.h"
@@ -44,7 +45,7 @@ Player* FlowerOwner(Creature* flower)
     if (!flower || flower->GetEntry() != NPC_GREEN_FLOWER || !flower->IsAlive() || !flower->IsInWorld())
         return nullptr;
     Player* owner = flower->GetCharmerOrOwnerPlayerOrPlayerItself();
-    return owner && owner->getClass() == CLASS_RANGER && owner->GetGUID() == flower->GetOwnerGUID() &&
+    return owner && UsesAscensionClassMechanics(owner, CLASS_RANGER) && owner->GetGUID() == flower->GetOwnerGUID() &&
         owner->IsAlive() && owner->IsInWorld() && owner->GetMap() == flower->GetMap() &&
         owner->InSamePhase(flower) &&
         (owner->HasAura(SPELL_DREAM_FLOWERS) || owner->HasAura(SPELL_FOREST_HERALD)) ? owner : nullptr;
@@ -62,7 +63,7 @@ struct npc_ascension_ranger_flower : ScriptedAI
     void IsSummonedBy(WorldObject* summoner) override
     {
         Player* player = summoner ? summoner->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_RANGER)
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_RANGER))
         {
             me->DespawnOrUnsummon();
             return;
@@ -101,7 +102,10 @@ class spell_ascension_ranger_green_flower : public SpellScript
         return ValidateSpellInfo({SPELL_FLOWER_PERIODIC, SPELL_HIGHLANDER_STACKS, SPELL_HIGHLANDER_READY});
     }
 
-    bool Load() override { return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_RANGER; }
+    bool Load() override
+    {
+        return GetCaster()->IsPlayer() && UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_RANGER);
+    }
 
     void Summon(SpellEffIndex index)
     {
@@ -184,7 +188,8 @@ class aura_ascension_ranger_dream_flowers : public AuraScript
     {
         Unit* owner = GetTarget();
         Unit* victim = event.GetActionTarget();
-        return owner->IsPlayer() && owner->getClass() == CLASS_RANGER && owner->IsAlive() && owner->IsInWorld() &&
+        return owner->IsPlayer() && UsesAscensionClassMechanics(owner->ToPlayer(), CLASS_RANGER) &&
+            owner->IsAlive() && owner->IsInWorld() &&
             event.GetActor() == owner && victim && victim != owner && !owner->IsFriendlyTo(victim) &&
             (event.GetHitMask() & PROC_HIT_CRITICAL) && event.GetDamageInfo() && event.GetDamageInfo()->GetDamage();
     }
@@ -208,7 +213,10 @@ class spell_ascension_ranger_highlander : public SpellScript
     PrepareSpellScript(spell_ascension_ranger_highlander);
     bool empowered = false;
 
-    bool Load() override { return GetCaster()->IsPlayer() && GetCaster()->getClass() == CLASS_RANGER; }
+    bool Load() override
+    {
+        return GetCaster()->IsPlayer() && UsesAscensionClassMechanics(GetCaster()->ToPlayer(), CLASS_RANGER);
+    }
 
     void Snapshot()
     {
@@ -248,7 +256,8 @@ public:
     void OnSpellCast(Spell* spell, Unit* caster, SpellInfo const* info, bool) override
     {
         Player* player = caster ? caster->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_RANGER || info->SpellFamilyName != 27 || spell->IsTriggered() ||
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_RANGER) || info->SpellFamilyName != 27 ||
+            spell->IsTriggered() ||
             !player->IsInCombat() || !player->HasAura(SPELL_FOREST_HERALD))
             return;
         if ((info->SpellFamilyFlags[0] & 32768) || info->CasterAuraSpell == SPELL_ADVANTAGE)
@@ -301,7 +310,7 @@ public:
 
     void OnPlayerUpdate(Player* player, uint32) override
     {
-        if (player->getClass() == CLASS_RANGER && !player->HasAura(SPELL_HIGHLANDER))
+        if (UsesAscensionClassMechanics(player, CLASS_RANGER) && !player->HasAura(SPELL_HIGHLANDER))
             for (uint32 spell : {SPELL_HIGHLANDER_STACKS, SPELL_HIGHLANDER_READY})
                 if (player->HasAura(spell, player->GetGUID()))
                     player->RemoveAurasDueToSpell(spell, player->GetGUID());

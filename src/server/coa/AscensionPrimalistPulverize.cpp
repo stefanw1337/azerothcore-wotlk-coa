@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -40,7 +41,8 @@ public:
     {
         Unit* caster = spell->GetCaster();
         SpellInfo const* info = spell->GetSpellInfo();
-        if (!caster->IsPlayer() || caster->getClass() != CLASS_WILDWALKER || !caster->IsAlive() ||
+        if (!caster->IsPlayer() || !UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_WILDWALKER) ||
+            !caster->IsAlive() ||
             info->SpellFamilyName != 37 || sSpellMgr->GetFirstSpellInChain(info->Id) != TotemicSmash ||
             miss != SPELL_MISS_NONE || !damage || !critical || !target ||
             target != spell->m_targets.GetUnitTarget() || !caster->HasAura(Pulverize, caster->GetGUID()) ||

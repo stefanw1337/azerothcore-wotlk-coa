@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionVenomancerCatalyst.h"
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
@@ -43,7 +44,8 @@ class spell_ascension_venomancer_catalyst : public SpellScript
     bool Load() override
     {
         Unit* caster = GetCaster();
-        return caster && caster->IsPlayer() && caster->getClass() == CLASS_PROPHET && !GetSpell()->IsTriggered();
+        return caster && caster->IsPlayer() && UsesAscensionClassMechanics(caster->ToPlayer(), CLASS_PROPHET) &&
+            !GetSpell()->IsTriggered();
     }
 
     void GrantImmediateRage()
