@@ -27,7 +27,8 @@ CLEARANCE, FLARE, FLARE_DEPTH = 0.06, 0.12, 0.60
 OVER_SHOULDER = 0.02
 SMOOTHING = 8
 CHECK_BAND = 0.10
-TOP_ROW_V, PEAK_HALF, PEAK_SIDES, PEAK_DROP = 0.01, 0.05, 0.20, 0.02
+TOP_ROW_V, PEAK_HALF, PEAK_DROP = 0.01, 0.05, 0.02
+EASE_STEPS = 2
 
 
 def triangles(skin, keep):
@@ -153,8 +154,12 @@ def body_seen_by_cape(m2, skin):
             local = np.linalg.solve(rotation, (posed - shift).T).T
             seen[key].append(local)
             by_animation.setdefault(animation, {}).setdefault(key, []).append(local)
-    cloud = {key: np.concatenate(parts) for key, parts in seen.items()}
+    cloud = {key: mirrored(np.concatenate(parts)) for key, parts in seen.items()}
     return positions, normals, cape, groups, cloud, by_animation
+
+
+def mirrored(points):
+    return np.concatenate([points, points * np.array([1.0, -1.0, 1.0])])
 
 
 def column(points, y):
@@ -191,14 +196,31 @@ def draped(positions, cape, groups, cloud, neighbours):
     return target, behind
 
 
-def flat_top(target, behind, uv):
-    top = [index for index in behind if uv[index, 1] <= TOP_ROW_V]
+def eased_from_shoulders(bind, positions, cape, behind, neighbours):
+    distance = {index: 0 for index in cape if index not in behind}
+    frontier = list(distance)
+    while frontier:
+        reached = []
+        for index in frontier:
+            for other in neighbours[index]:
+                if other not in distance:
+                    distance[other] = distance[index] + 1
+                    reached.append(other)
+        frontier = reached
+    eased = positions.copy()
+    for index in cape:
+        share = min(1.0, max(0.0, (distance.get(index, EASE_STEPS + 1) - 1) / EASE_STEPS))
+        eased[index] = positions[index] + share * (bind[index] - positions[index])
+    return eased
+
+
+def flat_top(bind, cape, uv, neighbours):
+    top = {index for index in cape if uv[index, 1] <= TOP_ROW_V}
     for index in top:
-        if abs(target[index, 1]) < PEAK_HALF:
-            sides = [other for other in top if PEAK_HALF <= abs(target[other, 1]) <= PEAK_SIDES]
-            if sides:
-                target[index, 2] = min(target[index, 2], np.mean(target[sides, 2]) - PEAK_DROP)
-    return target
+        sides = [other for other in neighbours[index] if other in top and abs(bind[other, 1]) >= PEAK_HALF]
+        if abs(bind[index, 1]) < PEAK_HALF and sides:
+            bind[index, 2] = min(bind[index, 2], np.mean(bind[sides, 2]) - PEAK_DROP)
+    return bind
 
 
 def smoothed(target, behind, positions, cape, neighbours):
@@ -240,8 +262,9 @@ def with_draped_capes(m2, skin):
     faces = triangles(skin, lambda geoset: geoset in CAPES)
     neighbours = neighbours_of(cape, faces)
     target, behind = draped(positions, cape, groups, cloud, neighbours)
-    target = flat_top(target, behind, texture_coordinates(m2))
     bind = smoothed(target, behind, positions, cape, neighbours)
+    bind = eased_from_shoulders(bind, positions, cape, behind, neighbours)
+    bind = flat_top(bind, cape, texture_coordinates(m2), neighbours)
     face_normals = np.cross(bind[faces[:, 1]] - bind[faces[:, 0]], bind[faces[:, 2]] - bind[faces[:, 0]])
     summed = np.zeros_like(bind)
     for corner in range(3):
