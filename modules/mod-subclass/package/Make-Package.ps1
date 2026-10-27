@@ -26,7 +26,8 @@ if (-not $exe) { throw "No worldserver.exe under $Build\build: run Build local b
 $src = Join-Path $Build 'src'
 git -C $src fetch --quiet origin
 $notServer = 'package', 'tools', 'addon', 'client' | ForEach-Object { ":(exclude)modules/mod-subclass/$_" }
-git -C $src diff --quiet HEAD $info.core -- src data modules @notServer ':(exclude)modules/mod-livemon/gui'
+git -C $src diff --quiet HEAD $info.core -- src data modules @notServer ':(exclude)modules/mod-livemon/gui' `
+    ':(exclude,glob)**/*.md'
 if ($LASTEXITCODE) {
     throw "The local build differs from the package's server code ($($info.core)). Build again first."
 }
