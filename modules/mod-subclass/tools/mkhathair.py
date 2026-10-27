@@ -1,5 +1,5 @@
-"""Give the Thin Twins a short crop as hairstyle 0. A hat that hides hair switches the hair group to geoset 1
-(client 0x4EF1DD), so the same crop is the hair they show under hats. The crop follows the scalp of the head,
+"""Give the Thin Twins short hair under hats. A hat that hides hair switches the hair group to geoset 1
+(client 0x4EF1DD), which their model leaves empty; this fills it with a short crop that follows the scalp of the head,
 cut along a hairline that passes over the ears and down to the nape.
     python mkhathair.py <m2> <skin> <out m2> <out skin> [hairstyle geoset for the look]"""
 import struct

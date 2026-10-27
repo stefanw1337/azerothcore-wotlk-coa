@@ -55,10 +55,11 @@ v2.2.1) builds as before. Nothing depends on Corfirean's bot module or on Conten
   textures are still in your `patch-ZE7`/`patch-ZE8`. Build order from the clean `patch-ZE7` model: `tools/mkcape.py`
   (cape, collar behind the shoulders, helmet seat), `tools/mkhathair.py` (geoset 1, a short crop on the scalp), then
   `tools/embedskin.py` into `EsteriaAppearanceGeometry.bin`.
-- Thin Twins hair: geoset 1 is hairstyle 0 and also the hair the client shows under any hat that hides hair. The
-  client forces the hair group to geoset 1 (`0x4EF1DD`) by a race bit that 96 shares with 32, so it cannot be switched
-  off for 96 alone. Hairstyles 1 to 3 are the 1.8 ones; bald is last (4, geoset 5, which the model leaves empty).
-- The Ogre's capes are reshaped by `tools/mkogrecape.py` so they drape over her hump.
+- Thin Twins hair: their hairstyles are geosets 2, 3 and 4 (short, medium, long), then bald (geoset 5, which the
+  model leaves empty). Geoset 1 is the short crop the client shows under hats that hide hair: it forces the hair group
+  to geoset 1 (`0x4EF1DD`) by a race bit that 96 shares with 32, so that cannot be switched off for 96 alone.
+- The Ogre's capes are reshaped by `tools/mkogrecape.py` so they drape over her hump and stay clear of her body while
+  she stands, shuffles or readies a weapon; `--check` reports how far her body reaches through them per animation.
 
 ## Data
 
@@ -100,7 +101,7 @@ feature to the standard classes.
 
 ## Known issues
 
-- Under hats the Thin Twins show their short crop whatever their hairstyle (see Thin Twins hair above).
+- Under hats that hide hair the Thin Twins show the short crop whatever their hairstyle (see Thin Twins hair).
 - When Auto Shot starts, the Ogre's gun jumps to the other hand for a moment.
 
 Seen in your code and data while merging:

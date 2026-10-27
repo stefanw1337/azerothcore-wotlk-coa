@@ -28,8 +28,8 @@ LiveMon: start LiveMon\LiveMon.exe in the repack folder while the server runs.
 
 Known issues
 ------------
-- Under hats and helmets the Thin Twins show their short crop (the first hairstyle), whatever hairstyle they chose. The
-  game swaps the hair for one fixed under-hat hairstyle on every race.
+- Hats that hide hair show a short crop on the Thin Twins, whatever hairstyle they chose. Other hats show their own
+  hairstyle.
 - The Forgotten's hat floats above the head in CoA Custom 1.9.2. That is CoA's model; the Thin Twins have their own.
 - When Auto Shot starts, the gun of a Hunter subclass jumps to the other hand for a moment.
 

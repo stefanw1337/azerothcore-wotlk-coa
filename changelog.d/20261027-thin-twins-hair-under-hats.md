@@ -2,7 +2,7 @@
 area: modules
 type: changed
 audience: players
-title: Thin Twins start with short hair and keep it under hats
+title: Thin Twins keep short hair under hats
 ---
-Their first hairstyle is now a short crop instead of bald, and hats show that crop where they do not cover the head.
-Bald is the last hairstyle.
+Hats that hide hair now show a short crop instead of a bald head. New Thin Twins start with short hair, and bald is
+the last hairstyle.
