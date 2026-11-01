@@ -40,7 +40,7 @@ if (-not $parts) { throw "patch-ZZZZS.MPQ.part* are missing in $Work." }
 $target = [IO.File]::Create((Join-Path $clientFiles 'patch-ZZZZS.MPQ'))
 foreach ($part in $parts) { $bytes = [IO.File]::ReadAllBytes($part.FullName); $target.Write($bytes, 0, $bytes.Length) }
 $target.Close()
-foreach ($name in 'patch-ZZZZC.MPQ', 'patch-ZZZZW.MPQ') { Copy-Item (Join-Path $Client "Data\$name") $clientFiles }
+foreach ($name in 'patch-ZZZZH.MPQ', 'patch-ZZZZW.MPQ') { Copy-Item (Join-Path $Client "Data\$name") $clientFiles }
 Copy-Item (Join-Path $Client 'EsteriaAppearanceGeometry.bin') $clientFiles
 $sao = Join-Path $Client 'Interface\AddOns\SpellActivationOverlay-for-CoA'
 Copy-Item $sao (Join-Path $files 'addons') -Recurse -Force
