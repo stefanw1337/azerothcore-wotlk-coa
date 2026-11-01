@@ -671,12 +671,13 @@ def relink(model, added):
                      model.append(struct.pack(f"<{len(lookup)}h", *lookup), 16))
 
 
-def add_handsprings(data, style=HANDSPRING_STYLE, skin=None):
-    model = Model(data, body_vertices(skin) if skin else None)
+def add_handsprings(data, style=HANDSPRING_STYLE, skin=None, move=None, geosets=BODY_GEOSETS):
+    move = move or Handspring
+    model = Model(data, body_vertices(skin, geosets) if skin else None)
     taken = [animation for animation in (HANDSPRING, BACK_HANDSPRING) if animation in model.sequences]
     if taken:
         raise ValueError(f"model already has handspring sequences {taken}")
-    moves = [Handspring(model, HANDSPRING, False, style), Handspring(model, BACK_HANDSPRING, True, style)]
+    moves = [move(model, HANDSPRING, False, style), move(model, BACK_HANDSPRING, True, style)]
     entries = {}
     for bone in range(model.bone_count):
         for track in (TRANSLATION, ROTATION, SCALE):
