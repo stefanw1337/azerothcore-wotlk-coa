@@ -447,7 +447,10 @@ class Handspring:
         return min(rising, falling)
 
     def progress(self, share):
-        return self.style.turns * window(share, TURN_START, self.style.turn_end)
+        if self.style.turns == 1:
+            return window(share, TURN_START, self.style.turn_end)
+        steady = max(0.0, min(1.0, (share - TURN_START) / (self.style.turn_end - TURN_START)))
+        return self.style.turns * steady
 
     def phase(self, share):
         progress = self.progress(share)

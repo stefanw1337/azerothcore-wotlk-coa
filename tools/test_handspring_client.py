@@ -227,6 +227,16 @@ class HandspringStyleTest(unittest.TestCase):
         self.assertGreater(lowest(model, sequence, style.duration // 2), 0.2)
 
 
+class SpringsInARowTest(unittest.TestCase):
+    def test_gnome_springs_turn_at_an_even_pace(self):
+        style = handspring.STYLES["gnome"]
+        move = handspring.Handspring(handspring.Model(synthetic_model()), handspring.HANDSPRING, False, style)
+        span = style.turn_end - handspring.TURN_START
+        thirds = [move.progress(handspring.TURN_START + span * part / 3.0) for part in range(4)]
+        for start, end in zip(thirds, thirds[1:]):
+            self.assertAlmostEqual(end - start, 1.0, places=6)
+
+
 class ClientTableTest(unittest.TestCase):
     def test_animation_rows_fall_back_to_jump_start(self):
         texts = b"\0Jump\0FlyJump\0"
