@@ -28,18 +28,19 @@ DURATION_MS, KEY_STEP_MS, BLEND_MS = 700, 25, 100
 TURN_START, TURN_END = 0.08, 0.82
 REACH_START, REACH_HELD, REACH_RELEASED, REACH_END = 0.04, 0.2, 0.62, 0.86
 HOP = 0.25
+SEQUENCE_FREQUENCY, ALWAYS = 16, 32767
 LOOP_CLOSE = 0.86
-FLIGHT_START, FLIGHT_END = 0.5, 0.8
 GROUND_CLEARANCE = 0.03
 BOUNDS_GROWTH = 1.6
 FORWARD_REACH, REACH_SPREAD = 0.3, 0.0
 PLANT_AHEAD = 1.2
 HANG_AHEAD = 0.15
-PLANT_START, PLANT_HELD, PLANT_RELEASED, PLANT_END = 0.14, 0.3, 0.45, 0.6
 ANIMATION_FIELDS, KIT_FIELDS, KIT_ANIMATION = 8, 38, 2
 ANIMATION_WEAPON_FLAGS, WEAPONS_SHEATHED = 2, 4
 VAULT_DUST_KIT = 963356
 VAULT_KITS = {3455900: HANDSPRING, 3455901: BACK_HANDSPRING}
+TUCK_AHEAD = (1.0, 0.0, -0.4)
+PLANT_RISE, PLANT_FULL, PLANT_LIFT, PLANT_GONE = 0.02, 0.21, 0.5, 0.78
 ANIMATION_NAMES = {HANDSPRING: "Handspring", FLY_HANDSPRING: "FlyHandspring",
                    BACK_HANDSPRING: "BackHandspring", FLY_BACK_HANDSPRING: "FlyBackHandspring"}
 
@@ -274,10 +275,36 @@ class Model:
         return offset
 
 
+class Style:
+    def __init__(self, duration, planted, air=0.0):
+        self.duration = duration
+        self.planted = planted
+        self.air = air
+
+    @property
+    def turns(self):
+        return len(self.planted)
+
+
+HANDSPRING_STYLE = Style(DURATION_MS, (True,))
+STYLES = {"tauren": Style(1000, (True, False)), "gnome": Style(1000, (True, True, True)),
+          "nightelf": Style(DURATION_MS, (False,), air=0.5)}
+
+
+def style_for(name):
+    lowered = name.lower()
+    for race, style in STYLES.items():
+        if lowered.startswith(race):
+            return style
+    return HANDSPRING_STYLE
+
+
 class Handspring:
-    def __init__(self, model, animation, backward):
+    def __init__(self, model, animation, backward, style=HANDSPRING_STYLE):
         self.model = model
         self.animation = animation
+        self.style = style
+        self.duration = style.duration
         self.turn = -2.0 * math.pi if backward else 2.0 * math.pi
         self.reach = -FORWARD_REACH if backward else FORWARD_REACH
         sequences = model.sequences
@@ -340,10 +367,27 @@ class Handspring:
         falling = 1.0 - window(share, REACH_RELEASED, REACH_END)
         return min(rising, falling)
 
+    def progress(self, share):
+        return self.style.turns * window(share, TURN_START, TURN_END)
+
+    def phase(self, share):
+        progress = self.progress(share)
+        turn = min(int(progress), self.style.turns - 1)
+        return turn, progress - turn
+
+    def planting(self, share):
+        turn, phase = self.phase(share)
+        if not self.style.planted[turn]:
+            return 0.0
+        return min(window(phase, PLANT_RISE, PLANT_FULL), 1.0 - window(phase, PLANT_LIFT, PLANT_GONE))
+
     def arm_target(self, share, side):
+        turn, _ = self.phase(share)
+        if not self.style.planted[turn]:
+            return unit(rotate(self.pitch(share), (TUCK_AHEAD[0], side * REACH_SPREAD, TUCK_AHEAD[2])))
         overhead = rotate(self.pitch(share), unit((self.reach, side * REACH_SPREAD, 1.0)))
         planted = unit((self.reach * PLANT_AHEAD, side * REACH_SPREAD, -1.0))
-        planting = min(window(share, PLANT_START, PLANT_HELD), 1.0 - window(share, PLANT_RELEASED, PLANT_END))
+        planting = self.planting(share)
         return unit(tuple(a + (b - a) * planting for a, b in zip(overhead, planted)))
 
     def swung(self, hanging, ahead, raised, weight):
@@ -396,15 +440,23 @@ class Handspring:
         self.lowest[share] = lowest
         return lowest
 
+    def hop(self, share):
+        if self.style.air:
+            turning = max(0.0, min(1.0, (share - TURN_START) / (TURN_END - TURN_START)))
+            return self.style.air * self.model.pivots[self.root][2] * math.sin(math.pi * turning)
+        turn, phase = self.phase(share)
+        if not self.style.planted[turn]:
+            return 0.0
+        return HOP * math.sin(math.pi * max(0.0, min(1.0, (phase - PLANT_LIFT) / (1.0 - PLANT_LIFT))))
+
     def lift(self, share):
-        hop = HOP * math.sin(math.pi * max(0.0, min(1.0, (share - FLIGHT_START) / (FLIGHT_END - FLIGHT_START))))
-        return GROUND_CLEARANCE - self.lowest_point(share) + hop
+        return GROUND_CLEARANCE - self.lowest_point(share) + self.hop(share)
 
     def frames(self):
-        return [min(time, DURATION_MS) for time in range(0, DURATION_MS + KEY_STEP_MS, KEY_STEP_MS)]
+        return [min(time, self.duration) for time in range(0, self.duration + KEY_STEP_MS, KEY_STEP_MS)]
 
     def pitch(self, share):
-        return about((0.0, 1.0, 0.0), self.turn * window(share, TURN_START, TURN_END))
+        return about((0.0, 1.0, 0.0), self.turn * self.progress(share))
 
     def root_rotation(self, share):
         return product(self.pitch(share), self.posed(self.root, ROTATION, share))
@@ -425,7 +477,7 @@ class Handspring:
         values = []
         previous = None
         for time in times:
-            share = time / DURATION_MS
+            share = time / self.duration
             if bone == self.root and track == ROTATION:
                 value = self.root_rotation(share)
             elif bone == self.root and track == TRANSLATION:
@@ -435,7 +487,7 @@ class Handspring:
             else:
                 value = self.posed(bone, track, share)
             values.append(value)
-        closing = [window(time / DURATION_MS, LOOP_CLOSE, 1.0) for time in times]
+        closing = [window(time / self.duration, LOOP_CLOSE, 1.0) for time in times]
         values = [self.closed(track, value, values[0], share) for value, share in zip(values, closing)]
         for index, value in enumerate(values):
             if track == ROTATION:
@@ -475,7 +527,8 @@ def extend(model, place, has_values, entries):
 def sequence_record(model, handspring, index):
     template = model.sequence_offset + handspring.take_off * SEQUENCE_SIZE
     record = bytearray(model.data[template:template + SEQUENCE_SIZE])
-    struct.pack_into("<HHIf", record, 0, handspring.animation, 0, DURATION_MS, 0.0)
+    struct.pack_into("<HHIf", record, 0, handspring.animation, 0, handspring.duration, 0.0)
+    struct.pack_into("<h", record, SEQUENCE_FREQUENCY, ALWAYS)
     flags = struct.unpack_from("<I", record, SEQUENCE_FLAGS)[0]
     struct.pack_into("<I", record, SEQUENCE_FLAGS, flags | EMBEDDED)
     struct.pack_into("<I", record, SEQUENCE_BLEND, BLEND_MS)
@@ -498,12 +551,12 @@ def relink(model, added):
                      model.append(struct.pack(f"<{len(lookup)}h", *lookup), 16))
 
 
-def add_handsprings(data):
+def add_handsprings(data, style=HANDSPRING_STYLE):
     model = Model(data)
     taken = [animation for animation in (HANDSPRING, BACK_HANDSPRING) if animation in model.sequences]
     if taken:
         raise ValueError(f"model already has handspring sequences {taken}")
-    moves = [Handspring(model, HANDSPRING, False), Handspring(model, BACK_HANDSPRING, True)]
+    moves = [Handspring(model, HANDSPRING, False, style), Handspring(model, BACK_HANDSPRING, True, style)]
     entries = {}
     for bone in range(model.bone_count):
         for track in (TRANSLATION, ROTATION, SCALE):
@@ -581,7 +634,8 @@ def add_visual_kits(dbc):
 def main():
     parser = argparse.ArgumentParser(description="Add Handspring and BackHandspring to client files")
     subcommands = parser.add_subparsers(dest="command", required=True)
-    model_command = subcommands.add_parser("model", help="add both handspring sequences to a character M2")
+    model_command = subcommands.add_parser(
+        "model", help="add both handspring sequences to a character M2 (Tauren, Gnome and Night Elf get their own)")
     model_command.add_argument("source", type=Path)
     model_command.add_argument("output", type=Path)
     animations_command = subcommands.add_parser("animations", help="add the handspring rows to AnimationData.dbc")
@@ -593,9 +647,13 @@ def main():
     args = parser.parse_args()
     if args.source.resolve() == args.output.resolve():
         parser.error("Use a separate staging output; do not overwrite the source client")
-    change = {"model": add_handsprings, "animations": add_animation_rows, "kits": add_visual_kits}[args.command]
+    source = args.source.read_bytes()
+    if args.command == "model":
+        result = add_handsprings(source, style_for(args.source.stem))
+    else:
+        result = {"animations": add_animation_rows, "kits": add_visual_kits}[args.command](source)
     with args.output.open("xb") as output:
-        output.write(change(args.source.read_bytes()))
+        output.write(result)
 
 
 if __name__ == "__main__":
