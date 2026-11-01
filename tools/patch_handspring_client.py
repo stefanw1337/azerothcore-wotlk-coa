@@ -20,7 +20,8 @@ EMBEDDED = 0x20
 KEY_ARM_LEFT, KEY_ARM_RIGHT, KEY_ROOT = 0, 1, 26
 INDEX_FINGERS = (13, 8)
 
-STAND, JUMP_START, JUMP, JUMP_END = 0, 37, 38, 39
+STAND, JUMP_START, JUMP, JUMP_END, SIT_GROUND = 0, 37, 38, 39, 97
+TUCK_IN, TUCK_OUT = 0.15, 0.12
 HANDSPRING, BACK_HANDSPRING = 1792, 1794
 FLY_HANDSPRING, FLY_BACK_HANDSPRING = 1793, 1795
 FLY_JUMP_START, FLY_JUMP = 266, 267
@@ -275,11 +276,16 @@ class Model:
         return offset
 
 
+FLIP_AXIS, SIDE_AXIS = (0.0, 1.0, 0.0), (1.0, 0.0, 0.0)
+
+
 class Style:
-    def __init__(self, duration, planted, air=0.0):
+    def __init__(self, duration, planted, air=0.0, axis=FLIP_AXIS, tucked=False):
         self.duration = duration
         self.planted = planted
         self.air = air
+        self.axis = axis
+        self.tucked = tucked
 
     @property
     def turns(self):
@@ -287,8 +293,10 @@ class Style:
 
 
 HANDSPRING_STYLE = Style(DURATION_MS, (True,))
-STYLES = {"tauren": Style(1000, (True, False)), "gnome": Style(1000, (True, True, True)),
-          "nightelf": Style(DURATION_MS, (False,), air=0.5)}
+DIVE_ROLL = Style(800, (False,), tucked=True)
+SIDE_FLIP = Style(DURATION_MS, (False,), air=0.35, axis=SIDE_AXIS)
+STYLES = {"tauren": DIVE_ROLL, "dwarf": DIVE_ROLL, "orc": DIVE_ROLL, "gnome": Style(1000, (True, True, True)),
+          "nightelf": Style(DURATION_MS, (False,), air=0.5, tucked=True), "scourge": SIDE_FLIP, "bloodelf": SIDE_FLIP}
 
 
 def style_for(name):
@@ -323,6 +331,10 @@ class Handspring:
         self.sides = (1.0, -1.0)
         self.stand = sequences[STAND]
         self.arm_bones = {bone for chain in self.arms for bone in self.limb(model.parents[chain[0]])}
+        self.seated = sequences.get(SIT_GROUND) if style.tucked else None
+        hips = model.pivots[self.root][2]
+        self.leg_bones = {bone for bone in self.limb(self.root)
+                          if bone not in self.arm_bones and bone != self.root and model.pivots[bone][2] < hips}
         self.lowest = {}
 
     def limb(self, bone):
@@ -343,10 +355,21 @@ class Handspring:
         landing = (share - TURN_END + 0.04) / (1.0 - TURN_END + 0.04)
         return self.landing, self.model.duration(self.landing) * 0.5 * landing
 
+    def tucking(self, share):
+        if self.seated is None:
+            return 0.0
+        return min(window(share, TURN_START, TURN_START + TUCK_IN), 1.0 - window(share, TURN_END - TUCK_OUT, TURN_END))
+
     def posed(self, bone, track, share):
         sequence, time = (self.stand, 0) if bone in self.arm_bones else self.source(share)
         value = self.model.value(bone, track, sequence, time)
-        return resting(track) if value is None else value
+        value = resting(track) if value is None else value
+        tuck = self.tucking(share) if track == ROTATION and bone in self.leg_bones else 0.0
+        if tuck > 0.0:
+            seated = self.model.value(bone, track, self.seated, 0)
+            if seated is not None:
+                value = slerp(value, seated, tuck)
+        return value
 
     def world_rotation(self, bone, share, overrides):
         rotation = (0.0, 0.0, 0.0, 1.0)
@@ -456,7 +479,7 @@ class Handspring:
         return [min(time, self.duration) for time in range(0, self.duration + KEY_STEP_MS, KEY_STEP_MS)]
 
     def pitch(self, share):
-        return about((0.0, 1.0, 0.0), self.turn * self.progress(share))
+        return about(self.style.axis, self.turn * self.progress(share))
 
     def root_rotation(self, share):
         return product(self.pitch(share), self.posed(self.root, ROTATION, share))

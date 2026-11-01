@@ -167,7 +167,9 @@ def lowest(model, sequence, time):
 
 class HandspringStyleTest(unittest.TestCase):
     def test_races_get_their_own_vault(self):
-        self.assertEqual(handspring.style_for("TaurenFemale").planted, (True, False))
+        self.assertIs(handspring.style_for("TaurenFemale"), handspring.DIVE_ROLL)
+        self.assertIs(handspring.style_for("ScourgeMale"), handspring.SIDE_FLIP)
+        self.assertEqual(handspring.SIDE_FLIP.axis, handspring.SIDE_AXIS)
         self.assertEqual(handspring.style_for("GnomeMale").turns, 3)
         self.assertGreater(handspring.style_for("NightElfMale").air, 0.0)
         self.assertIs(handspring.style_for("HumanMale"), handspring.HANDSPRING_STYLE)
