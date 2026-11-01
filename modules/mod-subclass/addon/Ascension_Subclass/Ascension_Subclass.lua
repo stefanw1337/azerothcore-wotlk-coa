@@ -926,12 +926,21 @@ local function ShowSubclassUnder(line)
     local label = line.subclassLine
     if not subclass or subclass == "" then
         if label then
+            label.wanted = false
             label:Hide()
         end
         return
     end
     if not label then
-        label = line:GetParent():CreateFontString(nil, "ARTWORK")
+        local holder = CreateFrame("Frame", nil, line:GetParent())
+        label = holder:CreateFontString(nil, "ARTWORK")
+        holder:SetScript("OnUpdate", function()
+            if label.wanted and line:IsVisible() then
+                label:Show()
+            else
+                label:Hide()
+            end
+        end)
         local font, size, flags = line:GetFont()
         if font then
             label:SetFont(font, size, flags)
@@ -949,7 +958,12 @@ local function ShowSubclassUnder(line)
         hex = color and string.format("%02x%02x%02x", color.r * 255, color.g * 255, color.b * 255) or "ffffff"
     end
     label:SetText("|cff" .. hex .. subclass .. "|r")
-    label:Show()
+    label.wanted = true
+    if line:IsVisible() then
+        label:Show()
+    else
+        label:Hide()
+    end
 end
 
 local function SubclassedLevelLine()
