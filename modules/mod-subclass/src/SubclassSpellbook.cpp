@@ -4,29 +4,51 @@
 
 #include "Player.h"
 #include "PlayerScript.h"
+#include "SpellInfo.h"
+#include "SpellMgr.h"
 
-#include <array>
-#include <utility>
+#include <algorithm>
+#include <vector>
 
 namespace
 {
 constexpr uint32 DualWield = 674;
-constexpr uint32 SecondDualWield = 370094;
-constexpr std::array<std::pair<uint32, uint32>, 1> CopiesOf = { { { SecondDualWield, DualWield } } };
+
+bool OnlyGrantsDualWield(uint32 spellId)
+{
+    SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+    if (!info || !info->IsPassive())
+        return false;
+    bool dualWield = false;
+    for (SpellEffectInfo const& effect : info->GetEffects())
+    {
+        if (!effect.IsEffect())
+            continue;
+        if (effect.Effect != SPELL_EFFECT_DUAL_WIELD)
+            return false;
+        dualWield = true;
+    }
+    return dualWield;
+}
 
 void DropCopies(Player* player)
 {
-    for (auto const& [copy, original] : CopiesOf)
-        if (player->HasSpell(copy) && player->HasSpell(original))
-            player->removeSpell(copy, SPEC_MASK_ALL, false);
+    std::vector<uint32> known;
+    for (auto const& [spellId, spell] : player->GetSpellMap())
+        if (spell->State != PLAYERSPELL_REMOVED && OnlyGrantsDualWield(spellId))
+            known.push_back(spellId);
+    if (known.size() < 2)
+        return;
+    uint32 const kept = std::find(known.begin(), known.end(), DualWield) != known.end() ? DualWield :
+        *std::min_element(known.begin(), known.end());
+    for (uint32 spellId : known)
+        if (spellId != kept)
+            player->removeSpell(spellId, SPEC_MASK_ALL, false);
 }
 
 bool InvolvesCopy(uint32 spellId)
 {
-    for (auto const& [copy, original] : CopiesOf)
-        if (spellId == copy || spellId == original)
-            return true;
-    return false;
+    return OnlyGrantsDualWield(spellId);
 }
 }
 
