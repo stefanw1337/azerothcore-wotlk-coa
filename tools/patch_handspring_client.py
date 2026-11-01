@@ -27,7 +27,7 @@ STAND, JUMP_START, JUMP, JUMP_END, SIT_GROUND = 0, 37, 38, 39, 97
 TUCK_IN, TUCK_OUT = 0.15, 0.12
 SPRINT = 143
 CHARGE_START, CHARGE_IN, CHARGE_OUT = 0.5, 0.1, 0.08
-CHARGE_LEAN, CHARGE_TURN = 0.45, -0.6
+CHARGE_LEAN, CHARGE_TURN, CHARGE_DROP = 0.45, -1.0, -0.3
 HANDSPRING, BACK_HANDSPRING = 1792, 1794
 FLY_HANDSPRING, FLY_BACK_HANDSPRING = 1793, 1795
 FLY_JUMP_START, FLY_JUMP = 266, 267
@@ -375,6 +375,8 @@ class Handspring:
     def source(self, share):
         take_off_length = self.model.duration(self.take_off)
         turn_end = self.style.turn_end
+        if self.sprint is not None and share < TURN_START:
+            return self.sprint, share * self.duration % self.model.duration(self.sprint)
         if share < TURN_START + 0.12:
             return self.take_off, take_off_length * 0.6 * share / (TURN_START + 0.12)
         if share < turn_end - 0.04:
@@ -546,7 +548,8 @@ class Handspring:
         charge = self.charging(share)
         lean = about(FLIP_AXIS, CHARGE_LEAN * charge)
         turned = about((0.0, 0.0, 1.0), CHARGE_TURN * charge)
-        return product(turned, lean)
+        dropped = about(SIDE_AXIS, CHARGE_DROP * charge)
+        return product(turned, product(lean, dropped))
 
     def root_rotation(self, share):
         return product(self.shoulder(share), product(self.pitch(share), self.posed(self.root, ROTATION, share)))
