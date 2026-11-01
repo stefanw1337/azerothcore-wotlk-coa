@@ -92,6 +92,8 @@ Our archives sort after your `patch-ZZZZ.MPQ`:
 - `patch-ZZZZC.MPQ`: second-head models. `patch-ZZZZW.MPQ`: held-weapon models.
 - `EsteriaAppearanceGeometry.bin`: yours, with our skin under the old Thin Human path.
 - Addons: `Ascension_Subclass` (required), `SpellActivationOverlay-for-CoA` (optional).
+  SpellActivationOverlay-for-CoA is Vinny/Ennvina's SpellActivationOverlay (MIT, CurseForge project 649417)
+  adapted for CoA; keep its LICENSE in the addon folder and the credit in `package/README.txt`.
 
 ## Config
 

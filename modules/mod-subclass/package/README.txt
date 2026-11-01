@@ -33,4 +33,10 @@ Known issues
 - The Forgotten's hat floats above the head in CoA Custom 1.9.2. That is CoA's model; the Thin Twins have their own.
 - When Auto Shot starts, the gun of a Hunter subclass jumps to the other hand for a moment.
 
+Credits
+-------
+- SpellActivationOverlay-for-CoA is SpellActivationOverlay by Vinny/Ennvina
+  (CurseForge project 649417), MIT licence, adapted for CoA.
+  Its LICENSE file is included in the addon folder.
+
 Feedback: tell Stefan (stefanw1337) what you tried, what happened and when.
