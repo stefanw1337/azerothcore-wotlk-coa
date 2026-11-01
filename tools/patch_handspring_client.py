@@ -151,7 +151,7 @@ def smoothed_continuity(previous, quaternion):
     return quaternion
 
 
-def body_vertices(skin):
+def body_vertices(skin, geosets=BODY_GEOSETS):
     if skin[:4] != SKIN_MAGIC:
         raise ValueError("not a .skin file")
     count, offset = counted(skin, SKIN_VERTICES)
@@ -160,7 +160,7 @@ def body_vertices(skin):
     body = set()
     for index in range(submeshes):
         geoset, level, start, size = struct.unpack_from("<4H", skin, at + index * SUBMESH_SIZE)
-        if geoset in BODY_GEOSETS:
+        if geoset in geosets:
             first = start + (level << 16)
             body.update(lookup[first:first + size])
     if not body:
