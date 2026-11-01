@@ -165,6 +165,32 @@ def lowest(model, sequence, time):
     return min(heights)
 
 
+class HandspringStyleTest(unittest.TestCase):
+    def test_races_get_their_own_vault(self):
+        self.assertEqual(handspring.style_for("TaurenFemale").planted, (True, False))
+        self.assertEqual(handspring.style_for("GnomeMale").turns, 3)
+        self.assertGreater(handspring.style_for("NightElfMale").air, 0.0)
+        self.assertIs(handspring.style_for("HumanMale"), handspring.HANDSPRING_STYLE)
+
+    def test_every_style_always_plays_and_turns_over_whole_times(self):
+        for style in (handspring.HANDSPRING_STYLE, *handspring.STYLES.values()):
+            model = handspring.Model(handspring.add_handsprings(synthetic_model(), style))
+            for animation in (handspring.HANDSPRING, handspring.BACK_HANDSPRING):
+                sequence = model.sequences[animation]
+                record = model.sequence_offset + sequence * handspring.SEQUENCE_SIZE
+                frequency = struct.unpack_from("<h", model.data, record + handspring.SEQUENCE_FREQUENCY)[0]
+                self.assertEqual(frequency, handspring.ALWAYS)
+                self.assertEqual(model.duration(sequence), style.duration)
+                for time in range(0, style.duration + 1, handspring.KEY_STEP_MS):
+                    self.assertGreater(lowest(model, sequence, time), -0.01)
+
+    def test_aerial_flip_leaves_the_ground(self):
+        style = handspring.STYLES["nightelf"]
+        model = handspring.Model(handspring.add_handsprings(synthetic_model(), style))
+        sequence = model.sequences[handspring.HANDSPRING]
+        self.assertGreater(lowest(model, sequence, style.duration // 2), 0.2)
+
+
 class ClientTableTest(unittest.TestCase):
     def test_animation_rows_fall_back_to_jump_start(self):
         texts = b"\0Jump\0FlyJump\0"
