@@ -22,6 +22,9 @@ INDEX_FINGERS = (13, 8)
 
 STAND, JUMP_START, JUMP, JUMP_END, SIT_GROUND = 0, 37, 38, 39, 97
 TUCK_IN, TUCK_OUT = 0.15, 0.12
+SPRINT = 143
+CHARGE_START, CHARGE_IN, CHARGE_OUT = 0.5, 0.1, 0.08
+CHARGE_LEAN, CHARGE_TURN = 0.45, -0.6
 HANDSPRING, BACK_HANDSPRING = 1792, 1794
 FLY_HANDSPRING, FLY_BACK_HANDSPRING = 1793, 1795
 FLY_JUMP_START, FLY_JUMP = 266, 267
@@ -280,8 +283,10 @@ FLIP_AXIS, SIDE_AXIS = (0.0, 1.0, 0.0), (1.0, 0.0, 0.0)
 
 
 class Style:
-    def __init__(self, duration, planted, air=0.0, axis=FLIP_AXIS, tucked=False):
+    def __init__(self, duration, planted, air=0.0, axis=FLIP_AXIS, tucked=False, charge=False):
         self.duration = duration
+        self.charge = charge
+        self.turn_end = CHARGE_START if charge else TURN_END
         self.planted = planted
         self.air = air
         self.axis = axis
@@ -293,7 +298,7 @@ class Style:
 
 
 HANDSPRING_STYLE = Style(DURATION_MS, (True,))
-DIVE_ROLL = Style(800, (False,), tucked=True)
+DIVE_ROLL = Style(1000, (False,), tucked=True, charge=True)
 SIDE_FLIP = Style(DURATION_MS, (False,), air=0.35, axis=SIDE_AXIS)
 STYLES = {"tauren": DIVE_ROLL, "dwarf": DIVE_ROLL, "orc": DIVE_ROLL, "gnome": Style(1000, (True, True, True)),
           "nightelf": Style(DURATION_MS, (False,), air=0.5, tucked=True), "scourge": SIDE_FLIP, "bloodelf": SIDE_FLIP}
@@ -332,6 +337,7 @@ class Handspring:
         self.stand = sequences[STAND]
         self.arm_bones = {bone for chain in self.arms for bone in self.limb(model.parents[chain[0]])}
         self.seated = sequences.get(SIT_GROUND) if style.tucked else None
+        self.sprint = sequences.get(SPRINT) if style.charge else None
         hips = model.pivots[self.root][2]
         self.leg_bones = {bone for bone in self.limb(self.root)
                           if bone not in self.arm_bones and bone != self.root and model.pivots[bone][2] < hips}
@@ -345,20 +351,25 @@ class Handspring:
 
     def source(self, share):
         take_off_length = self.model.duration(self.take_off)
+        turn_end = self.style.turn_end
         if share < TURN_START + 0.12:
             return self.take_off, take_off_length * 0.6 * share / (TURN_START + 0.12)
-        if share < TURN_END - 0.04:
+        if share < turn_end - 0.04:
             if self.flight is not None:
-                flight = (share - TURN_START - 0.12) / (TURN_END - 0.04 - TURN_START - 0.12)
+                flight = (share - TURN_START - 0.12) / (turn_end - 0.04 - TURN_START - 0.12)
                 return self.flight, self.model.duration(self.flight) * flight
             return self.take_off, take_off_length * 0.6
-        landing = (share - TURN_END + 0.04) / (1.0 - TURN_END + 0.04)
+        if self.sprint is not None and share < LOOP_CLOSE:
+            sprint_length = self.model.duration(self.sprint)
+            return self.sprint, (share - turn_end + 0.04) * self.duration % sprint_length
+        landing = (share - turn_end + 0.04) / (1.0 - turn_end + 0.04)
         return self.landing, self.model.duration(self.landing) * 0.5 * landing
 
     def tucking(self, share):
         if self.seated is None:
             return 0.0
-        return min(window(share, TURN_START, TURN_START + TUCK_IN), 1.0 - window(share, TURN_END - TUCK_OUT, TURN_END))
+        turn_end = self.style.turn_end
+        return min(window(share, TURN_START, TURN_START + TUCK_IN), 1.0 - window(share, turn_end - TUCK_OUT, turn_end))
 
     def posed(self, bone, track, share):
         sequence, time = (self.stand, 0) if bone in self.arm_bones else self.source(share)
@@ -391,7 +402,7 @@ class Handspring:
         return min(rising, falling)
 
     def progress(self, share):
-        return self.style.turns * window(share, TURN_START, TURN_END)
+        return self.style.turns * window(share, TURN_START, self.style.turn_end)
 
     def phase(self, share):
         progress = self.progress(share)
@@ -465,7 +476,7 @@ class Handspring:
 
     def hop(self, share):
         if self.style.air:
-            turning = max(0.0, min(1.0, (share - TURN_START) / (TURN_END - TURN_START)))
+            turning = max(0.0, min(1.0, (share - TURN_START) / (self.style.turn_end - TURN_START)))
             return self.style.air * self.model.pivots[self.root][2] * math.sin(math.pi * turning)
         turn, phase = self.phase(share)
         if not self.style.planted[turn]:
@@ -481,8 +492,20 @@ class Handspring:
     def pitch(self, share):
         return about(self.style.axis, self.turn * self.progress(share))
 
+    def charging(self, share):
+        if self.sprint is None:
+            return 0.0
+        turn_end = self.style.turn_end
+        return min(window(share, turn_end, turn_end + CHARGE_IN), 1.0 - window(share, LOOP_CLOSE - CHARGE_OUT, LOOP_CLOSE))
+
+    def shoulder(self, share):
+        charge = self.charging(share)
+        lean = about(FLIP_AXIS, CHARGE_LEAN * charge)
+        turned = about((0.0, 0.0, 1.0), CHARGE_TURN * charge)
+        return product(turned, lean)
+
     def root_rotation(self, share):
-        return product(self.pitch(share), self.posed(self.root, ROTATION, share))
+        return product(self.shoulder(share), product(self.pitch(share), self.posed(self.root, ROTATION, share)))
 
     def root_translation(self, share):
         base = self.posed(self.root, TRANSLATION, share)
