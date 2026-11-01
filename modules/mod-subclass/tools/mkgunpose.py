@@ -58,22 +58,20 @@ READY_1H = 26
 ATTACK_RIFLE = 49
 SHOT_SETTLE_MS, SHOT_AIM_HOLD_MS = 250, 6000
 OFF_HAND_SWINGS = (87,)
-FIST_AT_HEART = (0.65, 0.52, -0.25)
-FIST_DIPPED = (0.62, 0.48, -0.32)
-TOSSED_UP = (0.5, -0.35, 0.8)
-DRAWN_BACK = (0.15, -0.4, 0.55)
-THROWN_FORWARD = (0.95, -0.15, 0.2)
-ACROSS_THE_HEART = (-0.2, 0.95, 0.2)
+FIST_AT_FACE = (0.45, 0.28, 0.5)
+FIST_DRAWN_IN = (0.38, 0.3, 0.45)
+FIST_PUSHED_OUT = (0.55, 0.2, 0.6)
+FIST_LIFTED = (0.42, 0.22, 0.68)
 UPWARD = (0.0, 0.0, 1.0)
 SPELL_LEFT_HAND, SPELL_RIGHT_HAND = 21, 22
 SPELL_HOLDS = (31, 51, 52, 124, 125)
 CAST_SPINE_SHARE = 0.5
-SPELL_HOLD = ((0.0, FIST_AT_HEART, ACROSS_THE_HEART),)
+SPELL_HOLD = ((0.0, FIST_AT_FACE, UPWARD),)
 SPELL_RELEASES = {
-    54: ((0.0, FIST_AT_HEART, ACROSS_THE_HEART), (0.25, FIST_DIPPED, ACROSS_THE_HEART), (0.45, TOSSED_UP, UPWARD),
-         (0.75, TOSSED_UP, UPWARD), (1.0, None, None)),
-    53: ((0.0, FIST_AT_HEART, ACROSS_THE_HEART), (0.25, DRAWN_BACK, UPWARD), (0.45, THROWN_FORWARD, FORWARD),
-         (0.75, THROWN_FORWARD, FORWARD), (1.0, None, None))}
+    54: ((0.0, FIST_AT_FACE, UPWARD), (0.25, FIST_DRAWN_IN, UPWARD), (0.45, FIST_LIFTED, UPWARD),
+         (0.75, FIST_LIFTED, UPWARD), (1.0, None, None)),
+    53: ((0.0, FIST_AT_FACE, UPWARD), (0.25, FIST_DRAWN_IN, UPWARD), (0.45, FIST_PUSHED_OUT, UPWARD),
+         (0.75, FIST_PUSHED_OUT, UPWARD), (1.0, None, None))}
 
 
 def array(data, offset):
@@ -836,6 +834,19 @@ class Grafter:
                                                                SHOT_AIM_HOLD_MS))
         return bytes(self.blob.data)
 
+    def raise_casts(self):
+        ogre = bytes(self.blob.data)
+        right_arm = arm_chain(ogre, KEY_ARM_RIGHT)
+        _, offset = array(ogre, SEQUENCES)
+        for sequence in range(self.old_count):
+            animation = struct.unpack_from("<H", ogre, offset + sequence * SEQUENCE_SIZE)[0]
+            frames = SPELL_HOLD if animation in SPELL_HOLDS else SPELL_RELEASES.get(animation)
+            if frames:
+                length = sequence_length(ogre, sequence)
+                for bone, entry in raised_hand(ogre, self.base, right_arm, frames, length).items():
+                    self.set_own_rotation(bone, sequence, entry)
+        return bytes(self.blob.data)
+
     def set_own_rotation(self, bone, sequence, entry):
         self.set_own_track(bone_offset(self.blob.data, bone) + ROTATION, sequence, entry)
 
@@ -926,6 +937,11 @@ def hold_aim_after_shot(ogre_path, skin_path):
     ogre.write_bytes(Grafter(ogre.read_bytes(), b"", Path(skin_path).read_bytes()).hold_aim_after_shot())
 
 
+def raise_casts(ogre_path, skin_path):
+    ogre = Path(ogre_path)
+    ogre.write_bytes(Grafter(ogre.read_bytes(), b"", Path(skin_path).read_bytes()).raise_casts())
+
+
 def ready_own_rifle(ogre_path, skin_path):
     ogre = Path(ogre_path)
     ogre.write_bytes(Grafter(ogre.read_bytes(), b"", Path(skin_path).read_bytes()).ready_own_rifle())
@@ -936,6 +952,8 @@ if __name__ == "__main__":
         own_rifle(sys.argv[2], sys.argv[3])
     elif sys.argv[1] == "--ready-rifle":
         ready_own_rifle(sys.argv[2], sys.argv[3])
+    elif sys.argv[1] == "--raise-casts":
+        raise_casts(sys.argv[2], sys.argv[3])
     elif sys.argv[1] == "--hold-aim":
         hold_aim_after_shot(sys.argv[2], sys.argv[3])
     else:

@@ -212,9 +212,28 @@ class LeftCaster:
                          self.blob.append(bytes(records), 16))
 
 
+def remirrored_left_arm(data):
+    data = bytearray(data)
+    right_arm, left_arm = g.arm_chain(data, g.KEY_ARM_RIGHT), g.arm_chain(data, g.KEY_ARM_LEFT)
+    for cast, left_cast in LEFT_CASTS:
+        target = g.sequence_index(data, left_cast)
+        blob = g.Blob(bytes(data))
+        for bone, (keys, stamps, values) in g.mirrored_arm(bytes(data), g.sequence_index(data, cast), right_arm,
+                                                          left_arm).items():
+            track = g.bone_offset(blob.data, bone) + g.ROTATION
+            times, packed = struct.unpack_from("<I", blob.data, track + 8)[0], struct.unpack_from("<I", blob.data,
+                                                                                                  track + 16)[0]
+            struct.pack_into("<II", blob.data, times + target * 8, keys, blob.append(stamps, 4))
+            struct.pack_into("<II", blob.data, packed + target * 8, keys, blob.append(values, 4))
+        data = bytearray(blob.data)
+    return bytes(data)
+
+
 def main(model_path, mode="cast"):
     model = Path(model_path)
-    if mode == "calm":
+    if mode == "mirror":
+        model.write_bytes(remirrored_left_arm(model.read_bytes()))
+    elif mode == "calm":
         model.write_bytes(calm_left_casts(model.read_bytes()))
     else:
         model.write_bytes(LeftCaster(model.read_bytes()).cast())
