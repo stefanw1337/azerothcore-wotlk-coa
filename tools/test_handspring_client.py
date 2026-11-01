@@ -126,6 +126,14 @@ class HandspringModelTest(unittest.TestCase):
                     self.assertEqual(before.keys(before.bone(bone) + track, track, sequence),
                                      self.model.keys(self.model.bone(bone) + track, track, sequence))
 
+    def test_model_with_external_animation_keys_is_refused(self):
+        data = bytearray(synthetic_model())
+        _, offset = handspring.counted(data, handspring.SEQUENCES)
+        jump_start = offset + SEQUENCE_IDS.index(handspring.JUMP_START) * handspring.SEQUENCE_SIZE
+        struct.pack_into("<I", data, jump_start + handspring.SEQUENCE_FLAGS, 0)
+        with self.assertRaises(ValueError):
+            handspring.add_handsprings(bytes(data))
+
     def test_model_with_handsprings_is_refused(self):
         with self.assertRaises(ValueError):
             handspring.add_handsprings(bytes(self.model.data))

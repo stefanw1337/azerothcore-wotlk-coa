@@ -254,6 +254,11 @@ class Model:
             self.skinned = skinned
         return self.skinned
 
+    def embedded(self, sequence):
+        flags = struct.unpack_from("<I", self.data, self.sequence_offset + sequence * SEQUENCE_SIZE
+                                   + SEQUENCE_FLAGS)[0]
+        return bool(flags & EMBEDDED)
+
     def duration(self, sequence):
         return struct.unpack_from("<I", self.data, self.sequence_offset + sequence * SEQUENCE_SIZE
                                   + SEQUENCE_DURATION)[0]
@@ -278,6 +283,9 @@ class Handspring:
         self.take_off = sequences[JUMP_START]
         self.flight = sequences.get(JUMP)
         self.landing = sequences.get(JUMP_END, sequences[STAND])
+        for sequence in (self.take_off, self.flight, self.landing):
+            if sequence is not None and not model.embedded(sequence):
+                raise ValueError(f"sequence {sequence} keeps its keys in an external .anim file")
         self.root = model.key_bone(KEY_ROOT)
         if self.root < 0 or not model.animated(model.bone(self.root) + ROTATION):
             raise ValueError("model has no animated root bone")
