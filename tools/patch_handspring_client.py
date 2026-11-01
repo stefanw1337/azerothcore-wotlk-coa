@@ -46,7 +46,7 @@ ANIMATION_FIELDS, KIT_FIELDS, KIT_ANIMATION = 8, 38, 2
 ANIMATION_WEAPON_FLAGS, WEAPONS_SHEATHED = 2, 4
 VAULT_DUST_KIT = 963356
 VAULT_KITS = {3455900: HANDSPRING, 3455901: BACK_HANDSPRING}
-TUCK_AHEAD = (1.0, 0.0, -0.4)
+ARMS_IN = (0.35, 0.0, -1.0)
 PLANT_RISE, PLANT_FULL, PLANT_LIFT, PLANT_GONE = 0.02, 0.21, 0.5, 0.78
 ANIMATION_NAMES = {HANDSPRING: "Handspring", FLY_HANDSPRING: "FlyHandspring",
                    BACK_HANDSPRING: "BackHandspring", FLY_BACK_HANDSPRING: "FlyBackHandspring"}
@@ -458,7 +458,7 @@ class Handspring:
     def arm_target(self, share, side):
         turn, _ = self.phase(share)
         if not self.style.planted[turn]:
-            return unit(rotate(self.pitch(share), (TUCK_AHEAD[0], side * REACH_SPREAD, TUCK_AHEAD[2])))
+            return unit(rotate(self.pitch(share), (ARMS_IN[0], side * REACH_SPREAD, ARMS_IN[2])))
         overhead = rotate(self.pitch(share), unit((self.reach, side * REACH_SPREAD, 1.0)))
         planted = unit((self.reach * PLANT_AHEAD, side * REACH_SPREAD, -1.0))
         planting = self.planting(share)
@@ -482,7 +482,11 @@ class Handspring:
             held = rotate(standing, bind_direction)
             hanging = unit((HANG_AHEAD, 0.0, -1.0))
             ahead = rotate(self.pitch(share), (1.0, side * REACH_SPREAD, 0.0))
-            direction = self.swung(hanging, unit(ahead), self.arm_target(share, side), weight)
+            target = self.arm_target(share, side)
+            if self.style.planted[self.phase(share)[0]]:
+                direction = self.swung(hanging, unit(ahead), target, weight)
+            else:
+                direction = unit(tuple(a + (b - a) * weight for a, b in zip(hanging, target)))
             overrides[chain[0]] = product(conjugate(above), product(turning(held, direction), standing))
             for bone in chain[1:]:
                 overrides[bone] = slerp(self.posed(bone, ROTATION, share), (0.0, 0.0, 0.0, 1.0), weight)
