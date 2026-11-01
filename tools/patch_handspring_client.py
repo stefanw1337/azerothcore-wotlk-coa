@@ -18,6 +18,7 @@ SEQUENCE_DURATION, SEQUENCE_MOVE_SPEED, SEQUENCE_FLAGS = 4, 8, 12
 SEQUENCE_BLEND, SEQUENCE_BOUNDS, SEQUENCE_NEXT = 28, 32, 60
 EMBEDDED = 0x20
 KEY_ARM_LEFT, KEY_ARM_RIGHT, KEY_ROOT = 0, 1, 26
+INDEX_FINGERS = (13, 8)
 
 STAND, JUMP_START, JUMP, JUMP_END = 0, 37, 38, 39
 HANDSPRING, BACK_HANDSPRING = 1792, 1794
@@ -31,10 +32,12 @@ LOOP_CLOSE = 0.86
 FLIGHT_START, FLIGHT_END = 0.5, 0.8
 GROUND_CLEARANCE = 0.03
 BOUNDS_GROWTH = 1.6
-FORWARD_REACH, REACH_SPREAD = 0.3, 0.15
+FORWARD_REACH, REACH_SPREAD = 0.3, 0.0
 PLANT_AHEAD = 1.2
+HANG_AHEAD = 0.15
 PLANT_START, PLANT_HELD, PLANT_RELEASED, PLANT_END = 0.14, 0.3, 0.45, 0.6
 ANIMATION_FIELDS, KIT_FIELDS, KIT_ANIMATION = 8, 38, 2
+ANIMATION_WEAPON_FLAGS, WEAPONS_SHEATHED = 2, 4
 VAULT_DUST_KIT = 963356
 VAULT_KITS = {3455900: HANDSPRING, 3455901: BACK_HANDSPRING}
 ANIMATION_NAMES = {HANDSPRING: "Handspring", FLY_HANDSPRING: "FlyHandspring",
@@ -291,7 +294,15 @@ class Handspring:
             raise ValueError("model has no animated root bone")
         self.arms = (model.arm(KEY_ARM_LEFT), model.arm(KEY_ARM_RIGHT))
         self.sides = (1.0, -1.0)
+        self.stand = sequences[STAND]
+        self.arm_bones = {bone for chain in self.arms for bone in self.limb(model.parents[chain[0]])}
         self.lowest = {}
+
+    def limb(self, bone):
+        found = [bone]
+        for child in self.model.children(bone):
+            found += self.limb(child)
+        return found
 
     def source(self, share):
         take_off_length = self.model.duration(self.take_off)
@@ -306,7 +317,7 @@ class Handspring:
         return self.landing, self.model.duration(self.landing) * 0.5 * landing
 
     def posed(self, bone, track, share):
-        sequence, time = self.source(share)
+        sequence, time = (self.stand, 0) if bone in self.arm_bones else self.source(share)
         value = self.model.value(bone, track, sequence, time)
         return resting(track) if value is None else value
 
@@ -320,10 +331,8 @@ class Handspring:
 
     def arm_reach(self, chain):
         pivots = self.model.pivots
-        tip = pivots[chain[-1]]
-        tip_children = self.model.children(chain[-1])
-        if tip_children:
-            tip = pivots[max(tip_children, key=self.model.subtree_size)]
+        finger = self.model.key_bone(INDEX_FINGERS[self.arms.index(chain)])
+        tip = pivots[finger] if finger >= 0 else pivots[chain[-1]]
         return math.dist(pivots[chain[0]], tip), unit(tuple(b - a for a, b in zip(pivots[chain[0]], tip)))
 
     def reaching(self, share):
@@ -337,17 +346,26 @@ class Handspring:
         planting = min(window(share, PLANT_START, PLANT_HELD), 1.0 - window(share, PLANT_RELEASED, PLANT_END))
         return unit(tuple(a + (b - a) * planting for a, b in zip(overhead, planted)))
 
+    def swung(self, hanging, ahead, raised, weight):
+        if weight <= 0.5:
+            first, second, share = hanging, ahead, weight * 2.0
+        else:
+            first, second, share = ahead, raised, weight * 2.0 - 1.0
+        return unit(tuple(a + (b - a) * share for a, b in zip(first, second)))
+
     def arm_rotations(self, share):
         weight = self.reaching(share)
         overrides = {}
-        if weight <= 0.0:
-            return overrides
         pitched = {self.root: self.root_rotation(share)}
         for chain, side in zip(self.arms, self.sides):
             _, bind_direction = self.arm_reach(chain)
             above = self.world_rotation(self.model.parents[chain[0]], share, pitched)
-            raised = turning(bind_direction, rotate(conjugate(above), self.arm_target(share, side)))
-            overrides[chain[0]] = slerp(self.posed(chain[0], ROTATION, share), raised, weight)
+            standing = product(above, self.posed(chain[0], ROTATION, share))
+            held = rotate(standing, bind_direction)
+            hanging = unit((HANG_AHEAD, 0.0, -1.0))
+            ahead = rotate(self.pitch(share), (1.0, side * REACH_SPREAD, 0.0))
+            direction = self.swung(hanging, unit(ahead), self.arm_target(share, side), weight)
+            overrides[chain[0]] = product(conjugate(above), product(turning(held, direction), standing))
             for bone in chain[1:]:
                 overrides[bone] = slerp(self.posed(bone, ROTATION, share), (0.0, 0.0, 0.0, 1.0), weight)
         return overrides
@@ -522,6 +540,7 @@ def add_animation_rows(dbc):
             row = list(by_id[FLY_JUMP if flying else JUMP])
             row[0], row[1] = animation, len(texts)
             texts += name.encode() + b"\0"
+            row[ANIMATION_WEAPON_FLAGS] = WEAPONS_SHEATHED
             row[5] = FLY_JUMP_START if flying else JUMP_START
             row[6] = animation - 1 if flying else animation
             added.append(row)
