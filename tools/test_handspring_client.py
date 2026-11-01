@@ -165,6 +165,40 @@ def lowest(model, sequence, time):
     return min(heights)
 
 
+def synthetic_skin(geosets):
+    lookup = list(range(len(VERTICES)))
+    head = bytearray(b"SKIN" + bytes(44))
+    lookup_at = len(head)
+    head += struct.pack(f"<{len(lookup)}H", *lookup)
+    while len(head) % 4:
+        head.append(0)
+    submesh_at = len(head)
+    for geoset, start, size in geosets:
+        submesh = bytearray(handspring.SUBMESH_SIZE)
+        struct.pack_into("<4H", submesh, 0, geoset, 0, start, size)
+        head += submesh
+    struct.pack_into("<II", head, handspring.SKIN_VERTICES, len(lookup), lookup_at)
+    struct.pack_into("<II", head, handspring.SKIN_SUBMESHES, len(geosets), submesh_at)
+    return bytes(head)
+
+
+class BodyGeosetTest(unittest.TestCase):
+    def test_only_the_body_geosets_count(self):
+        skin = synthetic_skin([(0, 0, 2), (5, 2, 1), (401, 3, 1)])
+        self.assertEqual(handspring.body_vertices(skin), {0, 1, 3})
+
+    def test_hidden_geometry_does_not_hold_the_body_up(self):
+        skin = synthetic_skin([(0, 0, 4)])
+        model = handspring.Model(handspring.add_handsprings(synthetic_model(), handspring.DIVE_ROLL, skin))
+        sequence = model.sequences[handspring.HANDSPRING]
+        for time in range(0, handspring.DIVE_ROLL.duration + 1, handspring.KEY_STEP_MS):
+            self.assertGreater(lowest(model, sequence, time), -0.01)
+
+    def test_skin_without_body_is_refused(self):
+        with self.assertRaises(ValueError):
+            handspring.body_vertices(synthetic_skin([(5, 0, 4)]))
+
+
 class HandspringStyleTest(unittest.TestCase):
     def test_races_get_their_own_vault(self):
         self.assertIs(handspring.style_for("TaurenFemale"), handspring.DIVE_ROLL)

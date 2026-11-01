@@ -5,6 +5,8 @@ from pathlib import Path
 
 SEQUENCES, SEQUENCE_LOOKUP, BONES, KEY_BONES, VERTICES = 0x1C, 0x24, 0x2C, 0x34, 0x3C
 VERTEX_SIZE, SKIN_SAMPLES = 48, 6000
+SKIN_MAGIC, SKIN_VERTICES, SKIN_SUBMESHES, SUBMESH_SIZE = b"SKIN", 4, 28, 48
+BODY_GEOSETS = (0, 401, 1301)
 TEXTURE_WEIGHTS, TEXTURE_TRANSFORMS = 0x58, 0x60
 ATTACHMENTS, EVENTS, CAMERAS = 0xF0, 0x100, 0x110
 SEQUENCE_SIZE, BONE_SIZE = 64, 88
@@ -17,7 +19,8 @@ EVENT_SIZE, EVENT_TRACK = 36, 24
 SEQUENCE_DURATION, SEQUENCE_MOVE_SPEED, SEQUENCE_FLAGS = 4, 8, 12
 SEQUENCE_BLEND, SEQUENCE_BOUNDS, SEQUENCE_NEXT = 28, 32, 60
 EMBEDDED = 0x20
-KEY_ARM_LEFT, KEY_ARM_RIGHT, KEY_ROOT = 0, 1, 26
+KEY_ARM_LEFT, KEY_ARM_RIGHT, KEY_HEAD, KEY_ROOT = 0, 1, 6, 26
+SPINE_CURL, HEAD_TUCK = 1.0, 0.6
 INDEX_FINGERS = (13, 8)
 
 STAND, JUMP_START, JUMP, JUMP_END, SIT_GROUND = 0, 37, 38, 39, 97
@@ -148,6 +151,23 @@ def smoothed_continuity(previous, quaternion):
     return quaternion
 
 
+def body_vertices(skin):
+    if skin[:4] != SKIN_MAGIC:
+        raise ValueError("not a .skin file")
+    count, offset = counted(skin, SKIN_VERTICES)
+    lookup = struct.unpack_from(f"<{count}H", skin, offset)
+    submeshes, at = counted(skin, SKIN_SUBMESHES)
+    body = set()
+    for index in range(submeshes):
+        geoset, level, start, size = struct.unpack_from("<4H", skin, at + index * SUBMESH_SIZE)
+        if geoset in BODY_GEOSETS:
+            first = start + (level << 16)
+            body.update(lookup[first:first + size])
+    if not body:
+        raise ValueError("the .skin file has no body geosets")
+    return body
+
+
 def rotation_matrix(quaternion):
     x, y, z, w = quaternion
     return ((1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)),
@@ -177,8 +197,9 @@ def transformed(matrix, point):
 
 
 class Model:
-    def __init__(self, data):
+    def __init__(self, data, body=None):
         self.data = bytearray(data)
+        self.body = body
         self.sequence_count, self.sequence_offset = counted(self.data, SEQUENCES)
         self.bone_count, self.bone_offset = counted(self.data, BONES)
         sequences = {}
@@ -251,9 +272,10 @@ class Model:
     def skin(self):
         if self.skinned is None:
             count, offset = counted(self.data, VERTICES)
-            step = max(1, count // SKIN_SAMPLES)
+            chosen = sorted(self.body) if self.body else range(count)
+            step = max(1, len(chosen) // SKIN_SAMPLES)
             skinned = []
-            for index in range(0, count, step):
+            for index in list(chosen)[::step]:
                 at = offset + index * VERTEX_SIZE
                 position = struct.unpack_from("<3f", self.data, at)
                 weights = struct.unpack_from("<4B", self.data, at + 12)
@@ -339,6 +361,7 @@ class Handspring:
         self.seated = sequences.get(SIT_GROUND) if style.tucked else None
         self.sprint = sequences.get(SPRINT) if style.charge else None
         hips = model.pivots[self.root][2]
+        self.spine_bones = self.spine()
         self.leg_bones = {bone for bone in self.limb(self.root)
                           if bone not in self.arm_bones and bone != self.root and model.pivots[bone][2] < hips}
         self.lowest = {}
@@ -365,6 +388,22 @@ class Handspring:
         landing = (share - turn_end + 0.04) / (1.0 - turn_end + 0.04)
         return self.landing, self.model.duration(self.landing) * 0.5 * landing
 
+    def spine(self):
+        head = self.model.key_bone(KEY_HEAD)
+        chain = []
+        while head >= 0 and head != self.root:
+            chain.append(head)
+            head = self.model.parents[head]
+        return chain if head == self.root else []
+
+    def curl(self, bone, tuck):
+        if bone not in self.spine_bones:
+            return None
+        angle = SPINE_CURL * tuck / len(self.spine_bones)
+        if bone == self.spine_bones[0]:
+            angle += HEAD_TUCK * tuck
+        return about(FLIP_AXIS, angle)
+
     def tucking(self, share):
         if self.seated is None:
             return 0.0
@@ -375,12 +414,13 @@ class Handspring:
         sequence, time = (self.stand, 0) if bone in self.arm_bones else self.source(share)
         value = self.model.value(bone, track, sequence, time)
         value = resting(track) if value is None else value
-        tuck = self.tucking(share) if track == ROTATION and bone in self.leg_bones else 0.0
-        if tuck > 0.0:
+        tuck = self.tucking(share) if track == ROTATION else 0.0
+        if tuck > 0.0 and bone in self.leg_bones:
             seated = self.model.value(bone, track, self.seated, 0)
             if seated is not None:
                 value = slerp(value, seated, tuck)
-        return value
+        curled = self.curl(bone, tuck) if tuck > 0.0 else None
+        return product(curled, value) if curled else value
 
     def world_rotation(self, bone, share, overrides):
         rotation = (0.0, 0.0, 0.0, 1.0)
@@ -597,8 +637,8 @@ def relink(model, added):
                      model.append(struct.pack(f"<{len(lookup)}h", *lookup), 16))
 
 
-def add_handsprings(data, style=HANDSPRING_STYLE):
-    model = Model(data)
+def add_handsprings(data, style=HANDSPRING_STYLE, skin=None):
+    model = Model(data, body_vertices(skin) if skin else None)
     taken = [animation for animation in (HANDSPRING, BACK_HANDSPRING) if animation in model.sequences]
     if taken:
         raise ValueError(f"model already has handspring sequences {taken}")
@@ -684,6 +724,7 @@ def main():
         "model", help="add both handspring sequences to a character M2 (Tauren, Gnome and Night Elf get their own)")
     model_command.add_argument("source", type=Path)
     model_command.add_argument("output", type=Path)
+    model_command.add_argument("--skin", type=Path, help="the model's .skin (default: <model>00.skin beside it)")
     animations_command = subcommands.add_parser("animations", help="add the handspring rows to AnimationData.dbc")
     animations_command.add_argument("source", type=Path)
     animations_command.add_argument("output", type=Path)
@@ -695,7 +736,8 @@ def main():
         parser.error("Use a separate staging output; do not overwrite the source client")
     source = args.source.read_bytes()
     if args.command == "model":
-        result = add_handsprings(source, style_for(args.source.stem))
+        skin = args.skin or args.source.with_name(args.source.stem + "00.skin")
+        result = add_handsprings(source, style_for(args.source.stem), skin.read_bytes() if skin.exists() else None)
     else:
         result = {"animations": add_animation_rows, "kits": add_visual_kits}[args.command](source)
     with args.output.open("xb") as output:
