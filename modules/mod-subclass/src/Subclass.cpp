@@ -1285,6 +1285,7 @@ void HandleAddonMessage(Player* player, std::string_view message)
     {
         ResendBrotherShare(player);
         ResendHalfForm(player);
+        SendAddon(player, std::string("RACE ") + Subclass::RaceToken(player->getRace()));
         SendSubclassState(player);
         SendAddon(player, TwinState(player));
         SendAddon(player, RelicState(player));

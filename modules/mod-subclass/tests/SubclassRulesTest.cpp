@@ -377,6 +377,14 @@ TEST(Subclass, ARiderKeepsTheWeaponsHeHoldsWhenHandedBlankSlots)
     EXPECT_EQ(held.Enchants[0], 0u);
 }
 
+TEST(Subclass, TheAddonLearnsTheRaceByIdNotByItsName)
+{
+    EXPECT_STREQ(RaceToken(TwoHeadedOgreRace), "ogre");
+    EXPECT_STREQ(RaceToken(ThinHumanRace), "twins");
+    EXPECT_STREQ(RaceToken(32), "-");
+    EXPECT_STREQ(RaceToken(53), "-");
+}
+
 TEST(Subclass, AHeroRaceNeedsTheSecurityAndAHighEnoughCharacter)
 {
     Settings settings;

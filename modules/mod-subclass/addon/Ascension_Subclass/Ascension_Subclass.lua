@@ -684,12 +684,12 @@ local function RenderTree(tree, canvas)
 end
 
 local NAMINGS = {
-    ["Two-Headed Ogre"] = {
+    ogre = {
         tab = "Two-Head",
         waiting = "Your second head has no second way yet. Find the Book of Origins in Shadowfang Keep.",
         insight = "Your second head holds an insight. Visit any class trainer to choose a second way.",
     },
-    ["Thin Human"] = {
+    twins = {
         tab = "Two-Thins",
         waiting = "Your twin has no way of his own yet. Find your father's Bravery Badge in the Deadmines.",
         insight = "Your twin wears the Bravery Badge. Visit any class trainer so he can choose his own way.",
@@ -701,8 +701,12 @@ local DEFAULT_NAMING = {
     insight = "You hold an insight. Visit any class trainer to choose a second way.",
 }
 
+function Ascension_Subclass.IsRace(token)
+    return Ascension_Subclass.race == token
+end
+
 local function Naming()
-    return NAMINGS[(UnitRace("player"))] or DEFAULT_NAMING
+    return NAMINGS[Ascension_Subclass.race] or DEFAULT_NAMING
 end
 
 function Ascension_Subclass.ShowSecondWayTab()
@@ -1388,7 +1392,7 @@ local function SheetModel(frame)
 end
 
 local function FitSheetModel(frame)
-    if (UnitRace("player")) ~= "Two-Headed Ogre" then
+    if not Ascension_Subclass.IsRace("ogre") then
         return
     end
     local model = SheetModel(frame)
@@ -1435,7 +1439,7 @@ sheetWatch:SetScript("OnUpdate", function(self, elapsed)
     end
     ShowPlayerPortrait(CornerPortrait(frame))
     FitSheetModel(frame)
-    if (UnitRace("player")) == "Two-Headed Ogre" then
+    if Ascension_Subclass.IsRace("ogre") then
         ShowCyclopsHelmetOn(SheetModel(frame), cyclops.model)
     end
     local line = LevelLineIn(frame)
@@ -1842,6 +1846,16 @@ local function Receive(message)
         end
         return
     end
+    if command == "RACE" then
+        Ascension_Subclass.race = rest
+        if tab and tab.SetText then
+            tab:SetText(Naming().tab)
+        end
+        if panel then
+            panel.header:SetText(Naming().tab)
+        end
+        return
+    end
     if command == "TWINSTATE" then
         local has, out, split = string.match(rest, "^(%d) (%d) (%d)$")
         twinState = { has = has == "1", out = out == "1", split = split == "1" }
@@ -1853,7 +1867,7 @@ local function Receive(message)
     if command == "OTHERCAST" then
         local spellId, result = string.match(rest, "^(%d+) (%d+)$")
         local name = spellId and GetSpellInfo(tonumber(spellId))
-        local who = (UnitRace("player")) == "Two-Headed Ogre" and "Other head" or "Brother"
+        local who = Ascension_Subclass.IsRace("ogre") and "Other head" or "Brother"
         if name and result == "0" then
             local line = who .. ": " .. name
             if CombatText_AddMessage and SHOW_COMBAT_TEXT == "1" then
@@ -3005,7 +3019,7 @@ local dressingTwin = false
 local twinRedressPending = false
 
 local function DressesCyclops()
-    return (UnitRace("player")) == "Two-Headed Ogre"
+    return Ascension_Subclass.IsRace("ogre")
 end
 
 local twinButton
@@ -3404,7 +3418,7 @@ local function AttachTwinButton()
     if twinButton then
         return true
     end
-    if (UnitRace("player")) ~= "Thin Human" and not DressesCyclops() then
+    if not Ascension_Subclass.IsRace("twins") and not DressesCyclops() then
         return true
     end
     local anchor = FindButton("Disable Transmog") or FindButton("Enable Transmog")

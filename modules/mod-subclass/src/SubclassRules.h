@@ -105,6 +105,15 @@ inline HeroRaceRefusal HeroRaceRefusalFor(Settings const& settings, std::uint8_t
 constexpr std::uint8_t ThinHumanRace = 96;
 constexpr std::uint8_t TwoHeadedOgreRace = 85;
 
+inline char const* RaceToken(std::uint8_t race)
+{
+    if (race == TwoHeadedOgreRace)
+        return "ogre";
+    if (race == ThinHumanRace)
+        return "twins";
+    return "-";
+}
+
 inline bool GenderMatches(std::uint8_t genderMask, std::uint8_t gender)
 {
     return gender < 2 && (genderMask & (1u << gender)) != 0;
