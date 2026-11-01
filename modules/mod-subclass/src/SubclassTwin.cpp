@@ -5544,6 +5544,31 @@ std::vector<std::string> ExplainBrain(Player* player)
     return lines;
 }
 
+bool FeedsTheForm(SpellInfo const* info)
+{
+    return info->ManaCost || info->ManaCostPercentage || info->HasEffect(SPELL_EFFECT_ENERGIZE);
+}
+
+bool LeaveSpentHalfForm(Player* player)
+{
+    HalfForm const half = HalfFormOf(player);
+    if (!half.Spell)
+        return false;
+    uint64 const mask = FormMask(half.Form);
+    bool ready = false;
+    for (uint32 spellId : KnownBorrowedActives(player))
+        if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId); info && info->Id != half.Spell &&
+            (info->Stances & mask) && FeedsTheForm(info) && Affordable(player, info))
+        {
+            ready = true;
+            break;
+        }
+    if (!Subclass::LeavesSpentForm(IsTankForm(half.Form), half.Until != 0, ready))
+        return false;
+    SetHalfForm(player, {});
+    return true;
+}
+
 void PlayEasy(Player* player, uint32 diff)
 {
     {
@@ -5564,7 +5589,7 @@ void PlayEasy(Player* player, uint32 diff)
     if ((!bot && !player->HasAura(easyAura)) || !InAFight(player) || !player->IsAlive() ||
         player->HasStealthAura() || !OtherHalfActs(player) || (!bot && HasTwin(player) && !BrotherOut(player)))
         return;
-    if (TakePreferredHalfForm(player))
+    if (LeaveSpentHalfForm(player) || TakePreferredHalfForm(player))
         return;
     auto const [spellId, target] = PickSpell(player);
     if (spellId && OrderOtherHalf(player, spellId, target, 0))
