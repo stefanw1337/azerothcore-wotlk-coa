@@ -54,6 +54,7 @@
 using namespace Acore::ChatCommands;
 
 bool SubclassChosen(Player const* player);
+Subclass::Choice SubclassChoiceOf(Player const* player);
 bool ForcedBot(Player const* player);
 bool BotPlaysOtherHalf(Player const* player);
 void NoteBotCast(Player const* player, uint32 spellId, uint32 result);
@@ -5836,6 +5837,54 @@ public:
     }
 };
 
+constexpr uint32 SpellVault = 500085;
+constexpr uint8 ClassWitchHunter = 15;
+constexpr uint32 KitTwinHandspring = 3455900;
+constexpr uint32 KitTwinBackHandspring = 3455901;
+constexpr float TwinVaultBoost = 1.5f;
+constexpr float BrotherVaultsBeside = 1.5f;
+constexpr Milliseconds TwinVaultSettles = Milliseconds(50);
+
+bool TwinsVaultTogether(Player const* player)
+{
+    return HasTwin(player) && IsSplit(player) &&
+        (player->getClass() == ClassWitchHunter || SubclassChoiceOf(player).SubClass == ClassWitchHunter);
+}
+
+void BrotherBoostsVault(Player* player)
+{
+    ObjectGuid const guid = player->GetGUID();
+    Position const start = player->GetPosition();
+    bool const backward = player->HasUnitMovementFlag(MOVEMENTFLAG_BACKWARD);
+    player->m_Events.AddEventAtOffset([guid, start, backward]()
+    {
+        Player* player = ObjectAccessor::FindPlayer(guid);
+        if (!player || player->movespline->Finalized())
+            return;
+        G3D::Vector3 const end = player->movespline->FinalDestination();
+        float const dx = end.x - start.GetPositionX();
+        float const dy = end.y - start.GetPositionY();
+        float const distance = std::sqrt(dx * dx + dy * dy);
+        if (distance < 1.0f)
+            return;
+        float const heading = std::atan2(dy, dx);
+        Position boosted = start;
+        player->MovePositionToFirstCollision(boosted, distance * TwinVaultBoost, heading - player->GetOrientation());
+        float const speed = 12.0f * player->GetSpeed(MOVE_RUN);
+        sScriptMgr->AnticheatSetUnderACKmount(player);
+        player->GetMotionMaster()->MoveCharge(boosted.GetPositionX(), boosted.GetPositionY(), boosted.GetPositionZ(),
+            speed);
+        Creature* twin = BrotherFree(player);
+        if (!twin)
+            return;
+        float const side = heading + float(M_PI) / 2.0f;
+        twin->GetMotionMaster()->MoveCharge(boosted.GetPositionX() + std::cos(side) * BrotherVaultsBeside,
+            boosted.GetPositionY() + std::sin(side) * BrotherVaultsBeside, boosted.GetPositionZ(), speed);
+        twin->SendPlaySpellVisual(backward ? KitTwinBackHandspring : KitTwinHandspring);
+        LOG_INFO("module", "mod-subclass: {}'s brother boosts his Vault and vaults along", player->GetName());
+    }, TwinVaultSettles);
+}
+
 class mod_subclass_twin_shots : public PlayerScript
 {
 public:
@@ -5845,6 +5894,8 @@ public:
     {
         if (spell && HasTwin(player))
             FlashFormOnBrother(player, spell->GetSpellInfo()->Id);
+        if (spell && spell->GetSpellInfo()->Id == SpellVault && TwinsVaultTogether(player))
+            BrotherBoostsVault(player);
         if (!spell || !HasSecondHead(player))
             return;
         SpellInfo const* info = spell->GetSpellInfo();
