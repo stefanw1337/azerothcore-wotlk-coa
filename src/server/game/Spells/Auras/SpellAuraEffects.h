@@ -151,6 +151,7 @@ private:
     int32 m_periodicTimer;
     int32 m_amplitude;
     uint32 m_tickNumber;
+    mutable double m_venthyrFeastLeechRemainder = 0.0;
 
     uint8 const m_effIndex;
     bool m_canBeRecalculated;

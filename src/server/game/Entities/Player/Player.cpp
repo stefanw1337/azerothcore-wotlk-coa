@@ -16,6 +16,7 @@
  */
 
 #include "Player.h"
+#include "KyrianRacials.h"
 #include "CoaCustomRacials.h"
 #include "AscensionSpellCopy.h"
 #include "AscensionIncarnation.h"
@@ -4665,6 +4666,13 @@ void Player::DeleteFromDB(ObjectGuid::LowType lowGuid, uint32 accountId, bool up
                 stmt = CharacterDatabase.GetPreparedStatement(CHAR_DEL_CHAR_SETTINGS);
                 stmt->SetData(0, lowGuid);
                 trans->Append(stmt);
+
+                for (auto id : { CHAR_DEL_BODY_SHAPE, CHAR_DEL_RETAIL_LOOK, CHAR_DEL_FORM_LOOK })
+                {
+                    stmt = CharacterDatabase.GetPreparedStatement(id);
+                    stmt->SetData(0, lowGuid);
+                    trans->Append(stmt);
+                }
 
                 Corpse::DeleteFromDB(playerGuid, trans);
 
@@ -12392,8 +12400,129 @@ void Player::SendInitialPacketsBeforeAddToMap()
     sScriptMgr->OnPlayerSendInitialPacketsBeforeAddToMap(this, data);
 }
 
+void Player::LoadBodyShape(PreparedQueryResult result)
+{
+    _bodyShape = {};
+    if (!result)
+        return;
+
+    auto const payload = (*result)[0].Get<Binary, CharacterBodyShape::PayloadSize>();
+    CharacterBodyShape::Values values{};
+    if (CharacterBodyShape::ReadPayload(payload.data(), payload.size(), values))
+        _bodyShape = values;
+}
+
+void Player::SendBodyShapeTo(Player* receiver) const
+{
+    if (!receiver || !receiver->GetSession())
+        return;
+
+    // Always sent, defaults included, so a client that cached an older value for this guid replaces it.
+    uint8 payload[CharacterBodyShape::PayloadSize];
+    CharacterBodyShape::WritePayload(payload, _bodyShape);
+
+    WorldPacket data(SMSG_ESTERIA_BODY_SHAPE, 8 + CharacterBodyShape::PayloadSize);
+    data << GetGUID().GetRawValue();
+    data.append(payload, sizeof(payload));
+    receiver->GetSession()->SendPacket(&data);
+}
+
+void Player::LoadRetailLook(PreparedQueryResult result)
+{
+    _hasRetailLook = false;
+    _retailLook = {};
+    if (!result)
+        return;
+
+    auto const payload = (*result)[0].Get<Binary, CharacterRetailLook::PayloadSize>();
+    CharacterRetailLook::Look look;
+    if (CharacterRetailLook::ReadPayload(payload.data(), payload.size(), look))
+    {
+        _retailLook = payload;
+        _hasRetailLook = true;
+    }
+}
+
+void Player::SendRetailLookTo(Player* receiver) const
+{
+    // Players without a saved look have nothing to send: the client falls back to the five stock bytes.
+    if (!_hasRetailLook || !receiver || !receiver->GetSession())
+        return;
+
+    WorldPacket data(SMSG_ESTERIA_RETAIL_LOOK, 8 + CharacterRetailLook::PayloadSize);
+    data << GetGUID().GetRawValue();
+    data.append(_retailLook.data(), _retailLook.size());
+    receiver->GetSession()->SendPacket(&data);
+    LOG_INFO("coa", "Retail look of {} (form {}) sent to {}", GetName(), GetActiveRetailForm(), receiver->GetName());
+}
+
+void Player::LoadFormLook(PreparedQueryResult result)
+{
+    _hasParkedLook = false;
+    _parkedLook = {};
+    if (!result)
+        return;
+
+    auto const payload = (*result)[0].Get<Binary, CharacterRetailLook::PayloadSize>();
+    CharacterRetailLook::Look look;
+    if (CharacterRetailLook::ReadPayload(payload.data(), payload.size(), look))
+    {
+        _parkedLook = payload;
+        _hasParkedLook = true;
+    }
+}
+
+uint8 Player::GetActiveRetailForm() const
+{
+    CharacterRetailLook::Look look;
+    return _hasRetailLook && CharacterRetailLook::ReadPayload(_retailLook.data(), _retailLook.size(), look) ? look.form : 0;
+}
+
+bool Player::ToggleRetailForm()
+{
+    if (!_hasRetailLook || !_hasParkedLook)
+        return false;
+
+    CharacterRetailLook::Look active, parked;
+    if (!CharacterRetailLook::ReadPayload(_retailLook.data(), _retailLook.size(), active)
+        || !CharacterRetailLook::ReadPayload(_parkedLook.data(), _parkedLook.size(), parked))
+        return false;
+
+    uint8 const first = CharacterRetailLook::FirstFormForRace(getRace());
+    uint8 const second = static_cast<uint8>(first + 1);
+    bool const formsMatch = (active.form == first && parked.form == second)
+        || (active.form == second && parked.form == first);
+    if (!first || !formsMatch || active.race != getRace() || parked.race != getRace()
+        || active.sex != getGender() || parked.sex != getGender())
+        return false;
+
+    std::swap(_retailLook, _parkedLook);
+
+    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_REP_RETAIL_LOOK);
+    stmt->SetData(0, GetGUID().GetCounter());
+    stmt->SetData(1, std::vector<uint8>(_retailLook.begin(), _retailLook.end()));
+    trans->Append(stmt);
+    stmt = CharacterDatabase.GetPreparedStatement(CHAR_REP_FORM_LOOK);
+    stmt->SetData(0, GetGUID().GetCounter());
+    stmt->SetData(1, std::vector<uint8>(_parkedLook.begin(), _parkedLook.end()));
+    trans->Append(stmt);
+    CharacterDatabase.CommitTransaction(trans);
+
+    // To this player and everyone who has them in view; players who come into view later get the active look from
+    // SendRetailLookTo like any other.
+    WorldPacket data(SMSG_ESTERIA_RETAIL_LOOK, 8 + CharacterRetailLook::PayloadSize);
+    data << GetGUID().GetRawValue();
+    data.append(_retailLook.data(), _retailLook.size());
+    SendMessageToSet(&data, true);
+    LOG_INFO("coa", "Retail look of {} switched to form {} and sent to the set", GetName(), GetActiveRetailForm());
+    return true;
+}
+
 void Player::SendInitialPacketsAfterAddToMap()
 {
+    SendBodyShapeTo(this);
+    SendRetailLookTo(this);
     UpdateVisibilityForPlayer(true);
 
     GetSession()->ResetTimeSync();
@@ -14978,6 +15107,9 @@ void Player::HandleFall(MovementInfo const& movementInfo)
 
                 if (HasAura(SPELL_DIVINE_PROTECTION))
                     damage /= 2;
+
+                if (getRace(true) == KyrianRacials::Race && HasAura(KyrianRacials::AscendedWings))
+                    damage = CalculatePct(damage, 100 - KyrianRacials::FallReductionPercent);
 
                 final_damage = EnvironmentalDamage(DAMAGE_FALL, damage);
             }

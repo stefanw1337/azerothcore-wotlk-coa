@@ -2304,7 +2304,7 @@ private:
                 {
                     Require(bool(result), "Created character missing from enumeration");
                     auto& current = _actors.at(id);
-                    current.session->HandleCharEnum(result);
+                    current.session->HandleCharEnum(result, nullptr, nullptr);
                     Reach(current, ActorStage::Enumerated);
                 }));
         }

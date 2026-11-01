@@ -19,6 +19,8 @@
 #define _PLAYER_H
 
 #include "ArenaTeam.h"
+#include "BodyShapeWire.h"
+#include "RetailLookWire.h"
 #include "Battleground.h"
 #include "CharmInfo.h"
 #include "CharacterCache.h"
@@ -892,6 +894,9 @@ enum PlayerLoginQueryIndex
     PLAYER_LOGIN_QUERY_LOAD_PET_SLOTS                    = 37,
     PLAYER_LOGIN_QUERY_LOAD_OFFLINE_ACHIEVEMENTS_UPDATES = 38,
     PLAYER_LOGIN_QUERY_LOAD_PORTABLE_SESSION             = 39,
+    PLAYER_LOGIN_QUERY_LOAD_BODY_SHAPE                   = 40,
+    PLAYER_LOGIN_QUERY_LOAD_RETAIL_LOOK                  = 41,
+    PLAYER_LOGIN_QUERY_LOAD_FORM_LOOK                    = 42,
     MAX_PLAYER_LOGIN_QUERY
 };
 
@@ -1145,6 +1150,18 @@ public:
 
     void SendInitialPacketsBeforeAddToMap();
     void SendInitialPacketsAfterAddToMap();
+    // Body sliders (see BodyShapeWire.h): loaded at login, announced to every player who gets this one in view.
+    void LoadBodyShape(PreparedQueryResult result);
+    void SendBodyShapeTo(Player* receiver) const;
+    // Full Retail customization (see RetailLookWire.h): opaque to the server, passed on to every player who sees this one.
+    void LoadRetailLook(PreparedQueryResult result);
+    void SendRetailLookTo(Player* receiver) const;
+    // Two Forms (Worgen Wolf/Human, Dracthyr Dragon/Visage): the look of the form that is not showing.
+    // ToggleRetailForm swaps it with the active one, saves both and tells everyone who sees this player; false when
+    // there is no saved pair.
+    void LoadFormLook(PreparedQueryResult result);
+    bool ToggleRetailForm();
+    uint8 GetActiveRetailForm() const; // the form (see RetailLookWire.h) of the look showing, 0 when none or the race's default
     void SendTransferAborted(uint32 mapid, TransferAbortReason reason, uint8 arg = 0);
     void SendInstanceResetWarning(uint32 mapid, Difficulty difficulty, uint32 time, bool onEnterMap);
 
@@ -3208,6 +3225,11 @@ private:
     bool _expectingChangeTransport;
     uint32 _pendingFlightChangeCounter;
     uint32 _mapChangeOrderCounter;
+    CharacterBodyShape::Values _bodyShape{};
+    bool _hasRetailLook = false;
+    std::array<uint8, CharacterRetailLook::PayloadSize> _retailLook{};
+    bool _hasParkedLook = false;
+    std::array<uint8, CharacterRetailLook::PayloadSize> _parkedLook{};
 };
 
 void AddItemsSetItem(Player* player, Item* item);
