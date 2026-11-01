@@ -408,3 +408,11 @@ TEST(Subclass, OnlySpecializationsWithoutACloseRoleAndWithADistantOneKeepTheirDi
     EXPECT_FALSE(KeepsDistance({ true, true, true, true, true }));
     EXPECT_FALSE(KeepsDistance({ true, false, false, true, false }));
 }
+
+TEST(Subclass, ATimedHalfFormEndsWhenItsTimeRunsOutAndAnUntimedOneNever)
+{
+    EXPECT_FALSE(HalfFormExpired(0, 500000));
+    EXPECT_FALSE(HalfFormExpired(30000, 29999));
+    EXPECT_TRUE(HalfFormExpired(30000, 30000));
+    EXPECT_TRUE(HalfFormExpired(30000, 45000));
+}

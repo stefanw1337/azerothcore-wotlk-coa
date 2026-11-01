@@ -116,6 +116,11 @@ inline bool KeepsDistance(SpecializationRoles const& roles)
     return !roles.Tank && (roles.Ranged || roles.Caster || roles.Healer);
 }
 
+inline bool HalfFormExpired(std::uint32_t until, std::uint32_t now)
+{
+    return until && now >= until;
+}
+
 constexpr std::uint8_t ThinHumanRace = 96;
 constexpr std::uint8_t TwoHeadedOgreRace = 85;
 

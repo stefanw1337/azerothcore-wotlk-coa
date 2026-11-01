@@ -275,6 +275,7 @@ struct HalfForm
 {
     uint32 Spell = 0;
     uint32 Form = 0;
+    uint32 Until = 0;
 };
 
 std::mutex& halfFormMutex = *new std::mutex;
@@ -1559,9 +1560,10 @@ void UpdateSwingPartner(Player* player, Creature* twin)
     if (twin && IsSplit(player))
     {
         uint32 const shot = twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID + 2);
-        if (Clawing(twin) || twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID))
+        bool const distant = FightsFromRange(player, twin);
+        if (Clawing(twin) || (!distant && twin->GetUInt32Value(UNIT_VIRTUAL_ITEM_SLOT_ID)))
             partner = { twin->GetGUID(), Swing::Melee, 0 };
-        else if (shot && OtherHalfShoots(player))
+        else if (shot && (distant || OtherHalfShoots(player)))
             partner = { twin->GetGUID(), Swing::Shot, shot };
         if (player->IsInCombat() && partner.Style != Swing::None)
         {
@@ -2246,7 +2248,8 @@ void KeepHalfForm(Player* player)
     }
     uint32 const visual = TwinFormCopyOf(half.Spell).Visual;
     bool const cancelled = HasSecondHead(player) && visual && !player->HasAura(visual);
-    if (cancelled || !player->IsAlive() || !OtherHalfActs(player) || !player->HasSpell(half.Spell) ||
+    bool const expired = Subclass::HalfFormExpired(half.Until, uint32(GameTime::GetGameTimeMS().count()));
+    if (cancelled || expired || !player->IsAlive() || !OtherHalfActs(player) || !player->HasSpell(half.Spell) ||
         !IsBorrowedSpell(player, half.Spell))
         SetHalfForm(player, {});
 }
@@ -2267,7 +2270,7 @@ SpellInfo const* PreferredHalfForm(Player* player)
     for (uint32 spellId : actives)
     {
         SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
-        if (!info || !IsHalfFormSpell(player, info))
+        if (!info || !IsHalfFormSpell(player, info) || info->GetMaxDuration() > 0)
             continue;
         uint32 const form = FormOfSpell(info);
         uint32 score = IsTankForm(form) == tank ? PreferredFormBonus : 0;
@@ -2284,6 +2287,27 @@ SpellInfo const* PreferredHalfForm(Player* player)
 }
 }
 
+bool PayForHalfForm(Player* player, SpellInfo const* info)
+{
+    if (player->HasSpellCooldown(info->Id))
+        return false;
+    int32 const cost = info->CalcPowerCost(player, info->GetSchoolMask());
+    if (cost > 0 && info->PowerType == POWER_HEALTH)
+    {
+        if (player->GetHealth() <= uint32(cost))
+            return false;
+        player->ModifyHealth(-cost);
+    }
+    else if (cost > 0 && info->PowerType < MAX_POWERS)
+    {
+        if (player->GetPower(Powers(info->PowerType)) < cost)
+            return false;
+        player->ModifyPower(Powers(info->PowerType), -cost);
+    }
+    player->AddSpellAndCategoryCooldowns(info, 0);
+    return true;
+}
+
 bool TakeHalfForm(Player* player, SpellInfo const* info)
 {
     if (!IsHalfFormSpell(player, info))
@@ -2294,7 +2318,22 @@ bool TakeHalfForm(Player* player, SpellInfo const* info)
             "Your brother has to be with you for that." : "Your other head is too busy agreeing with you for that.");
         return true;
     }
-    SetHalfForm(player, HalfFormOf(player).Spell == info->Id ? HalfForm{} : HalfForm{ info->Id, FormOfSpell(info) });
+    if (HalfFormOf(player).Spell == info->Id)
+    {
+        SetHalfForm(player, {});
+        return true;
+    }
+    if (!PayForHalfForm(player, info))
+    {
+        ChatHandler(player->GetSession()).SendNotification(HasTwin(player) ?
+            "Your brother can't take that form yet." : "Your other head can't take that form yet.");
+        return true;
+    }
+    int32 duration = info->GetMaxDuration();
+    if (duration > 0)
+        player->ApplySpellMod(info->Id, SPELLMOD_DURATION, duration);
+    uint32 const until = duration > 0 ? uint32(GameTime::GetGameTimeMS().count()) + uint32(duration) : 0;
+    SetHalfForm(player, HalfForm{ info->Id, FormOfSpell(info), until });
     return true;
 }
 
