@@ -31,6 +31,15 @@ bool OnlyGrantsDualWield(uint32 spellId)
     return dualWield;
 }
 
+void HideFromSpellbook(Player* player, uint32 spellId)
+{
+    auto const itr = player->GetSpellMap().find(spellId);
+    if (itr == player->GetSpellMap().end() || itr->second->State == PLAYERSPELL_REMOVED)
+        return;
+    itr->second->State = PLAYERSPELL_REMOVED;
+    player->SendLearnPacket(spellId, false);
+}
+
 void DropCopies(Player* player)
 {
     std::vector<uint32> known;
@@ -43,7 +52,7 @@ void DropCopies(Player* player)
         *std::min_element(known.begin(), known.end());
     for (uint32 spellId : known)
         if (spellId != kept)
-            player->removeSpell(spellId, SPEC_MASK_ALL, false);
+            HideFromSpellbook(player, spellId);
 }
 
 bool InvolvesCopy(uint32 spellId)
