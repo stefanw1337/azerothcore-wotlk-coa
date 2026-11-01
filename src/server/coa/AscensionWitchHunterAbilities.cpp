@@ -76,6 +76,17 @@ bool SixfoldShotReady(Player* player)
     return player->HasAura(SPELL_SIXFOLD_SHOT_PASSIVE) && stacks && stacks->GetStackAmount() >= 5;
 }
 
+enum WitchHunterVaultKits : uint32
+{
+    KIT_VAULT_HANDSPRING = 3455900,
+    KIT_VAULT_BACK_HANDSPRING = 3455901
+};
+
+uint32 VaultKit(float forward)
+{
+    return forward < 0.0f ? KIT_VAULT_BACK_HANDSPRING : KIT_VAULT_HANDSPRING;
+}
+
 void LeapVault(Player* player, float distance, float angle)
 {
     Position end = player->GetPosition();
@@ -365,6 +376,7 @@ class spell_ascension_witch_hunter_ability : public SpellScript
             if (AuraEffect* extra = player->GetAuraEffect(789256, EFFECT_0))
                 distance += extra->GetAmount();
             LeapVault(player, distance, angle);
+            player->SendPlaySpellVisual(VaultKit(x));
             talent(524812, 525054);
             talent(681156, 681155);
             player->RemoveAurasDueToSpell(500102);
