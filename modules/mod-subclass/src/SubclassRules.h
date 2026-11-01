@@ -102,6 +102,20 @@ inline HeroRaceRefusal HeroRaceRefusalFor(Settings const& settings, std::uint8_t
     return HeroRaceRefusal::None;
 }
 
+struct SpecializationRoles
+{
+    bool Melee = false;
+    bool Ranged = false;
+    bool Caster = false;
+    bool Tank = false;
+    bool Healer = false;
+};
+
+inline bool KeepsDistance(SpecializationRoles const& roles)
+{
+    return !roles.Tank && (roles.Ranged || roles.Caster || roles.Healer);
+}
+
 constexpr std::uint8_t ThinHumanRace = 96;
 constexpr std::uint8_t TwoHeadedOgreRace = 85;
 

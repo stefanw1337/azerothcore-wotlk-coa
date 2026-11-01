@@ -796,11 +796,12 @@ void LoadSpecializationRoles()
         {
             ClientDBC::Record record = specs.GetRecord(row);
             uint16 const specId = uint16(record.GetUInt32(0));
-            bool const close = record.GetUInt32(ChrSpecsMeleeRole) || record.GetUInt32(ChrSpecsTankRole);
-            if (record.GetUInt32(ChrSpecsTankRole))
+            Subclass::SpecializationRoles const roles{ record.GetUInt32(ChrSpecsMeleeRole) != 0,
+                record.GetUInt32(ChrSpecsRangedRole) != 0, record.GetUInt32(ChrSpecsCasterRole) != 0,
+                record.GetUInt32(ChrSpecsTankRole) != 0, record.GetUInt32(ChrSpecsHealerRole) != 0 };
+            if (roles.Tank)
                 tanks.insert(specId);
-            if (!close && (record.GetUInt32(ChrSpecsRangedRole) || record.GetUInt32(ChrSpecsCasterRole) ||
-                    record.GetUInt32(ChrSpecsHealerRole)))
+            if (Subclass::KeepsDistance(roles))
                 distant.insert(specId);
         }
     LOG_INFO("module", "mod-subclass: {} tank and {} ranged specialization(s)", tanks.size(), distant.size());

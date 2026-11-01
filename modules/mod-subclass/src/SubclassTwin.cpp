@@ -5,6 +5,7 @@
 #include "AllCreatureScript.h"
 #include "AllSpellScript.h"
 #include "AscensionAppearanceChanges.h"
+#include "AscensionIncarnation.h"
 #include "CellImpl.h"
 #include "Chat.h"
 #include "CommandScript.h"
@@ -650,6 +651,8 @@ uint32 BorrowedShape(Player* player)
 {
     if (HalfForm const half = HalfFormOf(player); half.Form)
     {
+        if (uint32 model = GetAscensionIncarnationDisplay(player, half.Form, half.Spell))
+            return model;
         if (uint32 model = FormModelFor(player, ShapeshiftForm(half.Form)))
             return model;
         if (uint32 model = ModellessFormShape(half.Form))

@@ -397,3 +397,14 @@ TEST(Subclass, AHeroRaceNeedsTheSecurityAndAHighEnoughCharacter)
     EXPECT_EQ(HeroRaceRefusalFor(settings, 1, 80), HeroRaceRefusal::Security);
     EXPECT_EQ(HeroRaceRefusalFor(settings, 2, 0), HeroRaceRefusal::None);
 }
+
+TEST(Subclass, OnlySpecializationsWithoutACloseRoleAndWithADistantOneKeepTheirDistance)
+{
+    EXPECT_TRUE(KeepsDistance({ false, false, true, false, false }));
+    EXPECT_TRUE(KeepsDistance({ false, false, false, false, true }));
+    EXPECT_TRUE(KeepsDistance({ true, false, true, false, false }));
+    EXPECT_FALSE(KeepsDistance({ true, false, false, false, false }));
+    EXPECT_FALSE(KeepsDistance({ false, false, false, false, false }));
+    EXPECT_FALSE(KeepsDistance({ true, true, true, true, true }));
+    EXPECT_FALSE(KeepsDistance({ true, false, false, true, false }));
+}
