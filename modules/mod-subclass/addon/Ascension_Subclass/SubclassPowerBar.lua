@@ -92,10 +92,20 @@ end
 
 local function ShowOwnShare()
     local bar = PlayerFrameManaBar
-    if not split or not bar or bar.powerType ~= split.power then
+    if not bar then
+        return
+    end
+    if not split or bar.powerType ~= split.power then
+        if bar.subclassShare then
+            bar.subclassShare, bar.lockValues = nil, nil
+            if UnitFrameManaBar_Update then
+                UnitFrameManaBar_Update(bar, "player")
+            end
+        end
         return
     end
     local mine = math.max(0, math.min(split.half, UnitPower("player", split.power) - split.share))
+    bar.subclassShare, bar.lockValues = true, true
     bar:SetMinMaxValues(0, math.max(split.half, 1))
     bar:SetValue(mine)
     if TextStatusBar_UpdateTextString then
@@ -179,12 +189,8 @@ Ascension_Subclass.BarMessages = messages
 
 messages.OTHERPOWER = function(rest)
     local power, share, half = string.match(rest, "^(%d+) (%d+) (%d+)$")
-    local ended = split and not power
     split = power and TOKENS[tonumber(power)] and
         { power = tonumber(power), share = tonumber(share), half = tonumber(half) } or nil
-    if ended and PlayerFrameManaBar and UnitFrameManaBar_Update then
-        UnitFrameManaBar_Update(PlayerFrameManaBar, "player")
-    end
     Layout()
 end
 
