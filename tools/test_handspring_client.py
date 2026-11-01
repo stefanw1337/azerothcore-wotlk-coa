@@ -180,6 +180,7 @@ class ClientTableTest(unittest.TestCase):
             flying = animation in (handspring.FLY_HANDSPRING, handspring.FLY_BACK_HANDSPRING)
             self.assertEqual(row[5], handspring.FLY_JUMP_START if flying else handspring.JUMP_START)
             self.assertEqual(row[4], 2)
+            self.assertEqual(row[handspring.ANIMATION_WEAPON_FLAGS], handspring.WEAPONS_SHEATHED)
         with self.assertRaises(ValueError):
             handspring.add_animation_rows(result)
 
