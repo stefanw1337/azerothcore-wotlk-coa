@@ -2,7 +2,7 @@
 area: client
 type: changed
 audience: admins
-title: The second-head client patch is now patch-ZZZZH.MPQ
+title: The second-head client patch is now patch-ZZZZT.MPQ
 ---
-CoA Custom 1.9.5 ships its own patch-ZZZZC.MPQ, so the subclass package now installs the second-head models as
-patch-ZZZZH.MPQ. Remove an old subclass patch-ZZZZC.MPQ before installing CoA Custom 1.9.5.
+CoA Custom ships its own patch-ZZZZC.MPQ, so the subclass package now installs the second-head models as
+patch-ZZZZT.MPQ, the name CoA Custom 1.9.6 uses for them.

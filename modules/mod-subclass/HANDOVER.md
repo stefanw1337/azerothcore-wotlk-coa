@@ -89,7 +89,7 @@ CreatureModelData). Run it on your server `files/dbc` and on your client tables 
 Our archives sort after your `patch-ZZZZ.MPQ`:
 
 - `patch-ZZZZS.MPQ`: the tables above, the glue, the Ogre and Thin Twins models.
-- `patch-ZZZZH.MPQ`: second-head models. `patch-ZZZZW.MPQ`: held-weapon models.
+- `patch-ZZZZT.MPQ`: second-head models. `patch-ZZZZW.MPQ`: held-weapon models.
 - `EsteriaAppearanceGeometry.bin`: yours, with our skin under the old Thin Human path.
 - Addons: `Ascension_Subclass` (required), `SpellActivationOverlay-for-CoA` (optional).
 
