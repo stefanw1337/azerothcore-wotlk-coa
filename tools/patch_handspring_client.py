@@ -360,11 +360,14 @@ class Handspring:
         self.arm_bones = {bone for chain in self.arms for bone in self.limb(model.parents[chain[0]])}
         self.seated = sequences.get(SIT_GROUND) if style.tucked else None
         self.sprint = sequences.get(SPRINT) if style.charge else None
+        self.stride = 0
         hips = model.pivots[self.root][2]
         self.spine_bones = self.spine()
         self.leg_bones = {bone for bone in self.limb(self.root)
                           if bone not in self.arm_bones and bone != self.root and model.pivots[bone][2] < hips}
         self.lowest = {}
+        if self.sprint is not None:
+            self.stride = self.tallest_stride()
 
     def limb(self, bone):
         found = [bone]
@@ -376,7 +379,7 @@ class Handspring:
         take_off_length = self.model.duration(self.take_off)
         turn_end = self.style.turn_end
         if self.sprint is not None and share < TURN_START:
-            return self.sprint, share * self.duration % self.model.duration(self.sprint)
+            return self.sprint, (self.stride + share * self.duration) % self.model.duration(self.sprint)
         if share < TURN_START + 0.12:
             return self.take_off, take_off_length * 0.6 * share / (TURN_START + 0.12)
         if share < turn_end - 0.04:
@@ -386,7 +389,7 @@ class Handspring:
             return self.take_off, take_off_length * 0.6
         if self.sprint is not None and share < LOOP_CLOSE:
             sprint_length = self.model.duration(self.sprint)
-            return self.sprint, (share - turn_end + 0.04) * self.duration % sprint_length
+            return self.sprint, (self.stride + (share - turn_end + 0.04) * self.duration) % sprint_length
         landing = (share - turn_end + 0.04) / (1.0 - turn_end + 0.04)
         return self.landing, self.model.duration(self.landing) * 0.5 * landing
 
@@ -538,11 +541,32 @@ class Handspring:
     def pitch(self, share):
         return about(self.style.axis, self.turn * self.progress(share))
 
+    def tallest_stride(self):
+        length = self.model.duration(self.sprint)
+        legs = [bone for bone in self.leg_bones]
+
+        def reach(time):
+            placed = {}
+
+            def place(bone):
+                if bone not in placed:
+                    value = self.model.value(bone, ROTATION, self.sprint, time) or resting(ROTATION)
+                    shift = self.model.value(bone, TRANSLATION, self.sprint, time) or resting(TRANSLATION)
+                    local = bone_matrix(self.model.pivots[bone], shift, value, resting(SCALE))
+                    parent = self.model.parents[bone]
+                    placed[bone] = combined(place(parent), local) if parent >= 0 else local
+                return placed[bone]
+
+            hips = transformed(place(self.root), self.model.pivots[self.root])[2]
+            return hips - min(transformed(place(bone), self.model.pivots[bone])[2] for bone in legs)
+
+        return max(range(0, length, KEY_STEP_MS), key=reach) if legs else 0
+
     def charging(self, share):
         if self.sprint is None:
             return 0.0
         turn_end = self.style.turn_end
-        return min(window(share, turn_end, turn_end + CHARGE_IN), 1.0 - window(share, LOOP_CLOSE - CHARGE_OUT, LOOP_CLOSE))
+        return 1.0 - min(window(share, 0.0, TURN_START), 1.0 - window(share, turn_end, turn_end + CHARGE_IN))
 
     def shoulder(self, share):
         charge = self.charging(share)
