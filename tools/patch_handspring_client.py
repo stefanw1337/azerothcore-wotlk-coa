@@ -12,6 +12,7 @@ ATTACHMENTS, EVENTS, CAMERAS = 0xF0, 0x100, 0x110
 SEQUENCE_SIZE, BONE_SIZE = 64, 88
 BONE_PARENT, BONE_PIVOT = 8, 76
 TRANSLATION, ROTATION, SCALE = 16, 36, 56
+LINEAR = 1
 VALUE_SIZES = {TRANSLATION: 12, ROTATION: 8, SCALE: 12}
 RECORD_TRACKS = {TEXTURE_WEIGHTS: (20, (0,)), TEXTURE_TRANSFORMS: (60, (0, 20, 40)), ATTACHMENTS: (40, (20,)),
                  CAMERAS: (100, (16, 48, 80))}
@@ -20,6 +21,8 @@ SEQUENCE_DURATION, SEQUENCE_MOVE_SPEED, SEQUENCE_FLAGS = 4, 8, 12
 SEQUENCE_BLEND, SEQUENCE_BOUNDS, SEQUENCE_NEXT = 28, 32, 60
 EMBEDDED = 0x20
 KEY_ARM_LEFT, KEY_ARM_RIGHT, KEY_HEAD, KEY_ROOT = 0, 1, 6, 26
+KEY_SHOULDER_LEFT, KEY_SHOULDER_RIGHT = 2, 3
+SHOULDER_OF_ARM = {KEY_ARM_LEFT: KEY_SHOULDER_LEFT, KEY_ARM_RIGHT: KEY_SHOULDER_RIGHT}
 SPINE_CURL, HEAD_TUCK = 1.0, 0.6
 INDEX_FINGERS = (13, 8)
 
@@ -232,6 +235,9 @@ class Model:
     def arm(self, key):
         arm = self.key_bone(key)
         if arm < 0:
+            shoulder = self.key_bone(SHOULDER_OF_ARM[key])
+            arm = max(self.children(shoulder), key=self.subtree_size, default=-1) if shoulder >= 0 else -1
+        if arm < 0:
             raise ValueError(f"model has no key bone {key}")
         chain = [arm]
         while len(chain) < 3 and self.children(chain[-1]):
@@ -241,6 +247,15 @@ class Model:
     def animated(self, place):
         _, global_sequence, count, _ = struct.unpack_from("<hhII", self.data, place)
         return global_sequence == -1 and count == self.sequence_count
+
+    def animate(self, place):
+        interpolation, global_sequence, count, _ = struct.unpack_from("<hhII", self.data, place)
+        if global_sequence != -1 or count:
+            return
+        empty = bytes(self.sequence_count * 8)
+        struct.pack_into("<hh", self.data, place, max(interpolation, LINEAR), -1)
+        struct.pack_into("<II", self.data, place + 4, self.sequence_count, self.append(empty, 4))
+        struct.pack_into("<II", self.data, place + 12, self.sequence_count, self.append(empty, 4))
 
     def keys(self, place, track, sequence):
         times = struct.unpack_from("<I", self.data, place + 8)[0]
@@ -352,6 +367,8 @@ class Handspring:
             if sequence is not None and not model.embedded(sequence):
                 raise ValueError(f"sequence {sequence} keeps its keys in an external .anim file")
         self.root = model.key_bone(KEY_ROOT)
+        if self.root >= 0:
+            model.animate(model.bone(self.root) + ROTATION)
         if self.root < 0 or not model.animated(model.bone(self.root) + ROTATION):
             raise ValueError("model has no animated root bone")
         self.arms = (model.arm(KEY_ARM_LEFT), model.arm(KEY_ARM_RIGHT))

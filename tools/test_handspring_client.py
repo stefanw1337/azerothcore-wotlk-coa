@@ -33,7 +33,7 @@ class Writer:
         return struct.pack("<hhIIII", 1, -1, len(SEQUENCE_IDS), outer_stamps, len(SEQUENCE_IDS), outer_values)
 
 
-def synthetic_model():
+def synthetic_model(key_bones=KEY_BONES):
     writer = Writer()
     writer.data[:8] = b"MD20" + struct.pack("<I", 264)
     sequences = b""
@@ -58,7 +58,7 @@ def synthetic_model():
         bones += bone
     writer.array(handspring.BONES, len(BONES), bones)
     keys = [-1] * (handspring.KEY_ROOT + 1)
-    for key, bone in KEY_BONES.items():
+    for key, bone in key_bones.items():
         keys[key] = bone
     writer.array(handspring.KEY_BONES, len(keys), struct.pack(f"<{len(keys)}h", *keys))
     vertices = b""
@@ -133,6 +133,23 @@ class HandspringModelTest(unittest.TestCase):
         struct.pack_into("<I", data, jump_start + handspring.SEQUENCE_FLAGS, 0)
         with self.assertRaises(ValueError):
             handspring.add_handsprings(bytes(data))
+
+    def test_still_root_rotation_turns_over(self):
+        data = bytearray(synthetic_model())
+        still = handspring.Model(data)
+        place = still.bone(still.key_bone(handspring.KEY_ROOT)) + handspring.ROTATION
+        struct.pack_into("<hhIIII", data, place, 0, -1, 0, 0, 0, 0)
+        model = handspring.Model(handspring.add_handsprings(bytes(data)))
+        sequence = model.sequences[handspring.HANDSPRING]
+        inverted = model.value(0, handspring.ROTATION, sequence, handspring.DURATION_MS * 0.45)
+        self.assertLess(rotated_head(inverted)[2], -0.8)
+        self.assertIsNone(model.value(0, handspring.ROTATION, model.sequences[handspring.STAND], 0))
+
+    def test_arm_without_key_hangs_from_its_shoulder(self):
+        model = handspring.Model(synthetic_model({handspring.KEY_ROOT: 0, handspring.KEY_SHOULDER_LEFT: 1,
+                                                  handspring.KEY_SHOULDER_RIGHT: 4}))
+        self.assertEqual(model.arm(handspring.KEY_ARM_LEFT), [2, 3])
+        self.assertEqual(model.arm(handspring.KEY_ARM_RIGHT), [5, 6])
 
     def test_model_with_handsprings_is_refused(self):
         with self.assertRaises(ValueError):
