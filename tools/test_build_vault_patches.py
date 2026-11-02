@@ -82,6 +82,23 @@ class VaultPatchTest(unittest.TestCase):
         self.assertIn(handspring.JUMP, built)
         self.assertNotIn(1, built)
 
+    def test_the_client_archives_are_closed_before_the_patch_is_replaced(self):
+        opened = []
+        original = vault.Archive
+
+        def tracked(path):
+            archive = original(path)
+            opened.append(archive)
+            return archive
+
+        vault.Archive = tracked
+        try:
+            vault.build(self.data, self.data)
+        finally:
+            vault.Archive = original
+        self.assertTrue(opened)
+        self.assertTrue(all(archive.file.closed for archive in opened))
+
     def test_no_build_files_are_left_in_data(self):
         vault.build(self.data, self.data)
         self.assertEqual(sorted(path.name for path in self.data.iterdir() if ".building" in path.name or

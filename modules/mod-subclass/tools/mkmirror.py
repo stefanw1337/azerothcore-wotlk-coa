@@ -309,6 +309,7 @@ def client(data, geometry=None, backup_folder=None):
         print(f"{name}: {'row ' + str(clone) + ' added' if added else 'already has row ' + str(clone)}", flush=True)
         if added:
             additions[name] = added
+    found.close()
     print(f"writing {patches.MERGED}", flush=True)
     patches.merge_into_merged(data, additions, backup_folder / (patches.MERGED + ".before-mirror"))
     if geometry and geometry.exists():

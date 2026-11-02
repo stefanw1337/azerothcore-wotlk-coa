@@ -154,6 +154,9 @@ class Archive:
         if hi_block_at:
             self.high = list(struct.unpack(f"<{block_count}H", self.read(self.start + hi_block_at, block_count * 2)))
 
+    def close(self):
+        self.file.close()
+
     def find_header(self):
         position = 0
         while True:

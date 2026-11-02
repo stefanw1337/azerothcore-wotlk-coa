@@ -61,6 +61,11 @@ class Client:
             self.opened[path] = Archive(str(path))
         return self.opened[path]
 
+    def close(self):
+        for archive in self.opened.values():
+            archive.close()
+        self.opened.clear()
+
     def newest(self, name, among):
         for path in reversed(among):
             data = self.archive(path).extract(name)
@@ -150,6 +155,7 @@ def build(data, backup_folder):
     hd, hd_sources = vaulted_models(client, original_archives(archives), "HD")
     hd = {name: model for name, model in hd.items() if hd_sources[name] != standard_sources.get(name)}
     additions = {**standard, **vault_tables(client)}
+    client.close()
     print(f"writing {MERGED} and {HD_PATCH}", flush=True)
     merge_into_merged(data, additions, backup_folder / (MERGED + ".before-vault"))
     hd_path = data / HD_PATCH
