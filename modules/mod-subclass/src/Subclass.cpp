@@ -78,6 +78,7 @@ bool SubclassResting(Player const* player);
 bool LonelyTwin(Player const* player);
 bool OrderBrother(Player* player, uint32 spellId, Unit* target);
 void PressForOtherHalf(Player* player, uint32 spellId);
+void SendTwinGearToCharacterSelect(WorldSession* session);
 std::vector<uint32> KnownBorrowedActives(Player const* player);
 bool OffersStandardMains();
 bool SubclassRaceEnabled(uint8 race);
@@ -3711,7 +3712,10 @@ public:
     bool CanPacketReceive(WorldSession* session, WorldPacket const& packet) override
     {
         if (session && packet.GetOpcode() == CMSG_CHAR_ENUM)
+        {
             SendSubclassesToCharacterSelect(session);
+            SendTwinGearToCharacterSelect(session);
+        }
         return !session || (AllowsCreation(session, packet) && KeepsRelicOutOfBank(session, packet));
     }
 };

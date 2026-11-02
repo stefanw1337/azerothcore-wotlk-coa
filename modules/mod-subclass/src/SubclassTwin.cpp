@@ -6168,6 +6168,41 @@ public:
     }
 };
 
+void SendTwinGearToCharacterSelect(WorldSession* session)
+{
+    constexpr uint16 MiscPlayerDataPayload = 0x77D;
+    constexpr uint32 TwinGearPayload = 0x54574E53;
+    std::string columns;
+    for (TwinSlot const& slot : Slots)
+        columns += Acore::StringFormat(", `t`.`{}`", slot.Name);
+    session->QueueQueryCallback(CharacterDatabase.AsyncQuery(Acore::StringFormat(
+        "SELECT `c`.`name`{} FROM `characters` AS `c` JOIN `mod_subclass_twin` AS `t` ON `t`.`guid` = `c`.`guid` "
+        "WHERE `c`.`account` = {} AND `c`.`race` = {} AND `c`.`deleteInfos_Name` IS NULL AND (EXISTS (SELECT 1 FROM "
+        "`character_queststatus_rewarded` AS `q` WHERE `q`.`guid` = `c`.`guid` AND `q`.`quest` = {}) OR EXISTS "
+        "(SELECT 1 FROM `mod_subclass_character` AS `s` WHERE `s`.`guid` = `c`.`guid` AND `s`.`sub_class` <> 0 AND "
+        "`s`.`sub_spec` <> 0))", columns, session->GetAccountId(), TwinRace, TwinQuest)).WithCallback(
+        [session](QueryResult result)
+        {
+            std::string payload = "{";
+            if (result)
+                do
+                {
+                    Field* fields = result->Fetch();
+                    std::string items;
+                    for (std::size_t slot = 0; slot < WardrobeSlots; ++slot)
+                        if (ItemTemplate const* item = sObjectMgr->GetItemTemplate(fields[slot + 1].Get<uint32>()))
+                            items += Acore::StringFormat("{}[{},{},{}]", items.empty() ? "" : ",",
+                                uint32(Slots[slot].Slot), item->DisplayInfoID, item->InventoryType);
+                    payload += Acore::StringFormat("{}\"{}\":[{}]", payload.size() > 1 ? "," : "",
+                        fields[0].Get<std::string>(), items);
+                } while (result->NextRow());
+            payload += "}";
+            WorldPacket packet(MiscPlayerDataPayload, 4 + payload.size() + 1);
+            packet << TwinGearPayload << payload;
+            session->SendPacket(&packet);
+        }));
+}
+
 void AddSC_mod_subclass_twin()
 {
     AddAscensionClassLookProvider(&CarryClassLook);
