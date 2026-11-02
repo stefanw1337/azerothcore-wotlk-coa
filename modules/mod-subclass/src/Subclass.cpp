@@ -370,6 +370,7 @@ std::atomic<bool> thinHumanEnabled{ true };
 std::atomic<bool> twoHeadedOgreEnabled{ true };
 std::atomic<bool> forceBots{ false };
 std::atomic<bool> travelFormsWholeBody{ true };
+std::atomic<uint32> brotherMirrorDisplay{ 977602 };
 std::vector<Subclass::Pair> pairs;
 std::unordered_map<uint32, Record>& records = *new std::unordered_map<uint32, Record>;
 
@@ -2197,6 +2198,7 @@ public:
         loaded.TwoHeadedOgre = sConfigMgr->GetOption<bool>("Subclass.TwoHeadedOgre.Enable", true);
         loaded.ForceBots = sConfigMgr->GetOption<bool>("Subclass.Bots.Force", false);
         loaded.TravelFormsWholeBody = sConfigMgr->GetOption<bool>("Subclass.TravelForms.WholeBody", true);
+        loaded.BrotherMirrorDisplay = sConfigMgr->GetOption<uint32>("Subclass.ThinTwins.MirrorDisplay", 977602);
         loaded.HeroRaceSecurity = uint8(std::min<uint32>(
             sConfigMgr->GetOption<uint32>("Subclass.HeroRaces.Security", 0), SEC_CONSOLE));
         loaded.HeroRaceLevel = uint8(std::min<uint32>(
@@ -2205,6 +2207,7 @@ public:
         twoHeadedOgreEnabled = loaded.TwoHeadedOgre;
         forceBots = loaded.ForceBots;
         travelFormsWholeBody = loaded.TravelFormsWholeBody;
+        brotherMirrorDisplay = loaded.BrotherMirrorDisplay;
         std::lock_guard<std::mutex> lock(subclassMutex);
         settings = loaded;
     }
@@ -3537,6 +3540,11 @@ thread_local bool resendingRealmInfo = false;
 bool TravelFormsShapeWholeBody()
 {
     return travelFormsWholeBody;
+}
+
+uint32 BrotherMirrorDisplay()
+{
+    return brotherMirrorDisplay;
 }
 
 bool SubclassRaceEnabled(uint8 race)

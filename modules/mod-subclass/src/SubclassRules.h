@@ -82,6 +82,7 @@ struct Settings
     bool TwoHeadedOgre = true;
     bool ForceBots = false;
     bool TravelFormsWholeBody = true;
+    std::uint32_t BrotherMirrorDisplay = 977602;
     std::uint8_t HeroRaceSecurity = 0;
     std::uint8_t HeroRaceLevel = 60;
 };
@@ -122,6 +123,12 @@ inline bool HalfFormExpired(std::uint32_t until, std::uint32_t now)
 }
 
 constexpr std::uint8_t ThinTwinsBeards = 7;
+constexpr std::uint32_t ThinTwinsDisplay = 977601;
+
+inline std::uint32_t BrotherDisplay(std::uint32_t native, std::uint32_t mirror)
+{
+    return native == ThinTwinsDisplay && mirror ? mirror : native;
+}
 constexpr std::uint8_t ThinTwinsCutHairstyles = 3;
 
 inline std::uint8_t FacialUnderHat(std::uint8_t facial, std::uint8_t hairStyle, bool hat)

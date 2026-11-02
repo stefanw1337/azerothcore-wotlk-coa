@@ -126,6 +126,22 @@ def require_writable(paths):
             raise SystemExit(f"{path.name} is in use; close the game and MPQ-DupeChecker, then run this again")
 
 
+def merge_into_merged(data, additions, backup):
+    merged = data / MERGED
+    addition = data / (MERGED + ".adding")
+    write_archive(addition, listed(additions))
+    inputs = [(addition, False)]
+    if merged.exists():
+        if not backup.exists():
+            shutil.copy2(merged, backup)
+        inputs.insert(0, (merged, False))
+    try:
+        entries = merge(inputs, set())
+        write_archive(merged, entries)
+    finally:
+        addition.unlink(missing_ok=True)
+
+
 def build(data, backup_folder):
     require_writable([data / MERGED, data / HD_PATCH])
     archives = ordered_archives(data)
@@ -135,20 +151,7 @@ def build(data, backup_folder):
     hd = {name: model for name, model in hd.items() if hd_sources[name] != standard_sources.get(name)}
     additions = {**standard, **vault_tables(client)}
     print(f"writing {MERGED} and {HD_PATCH}", flush=True)
-    merged = data / MERGED
-    addition = data / (MERGED + ".vault")
-    write_archive(addition, listed(additions))
-    inputs = [(addition, False)]
-    if merged.exists():
-        backup = backup_folder / (MERGED + ".before-vault")
-        if not backup.exists():
-            shutil.copy2(merged, backup)
-        inputs.insert(0, (merged, False))
-    try:
-        entries = merge(inputs, set())
-        write_archive(merged, entries)
-    finally:
-        addition.unlink(missing_ok=True)
+    merge_into_merged(data, additions, backup_folder / (MERGED + ".before-vault"))
     hd_path = data / HD_PATCH
     if hd:
         write_archive(hd_path, listed(hd))

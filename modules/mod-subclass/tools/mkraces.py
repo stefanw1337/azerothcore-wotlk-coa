@@ -39,6 +39,7 @@ THIN_HUMAN = Race(96, 32, "Thin Human", MALE, "custom\\thinhuman\\native\\male\\
 TWO_HEADED_OGRE = Race(85, 53, "Two-Headed Ogre", FEMALE, "Character\\Ogre\\Female\\TwoHeadedOgre.mdx", 977600, 901400,
                        1.0, tuple(eye_texture_name(index) for index in range(len(EYE_SETS))), "Tw")
 RACES = (THIN_HUMAN, TWO_HEADED_OGRE)
+MIRRORS = ((THIN_HUMAN, "custom\\thinhuman\\native\\male\\thinhumanmirrormale.mdx", 977602, 901402),)
 
 CHR_DISPLAYS = (4, 5)
 CHR_PREFIX = 6
@@ -247,6 +248,17 @@ def own_displays(source):
         displays.set(copy, 1, race.model_id)
         displays.rows.append(copy)
         chosen[race.race_id] = race.display_id
+    for race, path, display_id, model_id in MIRRORS:
+        models.rows = [row for row in models.rows if models.value(row, 0) != model_id]
+        displays.rows = [row for row in displays.rows if displays.value(row, 0) != display_id]
+        model = bytearray(next(row for row in models.rows if models.value(row, 0) == race.model_id))
+        models.set(model, 0, model_id)
+        models.set(model, 2, models.text(path))
+        models.rows.append(model)
+        copy = bytearray(next(row for row in displays.rows if displays.value(row, 0) == race.display_id))
+        displays.set(copy, 0, display_id)
+        displays.set(copy, 1, model_id)
+        displays.rows.append(copy)
     return models, displays, chosen
 
 

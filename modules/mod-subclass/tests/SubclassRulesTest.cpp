@@ -427,3 +427,10 @@ TEST(Subclass, UnderAHatTheTwinsWearACutOfTheirOwnHairstyleWithTheirBeard)
     EXPECT_EQ(FacialUnderHat(3 + 2 * ThinTwinsBeards, 2, false), 3);
     EXPECT_EQ(FacialUnderHat(6 + ThinTwinsBeards, 2, true), 6 + 3 * ThinTwinsBeards);
 }
+
+TEST(Subclass, TheThinTwinsBrotherWearsTheMirroredModelWhenOneIsSet)
+{
+    EXPECT_EQ(BrotherDisplay(ThinTwinsDisplay, 977602), 977602u);
+    EXPECT_EQ(BrotherDisplay(ThinTwinsDisplay, 0), ThinTwinsDisplay);
+    EXPECT_EQ(BrotherDisplay(977600, 977602), 977600u);
+}

@@ -109,6 +109,14 @@ Subclass.HeroRaces.RequiredLevel = 60
 
 Subclass.TravelForms.WholeBody = 1
 
+#    Subclass.ThinTwins.MirrorDisplay
+#        The display the Thin Twins brother wears: his mirror image, holding his main-hand weapon in his
+#        left hand and his shield on his right arm. Needs the mirrored model in the client patch
+#        (patch-ZZZZY.MPQ). 0 gives him the player's own model.
+#        Default: 977602
+
+Subclass.ThinTwins.MirrorDisplay = 977602
+
 #    Subclass.MainClasses
 #        Which main classes may take a subclass. A character whose main class is no longer allowed
 #        loses its subclass at the next login.

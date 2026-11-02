@@ -85,7 +85,7 @@ class VaultPatchTest(unittest.TestCase):
     def test_no_build_files_are_left_in_data(self):
         vault.build(self.data, self.data)
         self.assertEqual(sorted(path.name for path in self.data.iterdir() if ".building" in path.name or
-                                path.name.endswith(".vault")), [])
+                                path.name.endswith(".adding")), [])
 
     def test_hd_archives_are_left_out_of_the_standard_models(self):
         names = [Path(name) for name in ("common.MPQ", "patch-Q.MPQ", "patch-CHA.MPQ", "patch-ZZZZY.MPQ",

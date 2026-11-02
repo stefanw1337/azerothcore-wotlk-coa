@@ -82,6 +82,7 @@ bool LendsTankSpecialization(Player const* player);
 bool LendsRangedSpecialization(Player const* player);
 bool SubclassRaceEnabled(uint8 race);
 bool TravelFormsShapeWholeBody();
+uint32 BrotherMirrorDisplay();
 uint8 StoryGenderOf(Player const* player);
 bool SubclassQuestOffered(Player const* player);
 bool SubclassOfferPostponed(Player const* player);
@@ -838,10 +839,15 @@ uint32 DisplayOfItem(uint32 itemId)
     return item ? item->DisplayInfoID : 0;
 }
 
+uint32 BrotherNativeDisplay(Player const* player)
+{
+    return Subclass::BrotherDisplay(player->GetNativeDisplayId(), BrotherMirrorDisplay());
+}
+
 Look LookOf(Player const* player, Wardrobe const& wardrobe)
 {
     Look look;
-    look.DisplayId = player->GetNativeDisplayId();
+    look.DisplayId = BrotherNativeDisplay(player);
     look.Race = player->getRace();
     look.Gender = StoryGenderOf(player);
     look.Class = player->getClass();
@@ -1672,7 +1678,7 @@ void MirrorShape(Player* player, Creature* twin)
 {
     uint32 const cursed = CursedShape(player);
     uint32 const shaped = cursed ? cursed : RidesTheBrother(player) ? 0 : BorrowedShape(player);
-    uint32 const wanted = shaped ? shaped : player->GetNativeDisplayId();
+    uint32 const wanted = shaped ? shaped : BrotherNativeDisplay(player);
     if (twin->GetDisplayId() == wanted)
         return;
     if (shaped)
@@ -2031,8 +2037,8 @@ void SummonTwin(Player* player)
         motions[player->GetGUID().GetCounter()].Split = IsSplit(player);
     }
     twin->SetLevel(player->GetLevel());
-    twin->SetDisplayId(player->GetNativeDisplayId());
-    twin->SetNativeDisplayId(player->GetNativeDisplayId());
+    twin->SetDisplayId(BrotherNativeDisplay(player));
+    twin->SetNativeDisplayId(BrotherNativeDisplay(player));
     twin->SetFloatValue(UNIT_FIELD_COMBATREACH, TwinReach);
     twin->SetFloatValue(UNIT_FIELD_BOUNDINGRADIUS, TwinReach);
     twin->SetUnitFlag2(UNIT_FLAG2_MIRROR_IMAGE);
