@@ -6,6 +6,8 @@ import sys
 import zlib
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 from mpqpull import CRYPT, HASH_KEY, HASH_NAME_A, HASH_NAME_B, HASH_OFFSET, Archive, hashed
 
 LISTFILE = "(listfile)"
