@@ -5,6 +5,10 @@
 #include "AllCreatureScript.h"
 #include "AllSpellScript.h"
 #include "AscensionAppearanceChanges.h"
+#include "AscensionCoATalentData.h"
+#include "AscensionCustomClassData.h"
+#include "AscensionLiveBaselineData.h"
+#include "Config.h"
 #include "AscensionIncarnation.h"
 #include "AscensionSpecialization.h"
 #include "CellImpl.h"
@@ -45,6 +49,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <fstream>
+#include <set>
 #include <limits>
 #include <list>
 #include <mutex>
@@ -5065,10 +5071,12 @@ bool RainsOnAnArea(SpellInfo const* info)
     return info->HasEffect(SPELL_EFFECT_PERSISTENT_AREA_AURA);
 }
 
-bool NeverAlone(SpellInfo const* info)
+std::string_view WhyNeverAlone(SpellInfo const* info)
 {
-    if ((info->IsChanneled() && !RainsOnAnArea(info)) || UsesReagents(info))
-        return true;
+    if (info->IsChanneled() && !RainsOnAnArea(info))
+        return "channelled";
+    if (UsesReagents(info))
+        return "uses reagents";
     switch (info->GetSpellSpecific())
     {
         case SPELL_SPECIFIC_ASPECT:
@@ -5078,28 +5086,32 @@ bool NeverAlone(SpellInfo const* info)
         case SPELL_SPECIFIC_FOOD:
         case SPELL_SPECIFIC_DRINK:
         case SPELL_SPECIFIC_FOOD_AND_DRINK:
-            return true;
+            return "aspect, aura, presence, tracker or food";
         default:
             break;
     }
+    if (info->HasAura(SPELL_AURA_MOD_SHAPESHIFT))
+        return "shapeshift (taken as a half form)";
     if (HasAnyAura(info, { SPELL_AURA_BIND_SIGHT, SPELL_AURA_FAR_SIGHT, SPELL_AURA_MOD_POSSESS,
             SPELL_AURA_MOD_POSSESS_PET, SPELL_AURA_TRACK_CREATURES, SPELL_AURA_TRACK_RESOURCES,
-            SPELL_AURA_TRACK_STEALTHED, SPELL_AURA_MOD_STEALTH_DETECT, SPELL_AURA_MOD_SHAPESHIFT,
+            SPELL_AURA_TRACK_STEALTHED, SPELL_AURA_MOD_STEALTH_DETECT,
             SPELL_AURA_MOD_INVISIBILITY_DETECT, SPELL_AURA_MOD_STEALTH, SPELL_AURA_MOD_INVISIBILITY,
             SPELL_AURA_FEIGN_DEATH, SPELL_AURA_MOD_INCREASE_SPEED, SPELL_AURA_MOD_SPEED_ALWAYS,
             SPELL_AURA_MOD_INCREASE_MOUNTED_SPEED, SPELL_AURA_MOUNTED, SPELL_AURA_FLY, SPELL_AURA_WATER_BREATHING,
             SPELL_AURA_WATER_WALK, SPELL_AURA_FEATHER_FALL, SPELL_AURA_HOVER, SPELL_AURA_MOD_THREAT,
             SPELL_AURA_MOD_TOTAL_THREAT, SPELL_AURA_MANA_SHIELD, SPELL_AURA_TRANSFORM, SPELL_AURA_CONTROL_VEHICLE,
             SPELL_AURA_COMPREHEND_LANGUAGE }))
-        return true;
+        return "utility aura (sight, stealth, speed, threat, transform ...)";
     if (info->IsPositive() && HasAnyAura(info, { SPELL_AURA_MOD_STUN, SPELL_AURA_MOD_PACIFY,
             SPELL_AURA_MOD_PACIFY_SILENCE }))
-        return true;
+        return "stuns or pacifies the caster";
     if (info->HasEffect(SPELL_EFFECT_SUMMON) && !SummonsAShortHelper(info))
-        return true;
-    return HasAnyEffect(info, { SPELL_EFFECT_LEAP, SPELL_EFFECT_LEAP_BACK, SPELL_EFFECT_CHARGE,
-        SPELL_EFFECT_CHARGE_DEST, SPELL_EFFECT_JUMP, SPELL_EFFECT_JUMP_DEST, SPELL_EFFECT_TELEPORT_UNITS,
-        SPELL_EFFECT_TELEPORT_UNITS_FACE_CASTER, SPELL_EFFECT_TAMECREATURE, SPELL_EFFECT_RESURRECT_PET,
+        return "lasting summon";
+    if (HasAnyEffect(info, { SPELL_EFFECT_LEAP, SPELL_EFFECT_LEAP_BACK, SPELL_EFFECT_CHARGE,
+            SPELL_EFFECT_CHARGE_DEST, SPELL_EFFECT_JUMP, SPELL_EFFECT_JUMP_DEST, SPELL_EFFECT_TELEPORT_UNITS,
+            SPELL_EFFECT_TELEPORT_UNITS_FACE_CASTER }))
+        return "movement";
+    if (HasAnyEffect(info, { SPELL_EFFECT_TAMECREATURE, SPELL_EFFECT_RESURRECT_PET,
         SPELL_EFFECT_SUMMON_PET, SPELL_EFFECT_DISMISS_PET, SPELL_EFFECT_FEED_PET, SPELL_EFFECT_CREATE_ITEM,
         SPELL_EFFECT_CREATE_ITEM_2, SPELL_EFFECT_CREATE_RANDOM_ITEM, SPELL_EFFECT_ENCHANT_ITEM,
         SPELL_EFFECT_ENCHANT_ITEM_TEMPORARY, SPELL_EFFECT_ENCHANT_ITEM_PRISMATIC, SPELL_EFFECT_ENCHANT_HELD_ITEM,
@@ -5107,7 +5119,14 @@ bool NeverAlone(SpellInfo const* info)
         SPELL_EFFECT_SUMMON_OBJECT_WILD, SPELL_EFFECT_SUMMON_PLAYER, SPELL_EFFECT_OPEN_LOCK, SPELL_EFFECT_SKINNING,
         SPELL_EFFECT_PICKPOCKET, SPELL_EFFECT_DISTRACT, SPELL_EFFECT_ADD_FARSIGHT, SPELL_EFFECT_REDIRECT_THREAT,
         SPELL_EFFECT_SANCTUARY, SPELL_EFFECT_STUCK, SPELL_EFFECT_INSTAKILL, SPELL_EFFECT_TRADE_SKILL,
-        SPELL_EFFECT_PROSPECTING, SPELL_EFFECT_MILLING, SPELL_EFFECT_DISENCHANT });
+        SPELL_EFFECT_PROSPECTING, SPELL_EFFECT_MILLING, SPELL_EFFECT_DISENCHANT }))
+        return "pet, item, resurrection or profession";
+    return {};
+}
+
+bool NeverAlone(SpellInfo const* info)
+{
+    return !WhyNeverAlone(info).empty();
 }
 
 enum class Use { Never, Interrupt, Taunt, Heal, Shield, Cleanse, Purge, Defend, Attack, Shoot, Energize, Cooldown,
@@ -5135,6 +5154,7 @@ bool ClosesOnAFoe(SpellInfo const* info)
     return HasAnyEffect(info, { SPELL_EFFECT_CHARGE, SPELL_EFFECT_JUMP }) && info->NeedsExplicitUnitTarget() &&
         !info->IsPositive() && MovesTheBrother(info);
 }
+
 
 Use UseOf(SpellInfo const* info)
 {
@@ -6319,6 +6339,100 @@ bool HandleSubclassGun(ChatHandler* handler)
         intent.AskedAt ? Acore::StringFormat("{} ms ago", now - intent.AskedAt) : std::string("never"),
         intent.StoppedAt ? Acore::StringFormat("{} ms ago", now - intent.StoppedAt) : std::string("never"),
         player->HasUnitState(UNIT_STATE_MELEE_ATTACKING));
+    return true;
+}
+
+std::string_view UseName(Use use)
+{
+    switch (use)
+    {
+        case Use::Interrupt: return "interrupt";
+        case Use::Taunt: return "taunt";
+        case Use::Heal: return "heal";
+        case Use::Shield: return "shield";
+        case Use::Cleanse: return "cleanse";
+        case Use::Purge: return "purge";
+        case Use::Defend: return "defend";
+        case Use::Attack: return "attack";
+        case Use::Shoot: return "shoot";
+        case Use::Energize: return "energize";
+        case Use::Cooldown: return "cooldown";
+        case Use::Buff: return "buff";
+        case Use::Close: return "close in";
+        default: return "never";
+    }
+}
+
+std::string NeverBecause(SpellInfo const* info)
+{
+    if (std::string_view const why = WhyNeverAlone(info); !why.empty())
+        return std::string(why);
+    if (!info->IsPositive())
+        return BreaksOnDamageOrSendsAway(info) ? "breaks on damage or sends the foe away" :
+            "harmful but neither hurts nor hinders";
+    return "helpful but no use matches (no heal, shield, defence, energize, summon or lasting aura)";
+}
+
+std::set<uint32> AuditedSpells(uint8 classId)
+{
+    std::set<uint32> spells;
+    for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)
+        if (spell.ClassId == classId)
+            spells.insert(spell.SpellId);
+    for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
+        if (entry.ClassId == classId)
+            for (uint32 spellId : entry.SpellIds)
+                if (spellId)
+                    spells.insert(spellId);
+    for (AscensionLiveBaseline::Spell const& spell : AscensionLiveBaseline::Spells)
+        if (spell.ClassId == classId)
+            spells.insert(spell.SpellId);
+    return spells;
+}
+
+std::string CsvField(std::string text)
+{
+    std::string quoted = "\"";
+    for (char c : text)
+        quoted += c == '"' ? std::string("\"\"") : std::string(1, c);
+    return quoted + "\"";
+}
+
+bool HandleSubclassAudit(ChatHandler* handler)
+{
+    std::string const path = sConfigMgr->GetOption<std::string>("LogsDir", ".") + "/subclass-audit.csv";
+    std::ofstream out(path, std::ios::trunc);
+    if (!out)
+    {
+        handler->PSendSysMessage("Cannot write {}.", path);
+        return true;
+    }
+    out << "class,spell,name,rank,use,never because,forms (stances),needs caster aura,excluded by caster aura,"
+           "half form,timed form,fights in form,moves the brother,cast ms,cooldown ms\n";
+    uint32 rows = 0;
+    for (uint8 classId = CLASS_WARRIOR; classId <= CLASS_SPIRIT_MAGE; ++classId)
+    {
+        std::set<uint32> const spells = AuditedSpells(classId);
+        for (uint32 spellId : spells)
+        {
+            SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+            if (!info || info->IsPassive())
+                continue;
+            if (uint32 const next = sSpellMgr->GetNextSpellInChain(spellId); next && spells.contains(next))
+                continue;
+            Use const use = UseOf(info);
+            uint32 const form = info->HasAura(SPELL_AURA_MOD_SHAPESHIFT) ? FormOfSpell(info) : 0;
+            out << uint32(classId) << ',' << spellId << ',' << CsvField(info->SpellName[0]) << ','
+                << CsvField(info->Rank[0]) << ',' << UseName(use) << ','
+                << CsvField(use == Use::Never ? NeverBecause(info) : std::string()) << ','
+                << Acore::StringFormat("{:#x}", uint64(info->Stances)) << ',' << info->CasterAuraSpell << ','
+                << info->ExcludeCasterAuraSpell << ',' << form << ',' << (form && info->GetMaxDuration() > 0) << ','
+                << (form ? FightsInForm(info) : false) << ',' << MovesTheBrother(info) << ','
+                << info->CalcCastTime() << ',' << LongestRecovery(info) << '\n';
+            ++rows;
+        }
+    }
+    handler->PSendSysMessage("Wrote {} borrowed abilities to {}.", rows, path);
     return true;
 }
 

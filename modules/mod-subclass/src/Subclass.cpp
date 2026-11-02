@@ -59,6 +59,7 @@ using namespace Acore::ChatCommands;
 
 ChatCommandTable const& SubclassTwinCommandTable();
 bool HandleSubclassBrain(ChatHandler* handler);
+bool HandleSubclassAudit(ChatHandler* handler);
 bool HandleSubclassGun(ChatHandler* handler);
 bool HandleSubclassBots(ChatHandler* handler, Optional<std::string> mode);
 
@@ -3311,6 +3312,7 @@ public:
             { "quest", HandleQuest, SEC_GAMEMASTER, Console::No },
             { "insight", HandleInsight, SEC_GAMEMASTER, Console::No },
             { "brain", HandleSubclassBrain, SEC_GAMEMASTER, Console::No },
+            { "audit", HandleSubclassAudit, SEC_GAMEMASTER, Console::Yes },
             { "gun", HandleSubclassGun, SEC_GAMEMASTER, Console::No },
             { "bots", HandleSubclassBots, SEC_GAMEMASTER, Console::Yes },
             { "twin", SubclassTwinCommandTable() },
