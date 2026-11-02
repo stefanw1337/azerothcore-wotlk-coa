@@ -66,6 +66,7 @@ bool BrotherOut(Player const* player);
 void RefreshSubclassResources(Player* player);
 bool IsBorrowedSpell(Player const* player, uint32 spellId);
 uint32 BorrowedReplacementOf(Player const* player, uint32 spellId);
+void SendOtherHalfCooldown(Player* player, uint32 spellId);
 void SyncBorrowedMana(Player* player, uint32 milliseconds);
 Powers PowerBothHalvesUse(Player const* player);
 void RefreshSubclassState(Player* player);
@@ -606,8 +607,21 @@ uint32 OtherHalfForm(Player const* player)
     return half.Form ? half.Form : BorrowedBodyForm(player);
 }
 
+bool CasterAurasAllow(Player const* player, SpellInfo const* info)
+{
+    if (info->CasterAuraSpell && !player->HasAura(info->CasterAuraSpell))
+        return false;
+    if (info->ExcludeCasterAuraSpell && player->HasAura(info->ExcludeCasterAuraSpell))
+        return false;
+    if (info->CasterAuraState && !player->HasAuraState(AuraStateType(info->CasterAuraState), info, player))
+        return false;
+    return !info->CasterAuraStateNot || !player->HasAuraState(AuraStateType(info->CasterAuraStateNot));
+}
+
 bool FitsOtherHalfForm(Player const* player, SpellInfo const* info)
 {
+    if (!CasterAurasAllow(player, info))
+        return false;
     uint32 const form = OtherHalfForm(player);
     if (form > LastStanceForm)
         return !info->Stances || (info->Stances & FormMask(form));
@@ -1762,7 +1776,8 @@ bool SwingFromBrother(Player* player, Creature* twin, Unit* foe)
     if (PlayerHitsItHimself(player, foe) || !twin->IsWithinMeleeRange(foe) ||
         twin->GetMotionMaster()->GetCurrentMovementGeneratorType() == EFFECT_MOTION_TYPE)
         return false;
-    TurnTo(twin, foe);
+    if (!twin->HasInArc(float(M_PI) / 2, foe))
+        twin->SetFacingToObject(foe);
     swingingAlone = player->GetGUID();
     player->AttackerStateUpdate(foe, BASE_ATTACK);
     swingingAlone = ObjectGuid::Empty;
@@ -2341,6 +2356,12 @@ void SetHalfForm(Player* player, HalfForm const& wanted)
         stored = wanted;
     }
     WearHalfForm(player, previous, wanted);
+    if (SpellInfo const* ended = previous.Spell ? sSpellMgr->GetSpellInfo(previous.Spell) : nullptr;
+        ended && ended->HasAttribute(SPELL_ATTR0_COOLDOWN_ON_EVENT))
+    {
+        player->AddSpellAndCategoryCooldowns(ended, 0);
+        SendOtherHalfCooldown(player, ended->Id);
+    }
     RefreshSubclassState(player);
     LOG_INFO("module", "mod-subclass: the other half of {} takes form {} (spell {})", player->GetName(), wanted.Form,
         wanted.Spell);
@@ -2426,7 +2447,8 @@ bool PayForHalfForm(Player* player, SpellInfo const* info)
             return false;
         player->ModifyPower(Powers(info->PowerType), -cost);
     }
-    player->AddSpellAndCategoryCooldowns(info, 0);
+    if (!info->HasAttribute(SPELL_ATTR0_COOLDOWN_ON_EVENT))
+        player->AddSpellAndCategoryCooldowns(info, 0);
     return true;
 }
 
@@ -5085,7 +5107,7 @@ bool NeverAlone(SpellInfo const* info)
 }
 
 enum class Use { Never, Interrupt, Taunt, Heal, Shield, Cleanse, Purge, Defend, Attack, Shoot, Energize, Cooldown,
-    Buff };
+    Buff, Close };
 
 bool Heals(SpellInfo const* info)
 {
@@ -5095,10 +5117,27 @@ bool Heals(SpellInfo const* info)
 
 bool GivesManaBack(SpellInfo const* info, uint8 depth = 0);
 
+bool MovesTheBrother(SpellInfo const* info)
+{
+    SpellScriptsBounds const scripts = sObjectMgr->GetSpellScriptsBounds(info->Id);
+    for (auto itr = scripts.first; itr != scripts.second; ++itr)
+        if (sObjectMgr->GetScriptName(itr->second) == "spell_subclass_brother_moves")
+            return true;
+    return false;
+}
+
+bool ClosesOnAFoe(SpellInfo const* info)
+{
+    return HasAnyEffect(info, { SPELL_EFFECT_CHARGE, SPELL_EFFECT_JUMP }) && info->NeedsExplicitUnitTarget() &&
+        !info->IsPositive() && MovesTheBrother(info);
+}
+
 Use UseOf(SpellInfo const* info)
 {
     if (info->IsAutoRepeatRangedSpell())
         return Use::Shoot;
+    if (ClosesOnAFoe(info))
+        return Use::Close;
     if (NeverAlone(info))
         return Use::Never;
     if (info->HasEffect(SPELL_EFFECT_INTERRUPT_CAST) || info->HasAura(SPELL_AURA_MOD_SILENCE))
@@ -5440,6 +5479,8 @@ struct Pick
     uint32 Weight = 0;
 };
 
+constexpr float ClosingDistance = 8.0f;
+
 enum Tier : int32
 {
     TierShot = 1,
@@ -5639,6 +5680,18 @@ std::string_view ConsiderSpell(Player* player, SpellInfo const* info, Unit* foe,
             Consider(best, { info->Id, player, TierBuff, 100.0f, recovery });
             return {};
         }
+        case Use::Close:
+        {
+            Creature* twin = HasTwin(player) ? TwinOf(player) : nullptr;
+            if (!foe || !twin || FightsFromRange(player, twin))
+                return "close in: only for a brother who fights up close";
+            if (twin->IsWithinDist(foe, ClosingDistance))
+                return "close in: already near the target";
+            if (!Reaches(player, info, foe))
+                return "close in: out of reach";
+            Consider(best, { info->Id, foe, TierAttack, 100.0f, BigCooldown });
+            return {};
+        }
         case Use::Never:
             break;
     }
@@ -5704,6 +5757,23 @@ std::vector<std::string> ExplainBrain(Player* player)
     return lines;
 }
 
+bool LeaveFormToHeal(Player* player)
+{
+    HalfForm const half = HalfFormOf(player);
+    if (!half.Spell || !SomeoneCritical(Friends(player)))
+        return false;
+    for (uint32 spellId : KnownBorrowedActives(player))
+        if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId); info && UseOf(info) == Use::Heal &&
+            !player->HasSpellCooldown(info->Id) && Affordable(player, info) && !FitsOtherHalfForm(player, info))
+        {
+            SetHalfForm(player, {});
+            LOG_INFO("module", "mod-subclass: the other half of {} leaves his form to cast {} ({})", player->GetName(),
+                info->SpellName[0], info->Id);
+            return true;
+        }
+    return false;
+}
+
 bool TakeReadyTimedHalfForm(Player* player)
 {
     if (HalfFormOf(player).Spell)
@@ -5736,7 +5806,7 @@ void PlayEasy(Player* player, uint32 diff)
     if ((!bot && !player->HasAura(easyAura)) || !InAFight(player) || !player->IsAlive() ||
         player->HasStealthAura() || !OtherHalfActs(player) || (!bot && HasTwin(player) && !BrotherOut(player)))
         return;
-    if (TakePreferredHalfForm(player) || TakeReadyTimedHalfForm(player))
+    if (LeaveFormToHeal(player) || TakePreferredHalfForm(player) || TakeReadyTimedHalfForm(player))
         return;
     auto const [spellId, target] = PickSpell(player);
     if (spellId && OrderOtherHalf(player, spellId, target, 0))
