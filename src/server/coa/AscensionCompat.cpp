@@ -8686,6 +8686,9 @@ public:
 
     if (opcode == CMSG_ANTICHEAT_ALERT)
       return true;
+    // The retail form looks are a regular handler (WorldSession::HandleEsteriaFormLookOpcode), not a consumed extension packet.
+    if (opcode == CMSG_ESTERIA_FORM_LOOK)
+      return true;
 
     if (std::find(CORE_EXTENSION_OPCODES.begin(), CORE_EXTENSION_OPCODES.end(), opcode) !=
         CORE_EXTENSION_OPCODES.end())

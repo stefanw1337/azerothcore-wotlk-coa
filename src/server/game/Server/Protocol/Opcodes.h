@@ -1340,6 +1340,10 @@ enum Opcodes : uint16
     SMSG_MULTIPLE_MOVES                             = 0x51E, // uncompressed version of SMSG_COMPRESSED_MOVES
     CMSG_ANTICHEAT_ALERT                            = 0x51F, // Ascension client: local anti-tamper/anti-debug alert, see WorldSession::HandleAnticheatAlert
     TC9_SMSG_READY_FOR_REDIRECT                     = 0x520,
+    SMSG_ESTERIA_BODY_SHAPE                         = 0x575,
+    SMSG_ESTERIA_RETAIL_LOOK                        = 0x576,
+    CMSG_ESTERIA_FORM_LOOK                          = 0x525,
+    SMSG_ESTERIA_FORM_LOOK_ACK                      = 0x577,
     // -- CoA extension range (custom client; see mod-coa-challenges) --
     SMSG_COA_CONFIG                                 = 0x58D,
     SMSG_COA_CHALLENGE_ACTIVE_LIST                  = 0x596,

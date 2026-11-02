@@ -41,6 +41,7 @@
 #include "Unit.h"
 #include "Util.h"
 #include "Vehicle.h"
+#include "VenthyrRacials.h"
 #include "WorldPacket.h"
 
 /// @todo: this import is not necessary for compilation and marked as unused by the IDE
@@ -6767,7 +6768,18 @@ void AuraEffect::HandlePeriodicHealthLeechAuraTick(Unit* target, Unit* caster) c
 
     float gainMultiplier = GetSpellInfo()->Effects[GetEffIndex()].CalcValueMultiplier(caster);
 
-    uint32 heal = uint32(caster->SpellHealingBonusDone(caster, GetSpellInfo(), uint32(new_damage * gainMultiplier), DOT, GetEffIndex(), 0.0f, GetBase()->GetStackAmount()));
+    uint32 baseHeal = uint32(new_damage * gainMultiplier);
+    if (GetId() == VenthyrRacials::Feast)
+    {
+        // Preserve half-health points between actual damage ticks. At level one,
+        // four one-damage ticks must heal twice instead of rounding all four to zero.
+        double const exactHeal = double(new_damage) * gainMultiplier + m_venthyrFeastLeechRemainder;
+        baseHeal = uint32(exactHeal);
+        m_venthyrFeastLeechRemainder = exactHeal - baseHeal;
+    }
+
+    uint32 heal = uint32(caster->SpellHealingBonusDone(caster, GetSpellInfo(), baseHeal,
+        DOT, GetEffIndex(), 0.0f, GetBase()->GetStackAmount()));
     heal = uint32(caster->SpellHealingBonusTaken(caster, GetSpellInfo(), heal, DOT, GetBase()->GetStackAmount()));
 
     HealInfo healInfo(caster, caster, heal, GetSpellInfo(), GetSpellInfo()->GetSchoolMask());
