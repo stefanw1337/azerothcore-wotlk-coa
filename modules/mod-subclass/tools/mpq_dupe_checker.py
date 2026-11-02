@@ -27,12 +27,15 @@ SHOWN_ROWS = 300
 
 
 def ordered_archives(data):
-    archives = sorted((path for path in data.iterdir() if path.suffix.lower() == ".mpq"), key=patch_order)
+    root = sorted((path for path in data.iterdir() if path.suffix.lower() == ".mpq"), key=patch_order)
+    locales = []
     for locale in LOCALE_FOLDERS:
         folder = data / locale
         if folder.is_dir():
-            archives += sorted((path for path in folder.iterdir() if path.suffix.lower() == ".mpq"),
-                               key=lambda path: path.stem.lower())
+            locales += sorted((path for path in folder.iterdir() if path.suffix.lower() == ".mpq"),
+                              key=lambda path: path.stem.lower())
+    base = [path for path in root if patch_order(path)[0] == 0]
+    archives = base + locales + [path for path in root if patch_order(path)[0] != 0]
     return [path for path in archives if path.name.lower() != MERGED_NAME.lower()]
 
 

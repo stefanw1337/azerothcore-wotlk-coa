@@ -72,6 +72,16 @@ class VaultPatchTest(unittest.TestCase):
         vault.build(self.data, self.data)
         self.assertFalse((self.data / vault.HD_PATCH).exists())
 
+    def test_root_patches_win_over_locale_tables(self):
+        (self.data / "enUS").mkdir()
+        locale_tables = {ANIMATIONS: table(8, [[1, 0, 0, 0, 0, 0, 0, 0]], b"\0"), KITS: client_tables()[KITS]}
+        archive(self.data / "enUS" / "patch-enUS-3.MPQ", locale_tables)
+        archive(self.data / "patch-ZZZZS.MPQ", client_tables())
+        vault.build(self.data, self.data)
+        built = rows(self.built(vault.MERGED).extract(ANIMATIONS))
+        self.assertIn(handspring.JUMP, built)
+        self.assertNotIn(1, built)
+
     def test_no_build_files_are_left_in_data(self):
         vault.build(self.data, self.data)
         self.assertEqual(sorted(path.name for path in self.data.iterdir() if ".building" in path.name or
