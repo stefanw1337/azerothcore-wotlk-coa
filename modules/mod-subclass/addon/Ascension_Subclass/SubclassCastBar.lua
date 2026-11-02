@@ -2,7 +2,7 @@ Ascension_Subclass = Ascension_Subclass or {}
 
 local WIDTH, HEIGHT = 195, 13
 local SPELL_CAST_OK = 255
-local HOLD, FADE = 0.4, 0.5
+local HOLD, FADE, OVERDUE = 0.4, 0.5, 1.5
 local CASTING_COLOR = { 0.62, 0.36, 1.0 }
 local FINISHED_COLOR = { 0.0, 1.0, 0.0 }
 local FAILED_COLOR = { 1.0, 0.0, 0.0 }
@@ -13,7 +13,7 @@ bar:SetHeight(HEIGHT)
 bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
 bar:SetFrameStrata("HIGH")
 bar:SetMovable(true)
-bar:EnableMouse(false)
+bar:EnableMouse(true)
 bar:Hide()
 
 local background = bar:CreateTexture(nil, "BACKGROUND")
@@ -24,7 +24,7 @@ local border = bar:CreateTexture(nil, "ARTWORK")
 border:SetTexture("Interface\\CastingBar\\UI-CastingBar-Border")
 border:SetWidth(256)
 border:SetHeight(64)
-border:SetPoint("TOP", bar, "TOP", 0, 28)
+border:SetPoint("TOP", bar, "TOP", 0, 26)
 
 local spark = bar:CreateTexture(nil, "OVERLAY")
 spark:SetTexture("Interface\\CastingBar\\UI-CastingBar-Spark")
@@ -37,13 +37,20 @@ flash:SetTexture("Interface\\CastingBar\\UI-CastingBar-Flash")
 flash:SetBlendMode("ADD")
 flash:SetWidth(256)
 flash:SetHeight(64)
-flash:SetPoint("TOP", bar, "TOP", 0, 28)
+flash:SetPoint("TOP", bar, "TOP", 0, 26)
 flash:Hide()
 
 local icon = bar:CreateTexture(nil, "ARTWORK")
-icon:SetWidth(HEIGHT + 6)
-icon:SetHeight(HEIGHT + 6)
-icon:SetPoint("RIGHT", bar, "LEFT", -6, 0)
+icon:SetWidth(HEIGHT + 9)
+icon:SetHeight(HEIGHT + 9)
+icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+icon:SetPoint("RIGHT", bar, "LEFT", -32, 0)
+
+local iconBorder = bar:CreateTexture(nil, "OVERLAY")
+iconBorder:SetTexture(0, 0, 0, 0.8)
+iconBorder:SetPoint("TOPLEFT", icon, "TOPLEFT", -1, 1)
+iconBorder:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 1, -1)
+iconBorder:SetDrawLayer("BORDER")
 
 local text = bar:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 text:SetPoint("CENTER", bar, "CENTER", 0, 1)
@@ -102,6 +109,9 @@ end
 
 bar:SetScript("OnUpdate", function(self)
     local now = GetTime()
+    if state.casting and state.spellId ~= 0 and now - state.start > state.duration + OVERDUE then
+        End(FAILED or "Failed", FAILED_COLOR)
+    end
     if state.casting then
         local elapsed = math.min(now - state.start, state.duration)
         self:SetValue(elapsed)

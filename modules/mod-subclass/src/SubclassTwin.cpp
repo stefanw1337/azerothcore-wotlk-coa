@@ -4825,7 +4825,11 @@ void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid, uin
     Unit* target = targetGuid == player->GetGUID() ? player : ObjectAccessor::GetUnit(*player, targetGuid);
     if (!info || !target || !player->IsInWorld() || !player->IsAlive() || !OtherHalfActs(player) ||
         !Affordable(player, info) || Helpless(player) || !FitsOtherHalfForm(player, info))
+    {
+        if (player->IsInWorld())
+            SendSubclassMessage(player, Acore::StringFormat("OTHERSTOP {}", spellId));
         return;
+    }
     Creature* twin = HasTwin(player) ? TwinOf(player) : nullptr;
     ActOutCast(player, info, target);
     if (twin)

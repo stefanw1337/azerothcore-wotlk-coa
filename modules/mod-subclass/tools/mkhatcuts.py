@@ -1,5 +1,6 @@
 """Give each Thin Twins hairstyle its own cut under hats. A hat that hides hair forces the hair group to geoset 1, so
-geoset 1 is left empty and the part of hairstyle 2, 3 and 4 below the hat line becomes facial geoset 302, 303 and 304.
+geoset 1 keeps its id but draws no triangles, and the part of hairstyle 2, 3 and 4 below the hat line becomes facial
+geoset 302, 303 and 304.
 The server picks the facial style beard + 7 * (hairstyle + 1) while a hat is shown, so the table gets those rows.
     python mkhatcuts.py <thinhumanmale.m2> <skin> <CharacterFacialHairStyles.dbc> <out skin> <out dbc>"""
 import struct
@@ -12,7 +13,7 @@ from mkcape import arr
 
 SUBMESH_SIZE, TEXTURE_UNIT_SIZE, VERTEX_SIZE = 48, 24, 48
 SKIN_LOOKUP, SKIN_INDICES, SKIN_SUBMESHES, SKIN_TEXTURE_UNITS = 4, 12, 28, 36
-HAT_HAIR, UNUSED = 1, 9901
+HAT_HAIR, INDEX_COUNT_AT = 1, 10
 CUTS = ((2, 302), (3, 303), (4, 304))
 HAT_LINE, FRONT = 1.83, 0.06
 THIN_TWINS, MALE, BEARDS = 96, 0, 7
@@ -35,7 +36,7 @@ def emptied_hat_hair(skin):
     _, offset = arr(skin, SKIN_SUBMESHES)
     for index, (geoset, *_) in enumerate(submeshes(skin)):
         if geoset == HAT_HAIR:
-            struct.pack_into("<H", skin, offset + index * SUBMESH_SIZE, UNUSED)
+            struct.pack_into("<H", skin, offset + index * SUBMESH_SIZE + INDEX_COUNT_AT, 0)
     return bytes(skin)
 
 
