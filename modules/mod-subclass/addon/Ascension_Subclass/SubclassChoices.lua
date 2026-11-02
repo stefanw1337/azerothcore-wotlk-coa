@@ -181,8 +181,12 @@ local function Show(face, spot, tree, x, y)
     end
     face.chosen = chosen
     local shown = chosen or face.options[1]
+    face:SetScale(1)
+    local own, node = face:GetWidth(), face.options[1]:GetWidth()
+    local scale = own > node and node > 0 and node / own or 1
+    face:SetScale(scale)
     face:ClearAllPoints()
-    face:SetPoint("CENTER", face:GetParent(), "BOTTOMLEFT", x, y)
+    face:SetPoint("CENTER", face:GetParent(), "BOTTOMLEFT", x / scale, y / scale)
     pcall(face.SetArtSet, face, CoACharacterAdvancementUtil.NodeArtSet.Choice)
     local learnable = chosen and chosen.canLearn or (not chosen and anyLearnable)
     Ascension_Subclass.ShowCoANode(face, shown.entry, shown.rank or 0, shown.maxRank or 1, learnable,
