@@ -6,6 +6,7 @@
 #include "AllSpellScript.h"
 #include "AscensionAppearanceChanges.h"
 #include "AscensionCoATalentData.h"
+#include "AscensionCoATalentState.h"
 #include "AscensionCustomClassData.h"
 #include "AscensionCustomResourceData.h"
 #include "AscensionLiveBaselineData.h"
@@ -1840,6 +1841,36 @@ uint32 PreferBorrowedBookCopies(Player* player)
     return stock.size();
 }
 
+uint32 GrantBorrowedAutomaticEntries(Player* player)
+{
+    std::vector<Subclass::Tree> const open = OpenTreesOf(player);
+    if (open.empty() || player->GetLevel() <= 1)
+        return 0;
+    auto const known = [player](std::uint32_t spellId) { return player->HasSpell(spellId); };
+    uint32 learned = 0;
+    for (bool changed = true; changed;)
+    {
+        changed = false;
+        for (AscensionCompatData::CoATalentEntry const& entry : AscensionCompatData::CoATalentEntries)
+        {
+            if (!InTrees(open, entry) ||
+                !AscensionCoATalentState::CanGrantAutomatic(entry, entry.ClassId, player->GetLevel(), entry.SpecId,
+                    known))
+                continue;
+            uint32 const spellId = entry.SpellIds[entry.SpellCount - 1];
+            if (!spellId || player->HasSpell(spellId) || !sSpellMgr->GetSpellInfo(spellId))
+                continue;
+            player->learnSpell(spellId, false);
+            if (player->HasSpell(spellId))
+            {
+                ++learned;
+                changed = true;
+            }
+        }
+    }
+    return learned;
+}
+
 uint32 SyncBorrowedBaseSpells(Player* player)
 {
     if (OpenTreesOf(player).empty())
@@ -1853,7 +1884,7 @@ uint32 SyncBorrowedBaseSpells(Player* player)
         return learned;
     }
     LearnCoAWeapons(player, subClass);
-    uint32 learned = GrantSpecializationPresets(player);
+    uint32 learned = GrantSpecializationPresets(player) + GrantBorrowedAutomaticEntries(player);
     for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)
         if (spell.ClassId == subClass && spell.RequiredLevel <= player->GetLevel() &&
             !player->HasSpell(spell.SpellId) && sSpellMgr->GetSpellInfo(spell.SpellId))
