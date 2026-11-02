@@ -1,6 +1,8 @@
 """Merge client patches into one MPQ: every file of every input, a later input winning over an earlier one, written
 zlib-compressed in 4 KB sectors with a listfile. Runs with plain Python (no StormLib), so it works on Windows.
-    python mkmergepatch.py <out.MPQ> <patch> [<patch> ...]"""
+    python mkmergepatch.py <out.MPQ> <patch> [<patch> ...]
+An input written yield:<patch> leaves out every file that a patch written theirs:<patch> also has, so a newer copy in
+someone else's patch is not covered up; theirs: patches are only read, never merged."""
 import struct
 import sys
 import zlib
@@ -61,11 +63,16 @@ def table_size(count):
     return size
 
 
-def merge(inputs):
+YIELD, THEIRS = "yield:", "theirs:"
+
+
+def merge(inputs, theirs):
     files = {}
-    for path in inputs:
+    for path, yields in inputs:
         archive = Archive(str(path))
         for lower, name in names_in(archive, path).items():
+            if yields and lower in theirs:
+                continue
             data = archive.extract(name)
             if data is None:
                 raise SystemExit(f"{path} lists {name} but it cannot be read")
@@ -106,8 +113,15 @@ def verified(path, entries):
             raise SystemExit(f"{name} reads back wrong from {path}")
 
 
-def main(out_path, *inputs):
-    entries = merge([Path(path) for path in inputs])
+def main(out_path, *arguments):
+    theirs = set()
+    for argument in arguments:
+        if argument.startswith(THEIRS):
+            path = Path(argument[len(THEIRS):])
+            theirs |= set(names_in(Archive(str(path)), path))
+    inputs = [(Path(argument[len(YIELD):]), True) if argument.startswith(YIELD) else (Path(argument), False)
+              for argument in arguments if not argument.startswith(THEIRS)]
+    entries = merge(inputs, theirs)
     output = Path(out_path)
     output.write_bytes(written(entries))
     verified(output, entries)
