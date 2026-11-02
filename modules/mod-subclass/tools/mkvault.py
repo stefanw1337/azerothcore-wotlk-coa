@@ -20,8 +20,7 @@ TWIN_ANIMATIONS = {TWIN_SPRINGBOARD: ("TwinSpringboard", h.JUMP, h.JUMP_START),
                    TWIN_BACK_SPRINGBOARD: ("TwinBackSpringboard", h.JUMP, h.JUMP_START),
                    TWIN_BRACE: ("TwinBrace", h.STAND, h.STAND)}
 TWIN_KITS = {3455902: TWIN_SPRINGBOARD, 3455903: TWIN_BACK_SPRINGBOARD, 3455904: TWIN_BRACE}
-DASH_MS, BRACE_MS = 180, 800
-OVER_DISTANCE, BACK_SHARE = 2.0, 1.08
+BRACE_MS, BACK_SHARE = 800, 1.08
 BEND_START, BENT, STRAIGHTEN_START, STRAIGHT = 0.0, 0.1, 0.55, 0.85
 WAIST_BEND, HEAD_UP = 1.45, -0.6
 HANDS_ON_KNEES = (-0.6, 0.0, -1.0)
@@ -67,9 +66,7 @@ class Bounce(h.Handspring):
 class Springboard(h.Handspring):
     def __init__(self, model, animation, backward, style):
         super().__init__(model, animation, backward, style)
-        self.direction = -1.0 if backward else 1.0
         self.back = BACK_SHARE * model.pivots[self.root][2]
-        self.dash = DASH_MS / self.duration
 
     def over(self, share):
         _, phase = self.phase(share)
@@ -77,14 +74,6 @@ class Springboard(h.Handspring):
 
     def lift(self, share):
         return super().lift(share) + self.back * self.over(share)
-
-    def behind(self, share):
-        caught_up = h.window(share, self.dash, self.style.turn_end)
-        return -self.direction * OVER_DISTANCE * (h.window(share, 0.0, self.dash) - caught_up)
-
-    def root_translation(self, share):
-        x, y, z = super().root_translation(share)
-        return x + self.behind(share), y, z
 
 
 class Brace(h.Handspring):

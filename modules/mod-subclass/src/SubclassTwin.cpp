@@ -5860,8 +5860,9 @@ constexpr uint8 ClassWitchHunter = 15;
 constexpr uint32 KitTwinSpringboard = 3455902;
 constexpr uint32 KitTwinBackSpringboard = 3455903;
 constexpr uint32 KitBrotherBraces = 3455904;
-constexpr float BrotherBracesShort = 1.5f;
-constexpr float BrotherBracedIn = 0.08f;
+constexpr float BrotherStandsAhead = 2.9f;
+constexpr float TwinClearsBrother = 3.5f;
+constexpr Milliseconds TwinOverBrother = Milliseconds(350);
 constexpr uint32 BrotherBracesFor = 900;
 
 bool TwinsVaultTogether(Player const* player)
@@ -5891,12 +5892,15 @@ void BrotherOffersHisBack(Player* player)
     G3D::Vector3 const end = player->movespline->FinalDestination();
     float const dx = end.x - player->GetPositionX();
     float const dy = end.y - player->GetPositionY();
-    if (std::sqrt(dx * dx + dy * dy) <= BrotherBracesShort)
+    if (std::sqrt(dx * dx + dy * dy) <= TwinClearsBrother + 1.0f)
         return;
     float const heading = std::atan2(dy, dx);
-    Position const back(end.x - std::cos(heading) * BrotherBracesShort, end.y - std::sin(heading) * BrotherBracesShort,
-        end.z);
-    float const speed = std::max(twin->GetExactDist2d(&back) / BrotherBracedIn, twin->GetSpeed(MOVE_RUN));
+    Position ahead = player->GetPosition();
+    player->MovePositionToFirstCollision(ahead, BrotherStandsAhead, heading - player->GetOrientation());
+    Position over = player->GetPosition();
+    player->MovePositionToFirstCollision(over, TwinClearsBrother, heading - player->GetOrientation());
+    if (player->GetExactDist2d(&over) < TwinClearsBrother - 0.5f)
+        return;
     {
         std::lock_guard<std::mutex> lock(twinMutex);
         Motion& motion = motions[player->GetGUID().GetCounter()];
@@ -5906,13 +5910,26 @@ void BrotherOffersHisBack(Player* player)
         motion.Mode = Carry::Beside;
     }
     twin->GetMotionMaster()->Clear();
-    twin->GetMotionMaster()->MoveCharge(back.GetPositionX(), back.GetPositionY(), back.GetPositionZ(), speed);
-    twin->m_Events.AddEventAtOffset([twin]() { twin->SendPlaySpellVisual(KitBrotherBraces); },
-        Milliseconds(uint32(BrotherBracedIn * IN_MILLISECONDS)));
+    twin->StopMoving();
+    twin->NearTeleportTo(ahead.GetPositionX(), ahead.GetPositionY(), ahead.GetPositionZ(), heading);
+    twin->SendPlaySpellVisual(KitBrotherBraces);
+    float const runSpeed = 12.0f * player->GetSpeed(MOVE_RUN);
+    sScriptMgr->AnticheatSetUnderACKmount(player);
+    player->GetMotionMaster()->MoveCharge(over.GetPositionX(), over.GetPositionY(), over.GetPositionZ(),
+        TwinClearsBrother * IN_MILLISECONDS / TwinOverBrother.count());
+    ObjectGuid const guid = player->GetGUID();
+    player->m_Events.AddEventAtOffset([guid, end, runSpeed]()
+    {
+        Player* player = ObjectAccessor::FindPlayer(guid);
+        if (!player || !player->IsAlive())
+            return;
+        sScriptMgr->AnticheatSetUnderACKmount(player);
+        player->GetMotionMaster()->MoveCharge(end.x, end.y, end.z, runSpeed);
+    }, TwinOverBrother);
     bool const backward = player->HasUnitMovementFlag(MOVEMENTFLAG_BACKWARD) &&
         !player->HasUnitMovementFlag(MOVEMENTFLAG_FORWARD);
     player->SendPlaySpellVisual(backward ? KitTwinBackSpringboard : KitTwinSpringboard);
-    LOG_INFO("module", "mod-subclass: {}'s brother braces for his Vault", player->GetName());
+    LOG_INFO("module", "mod-subclass: {} vaults over his brother's back", player->GetName());
 }
 
 class mod_subclass_twin_vault : public AllSpellScript
