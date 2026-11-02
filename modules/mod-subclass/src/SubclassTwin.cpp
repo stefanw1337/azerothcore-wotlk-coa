@@ -6,6 +6,7 @@
 #include "AllSpellScript.h"
 #include "AscensionAppearanceChanges.h"
 #include "AscensionIncarnation.h"
+#include "AscensionSpecialization.h"
 #include "CellImpl.h"
 #include "Chat.h"
 #include "CommandScript.h"
@@ -673,6 +674,30 @@ uint32 SpellShape(uint32 spellId)
     return 0;
 }
 
+bool HasTwin(Player const* player);
+
+std::mutex& classLookMutex = *new std::mutex;
+std::unordered_map<ObjectGuid::LowType, uint32>& classLooks = *new std::unordered_map<ObjectGuid::LowType, uint32>;
+
+uint32 ClassLookOf(Player const* player)
+{
+    std::lock_guard<std::mutex> lock(classLookMutex);
+    auto const found = classLooks.find(player->GetGUID().GetCounter());
+    return found == classLooks.end() ? 0 : found->second;
+}
+
+bool CarryClassLook(Player* player, uint8 classId, uint32 displayId)
+{
+    if (!HasTwin(player) || SubclassChoiceOf(player).SubClass != classId)
+        return false;
+    std::lock_guard<std::mutex> lock(classLookMutex);
+    if (displayId)
+        classLooks[player->GetGUID().GetCounter()] = displayId;
+    else
+        classLooks.erase(player->GetGUID().GetCounter());
+    return true;
+}
+
 uint32 BorrowedShape(Player* player)
 {
     if (HalfForm const half = HalfFormOf(player); half.Form)
@@ -699,7 +724,7 @@ uint32 BorrowedShape(Player* player)
             if (uint32 model = ModellessFormShape(form))
                 return model;
         }
-    return 0;
+    return ClassLookOf(player);
 }
 
 void LendWeapon(Player const* player, Wardrobe& wardrobe, std::size_t slot, uint8 equipmentSlot)
@@ -6070,6 +6095,7 @@ public:
 
 void AddSC_mod_subclass_twin()
 {
+    AddAscensionClassLookProvider(&CarryClassLook);
     new mod_subclass_borrowed_auras();
     new mod_subclass_own_look();
     new mod_subclass_hand_me_downs();

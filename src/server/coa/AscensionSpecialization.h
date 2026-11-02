@@ -38,6 +38,20 @@ void AddAscensionClassMechanicsProvider(AscensionClassMechanicsProvider provider
 
 bool UsesAscensionClassMechanics(Player const* player, uint8 classId);
 
+bool UsesAnyAscensionClassMechanics(Player const* player);
+
+using AscensionClassSpecializationProvider = std::function<uint32(Player const* player, uint8 classId)>;
+
+void AddAscensionClassSpecializationProvider(AscensionClassSpecializationProvider provider);
+
+uint32 AscensionSpecializationForClass(Player const* player, uint8 classId, uint32 ownSpecializationId);
+
+using AscensionClassLookProvider = std::function<bool(Player* player, uint8 classId, uint32 displayId)>;
+
+void AddAscensionClassLookProvider(AscensionClassLookProvider provider);
+
+bool AscensionClassLookCarriedElsewhere(Player* player, uint8 classId, uint32 displayId);
+
 AscensionCoATalentState::TalentAccess GetAscensionTalentAccess(Player const* player);
 
 bool ApplyAscensionTalentBuild(Player* player, std::vector<AscensionCoATalentState::KnownEntry> const& build,

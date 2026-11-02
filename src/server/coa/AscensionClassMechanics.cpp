@@ -1220,7 +1220,7 @@ void ApplyAscensionClassMechanics(SpellInfo* spellInfo)
 
 void SynchronizeAscensionClassMechanics(Player* player)
 {
-    if (!player || !IsAscensionClass(player->getClass()))
+    if (!player || (!IsAscensionClass(player->getClass()) && !UsesAnyAscensionClassMechanics(player)))
         return;
 
     std::vector<uint32> obsolete;

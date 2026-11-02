@@ -7,6 +7,8 @@
 #include "AscensionAppearanceChanges.h"
 #include "AscensionCoATalentData.h"
 #include "AscensionCoATalentState.h"
+#include "AscensionSpellProgressionData.h"
+#include "AscensionRunemasterEchoes.h"
 #include "AscensionCustomClassData.h"
 #include "AscensionCustomResourceData.h"
 #include "AscensionLiveBaselineData.h"
@@ -1871,6 +1873,20 @@ uint32 GrantBorrowedAutomaticEntries(Player* player)
     return learned;
 }
 
+uint32 GrantBorrowedRanks(Player* player, uint8 subClass)
+{
+    uint32 learned = 0;
+    for (AscensionProgression::Rank const& rank : AscensionProgression::Ranks)
+        if (rank.ClassId == subClass && rank.RequiredLevel <= player->GetLevel() &&
+            player->HasSpell(rank.FirstSpellId) && !player->HasSpell(rank.SpellId) &&
+            !(rank.FirstSpellId == 800792 && player->HasAura(520937)) && sSpellMgr->GetSpellInfo(rank.SpellId))
+        {
+            player->learnSpell(rank.SpellId, false);
+            ++learned;
+        }
+    return learned;
+}
+
 uint32 SyncBorrowedBaseSpells(Player* player)
 {
     if (OpenTreesOf(player).empty())
@@ -1892,8 +1908,12 @@ uint32 SyncBorrowedBaseSpells(Player* player)
             player->learnSpell(spell.SpellId, false);
             ++learned;
         }
+    learned += GrantBorrowedRanks(player, subClass);
     learned += SyncBorrowedTaughtAbilities(player, subClass, ChoiceOf(player));
-    return learned + SyncBorrowedReplacements(player, subClass, ChoiceOf(player));
+    learned += SyncBorrowedReplacements(player, subClass, ChoiceOf(player));
+    if (subClass == CLASS_SPIRIT_MAGE)
+        SynchronizeAscensionRunemasterEchoes(player, ChoiceOf(player).SubSpec);
+    return learned;
 }
 
 uint32 ApplyChoice(Player* player, Subclass::Choice const& wanted)
@@ -3721,6 +3741,12 @@ void AddSC_mod_subclass()
     {
         Subclass::Choice const choice = RecordOf(player).Choice;
         return classId && choice.Complete() && choice.SubClass == classId && !SubclassResting(player);
+    });
+    AddAscensionClassSpecializationProvider([](Player const* player, uint8 classId) -> uint32
+    {
+        Subclass::Choice const choice = RecordOf(player).Choice;
+        return classId && choice.Complete() && choice.SubClass == classId && !SubclassResting(player) ?
+            choice.SubSpec : 0;
     });
     AddAscensionTalentTreeProvider([](Player const* player)
     {

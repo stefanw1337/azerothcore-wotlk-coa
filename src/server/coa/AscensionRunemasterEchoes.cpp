@@ -464,7 +464,7 @@ void SynchronizeAscensionRunemasterEchoes(Player* player, uint32 specializationI
     if (!IsRunemaster(player))
         return;
     Runtime& runtime = *player->CustomData.GetDefault<Runtime>(RUNTIME_KEY);
-    runtime.Specialization = specializationId;
+    runtime.Specialization = AscensionSpecializationForClass(player, CLASS_SPIRIT_MAGE, specializationId);
     Synchronize(player, runtime);
 }
 

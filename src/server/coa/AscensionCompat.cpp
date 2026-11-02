@@ -860,6 +860,18 @@ std::vector<AscensionClassMechanicsProvider>& ClassMechanicsProviders()
     return providers;
 }
 
+std::vector<AscensionClassSpecializationProvider>& ClassSpecializationProviders()
+{
+    static std::vector<AscensionClassSpecializationProvider> providers;
+    return providers;
+}
+
+std::vector<AscensionClassLookProvider>& ClassLookProviders()
+{
+    static std::vector<AscensionClassLookProvider> providers;
+    return providers;
+}
+
 AscensionCoATalentState::TalentAccess TalentAccessOf(Player const* player, uint32 activeSpecializationId)
 {
     AscensionCoATalentState::TalentAccess access;
@@ -3442,13 +3454,13 @@ public:
     void OnPlayerLogin(Player* player) const
     {
         ForgetStaticDecay(player->GetGUID());
-        if (IsAscensionCustomClass(player))
+        if (UsesAnyAscensionClassMechanics(player))
             SynchronizeThresholdResources(player);
     }
 
     void OnPlayerUpdate(Player* player, uint32 diff) const
     {
-        if (IsAscensionCustomClass(player))
+        if (UsesAnyAscensionClassMechanics(player))
         {
             DecayStatic(player, diff);
             SynchronizeThresholdResources(player);
@@ -3527,7 +3539,7 @@ public:
             return;
 
         Player* player = spell->GetCaster()->ToPlayer();
-        if (!player || !IsAscensionCustomClass(player))
+        if (!player || !UsesAnyAscensionClassMechanics(player))
             return;
 
         SpellInfo const* spellInfo = spell->GetSpellInfo();
@@ -3620,7 +3632,7 @@ public:
             return;
 
         Player* player = spell->GetCaster()->ToPlayer();
-        if (!player || !IsAscensionCustomClass(player))
+        if (!player || !UsesAnyAscensionClassMechanics(player))
             return;
 
         bool successful = missInfo == SPELL_MISS_NONE;
@@ -3775,7 +3787,7 @@ public:
             return;
 
         Player* player = attacker->ToPlayer();
-        if (!player || !IsAscensionCustomClass(player) || target == player ||
+        if (!player || !UsesAnyAscensionClassMechanics(player) || target == player ||
             player->IsFriendlyTo(target))
             return;
 
@@ -3818,7 +3830,7 @@ public:
 
     void OnBlock(Player* player) const
     {
-        if (!player || !IsAscensionCustomClass(player))
+        if (!player || !UsesAnyAscensionClassMechanics(player))
             return;
 
         bool changed = false;
@@ -11108,6 +11120,50 @@ bool UsesAscensionClassMechanics(Player const* player, uint8 classId)
         return true;
     return std::any_of(ClassMechanicsProviders().begin(), ClassMechanicsProviders().end(),
         [player, classId](AscensionClassMechanicsProvider const& provider) { return provider(player, classId); });
+}
+
+bool UsesAnyAscensionClassMechanics(Player const* player)
+{
+    if (!player)
+        return false;
+    if (IsAscensionCustomClass(player))
+        return true;
+    for (uint8 classId = CLASS_BARBARIAN; classId <= CLASS_SPIRIT_MAGE; ++classId)
+        if (UsesAscensionClassMechanics(player, classId))
+            return true;
+    return false;
+}
+
+void AddAscensionClassSpecializationProvider(AscensionClassSpecializationProvider provider)
+{
+    if (provider)
+        ClassSpecializationProviders().push_back(std::move(provider));
+}
+
+uint32 AscensionSpecializationForClass(Player const* player, uint8 classId, uint32 ownSpecializationId)
+{
+    if (!player || player->getClass() == classId)
+        return ownSpecializationId;
+    for (AscensionClassSpecializationProvider const& provider : ClassSpecializationProviders())
+        if (uint32 const specializationId = provider(player, classId))
+            return specializationId;
+    return ownSpecializationId;
+}
+
+void AddAscensionClassLookProvider(AscensionClassLookProvider provider)
+{
+    if (provider)
+        ClassLookProviders().push_back(std::move(provider));
+}
+
+bool AscensionClassLookCarriedElsewhere(Player* player, uint8 classId, uint32 displayId)
+{
+    if (!player || player->getClass() == classId)
+        return false;
+    bool carried = false;
+    for (AscensionClassLookProvider const& provider : ClassLookProviders())
+        carried = provider(player, classId, displayId) || carried;
+    return carried;
 }
 
 AscensionCoATalentState::TalentAccess GetAscensionTalentAccess(Player const* player)

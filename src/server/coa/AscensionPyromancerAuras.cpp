@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 #include "AscensionPyromancer.h"
 #include "AscensionPyromancerData.h"
+#include "AscensionSpecialization.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "SpellAuraEffects.h"
@@ -226,12 +227,14 @@ class aura_ascension_pyromancer_draconic_form : public AuraScript
     bool Validate(SpellInfo const* info) override { return info->Id == 802117; }
     void Apply(AuraEffect const*, AuraEffectHandleModes)
     {
-        if (Player* player = Owner(GetTarget()))
+        if (Player* player = Owner(GetTarget());
+            player && !AscensionClassLookCarriedElsewhere(player, CLASS_PYROMANCER, PyromancerDraconicDisplay))
             player->SetDisplayId(PyromancerDraconicDisplay);
     }
     void Remove(AuraEffect const*, AuraEffectHandleModes)
     {
-        if (Player* player = Owner(GetTarget()))
+        if (Player* player = Owner(GetTarget());
+            player && !AscensionClassLookCarriedElsewhere(player, CLASS_PYROMANCER, 0))
             player->RestoreDisplayId();
     }
     void Register() override
