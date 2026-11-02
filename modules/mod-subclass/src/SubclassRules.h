@@ -116,11 +116,6 @@ inline bool KeepsDistance(SpecializationRoles const& roles)
     return !roles.Tank && (roles.Ranged || roles.Caster || roles.Healer);
 }
 
-inline bool LeavesSpentForm(bool tankForm, bool timed, bool anythingReady)
-{
-    return !tankForm && timed && !anythingReady;
-}
-
 inline bool HalfFormExpired(std::uint32_t until, std::uint32_t now)
 {
     return until && now >= until;

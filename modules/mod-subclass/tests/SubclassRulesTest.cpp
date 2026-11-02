@@ -417,14 +417,6 @@ TEST(Subclass, ATimedHalfFormEndsWhenItsTimeRunsOutAndAnUntimedOneNever)
     EXPECT_TRUE(HalfFormExpired(30000, 45000));
 }
 
-TEST(Subclass, OnlyATimedFormThatIsNoTankFormIsLeftWhenNothingInItIsReady)
-{
-    EXPECT_TRUE(LeavesSpentForm(false, true, false));
-    EXPECT_FALSE(LeavesSpentForm(false, true, true));
-    EXPECT_FALSE(LeavesSpentForm(true, true, false));
-    EXPECT_FALSE(LeavesSpentForm(false, false, false));
-}
-
 TEST(Subclass, UnderAHatTheTwinsWearACutOfTheirOwnHairstyleWithTheirBeard)
 {
     EXPECT_EQ(FacialUnderHat(3, 1, false), 3);

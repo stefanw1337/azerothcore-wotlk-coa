@@ -2370,6 +2370,18 @@ bool IsTankForm(uint32 form)
 
 constexpr uint32 PreferredFormBonus = 100;
 
+bool FightsInForm(SpellInfo const* info)
+{
+    return !info->HasAura(SPELL_AURA_MOD_STUN) && !info->HasAura(SPELL_AURA_MOD_PACIFY) &&
+        !info->HasAura(SPELL_AURA_MOD_PACIFY_SILENCE) && !info->HasAura(SPELL_AURA_MOD_ROOT);
+}
+
+bool FormAllowedNow(Player const* player, SpellInfo const* info)
+{
+    return !(info->HasAttribute(SPELL_ATTR0_NOT_IN_COMBAT_ONLY_PEACEFUL) && player->IsInCombat()) &&
+        !(info->HasAttribute(SPELL_ATTR0_ONLY_OUTDOORS) && !player->IsOutdoors());
+}
+
 SpellInfo const* PreferredHalfForm(Player* player)
 {
     std::vector<uint32> const actives = KnownBorrowedActives(player);
@@ -2379,7 +2391,8 @@ SpellInfo const* PreferredHalfForm(Player* player)
     for (uint32 spellId : actives)
     {
         SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
-        if (!info || !IsHalfFormSpell(player, info) || info->GetMaxDuration() > 0)
+        if (!info || !IsHalfFormSpell(player, info) || info->GetMaxDuration() > 0 || !FightsInForm(info) ||
+            !FormAllowedNow(player, info))
             continue;
         uint32 const form = FormOfSpell(info);
         uint32 score = IsTankForm(form) == tank ? PreferredFormBonus : 0;
@@ -2430,6 +2443,12 @@ bool TakeHalfForm(Player* player, SpellInfo const* info)
     if (HalfFormOf(player).Spell == info->Id)
     {
         SetHalfForm(player, {});
+        return true;
+    }
+    if (!FormAllowedNow(player, info))
+    {
+        ChatHandler(player->GetSession()).SendNotification(info->HasAttribute(SPELL_ATTR0_NOT_IN_COMBAT_ONLY_PEACEFUL) ?
+            "That can't be used in combat." : "That can only be used outdoors.");
         return true;
     }
     if (!PayForHalfForm(player, info))
@@ -5685,38 +5704,14 @@ std::vector<std::string> ExplainBrain(Player* player)
     return lines;
 }
 
-bool FeedsTheForm(SpellInfo const* info)
-{
-    return info->ManaCost || info->ManaCostPercentage || info->HasEffect(SPELL_EFFECT_ENERGIZE);
-}
-
-bool LeaveSpentHalfForm(Player* player)
-{
-    HalfForm const half = HalfFormOf(player);
-    if (!half.Spell)
-        return false;
-    uint64 const mask = FormMask(half.Form);
-    bool ready = false;
-    for (uint32 spellId : KnownBorrowedActives(player))
-        if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId); info && info->Id != half.Spell &&
-            (info->Stances & mask) && FeedsTheForm(info) && Affordable(player, info))
-        {
-            ready = true;
-            break;
-        }
-    if (!Subclass::LeavesSpentForm(IsTankForm(half.Form), half.Until != 0, ready))
-        return false;
-    SetHalfForm(player, {});
-    return true;
-}
-
 bool TakeReadyTimedHalfForm(Player* player)
 {
     if (HalfFormOf(player).Spell)
         return false;
     for (uint32 spellId : KnownBorrowedActives(player))
         if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId); info && IsHalfFormSpell(player, info) &&
-            info->GetMaxDuration() > 0 && !player->HasSpellCooldown(info->Id) && Affordable(player, info))
+            info->GetMaxDuration() > 0 && FightsInForm(info) && FormAllowedNow(player, info) &&
+            !player->HasSpellCooldown(info->Id) && Affordable(player, info))
             return TakeHalfForm(player, info);
     return false;
 }
@@ -5741,7 +5736,7 @@ void PlayEasy(Player* player, uint32 diff)
     if ((!bot && !player->HasAura(easyAura)) || !InAFight(player) || !player->IsAlive() ||
         player->HasStealthAura() || !OtherHalfActs(player) || (!bot && HasTwin(player) && !BrotherOut(player)))
         return;
-    if (LeaveSpentHalfForm(player) || TakePreferredHalfForm(player) || TakeReadyTimedHalfForm(player))
+    if (TakePreferredHalfForm(player) || TakeReadyTimedHalfForm(player))
         return;
     auto const [spellId, target] = PickSpell(player);
     if (spellId && OrderOtherHalf(player, spellId, target, 0))
