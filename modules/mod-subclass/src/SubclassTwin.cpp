@@ -5839,11 +5839,11 @@ public:
 
 constexpr uint32 SpellVault = 500085;
 constexpr uint8 ClassWitchHunter = 15;
-constexpr uint32 KitTwinHandspring = 3455900;
-constexpr uint32 KitTwinBackHandspring = 3455901;
-constexpr float TwinVaultBoost = 1.5f;
-constexpr float BrotherVaultsBeside = 1.5f;
-constexpr Milliseconds TwinVaultSettles = Milliseconds(50);
+constexpr uint32 KitTwinSpringboard = 3455902;
+constexpr uint32 KitTwinBackSpringboard = 3455903;
+constexpr uint32 KitBrotherBraces = 3455904;
+constexpr float BrotherBracesShort = 1.5f;
+constexpr float BrotherBracedIn = 0.15f;
 
 bool TwinsVaultTogether(Player const* player)
 {
@@ -5851,39 +5851,39 @@ bool TwinsVaultTogether(Player const* player)
         (player->getClass() == ClassWitchHunter || SubclassChoiceOf(player).SubClass == ClassWitchHunter);
 }
 
-void BrotherBoostsVault(Player* player)
+void BrotherOffersHisBack(Player* player)
 {
-    ObjectGuid const guid = player->GetGUID();
-    Position const start = player->GetPosition();
-    bool const backward = player->HasUnitMovementFlag(MOVEMENTFLAG_BACKWARD);
-    player->m_Events.AddEventAtOffset([guid, start, backward]()
-    {
-        Player* player = ObjectAccessor::FindPlayer(guid);
-        if (!player || player->movespline->Finalized())
-            return;
-        G3D::Vector3 const end = player->movespline->FinalDestination();
-        float const dx = end.x - start.GetPositionX();
-        float const dy = end.y - start.GetPositionY();
-        float const distance = std::sqrt(dx * dx + dy * dy);
-        if (distance < 1.0f)
-            return;
-        float const heading = std::atan2(dy, dx);
-        Position boosted = start;
-        player->MovePositionToFirstCollision(boosted, distance * TwinVaultBoost, heading - player->GetOrientation());
-        float const speed = 12.0f * player->GetSpeed(MOVE_RUN);
-        sScriptMgr->AnticheatSetUnderACKmount(player);
-        player->GetMotionMaster()->MoveCharge(boosted.GetPositionX(), boosted.GetPositionY(), boosted.GetPositionZ(),
-            speed);
-        Creature* twin = BrotherFree(player);
-        if (!twin)
-            return;
-        float const side = heading + float(M_PI) / 2.0f;
-        twin->GetMotionMaster()->MoveCharge(boosted.GetPositionX() + std::cos(side) * BrotherVaultsBeside,
-            boosted.GetPositionY() + std::sin(side) * BrotherVaultsBeside, boosted.GetPositionZ(), speed);
-        twin->SendPlaySpellVisual(backward ? KitTwinBackHandspring : KitTwinHandspring);
-        LOG_INFO("module", "mod-subclass: {}'s brother boosts his Vault and vaults along", player->GetName());
-    }, TwinVaultSettles);
+    Creature* twin = BrotherFree(player);
+    if (!twin || player->movespline->Finalized())
+        return;
+    G3D::Vector3 const end = player->movespline->FinalDestination();
+    float const dx = end.x - player->GetPositionX();
+    float const dy = end.y - player->GetPositionY();
+    if (std::sqrt(dx * dx + dy * dy) <= BrotherBracesShort)
+        return;
+    float const heading = std::atan2(dy, dx);
+    Position const back(end.x - std::cos(heading) * BrotherBracesShort, end.y - std::sin(heading) * BrotherBracesShort,
+        end.z);
+    float const speed = std::max(twin->GetExactDist2d(&back) / BrotherBracedIn, twin->GetSpeed(MOVE_RUN));
+    twin->GetMotionMaster()->MoveCharge(back.GetPositionX(), back.GetPositionY(), back.GetPositionZ(), speed);
+    twin->SendPlaySpellVisual(KitBrotherBraces);
+    bool const backward = player->HasUnitMovementFlag(MOVEMENTFLAG_BACKWARD) &&
+        !player->HasUnitMovementFlag(MOVEMENTFLAG_FORWARD);
+    player->SendPlaySpellVisual(backward ? KitTwinBackSpringboard : KitTwinSpringboard);
 }
+
+class mod_subclass_twin_vault : public AllSpellScript
+{
+public:
+    mod_subclass_twin_vault() : AllSpellScript("mod_subclass_twin_vault", { ALLSPELLHOOK_ON_CAST }) { }
+
+    void OnSpellCast(Spell* /*spell*/, Unit* caster, SpellInfo const* spellInfo, bool /*skipCheck*/) override
+    {
+        Player* player = caster->ToPlayer();
+        if (spellInfo->Id == SpellVault && player && TwinsVaultTogether(player))
+            BrotherOffersHisBack(player);
+    }
+};
 
 class mod_subclass_twin_shots : public PlayerScript
 {
@@ -5894,8 +5894,6 @@ public:
     {
         if (spell && HasTwin(player))
             FlashFormOnBrother(player, spell->GetSpellInfo()->Id);
-        if (spell && spell->GetSpellInfo()->Id == SpellVault && TwinsVaultTogether(player))
-            BrotherBoostsVault(player);
         if (!spell || !HasSecondHead(player))
             return;
         SpellInfo const* info = spell->GetSpellInfo();
@@ -5984,6 +5982,7 @@ void AddSC_mod_subclass_twin()
     new mod_subclass_hand_me_downs();
     new mod_subclass_twin_shots();
     new mod_subclass_other_head_cast_start();
+    new mod_subclass_twin_vault();
     RegisterSpellScript(spell_subclass_second_self);
     RegisterSpellScript(spell_subclass_brother_moves);
     RegisterSpellScript(spell_subclass_easy);

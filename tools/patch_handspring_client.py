@@ -674,10 +674,13 @@ def relink(model, added):
 def add_handsprings(data, style=HANDSPRING_STYLE, skin=None, move=None, geosets=BODY_GEOSETS):
     move = move or Handspring
     model = Model(data, body_vertices(skin, geosets) if skin else None)
-    taken = [animation for animation in (HANDSPRING, BACK_HANDSPRING) if animation in model.sequences]
+    return add_moves(model, [move(model, HANDSPRING, False, style), move(model, BACK_HANDSPRING, True, style)])
+
+
+def add_moves(model, moves):
+    taken = [move.animation for move in moves if move.animation in model.sequences]
     if taken:
-        raise ValueError(f"model already has handspring sequences {taken}")
-    moves = [move(model, HANDSPRING, False, style), move(model, BACK_HANDSPRING, True, style)]
+        raise ValueError(f"model already has sequences {taken}")
     entries = {}
     for bone in range(model.bone_count):
         for track in (TRANSLATION, ROTATION, SCALE):

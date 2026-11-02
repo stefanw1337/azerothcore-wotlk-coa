@@ -15,6 +15,16 @@ BOUNCE_START, BOUNCE_END = 0.46, 0.8
 SIT_DOWN, STAND_UP_START, STAND_UP_END = 0.36, 0.48, 0.7
 LEAP_HEIGHT, BOUNCE_HEIGHT = 0.55, 0.4
 SEAT_LEAN = -0.35
+TWIN_SPRINGBOARD, TWIN_BACK_SPRINGBOARD, TWIN_BRACE = 1796, 1797, 1798
+TWIN_ANIMATIONS = {TWIN_SPRINGBOARD: ("TwinSpringboard", h.JUMP, h.JUMP_START),
+                   TWIN_BACK_SPRINGBOARD: ("TwinBackSpringboard", h.JUMP, h.JUMP_START),
+                   TWIN_BRACE: ("TwinBrace", h.STAND, h.STAND)}
+TWIN_KITS = {3455902: TWIN_SPRINGBOARD, 3455903: TWIN_BACK_SPRINGBOARD, 3455904: TWIN_BRACE}
+DASH_MS, BRACE_MS = 180, 800
+OVER_DISTANCE, BACK_SHARE = 2.0, 1.08
+BEND_START, BENT, STRAIGHTEN_START, STRAIGHT = 0.03, 0.22, 0.55, 0.85
+WAIST_BEND, HEAD_UP = 1.45, -0.6
+HANDS_ON_KNEES = (-0.6, 0.0, -1.0)
 
 
 def bump(share, start, end):
@@ -54,6 +64,78 @@ class Bounce(h.Handspring):
         return self.hips * (leap + bounce)
 
 
+class Springboard(h.Handspring):
+    def __init__(self, model, animation, backward, style):
+        super().__init__(model, animation, backward, style)
+        self.direction = -1.0 if backward else 1.0
+        self.back = BACK_SHARE * model.pivots[self.root][2]
+        self.dash = DASH_MS / self.duration
+
+    def over(self, share):
+        _, phase = self.phase(share)
+        return min(h.window(phase, h.PLANT_RISE, h.PLANT_FULL), 1.0 - h.window(phase, h.PLANT_GONE, 1.0))
+
+    def lift(self, share):
+        return super().lift(share) + self.back * self.over(share)
+
+    def behind(self, share):
+        caught_up = h.window(share, self.dash, self.style.turn_end)
+        return -self.direction * OVER_DISTANCE * (h.window(share, 0.0, self.dash) - caught_up)
+
+    def root_translation(self, share):
+        x, y, z = super().root_translation(share)
+        return x + self.behind(share), y, z
+
+
+class Brace(h.Handspring):
+    def __init__(self, model, animation):
+        super().__init__(model, animation, False, h.Style(BRACE_MS, (False,)))
+        self.head = self.spine_bones[0] if self.spine_bones else -1
+        self.hips = {bone for bone in self.leg_bones if self.model.parents[bone] == self.root}
+
+    def bending(self, share):
+        return min(h.window(share, BEND_START, BENT), 1.0 - h.window(share, STRAIGHTEN_START, STRAIGHT))
+
+    def source(self, share):
+        return self.stand, 0
+
+    def progress(self, share):
+        return 0.0
+
+    def hop(self, share):
+        return 0.0
+
+    def bend(self, share):
+        return h.about(h.FLIP_AXIS, WAIST_BEND * self.bending(share))
+
+    def root_rotation(self, share):
+        return h.product(self.bend(share), self.posed(self.root, h.ROTATION, share))
+
+    def posed(self, bone, track, share):
+        value = super().posed(bone, track, share)
+        if track != h.ROTATION:
+            return value
+        if bone == self.head:
+            return h.product(h.about(h.FLIP_AXIS, HEAD_UP * self.bending(share)), value)
+        if bone in self.hips:
+            hips = super().posed(self.root, h.ROTATION, share)
+            upright = h.product(h.conjugate(hips), h.product(h.conjugate(self.bend(share)), hips))
+            return h.product(upright, value)
+        return value
+
+    def arm_rotations(self, share):
+        weight = self.bending(share)
+        overrides = {}
+        for chain in self.arms:
+            _, bind_direction = self.arm_reach(chain)
+            above = self.world_rotation(self.model.parents[chain[0]], share, {})
+            standing = h.product(above, self.posed(chain[0], h.ROTATION, share))
+            held = h.rotate(standing, bind_direction)
+            direction = h.unit(tuple(a + (b - a) * weight for a, b in zip(held, h.unit(HANDS_ON_KNEES))))
+            overrides[chain[0]] = h.product(h.conjugate(above), h.product(h.turning(held, direction), standing))
+        return overrides
+
+
 RACES = {
     "twoheadedogre": (OGRE_BOUNCE, Bounce, OGRE_BODY),
     "thinhumanmale": (THIN_TWINS, h.Handspring, THIN_HUMAN_BODY),
@@ -67,20 +149,62 @@ def vault_of(name):
     return found
 
 
-def add_vault(model, skin, name):
+def add_vault(data, skin, name):
     style, move, body = vault_of(name)
-    return h.add_handsprings(model, style, skin, move, body)
+    if move is not h.Handspring:
+        return h.add_handsprings(data, style, skin, move, body)
+    model = h.Model(data, h.body_vertices(skin, body) if skin else None)
+    return h.add_moves(model, [h.Handspring(model, h.HANDSPRING, False, style),
+                               h.Handspring(model, h.BACK_HANDSPRING, True, style),
+                               Springboard(model, TWIN_SPRINGBOARD, False, style),
+                               Springboard(model, TWIN_BACK_SPRINGBOARD, True, style),
+                               Brace(model, TWIN_BRACE)])
+
+
+def add_twin_animation_rows(dbc):
+    def made(by_id, texts):
+        added = []
+        for animation, (name, template, fallback) in sorted(TWIN_ANIMATIONS.items()):
+            row = list(by_id[template])
+            row[0], row[1] = animation, len(texts)
+            texts += name.encode() + b"\0"
+            row[h.ANIMATION_WEAPON_FLAGS] = h.WEAPONS_SHEATHED
+            row[5], row[6] = fallback, animation
+            added.append(row)
+        return added
+
+    return h.appended_rows(dbc, h.ANIMATION_FIELDS, made)
+
+
+def add_twin_kits(dbc):
+    def made(by_id, _):
+        added = []
+        for kit, animation in TWIN_KITS.items():
+            row = list(by_id[h.VAULT_DUST_KIT])
+            row[0], row[h.KIT_ANIMATION] = kit, animation
+            added.append(row)
+        return added
+
+    return h.appended_rows(dbc, h.KIT_FIELDS, made)
+
+
+TABLES = {"animationdata": add_twin_animation_rows, "spellvisualkit": add_twin_kits}
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Add the subclass races' Vault to their models")
+    parser = argparse.ArgumentParser(
+        description="Add the subclass races' Vault to their models, AnimationData.dbc and SpellVisualKit.dbc")
     parser.add_argument("source", type=Path)
     parser.add_argument("output", type=Path)
     args = parser.parse_args()
     if args.source.resolve() == args.output.resolve():
         parser.error("Use a separate output; do not overwrite the source model")
-    skin = args.source.with_name(args.source.stem + "00.skin")
-    result = add_vault(args.source.read_bytes(), skin.read_bytes() if skin.exists() else None, args.source.stem)
+    table = TABLES.get(args.source.stem.lower())
+    if table:
+        result = table(args.source.read_bytes())
+    else:
+        skin = args.source.with_name(args.source.stem + "00.skin")
+        result = add_vault(args.source.read_bytes(), skin.read_bytes() if skin.exists() else None, args.source.stem)
     with args.output.open("xb") as output:
         output.write(result)
 
