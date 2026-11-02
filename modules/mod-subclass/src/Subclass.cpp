@@ -14,6 +14,7 @@
 #include "DBCStores.h"
 #include "AscensionSpecialization.h"
 #include "AscensionTaughtAbilityData.h"
+#include "AscensionTalentReplacementData.h"
 #include "Chat.h"
 #include "ClientDBC.h"
 #include "CoASpellbook.h"
@@ -1454,6 +1455,74 @@ uint32 SyncBorrowedTaughtAbilities(Player* player, uint8 subClass, Subclass::Cho
     return changed;
 }
 
+uint32 BorrowedReplacementFor(Player const* player, Subclass::Choice const& choice,
+    AscensionCompatData::TalentReplacement const& entry)
+{
+    if (entry.RequiresAura || !player->HasSpell(entry.ParentSpellId) ||
+        (entry.SpecId && entry.SpecId != choice.SubSpec && entry.SpecId != choice.SecondSpec))
+        return 0;
+    uint32 replacement = 0;
+    for (AscensionCompatData::ReplacementRank const& rank : entry.Ranks)
+        if (rank.SpellId && rank.RequiredLevel <= player->GetLevel() && sSpellMgr->GetSpellInfo(rank.SpellId))
+            replacement = rank.SpellId;
+    return replacement;
+}
+
+bool IsReplacementParent(uint32 spellId)
+{
+    return std::any_of(AscensionCompatData::TalentReplacements.begin(),
+        AscensionCompatData::TalentReplacements.end(),
+        [spellId](AscensionCompatData::TalentReplacement const& entry) { return entry.ParentSpellId == spellId; });
+}
+
+uint32 SyncBorrowedReplacements(Player* player, uint8 subClass, Subclass::Choice const& choice)
+{
+    uint32 changed = 0;
+    for (AscensionCompatData::TalentReplacement const& entry : AscensionCompatData::TalentReplacements)
+    {
+        if (entry.ClassId != subClass || entry.ClassId == player->getClass())
+            continue;
+        uint32 const replacement = BorrowedReplacementFor(player, choice, entry);
+        for (AscensionCompatData::ReplacementRank const& rank : entry.Ranks)
+            if (rank.SpellId && rank.SpellId != replacement && player->HasSpell(rank.SpellId) &&
+                !OwnClassGrants(player, rank.SpellId))
+            {
+                player->removeSpell(rank.SpellId, SPEC_MASK_ALL, false);
+                ++changed;
+            }
+        if (replacement && !player->HasSpell(replacement))
+        {
+            player->learnSpellWithoutAnnouncement(replacement);
+            ++changed;
+        }
+        std::vector<uint32> originals;
+        for (auto const& [spellId, known] : player->GetSpellMap())
+            if (known->State != PLAYERSPELL_REMOVED &&
+                sSpellMgr->GetFirstSpellInChain(spellId) == entry.OriginalSpellId)
+                originals.push_back(spellId);
+        for (uint32 original : originals)
+            if (player->GetTemporarySpellReplacement(original) != replacement)
+            {
+                player->SetTemporarySpellReplacement(original, 0);
+                if (replacement)
+                    player->SetTemporarySpellReplacement(original, replacement);
+                ++changed;
+            }
+    }
+    return changed;
+}
+
+uint32 BorrowedReplacementOf(Player const* player, uint32 spellId)
+{
+    Subclass::Choice const choice = ChoiceOf(player);
+    for (AscensionCompatData::TalentReplacement const& entry : AscensionCompatData::TalentReplacements)
+        if (entry.ClassId == choice.SubClass && entry.ClassId != player->getClass() &&
+            sSpellMgr->GetFirstSpellInChain(spellId) == entry.OriginalSpellId)
+            if (uint32 const replacement = BorrowedReplacementFor(player, choice, entry))
+                return replacement;
+    return 0;
+}
+
 uint32 ForgetBorrowedBaseSpells(Player* player, uint8 subClass)
 {
     if (IsStandardCatalogClass(subClass))
@@ -1463,6 +1532,7 @@ uint32 ForgetBorrowedBaseSpells(Player* player, uint8 subClass)
     }
     ForgetCoAWeapons(player, subClass);
     uint32 removed = SyncBorrowedTaughtAbilities(player, subClass, {});
+    removed += SyncBorrowedReplacements(player, subClass, {});
     for (AscensionCompatData::ClassSpell const& spell : AscensionCompatData::ClassSpells)
         if (spell.ClassId == subClass && player->HasSpell(spell.SpellId) && !OwnClassGrants(player, spell.SpellId))
         {
@@ -1802,7 +1872,8 @@ uint32 SyncBorrowedBaseSpells(Player* player)
             player->learnSpell(spell.SpellId, false);
             ++learned;
         }
-    return learned + SyncBorrowedTaughtAbilities(player, subClass, ChoiceOf(player));
+    learned += SyncBorrowedTaughtAbilities(player, subClass, ChoiceOf(player));
+    return learned + SyncBorrowedReplacements(player, subClass, ChoiceOf(player));
 }
 
 uint32 ApplyChoice(Player* player, Subclass::Choice const& wanted)
@@ -2653,6 +2724,9 @@ std::vector<uint32> KnownBorrowedActives(Player const* player)
         return actives;
     auto consider = [&](uint32 spellId)
     {
+        if (uint32 const replacement = BorrowedReplacementOf(player, spellId); replacement &&
+            player->HasSpell(replacement))
+            spellId = replacement;
         SpellInfo const* info = spellId ? sSpellMgr->GetSpellInfo(spellId) : nullptr;
         if (!info || info->IsPassive() || !player->HasSpell(spellId) || OwnClassGrants(player, spellId) ||
             IsBasicAttack(info))
@@ -2781,8 +2855,15 @@ public:
         PLAYERHOOK_ON_CREATE, PLAYERHOOK_ON_DELETE, PLAYERHOOK_ON_LEVEL_CHANGED, PLAYERHOOK_ON_GOSSIP_SELECT,
         PLAYERHOOK_ON_QUEST_ABANDON, PLAYERHOOK_CAN_PLAYER_USE_PRIVATE_CHAT, PLAYERHOOK_ON_PLAYER_IS_CLASS,
         PLAYERHOOK_ON_PLAYER_HAS_ACTIVE_POWER_TYPE, PLAYERHOOK_ON_LEARN_SPELL, PLAYERHOOK_CAN_EQUIP_ITEM,
-        PLAYERHOOK_ON_LOAD_FOREIGN_SKILL })
+        PLAYERHOOK_ON_LOAD_FOREIGN_SKILL, PLAYERHOOK_ON_FORGOT_SPELL })
     {
+    }
+
+    void OnPlayerForgotSpell(Player* player, uint32 spellId) override
+    {
+        if (IsReplacementParent(spellId))
+            if (Subclass::Choice const choice = ChoiceOf(player); choice.Complete())
+                SyncBorrowedReplacements(player, choice.SubClass, choice);
     }
 
     void OnPlayerLoadForeignSkill(Player const* player, uint16 skill, SkillRaceClassInfoEntry const*& entry) override
@@ -2805,6 +2886,9 @@ public:
         if (IsTaughtAbilityParent(spellId))
             if (Subclass::Choice const choice = ChoiceOf(player); choice.Complete())
                 SyncBorrowedTaughtAbilities(player, choice.SubClass, choice);
+        if (IsReplacementParent(spellId))
+            if (Subclass::Choice const choice = ChoiceOf(player); choice.Complete())
+                SyncBorrowedReplacements(player, choice.SubClass, choice);
         if (player->IsInWorld() && StanceLike(sSpellMgr->GetSpellInfo(spellId)))
             SendAddon(player, BorrowedStances(player));
     }

@@ -64,6 +64,7 @@ bool MainHalfCasts(Player const* player);
 bool BrotherOut(Player const* player);
 void RefreshSubclassResources(Player* player);
 bool IsBorrowedSpell(Player const* player, uint32 spellId);
+uint32 BorrowedReplacementOf(Player const* player, uint32 spellId);
 void SyncBorrowedMana(Player* player, uint32 milliseconds);
 Powers PowerBothHalvesUse(Player const* player);
 void RefreshSubclassState(Player* player);
@@ -4839,6 +4840,9 @@ bool CancelsOnSecondPress(Player* player, SpellInfo const* info)
 
 void PressForOtherHalf(Player* player, uint32 spellId)
 {
+    if (uint32 const replacement = BorrowedReplacementOf(player, spellId); replacement &&
+        player->HasSpell(replacement))
+        spellId = replacement;
     SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
     if (!info || !player->IsAlive() || !player->HasSpell(spellId) || !IsBorrowedSpell(player, spellId) ||
         TakeHalfForm(player, info) || CancelsOnSecondPress(player, info))
