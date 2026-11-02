@@ -105,12 +105,27 @@ def listed(files):
 
 def write_archive(path, entries):
     staged = path.with_name(path.name + ".building")
-    staged.write_bytes(written(entries))
-    verified(staged, entries)
-    staged.replace(path)
+    try:
+        staged.write_bytes(written(entries))
+        verified(staged, entries)
+        staged.replace(path)
+    finally:
+        staged.unlink(missing_ok=True)
+
+
+def require_writable(paths):
+    for path in paths:
+        if not path.exists():
+            continue
+        try:
+            with path.open("r+b"):
+                pass
+        except PermissionError:
+            raise SystemExit(f"{path.name} is in use; close the game and MPQ-DupeChecker, then run this again")
 
 
 def build(data, backup_folder):
+    require_writable([data / MERGED, data / HD_PATCH])
     archives = ordered_archives(data)
     client = Client(archives)
     standard, standard_sources = vaulted_models(client, standard_archives(archives), "standard")
@@ -127,9 +142,11 @@ def build(data, backup_folder):
         if not backup.exists():
             shutil.copy2(merged, backup)
         inputs.insert(0, (merged, False))
-    entries = merge(inputs, set())
-    write_archive(merged, entries)
-    addition.unlink()
+    try:
+        entries = merge(inputs, set())
+        write_archive(merged, entries)
+    finally:
+        addition.unlink(missing_ok=True)
     hd_path = data / HD_PATCH
     if hd:
         write_archive(hd_path, listed(hd))
