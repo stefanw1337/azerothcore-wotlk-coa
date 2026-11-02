@@ -5850,13 +5850,22 @@ constexpr uint32 BrotherBracesFor = 900;
 
 bool TwinsVaultTogether(Player const* player)
 {
-    return HasTwin(player) && IsSplit(player) &&
-        (player->getClass() == ClassWitchHunter || SubclassChoiceOf(player).SubClass == ClassWitchHunter);
+    return player->getClass() == ClassWitchHunter || SubclassChoiceOf(player).SubClass == ClassWitchHunter;
+}
+
+Creature* BrotherOffTheBack(Player* player)
+{
+    Creature* twin = TwinOf(player);
+    if (!twin || RidesTheBrother(player))
+        return nullptr;
+    if (twin->GetVehicle() == player->GetVehicleKit() && twin->GetVehicle())
+        SetCarry(player, twin, Carry::Beside);
+    return BrotherFree(player);
 }
 
 void BrotherOffersHisBack(Player* player)
 {
-    Creature* twin = BrotherFree(player);
+    Creature* twin = BrotherOffTheBack(player);
     if (!twin || player->movespline->Finalized())
     {
         LOG_INFO("module", "mod-subclass: {}'s brother can't offer his back (brother {}, vault {})", player->GetName(),
@@ -5874,7 +5883,11 @@ void BrotherOffersHisBack(Player* player)
     float const speed = std::max(twin->GetExactDist2d(&back) / BrotherBracedIn, twin->GetSpeed(MOVE_RUN));
     {
         std::lock_guard<std::mutex> lock(twinMutex);
-        motions[player->GetGUID().GetCounter()].Bracing = BrotherBracesFor;
+        Motion& motion = motions[player->GetGUID().GetCounter()];
+        motion.Bracing = BrotherBracesFor;
+        motion.Afoot = std::max(motion.Afoot, AfootStride + BrotherBracesFor);
+        motion.Moving = 0;
+        motion.Mode = Carry::Beside;
     }
     twin->GetMotionMaster()->Clear();
     twin->GetMotionMaster()->MoveCharge(back.GetPositionX(), back.GetPositionY(), back.GetPositionZ(), speed);
@@ -5898,8 +5911,8 @@ public:
         if (TwinsVaultTogether(player))
             BrotherOffersHisBack(player);
         else
-            LOG_INFO("module", "mod-subclass: {} vaults without his brother (split {}, class {}, subclass {})",
-                player->GetName(), IsSplit(player), player->getClass(), SubclassChoiceOf(player).SubClass);
+            LOG_INFO("module", "mod-subclass: {} vaults without his brother (class {}, subclass {})",
+                player->GetName(), player->getClass(), SubclassChoiceOf(player).SubClass);
     }
 };
 
