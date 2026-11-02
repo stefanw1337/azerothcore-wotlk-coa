@@ -650,11 +650,35 @@ uint32 ModellessFormShape(uint32 form)
     return form == CursedFormId ? CreatureShape(CursedFormCreature) : 0;
 }
 
+uint32 TransformShape(uint32 spellId)
+{
+    if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId))
+        for (SpellEffectInfo const& effect : info->GetEffects())
+            if (effect.IsAura(SPELL_AURA_TRANSFORM))
+                if (uint32 model = CreatureShape(uint32(effect.MiscValue)))
+                    return model;
+    return 0;
+}
+
+uint32 SpellShape(uint32 spellId)
+{
+    if (uint32 model = TransformShape(spellId))
+        return model;
+    if (std::vector<int32> const* linked = sSpellMgr->GetSpellLinked(int32(spellId) + SPELL_LINK_AURA))
+        for (int32 companion : *linked)
+            if (companion > 0)
+                if (uint32 model = TransformShape(uint32(companion)))
+                    return model;
+    return 0;
+}
+
 uint32 BorrowedShape(Player* player)
 {
     if (HalfForm const half = HalfFormOf(player); half.Form)
     {
         if (uint32 model = GetAscensionIncarnationDisplay(player, half.Form, half.Spell))
+            return model;
+        if (uint32 model = SpellShape(half.Spell))
             return model;
         if (uint32 model = FormModelFor(player, ShapeshiftForm(half.Form)))
             return model;
