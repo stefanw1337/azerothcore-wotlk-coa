@@ -71,9 +71,10 @@ def skin_name(model):
     return model[:-len(".m2")] + "00.skin"
 
 
-def vaulted_models(client, among):
+def vaulted_models(client, among, kind):
     models, sources = {}, {}
-    for name in model_names():
+    for number, name in enumerate(model_names(), 1):
+        print(f"{kind} {number}/{len(model_names())}: {name}", flush=True)
         data, source = client.newest(name, among)
         if data is None:
             continue
@@ -112,10 +113,11 @@ def write_archive(path, entries):
 def build(data, backup_folder):
     archives = ordered_archives(data)
     client = Client(archives)
-    standard, standard_sources = vaulted_models(client, standard_archives(archives))
-    hd, hd_sources = vaulted_models(client, original_archives(archives))
+    standard, standard_sources = vaulted_models(client, standard_archives(archives), "standard")
+    hd, hd_sources = vaulted_models(client, original_archives(archives), "HD")
     hd = {name: model for name, model in hd.items() if hd_sources[name] != standard_sources.get(name)}
     additions = {**standard, **vault_tables(client)}
+    print(f"writing {MERGED} and {HD_PATCH}", flush=True)
     merged = data / MERGED
     addition = data / (MERGED + ".vault")
     write_archive(addition, listed(additions))
