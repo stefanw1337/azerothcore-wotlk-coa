@@ -314,7 +314,10 @@ async function show(i,el){document.querySelectorAll('.row.on').forEach(x=>x.clas
 const r=rows[i];const n=r.copies.length;$('detail').innerHTML=`<h2>${esc(r.name)}</h2>Compare <select id=a>${r.copies.map
 ((c,j)=>`<option ${j==n-2?'selected':''}>${c.archive}</option>`).join('')}</select> with <select id=b>${r.copies.map((c,j)=>
 `<option ${j==n-1?'selected':''}>${c.archive}</option>`).join('')}</select> <button onclick="compare('${esc(r.name).replace(/\\\\/g,
-'\\\\\\\\')}')">Compare</button><div id=out></div>`;compare(r.name)}
+'\\\\\\\\')}')">Compare</button> <button onclick="saveBoth(rows[${i}].name)">Save both</button><div id=out></div>`;
+compare(r.name)}
+async function saveBoth(name){const r=await (await fetch('/api/save?'+new URLSearchParams({name,a:$('a').value,b:$('b').value}
+))).json();$('status').textContent='Saved to '+r.join(' and ')}
 async function compare(name){$('out').textContent='Reading...';const d=await (await fetch('/api/diff?'+new URLSearchParams(
 {name,a:$('a').value,b:$('b').value}))).json();let h=`<p>${esc($('a').value)}: ${d.size_a} bytes, md5 ${d.md5_a}<br>${esc(
 $('b').value)}: ${d.size_b} bytes, md5 ${d.md5_b}</p>`;if(d.kind=='same')h+='<p class=win>Identical.</p>';if(d.kind=='text')
@@ -339,6 +342,17 @@ rows added: ${Object.entries(x.added).map(e=>esc(e[0])+' '+e[1]).join(', ')||'no
 and wins: ${x.kept_from_winner}${x.skipped.length?'; skipped '+esc(x.skipped.join(', ')):''}`)+'</p>').join('');
 $('status').textContent='Merged.'}
 poll();</script></body></html>""".replace("%MERGED%", MERGED_NAME)
+
+
+EXPORT_FOLDER = Path(__file__).resolve().parent / "export"
+
+
+def save_copy(catalog, name, label):
+    data = catalog.copy(name, label)
+    target = EXPORT_FOLDER / Path(label).stem / name.replace("\\", "/")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data or b"")
+    return str(target)
 
 
 def handler_for(catalog):
@@ -367,6 +381,9 @@ def handler_for(catalog):
             if url.path == "/api/dupes":
                 return self.reply(json.dumps(catalog.duplicates(query.get("q", ""), query.get("custom") == "1",
                                                                 query.get("differ") == "1")))
+            if url.path == "/api/save":
+                name = query["name"]
+                return self.reply(json.dumps([save_copy(catalog, name, query[side]) for side in ("a", "b")]))
             if url.path == "/api/diff":
                 name = query["name"]
                 return self.reply(json.dumps(difference(name, catalog.copy(name, query["a"]),
