@@ -56,8 +56,10 @@ v2.2.1) builds as before. Nothing depends on Corfirean's bot module or on Conten
   (cape, collar behind the shoulders, helmet seat), `tools/mkhathair.py` (geoset 1, a short crop on the scalp), then
   `tools/embedskin.py` into `EsteriaAppearanceGeometry.bin`.
 - Thin Twins hair: their hairstyles are geosets 2, 3 and 4 (short, medium, long), then bald (geoset 5, which the
-  model leaves empty). Geoset 1 is the short crop the client shows under hats that hide hair: it forces the hair group
-  to geoset 1 (`0x4EF1DD`) by a race bit that 96 shares with 32, so that cannot be switched off for 96 alone.
+  model leaves empty). A hat that hides hair forces the hair group to geoset 1 (`0x4EF1DD`) by a race bit that 96
+  shares with 32, so geoset 1 is left empty and `tools/mkhatcuts.py` puts the part of each hairstyle below the hat
+  line in facial geosets 302-304. While a hat is shown the server sets the facial style to beard + 7 * (hairstyle + 1)
+  (rows 7-27 of `CharacterFacialHairStyles.dbc`, client `patch-ZZZZV.MPQ`), for the player and the brother.
 - The Ogre's capes are reshaped by `tools/mkogrecape.py` so they drape over her hump and stay clear of her body while
   she stands, shuffles or readies a weapon; `--check` reports how far her body reaches through them per animation.
 
@@ -103,7 +105,7 @@ feature to the standard classes.
 
 ## Known issues
 
-- Under hats that hide hair the Thin Twins show the short crop whatever their hairstyle (see Thin Twins hair).
+- The barber and the creator list the Thin Twins' hat-cut beard rows (7-27) as extra beards.
 - When Auto Shot starts, the Ogre's gun jumps to the other hand for a moment.
 
 Seen in your code and data while merging:

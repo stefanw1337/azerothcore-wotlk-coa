@@ -424,3 +424,14 @@ TEST(Subclass, OnlyATimedFormThatIsNoTankFormIsLeftWhenNothingInItIsReady)
     EXPECT_FALSE(LeavesSpentForm(true, true, false));
     EXPECT_FALSE(LeavesSpentForm(false, false, false));
 }
+
+TEST(Subclass, UnderAHatTheTwinsWearACutOfTheirOwnHairstyleWithTheirBeard)
+{
+    EXPECT_EQ(FacialUnderHat(3, 1, false), 3);
+    EXPECT_EQ(FacialUnderHat(3, 0, true), 3 + ThinTwinsBeards);
+    EXPECT_EQ(FacialUnderHat(3, 1, true), 3 + 2 * ThinTwinsBeards);
+    EXPECT_EQ(FacialUnderHat(3, 2, true), 3 + 3 * ThinTwinsBeards);
+    EXPECT_EQ(FacialUnderHat(3, 3, true), 3);
+    EXPECT_EQ(FacialUnderHat(3 + 2 * ThinTwinsBeards, 2, false), 3);
+    EXPECT_EQ(FacialUnderHat(6 + ThinTwinsBeards, 2, true), 6 + 3 * ThinTwinsBeards);
+}

@@ -126,6 +126,16 @@ inline bool HalfFormExpired(std::uint32_t until, std::uint32_t now)
     return until && now >= until;
 }
 
+constexpr std::uint8_t ThinTwinsBeards = 7;
+constexpr std::uint8_t ThinTwinsCutHairstyles = 3;
+
+inline std::uint8_t FacialUnderHat(std::uint8_t facial, std::uint8_t hairStyle, bool hat)
+{
+    std::uint8_t const beard = facial % ThinTwinsBeards;
+    std::uint8_t const cut = hat && hairStyle < ThinTwinsCutHairstyles ? hairStyle + 1 : 0;
+    return beard + ThinTwinsBeards * cut;
+}
+
 constexpr std::uint8_t ThinHumanRace = 96;
 constexpr std::uint8_t TwoHeadedOgreRace = 85;
 

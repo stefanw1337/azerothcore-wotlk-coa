@@ -726,6 +726,8 @@ Look LookOf(Player const* player, Wardrobe const& wardrobe)
         player->GetByteValue(PLAYER_BYTES_2, 0) };
     for (std::size_t slot = 0; slot < LookSlots; ++slot)
         look.Displays[slot] = DisplayOfItem(wardrobe.Items[slot]);
+    if (look.Race == Subclass::ThinHumanRace)
+        look.Features[4] = Subclass::FacialUnderHat(look.Features[4], look.Features[2], look.Displays[0] != 0);
     return look;
 }
 
@@ -3200,6 +3202,19 @@ void HideCoveredParts(Player* player)
         player->SetByteValue(PLAYER_BYTES_2, PLAYER_BYTES_2_OFFSET_FACIAL_STYLE, hidden);
 }
 
+void TrimHairUnderHat(Player* player)
+{
+    if (player->getRace() != Subclass::ThinHumanRace || player->GetSession()->PlayerLogout())
+        return;
+    bool const hat = !player->HasPlayerFlag(PLAYER_FLAGS_HIDE_HELM) &&
+        player->GetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_HEAD * 2);
+    uint8 const facial = player->GetByteValue(PLAYER_BYTES_2, PLAYER_BYTES_2_OFFSET_FACIAL_STYLE);
+    uint8 const wanted = Subclass::FacialUnderHat(facial,
+        player->GetByteValue(PLAYER_BYTES, PLAYER_BYTES_OFFSET_HAIR_STYLE_ID), hat);
+    if (facial != wanted)
+        player->SetByteValue(PLAYER_BYTES_2, PLAYER_BYTES_2_OFFSET_FACIAL_STYLE, wanted);
+}
+
 void ShowCharacterSelectJaws(Player* player)
 {
     if (!HasSecondHead(player))
@@ -3475,6 +3490,7 @@ void TickSelfAura(Player* player, uint32 diff)
     SyncBorrowedMana(player, ticked);
     TickSharedPool(player, ticked);
     UpdateCyclopsHelmet(player);
+    TrimHairUnderHat(player);
     OneSipTooMany(player);
     HoldYourDrink(player);
 }
