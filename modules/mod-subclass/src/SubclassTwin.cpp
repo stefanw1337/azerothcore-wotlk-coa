@@ -190,6 +190,7 @@ struct Motion
     uint32 Afoot = 0;
     uint32 BrotherSwing = 0;
     uint32 CloseBy = 0;
+    uint32 Bracing = 0;
     float Follow = 0.0f;
     ObjectGuid Engaged;
     ObjectGuid Chasing;
@@ -1791,6 +1792,7 @@ void UpdateCarry(Player* player, uint32 diff)
         pointNow = false;
         stored.Afoot = stored.Afoot > stored.Tick ? stored.Afoot - stored.Tick : 0;
         stored.BrotherSwing = stored.BrotherSwing > stored.Tick ? stored.BrotherSwing - stored.Tick : 0;
+        stored.Bracing = stored.Bracing > stored.Tick ? stored.Bracing - stored.Tick : 0;
         stored.CloseBy = MeleesHimself(player) ? StaysCloseAfterMelee :
             stored.CloseBy > stored.Tick ? stored.CloseBy - stored.Tick : 0;
         if (!player->IsInCombat())
@@ -1831,7 +1833,7 @@ void UpdateCarry(Player* player, uint32 diff)
     LeadSummons(player, twin, SummonLeader(player, twin));
     HandWeaponsToBrother(player);
     UpdateShieldBearer(player, twin);
-    if (twin->HasUnitFlag(UNIT_FLAG_STUNNED))
+    if (twin->HasUnitFlag(UNIT_FLAG_STUNNED) || motion.Bracing)
         return;
     Unit* foe = BrotherFoe(player, twin, motion.Engaged);
     MirrorStance(player, twin, foe != nullptr);
@@ -5844,6 +5846,7 @@ constexpr uint32 KitTwinBackSpringboard = 3455903;
 constexpr uint32 KitBrotherBraces = 3455904;
 constexpr float BrotherBracesShort = 1.5f;
 constexpr float BrotherBracedIn = 0.15f;
+constexpr uint32 BrotherBracesFor = 900;
 
 bool TwinsVaultTogether(Player const* player)
 {
@@ -5855,7 +5858,11 @@ void BrotherOffersHisBack(Player* player)
 {
     Creature* twin = BrotherFree(player);
     if (!twin || player->movespline->Finalized())
+    {
+        LOG_INFO("module", "mod-subclass: {}'s brother can't offer his back (brother {}, vault {})", player->GetName(),
+            twin ? "free" : "busy or away", player->movespline->Finalized() ? "not moving" : "moving");
         return;
+    }
     G3D::Vector3 const end = player->movespline->FinalDestination();
     float const dx = end.x - player->GetPositionX();
     float const dy = end.y - player->GetPositionY();
@@ -5865,11 +5872,17 @@ void BrotherOffersHisBack(Player* player)
     Position const back(end.x - std::cos(heading) * BrotherBracesShort, end.y - std::sin(heading) * BrotherBracesShort,
         end.z);
     float const speed = std::max(twin->GetExactDist2d(&back) / BrotherBracedIn, twin->GetSpeed(MOVE_RUN));
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        motions[player->GetGUID().GetCounter()].Bracing = BrotherBracesFor;
+    }
+    twin->GetMotionMaster()->Clear();
     twin->GetMotionMaster()->MoveCharge(back.GetPositionX(), back.GetPositionY(), back.GetPositionZ(), speed);
     twin->SendPlaySpellVisual(KitBrotherBraces);
     bool const backward = player->HasUnitMovementFlag(MOVEMENTFLAG_BACKWARD) &&
         !player->HasUnitMovementFlag(MOVEMENTFLAG_FORWARD);
     player->SendPlaySpellVisual(backward ? KitTwinBackSpringboard : KitTwinSpringboard);
+    LOG_INFO("module", "mod-subclass: {}'s brother braces for his Vault", player->GetName());
 }
 
 class mod_subclass_twin_vault : public AllSpellScript
@@ -5880,8 +5893,13 @@ public:
     void OnSpellCast(Spell* /*spell*/, Unit* caster, SpellInfo const* spellInfo, bool /*skipCheck*/) override
     {
         Player* player = caster->ToPlayer();
-        if (spellInfo->Id == SpellVault && player && TwinsVaultTogether(player))
+        if (spellInfo->Id != SpellVault || !player || !HasTwin(player))
+            return;
+        if (TwinsVaultTogether(player))
             BrotherOffersHisBack(player);
+        else
+            LOG_INFO("module", "mod-subclass: {} vaults without his brother (split {}, class {}, subclass {})",
+                player->GetName(), IsSplit(player), player->getClass(), SubclassChoiceOf(player).SubClass);
     }
 };
 
