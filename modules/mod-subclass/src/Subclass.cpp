@@ -1512,17 +1512,6 @@ uint32 SyncBorrowedReplacements(Player* player, uint8 subClass, Subclass::Choice
     return changed;
 }
 
-uint32 BorrowedReplacementOf(Player const* player, uint32 spellId)
-{
-    Subclass::Choice const choice = ChoiceOf(player);
-    for (AscensionCompatData::TalentReplacement const& entry : AscensionCompatData::TalentReplacements)
-        if (entry.ClassId == choice.SubClass && entry.ClassId != player->getClass() &&
-            sSpellMgr->GetFirstSpellInChain(spellId) == entry.OriginalSpellId)
-            if (uint32 const replacement = BorrowedReplacementFor(player, choice, entry))
-                return replacement;
-    return 0;
-}
-
 uint32 ForgetBorrowedBaseSpells(Player* player, uint8 subClass)
 {
     if (IsStandardCatalogClass(subClass))
@@ -2682,6 +2671,17 @@ void SyncBorrowedMana(Player* player, uint32 milliseconds)
 }
 
 bool IsBasicAttack(SpellInfo const* info);
+
+uint32 BorrowedReplacementOf(Player const* player, uint32 spellId)
+{
+    Subclass::Choice const choice = ChoiceOf(player);
+    for (AscensionCompatData::TalentReplacement const& entry : AscensionCompatData::TalentReplacements)
+        if (entry.ClassId == choice.SubClass && entry.ClassId != player->getClass() &&
+            sSpellMgr->GetFirstSpellInChain(spellId) == entry.OriginalSpellId)
+            if (uint32 const replacement = BorrowedReplacementFor(player, choice, entry))
+                return replacement;
+    return 0;
+}
 
 bool IsBorrowedSpell(Player const* player, uint32 spellId)
 {
