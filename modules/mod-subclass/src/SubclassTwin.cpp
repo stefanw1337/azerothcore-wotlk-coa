@@ -5155,7 +5155,6 @@ bool ClosesOnAFoe(SpellInfo const* info)
         !info->IsPositive() && MovesTheBrother(info);
 }
 
-
 Use UseOf(SpellInfo const* info)
 {
     if (info->IsAutoRepeatRangedSpell())
