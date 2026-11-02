@@ -5710,6 +5710,17 @@ bool LeaveSpentHalfForm(Player* player)
     return true;
 }
 
+bool TakeReadyTimedHalfForm(Player* player)
+{
+    if (HalfFormOf(player).Spell)
+        return false;
+    for (uint32 spellId : KnownBorrowedActives(player))
+        if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId); info && IsHalfFormSpell(player, info) &&
+            info->GetMaxDuration() > 0 && !player->HasSpellCooldown(info->Id) && Affordable(player, info))
+            return TakeHalfForm(player, info);
+    return false;
+}
+
 void PlayEasy(Player* player, uint32 diff)
 {
     {
@@ -5730,7 +5741,7 @@ void PlayEasy(Player* player, uint32 diff)
     if ((!bot && !player->HasAura(easyAura)) || !InAFight(player) || !player->IsAlive() ||
         player->HasStealthAura() || !OtherHalfActs(player) || (!bot && HasTwin(player) && !BrotherOut(player)))
         return;
-    if (LeaveSpentHalfForm(player) || TakePreferredHalfForm(player))
+    if (LeaveSpentHalfForm(player) || TakePreferredHalfForm(player) || TakeReadyTimedHalfForm(player))
         return;
     auto const [spellId, target] = PickSpell(player);
     if (spellId && OrderOtherHalf(player, spellId, target, 0))
