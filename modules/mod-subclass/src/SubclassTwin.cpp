@@ -5845,7 +5845,7 @@ constexpr uint32 KitTwinSpringboard = 3455902;
 constexpr uint32 KitTwinBackSpringboard = 3455903;
 constexpr uint32 KitBrotherBraces = 3455904;
 constexpr float BrotherBracesShort = 1.5f;
-constexpr float BrotherBracedIn = 0.15f;
+constexpr float BrotherBracedIn = 0.08f;
 constexpr uint32 BrotherBracesFor = 900;
 
 bool TwinsVaultTogether(Player const* player)
@@ -5891,7 +5891,8 @@ void BrotherOffersHisBack(Player* player)
     }
     twin->GetMotionMaster()->Clear();
     twin->GetMotionMaster()->MoveCharge(back.GetPositionX(), back.GetPositionY(), back.GetPositionZ(), speed);
-    twin->SendPlaySpellVisual(KitBrotherBraces);
+    twin->m_Events.AddEventAtOffset([twin]() { twin->SendPlaySpellVisual(KitBrotherBraces); },
+        Milliseconds(uint32(BrotherBracedIn * IN_MILLISECONDS)));
     bool const backward = player->HasUnitMovementFlag(MOVEMENTFLAG_BACKWARD) &&
         !player->HasUnitMovementFlag(MOVEMENTFLAG_FORWARD);
     player->SendPlaySpellVisual(backward ? KitTwinBackSpringboard : KitTwinSpringboard);
