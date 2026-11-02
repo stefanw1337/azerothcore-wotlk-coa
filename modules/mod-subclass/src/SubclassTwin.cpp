@@ -271,6 +271,56 @@ struct BrotherCast
 };
 
 thread_local BrotherCast castingAsBrother;
+
+struct BrotherFollowUps
+{
+    ObjectGuid Twin;
+    std::unordered_map<uint32, uint64> Until;
+};
+
+constexpr uint64 FollowUpWindow = 6000;
+std::mutex& followUpMutex = *new std::mutex;
+std::unordered_map<ObjectGuid, BrotherFollowUps>& followUps = *new std::unordered_map<ObjectGuid, BrotherFollowUps>;
+
+void NoteFollowUps(Player const* player, Creature const* twin, SpellInfo const* info)
+{
+    std::vector<uint32> pending{ info->Id };
+    std::unordered_set<uint32> seen;
+    uint64 const until = GameTime::GetGameTimeMS().count() + FollowUpWindow;
+    std::lock_guard<std::mutex> lock(followUpMutex);
+    BrotherFollowUps& noted = followUps[player->GetGUID()];
+    noted.Twin = twin->GetGUID();
+    while (!pending.empty())
+    {
+        uint32 const id = pending.back();
+        pending.pop_back();
+        SpellInfo const* spell = sSpellMgr->GetSpellInfo(id);
+        if (!spell || !seen.insert(id).second)
+            continue;
+        if (id != info->Id)
+            noted.Until[id] = until;
+        for (SpellEffectInfo const& effect : spell->GetEffects())
+            if (effect.TriggerSpell)
+                pending.push_back(effect.TriggerSpell);
+    }
+}
+
+ObjectGuid FollowUpTwin(ObjectGuid caster, uint32 spellId)
+{
+    std::lock_guard<std::mutex> lock(followUpMutex);
+    auto const found = followUps.find(caster);
+    if (found == followUps.end())
+        return ObjectGuid::Empty;
+    auto const spell = found->second.Until.find(spellId);
+    if (spell == found->second.Until.end())
+        return ObjectGuid::Empty;
+    if (spell->second < GameTime::GetGameTimeMS().count())
+    {
+        found->second.Until.erase(spell);
+        return ObjectGuid::Empty;
+    }
+    return found->second.Twin;
+}
 thread_local bool resendingAsBrother = false;
 thread_local bool resendingOwnShot = false;
 thread_local ObjectGuid swingingAlone;
@@ -4213,8 +4263,7 @@ bool CancelFormByPlainCopy(WorldSession* session, WorldPacket const& packet)
 
 bool ShowCastOnBrother(WorldSession* session, WorldPacket const& packet)
 {
-    if (resendingAsBrother || !castingAsBrother.Spell ||
-        (packet.GetOpcode() != SMSG_SPELL_START && packet.GetOpcode() != SMSG_SPELL_GO))
+    if (resendingAsBrother || (packet.GetOpcode() != SMSG_SPELL_START && packet.GetOpcode() != SMSG_SPELL_GO))
         return true;
     WorldPacket reader(packet);
     reader.rpos(0);
@@ -4226,13 +4275,18 @@ bool ShowCastOnBrother(WorldSession* session, WorldPacket const& packet)
     reader >> caster.ReadAsPacked();
     std::size_t const afterCasters = reader.rpos();
     reader >> castCount >> spellId;
-    if (caster != castingAsBrother.Player || spellId != castingAsBrother.Spell)
+    ObjectGuid twin = castingAsBrother.Spell && caster == castingAsBrother.Player ? castingAsBrother.Twin :
+        ObjectGuid::Empty;
+    if (twin)
+        ++castingAsBrother.Shown;
+    else if (caster.IsPlayer())
+        twin = FollowUpTwin(caster, spellId);
+    if (!twin)
         return true;
     WorldPacket shown(packet.GetOpcode(), packet.size());
-    shown << castingAsBrother.Twin.WriteAsPacked();
-    shown << castingAsBrother.Twin.WriteAsPacked();
+    shown << twin.WriteAsPacked();
+    shown << twin.WriteAsPacked();
     shown.append(packet.contents() + afterCasters, packet.size() - afterCasters);
-    ++castingAsBrother.Shown;
     resendingAsBrother = true;
     session->SendPacket(&shown);
     resendingAsBrother = false;
@@ -4380,6 +4434,14 @@ public:
         {
             std::lock_guard<std::mutex> lock(riderMutex);
             riderWeapons.erase(player->GetGUID().GetCounter());
+        }
+        {
+            std::lock_guard<std::mutex> lock(followUpMutex);
+            followUps.erase(player->GetGUID());
+        }
+        {
+            std::lock_guard<std::mutex> lock(classLookMutex);
+            classLooks.erase(player->GetGUID().GetCounter());
         }
         DismissTwin(player);
         std::lock_guard<std::mutex> lock(twinMutex);
@@ -4726,7 +4788,10 @@ void ReleaseOtherHalf(Player* player, uint32 spellId, ObjectGuid targetGuid, uin
     Creature* twin = HasTwin(player) ? TwinOf(player) : nullptr;
     ActOutCast(player, info, target);
     if (twin)
+    {
         castingAsBrother = { player->GetGUID(), twin->GetGUID(), spellId };
+        NoteFollowUps(player, twin, info);
+    }
     else if (HasSecondHead(player))
         ShowCastAsCopy(player, spellId, ShowsAsCopy(player, info));
     bool const brotherPays = twin && info->PowerType < MAX_POWERS && SplitsPower(player, Powers(info->PowerType));
