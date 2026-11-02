@@ -592,8 +592,12 @@ bool ShapesWholeBody(uint32 spellId)
     return false;
 }
 
+uint32 ClassLookOf(Player const* player);
+
 bool InBorrowedShape(Player const* player)
 {
+    if (HalfFormOf(player).Form || ClassLookOf(player))
+        return true;
     for (AuraEffect const* effect : player->GetAuraEffectsByType(SPELL_AURA_MOD_SHAPESHIFT))
         if (IsBorrowedSpell(player, effect->GetId()) && !IsRiddenForm(uint32(effect->GetMiscValue())))
             return true;
