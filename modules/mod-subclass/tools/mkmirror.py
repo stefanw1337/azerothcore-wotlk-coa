@@ -3,13 +3,14 @@
 reversed so it still faces out. Items the game hangs on the model keep their own shape, so the paired armour points
 (elbows, shoulders, knees, hips, feet) trade places and the left shoulder piece still sits on the outer side of the
 left shoulder; the hands do not trade, so the brother holds his main-hand weapon in his left hand and swings it with
-that arm. The shield points (forearm and back) sit on bones turned half a round about the shield's long axis, so
+that arm. The shield points (forearm and back) sit on bones turned half a round about the line shields are drawn symmetric to, so
 the shield faces outward and still reaches the same way.
     python mkmirror.py <thinhumanmale.m2> <thinhumanmale00.skin> <out .m2> <out 00.skin>
     python mkmirror.py --client <Data folder> [<EsteriaAppearanceGeometry.bin>]
 The client form builds the mirrored model from the client's own Thin Twins model, adds display 977602 (model 901402)
 to CreatureDisplayInfo.dbc and CreatureModelData.dbc, merges all of it into patch-ZZZZY.MPQ and gives the mirrored
 model its own copy of the Thin Twins entry in EsteriaAppearanceGeometry.bin."""
+import math
 import struct
 import sys
 from pathlib import Path
@@ -36,7 +37,8 @@ SKIN_INDICES, SKIN_SUBMESHES, SUBMESH_SIZE, SUBMESH_CENTRE, SUBMESH_SORT = 12, 2
 SHIELD_POINTS = (0, 28)
 TRADED_PAIRS = ((3, 4), (5, 6), (7, 8), (9, 10), (47, 48))
 TRANSFORMED = 0x200
-HALF_TURN = (1.0, 0.0, 0.0, 0.0)
+SHIELD_AXIS = math.radians(12)
+HALF_TURN = (math.cos(SHIELD_AXIS), 0.0, math.sin(SHIELD_AXIS), 0.0)
 
 
 def counted(data, at):
