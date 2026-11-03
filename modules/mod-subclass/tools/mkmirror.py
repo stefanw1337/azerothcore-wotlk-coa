@@ -3,8 +3,8 @@
 reversed so it still faces out. Items the game hangs on the model keep their own shape, so the paired armour points
 (elbows, shoulders, knees, hips, feet) trade places and the left shoulder piece still sits on the outer side of the
 left shoulder; the hands do not trade, so the brother holds his main-hand weapon in his left hand and swings it with
-that arm. The shield points (forearm and back) sit on bones turned half a round about the line shields are drawn symmetric to, so
-the shield faces outward and still reaches the same way.
+that arm. The shield points (forearm and back) sit on bones turned half a round about the line shields are drawn
+symmetric to, so the shield faces outward and still reaches the same way.
     python mkmirror.py <thinhumanmale.m2> <thinhumanmale00.skin> <out .m2> <out 00.skin>
     python mkmirror.py --client <Data folder> [<EsteriaAppearanceGeometry.bin>]
 The client form builds the mirrored model from the client's own Thin Twins model, adds display 977602 (model 901402)
