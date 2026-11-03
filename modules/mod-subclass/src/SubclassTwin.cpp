@@ -533,12 +533,24 @@ uint8 FeatureColor(Player const* player, CharSectionType section)
     return player->GetByteValue(PLAYER_BYTES, section == SECTION_TYPE_FACE ? 0 : 3);
 }
 
+uint32 SectionKey(uint32 race, uint32 gender, uint32 section, uint32 color)
+{
+    return race | gender << 8 | section << 16 | color << 24;
+}
+
 uint8 FeatureChoices(Player const* player, CharSectionType section)
 {
-    uint8 const gender = player->GetByteValue(PLAYER_BYTES_3, 0);
+    static std::once_flag indexed;
+    static std::unordered_map<uint32, std::set<uint32>>& variations = *new std::unordered_map<uint32, std::set<uint32>>;
+    std::call_once(indexed, []
+    {
+        for (CharSectionsEntry const* entry : sCharSectionsStore)
+            variations[SectionKey(entry->Race, entry->Gender, entry->GenType, entry->Color)].insert(entry->Type);
+    });
+    auto const found = variations.find(SectionKey(player->getRace(), player->GetByteValue(PLAYER_BYTES_3, 0), section,
+        FeatureColor(player, section)));
     uint8 count = 0;
-    while (count < Subclass::SameAsPlayer &&
-        GetCharSectionEntry(player->getRace(), section, gender, count, FeatureColor(player, section)))
+    while (found != variations.end() && count < Subclass::SameAsPlayer && found->second.contains(count))
         ++count;
     return count;
 }
