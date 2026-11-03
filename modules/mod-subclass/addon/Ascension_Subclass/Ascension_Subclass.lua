@@ -919,6 +919,8 @@ end
 local twinOutfit = {}
 local ShowTwinPreview
 local twinState = { has = false, out = false, split = false }
+Ascension_Subclass.TwinLook = { features = {}, kinds = { { key = "f", title = "Face", choice = "Face" },
+    { key = "h", title = "Hair style", choice = "Style" }, { key = "b", title = "Facial hair", choice = "Beard" } } }
 local ShowTwinState
 
 local function ShowSubclassUnder(line)
@@ -1875,6 +1877,13 @@ local function Receive(message)
         twinState = { has = has == "1", out = out == "1", split = split == "1" }
         if ShowTwinState then
             ShowTwinState()
+        end
+        return
+    end
+    if command == "TWINFEATURES" then
+        Ascension_Subclass.TwinLook.features = {}
+        for key, chosen, choices in string.gmatch(rest, "(%a):(%-?%d+):(%d+)") do
+            Ascension_Subclass.TwinLook.features[key] = { chosen = tonumber(chosen), choices = tonumber(choices) }
         end
         return
     end
@@ -3368,6 +3377,39 @@ local function ShowUndressMenu(anchor)
     EasyMenu(entries, twinUndressMenu, anchor, 0, 0, "MENU")
 end
 
+function Ascension_Subclass.TwinLook.Choose(key, chosen)
+    local words = {}
+    for _, feature in ipairs(Ascension_Subclass.TwinLook.kinds) do
+        local current = Ascension_Subclass.TwinLook.features[feature.key]
+        words[#words + 1] = feature.key == key and chosen or (current and current.chosen or -1)
+    end
+    Send("TWINFEATURES " .. table.concat(words, " "))
+end
+
+function Ascension_Subclass.TwinLook.ShowMenu(anchor)
+    local look = Ascension_Subclass.TwinLook
+    local entries = {}
+    for _, feature in ipairs(look.kinds) do
+        local current = look.features[feature.key]
+        if current and current.choices > 1 then
+            entries[#entries + 1] = { text = feature.title, isTitle = true, notCheckable = true }
+            entries[#entries + 1] = { text = "Same as you", checked = current.chosen < 0,
+                func = function() look.Choose(feature.key, -1) end }
+            for index = 0, current.choices - 1 do
+                entries[#entries + 1] = { text = feature.choice .. " " .. (index + 1),
+                    checked = current.chosen == index, func = function() look.Choose(feature.key, index) end }
+            end
+        end
+    end
+    if #entries == 0 then
+        entries[1] = { text = "Your twin can't change his look yet", disabled = true, notCheckable = true }
+    end
+    entries[#entries + 1] = { text = "He keeps your skin and hair colour.", disabled = true, notCheckable = true }
+    twinUndressMenu = twinUndressMenu or CreateFrame("Frame", "Ascension_SubclassTwinUndressMenu", UIParent,
+        "UIDropDownMenuTemplate")
+    EasyMenu(entries, twinUndressMenu, anchor, 0, 0, "MENU")
+end
+
 local function PlaceTwinApply()
     local original
     for _, button in ipairs(applyButtons) do
@@ -3418,6 +3460,13 @@ function ShowDressing()
             twinUndressButton:Show()
         else
             twinUndressButton:Hide()
+        end
+    end
+    if Ascension_Subclass.TwinLook.button then
+        if dressingTwin and not DressesCyclops() then
+            Ascension_Subclass.TwinLook.button:Show()
+        else
+            Ascension_Subclass.TwinLook.button:Hide()
         end
     end
     if dressingTwin then
@@ -3489,6 +3538,18 @@ local function AttachTwinButton()
     twinUndressButton:SetFrameLevel(anchor:GetFrameLevel() + 20)
     twinUndressButton:SetText(DressesCyclops() and "Helmet" or "Take off")
     twinUndressButton:SetScript("OnClick", function(self) ShowUndressMenu(self) end)
+    if not DressesCyclops() then
+        local look = Ascension_Subclass.TwinLook
+        look.button = CreateFrame("Button", "Ascension_SubclassTwinFeaturesButton", anchor:GetParent(),
+            "UIPanelButtonTemplate")
+        look.button:SetWidth(90)
+        look.button:SetHeight(anchor:GetHeight())
+        look.button:SetPoint("LEFT", twinUndressButton, "RIGHT", 4, 0)
+        look.button:SetFrameStrata(anchor:GetFrameStrata())
+        look.button:SetFrameLevel(anchor:GetFrameLevel() + 20)
+        look.button:SetText("Hair & face")
+        look.button:SetScript("OnClick", function(self) look.ShowMenu(self) end)
+    end
     anchor:GetParent():HookScript("OnHide", function()
         dressingTwin = false
         ShowDressing()

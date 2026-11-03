@@ -3883,8 +3883,10 @@ std::string TwinFeatures(Player const* player)
         return "TWINFEATURES";
     OwnFeatures const features = FeaturesOf(player);
     std::string reply = "TWINFEATURES";
+    constexpr std::array<char, 3> Keys = {'f', 'h', 'b'};
     for (std::size_t index = 0; index < features.size(); ++index)
-        reply += Acore::StringFormat(" {}:{}", int(features[index] == Subclass::SameAsPlayer ? -1 : features[index]),
+        reply += Acore::StringFormat(" {}:{}:{}", Keys[index],
+            int(features[index] == Subclass::SameAsPlayer ? -1 : features[index]),
             uint32(FeatureChoices(player, FeatureSections[index])));
     return reply;
 }
