@@ -434,3 +434,18 @@ TEST(Subclass, TheThinTwinsBrotherWearsTheMirroredModelWhenOneIsSet)
     EXPECT_EQ(BrotherDisplay(ThinTwinsDisplay, 0), ThinTwinsDisplay);
     EXPECT_EQ(BrotherDisplay(977600, 977602), 977600u);
 }
+
+TEST(Subclass, TheThinTwinsBrotherKeepsThePlayersFeatureUntilHisOwnIsChosen)
+{
+    EXPECT_EQ(BrotherFeature(2, SameAsPlayer), 2);
+    EXPECT_EQ(BrotherFeature(2, 0), 0);
+    EXPECT_EQ(BrotherFeature(0, 5), 5);
+}
+
+TEST(Subclass, TheThinTwinsBrotherOnlyTakesFeaturesTheRaceOffers)
+{
+    EXPECT_TRUE(BrotherFeatureFits(SameAsPlayer, 4));
+    EXPECT_TRUE(BrotherFeatureFits(3, 4));
+    EXPECT_FALSE(BrotherFeatureFits(4, 4));
+    EXPECT_FALSE(BrotherFeatureFits(0, 0));
+}

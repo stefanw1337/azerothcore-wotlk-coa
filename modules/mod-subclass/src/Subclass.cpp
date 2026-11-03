@@ -64,6 +64,8 @@ bool HandleSubclassGun(ChatHandler* handler);
 bool HandleSubclassBots(ChatHandler* handler, Optional<std::string> mode);
 
 void HandleTwinLook(Player* player, std::vector<std::string_view> const& words);
+void HandleTwinFeatures(Player* player, std::vector<std::string_view> const& words);
+std::string TwinFeatures(Player const* player);
 void AimAtTarget(Player* player);
 void DressLeftHead(Player* player, std::string_view choice);
 void LearnStandardMainWeaponSkills(Player* player);
@@ -1296,6 +1298,7 @@ void HandleAddonMessage(Player* player, std::string_view message)
         SendAddon(player, std::string("RACE ") + Subclass::RaceToken(player->getRace()));
         SendSubclassState(player);
         SendAddon(player, TwinState(player));
+        SendAddon(player, TwinFeatures(player));
         SendAddon(player, RelicState(player));
         SendAddon(player, CyclopsModelState(player));
         return;
@@ -1350,6 +1353,12 @@ void HandleAddonMessage(Player* player, std::string_view message)
         }
         if (changes.empty() || !ApplyAscensionAppearanceChanges(player, changes))
             ChatHandler(player->GetSession()).SendSysMessage("Your wardrobe could not apply that look.");
+        return;
+    }
+    if (!words.empty() && words[0] == "TWINFEATURES")
+    {
+        HandleTwinFeatures(player, words);
+        SendAddon(player, TwinFeatures(player));
         return;
     }
     if (!words.empty() && words[0] == "TWINLOOK")

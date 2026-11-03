@@ -125,6 +125,18 @@ inline bool HalfFormExpired(std::uint32_t until, std::uint32_t now)
 constexpr std::uint8_t ThinTwinsBeards = 7;
 constexpr std::uint32_t ThinTwinsDisplay = 977601;
 
+constexpr std::uint8_t SameAsPlayer = 255;
+
+inline std::uint8_t BrotherFeature(std::uint8_t own, std::uint8_t chosen)
+{
+    return chosen == SameAsPlayer ? own : chosen;
+}
+
+inline bool BrotherFeatureFits(std::uint8_t chosen, std::uint8_t choices)
+{
+    return chosen == SameAsPlayer || chosen < choices;
+}
+
 inline std::uint32_t BrotherDisplay(std::uint32_t native, std::uint32_t mirror)
 {
     return native == ThinTwinsDisplay && mirror ? mirror : native;
