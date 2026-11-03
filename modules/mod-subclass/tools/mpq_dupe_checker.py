@@ -45,6 +45,20 @@ class Catalog:
         self.archives, self.names, self.problems = [], {}, []
         self.progress, self.done, self.lock = "", False, threading.Lock()
         self.opened, self.sizes = {}, {}
+        self.users = 0
+
+    def __enter__(self):
+        with self.lock:
+            self.users += 1
+        return self
+
+    def __exit__(self, *_):
+        with self.lock:
+            self.users -= 1
+            if self.users == 0:
+                for archive in self.opened.values():
+                    archive.close()
+                self.opened.clear()
 
     def archive(self, path):
         with self.lock:
@@ -53,6 +67,10 @@ class Catalog:
             return self.opened[path]
 
     def scan(self):
+        with self:
+            self.scan_archives()
+
+    def scan_archives(self):
         names = {}
         archives = ordered_archives(self.data)
         for index, path in enumerate(archives):
@@ -256,7 +274,9 @@ def merge(catalog, names, target):
             if lowered not in entries:
                 entries[lowered] = (name, archive.extract(name))
         with catalog.lock:
-            catalog.opened.pop(catalog.data / target, None)
+            opened = catalog.opened.pop(catalog.data / target, None)
+            if opened:
+                opened.close()
             catalog.sizes.clear()
         backup = output.with_name(output.name + ".bak")
         backup.write_bytes(output.read_bytes())
@@ -372,6 +392,10 @@ def handler_for(catalog):
             self.wfile.write(data)
 
         def do_GET(self):
+            with catalog:
+                self.answer_get()
+
+        def answer_get(self):
             url = urlparse(self.path)
             query = {key: values[0] for key, values in parse_qs(url.query).items()}
             if url.path == "/":
@@ -397,7 +421,8 @@ def handler_for(catalog):
             if urlparse(self.path).path != "/api/merge":
                 return self.send_error(404)
             request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-            self.reply(json.dumps(merge(catalog, request["names"], request["target"])))
+            with catalog:
+                self.reply(json.dumps(merge(catalog, request["names"], request["target"])))
 
     return Handler
 
