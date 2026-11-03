@@ -3,7 +3,8 @@
 reversed so it still faces out. Items the game hangs on the model keep their own shape, so the paired armour points
 (elbows, shoulders, knees, hips, feet) trade places and the left shoulder piece still sits on the outer side of the
 left shoulder; the hands do not trade, so the brother holds his main-hand weapon in his left hand and swings it with
-that arm. The shield point moves to the right forearm on a bone turned half a round, so the shield faces outward.
+that arm. The shield points (forearm and back) sit on bones turned half a round about the shield's long axis, so
+the shield faces outward and still reaches the same way.
     python mkmirror.py <thinhumanmale.m2> <thinhumanmale00.skin> <out .m2> <out 00.skin>
     python mkmirror.py --client <Data folder> [<EsteriaAppearanceGeometry.bin>]
 The client form builds the mirrored model from the client's own Thin Twins model, adds display 977602 (model 901402)
@@ -32,10 +33,10 @@ MODEL_BOUNDS, COLLISION_BOUNDS = 0xA0, 0xBC
 COLLISION_INDICES, COLLISION_POSITIONS, COLLISION_NORMALS = 0xD8, 0xE0, 0xE8
 UNSUPPORTED = {0x48: "colours", 0x108: "lights", 0x120: "ribbons", 0x128: "particles"}
 SKIN_INDICES, SKIN_SUBMESHES, SUBMESH_SIZE, SUBMESH_CENTRE, SUBMESH_SORT = 12, 28, 48, 20, 32
-SHIELD = 0
+SHIELD_POINTS = (0, 28)
 TRADED_PAIRS = ((3, 4), (5, 6), (7, 8), (9, 10), (47, 48))
 TRANSFORMED = 0x200
-HALF_TURN = (0.0, 0.0, 1.0, 0.0)
+HALF_TURN = (1.0, 0.0, 0.0, 0.0)
 
 
 def counted(data, at):
@@ -141,10 +142,15 @@ def global_loop(data):
     return 0
 
 
-def turned_shield(data):
+def turned_shields(data):
+    for point in SHIELD_POINTS:
+        turned_shield(data, point)
+
+
+def turned_shield(data, point):
     count, records = counted(data, h.ATTACHMENTS)
     lookup_count, lookup_at = counted(data, ATTACHMENT_LOOKUP)
-    index = struct.unpack_from("<h", data, lookup_at + SHIELD * 2)[0] if lookup_count > SHIELD else -1
+    index = struct.unpack_from("<h", data, lookup_at + point * 2)[0] if lookup_count > point else -1
     if index < 0:
         return
     record = records + index * ATTACHMENT_SIZE
@@ -210,7 +216,7 @@ def mirrored_model(model):
         a, b, c = struct.unpack_from("<3H", data, first)
         struct.pack_into("<3H", data, first, a, c, b)
     trade_pairs(data)
-    turned_shield(data)
+    turned_shields(data)
     return bytes(data)
 
 
