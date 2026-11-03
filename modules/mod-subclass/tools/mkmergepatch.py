@@ -70,13 +70,16 @@ def merge(inputs, theirs):
     files = {}
     for path, yields in inputs:
         archive = Archive(str(path))
-        for lower, name in names_in(archive, path).items():
-            if yields and lower in theirs:
-                continue
-            data = archive.extract(name)
-            if data is None:
-                raise SystemExit(f"{path} lists {name} but it cannot be read")
-            files[lower] = (name, data)
+        try:
+            for lower, name in names_in(archive, path).items():
+                if yields and lower in theirs:
+                    continue
+                data = archive.extract(name)
+                if data is None:
+                    raise SystemExit(f"{path} lists {name} but it cannot be read")
+                files[lower] = (name, data)
+        finally:
+            archive.close()
         print(f"{path.name}: {len(files)} files so far")
     listing = "\r\n".join(sorted(name for name, _ in files.values())).encode("latin1")
     files[LISTFILE.lower()] = (LISTFILE, listing)
@@ -108,9 +111,12 @@ def written(entries):
 
 def verified(path, entries):
     archive = Archive(str(path))
-    for name, data in entries:
-        if archive.extract(name) != data:
-            raise SystemExit(f"{name} reads back wrong from {path}")
+    try:
+        for name, data in entries:
+            if archive.extract(name) != data:
+                raise SystemExit(f"{name} reads back wrong from {path}")
+    finally:
+        archive.close()
 
 
 def main(out_path, *arguments):

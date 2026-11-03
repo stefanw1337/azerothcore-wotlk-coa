@@ -124,11 +124,13 @@ def require_writable(paths):
     for path in paths:
         if not path.exists():
             continue
+        probe = path.with_name(path.name + ".checking")
         try:
-            with path.open("r+b"):
-                pass
+            path.replace(probe)
+            probe.replace(path)
         except PermissionError:
-            raise SystemExit(f"{path.name} is in use; close the game and MPQ-DupeChecker, then run this again")
+            raise SystemExit(f"{path.name} is in use by another program (the game, MPQ-DupeChecker or a WoW tool); "
+                             "close it and run this again")
 
 
 def merge_into_merged(data, additions, backup):
