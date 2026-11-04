@@ -3,6 +3,9 @@ setlocal
 rem Builds the Witch Hunter Vault for the original races from this client's own models.
 rem Run it from a folder next to Data (for example <client>\merge-tools), with the game closed.
 set "HERE=%~dp0"
+set "FRESH="
+if /i "%~1"=="--fresh" set "FRESH=--fresh"
+if defined FRESH shift
 set "DATA=%~1"
 if "%DATA%"=="" set "DATA=%HERE%..\Data"
 set "PY="
@@ -14,7 +17,7 @@ if not defined PY (
     pause
     exit /b 1
 )
-%PY% -B "%HERE%build_vault_patches.py" "%DATA%" --backup "%HERE%."
+%PY% -B "%HERE%build_vault_patches.py" "%DATA%" --backup "%HERE%." %FRESH%
 if errorlevel 1 (
     echo ERROR: see the lines above. patch-ZZZZY.MPQ was not replaced.
     pause

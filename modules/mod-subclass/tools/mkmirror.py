@@ -251,7 +251,7 @@ def with_cloned_row(dbc, source, clone, change):
     rows = [list(struct.unpack_from(f"<{fields}I", dbc, 20 + index * size)) for index in range(count)]
     by_id = {row[0]: row for row in rows}
     if clone in by_id:
-        return None
+        rows.remove(by_id.pop(clone))
     if source not in by_id:
         raise ValueError(f"the table has no row {source} to copy")
     texts = bytearray(dbc[20 + count * size:20 + count * size + text_size])
@@ -263,9 +263,29 @@ def with_cloned_row(dbc, source, clone, change):
     return struct.pack("<4s4I", b"WDBC", len(rows), fields, size, len(texts)) + body + bytes(texts)
 
 
-def mirror_model_row(row, texts):
-    row[MODEL_NAME_FIELD] = len(texts)
-    texts += MIRROR[:-len(".m2")].encode("latin1") + b".mdx\0"
+def mirror_model_row(mirror):
+    def change(row, texts):
+        row[MODEL_NAME_FIELD] = len(texts)
+        texts += mirror[:-len(".m2")].encode("latin1") + b".mdx\0"
+    return change
+
+
+def twin_model_path(model_data):
+    magic, count, fields, size, text_size = struct.unpack_from("<4s4I", model_data, 0)
+    texts = 20 + count * size
+    for index in range(count):
+        row = struct.unpack_from(f"<{fields}I", model_data, 20 + index * size)
+        if row[0] == MODEL_ROW:
+            start = texts + row[MODEL_NAME_FIELD]
+            name = model_data[start:model_data.index(b"\0", start)].decode("latin1")
+            return name[:-len(".mdx")] + ".m2" if name.lower().endswith(".mdx") else name
+    raise ValueError(f"the table has no row {MODEL_ROW}")
+
+
+def mirror_path(model):
+    folder, _, stem = model[:-len(".m2")].rpartition("\\")
+    stem = stem[:-len("male")] + "mirrormale" if stem.lower().endswith("male") else stem + "mirror"
+    return f"{folder}\\{stem}.m2"
 
 
 def mirror_display_row(row, _):
@@ -285,43 +305,49 @@ def geometry_entries(data):
     return entries
 
 
-def with_mirrored_geometry(data):
-    entries = geometry_entries(data)
-    names = {name.lower(): skin for name, skin in entries}
-    if MIRROR.lower() in names or MODEL.lower() not in names:
+def with_mirrored_geometry(data, model=MODEL, mirror=MIRROR, skin=None):
+    mirrors = {mirror.lower(), MIRROR.lower()}
+    entries = [(name, blob) for name, blob in geometry_entries(data) if name.lower() not in mirrors]
+    names = {name.lower(): blob for name, blob in entries}
+    source = names.get(model.lower(), skin)
+    if source is None:
         return None
-    entries.append((MIRROR, mirrored_skin(names[MODEL.lower()])))
-    body = b"".join(name.encode("latin1").ljust(GEOMETRY_PATH, b"\0") + struct.pack("<I", len(skin)) + skin
-                    for name, skin in entries)
-    return struct.pack("<3I", GEOMETRY_MAGIC, 1, len(entries)) + body
+    entries.append((mirror, mirrored_skin(source)))
+    body = b"".join(name.encode("latin1").ljust(GEOMETRY_PATH, b"\0") + struct.pack("<I", len(blob)) + blob
+                    for name, blob in entries)
+    updated = struct.pack("<3I", GEOMETRY_MAGIC, 1, len(entries)) + body
+    return None if updated == data else updated
 
 
 def client(data, geometry=None, backup_folder=None):
     backup_folder = backup_folder or data
     patches.require_writable([data / patches.MERGED] + ([geometry] if geometry else []))
-    archives = patches.ordered_archives(data)
+    archives = patches.original_archives(patches.ordered_archives(data))
     found = patches.Client(archives)
-    print("reading the Thin Twins model", flush=True)
-    model, source = found.newest(MODEL, archives)
-    skin, _ = found.newest(patches.skin_name(MODEL), archives)
+    model_data, _ = found.newest(MODEL_DATA, archives)
+    if model_data is None:
+        raise SystemExit(f"no archive in Data has {MODEL_DATA}")
+    model_path = twin_model_path(model_data)
+    mirror = mirror_path(model_path)
+    print(f"reading the Thin Twins model {model_path}", flush=True)
+    model, source = found.newest(model_path, archives)
+    skin, _ = found.newest(patches.skin_name(model_path), archives)
     if model is None or skin is None:
-        raise SystemExit(f"no archive in Data has {MODEL} and its skin")
-    print(f"mirroring {MODEL} from {source.name}", flush=True)
-    additions = {MIRROR: mirrored_model(model), patches.skin_name(MIRROR): mirrored_skin(skin)}
-    for name, row, clone, change in ((MODEL_DATA, MODEL_ROW, MIRROR_MODEL_ROW, mirror_model_row),
+        raise SystemExit(f"no archive in Data has {model_path} and its skin")
+    print(f"mirroring it from {source.name} into {mirror}", flush=True)
+    additions = {mirror: mirrored_model(model), patches.skin_name(mirror): mirrored_skin(skin)}
+    for name, row, clone, change in ((MODEL_DATA, MODEL_ROW, MIRROR_MODEL_ROW, mirror_model_row(mirror)),
                                      (DISPLAY_INFO, DISPLAY_ROW, MIRROR_DISPLAY_ROW, mirror_display_row)):
         table, _ = found.newest(name, archives)
         if table is None:
             raise SystemExit(f"no archive in Data has {name}")
-        added = with_cloned_row(table, row, clone, change)
-        print(f"{name}: {'row ' + str(clone) + ' added' if added else 'already has row ' + str(clone)}", flush=True)
-        if added:
-            additions[name] = added
+        additions[name] = with_cloned_row(table, row, clone, change)
+        print(f"{name}: row {clone} made from row {row}", flush=True)
     found.close()
     print(f"writing {patches.MERGED}", flush=True)
     patches.merge_into_merged(data, additions, backup_folder / (patches.MERGED + ".before-mirror"))
     if geometry and geometry.exists():
-        updated = with_mirrored_geometry(geometry.read_bytes())
+        updated = with_mirrored_geometry(geometry.read_bytes(), model_path, mirror, skin)
         if updated:
             backup = backup_folder / (geometry.name + ".before-mirror")
             if not backup.exists():

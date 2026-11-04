@@ -95,7 +95,7 @@ def vaulted_models(client, among, kind):
 def vault_tables(client):
     tables = {}
     for name, add_rows in TABLES.items():
-        data, _ = client.newest(name, client.archives)
+        data, _ = client.newest(name, original_archives(client.archives))
         if data is None:
             raise SystemExit(f"no archive in Data has {name}")
         try:
@@ -133,15 +133,16 @@ def require_writable(paths):
                              "close it and run this again")
 
 
-def merge_into_merged(data, additions, backup):
+def merge_into_merged(data, additions, backup, fresh=False):
     merged = data / MERGED
     addition = data / (MERGED + ".adding")
     write_archive(addition, listed(additions))
     inputs = [(addition, False)]
     if merged.exists():
-        if not backup.exists():
+        if not backup.exists() or fresh:
             shutil.copy2(merged, backup)
-        inputs.insert(0, (merged, False))
+        if not fresh:
+            inputs.insert(0, (merged, False))
     try:
         entries = merge(inputs, set())
         write_archive(merged, entries)
@@ -149,7 +150,7 @@ def merge_into_merged(data, additions, backup):
         addition.unlink(missing_ok=True)
 
 
-def build(data, backup_folder):
+def build(data, backup_folder, fresh=False):
     require_writable([data / MERGED, data / HD_PATCH])
     archives = ordered_archives(data)
     client = Client(archives)
@@ -159,7 +160,7 @@ def build(data, backup_folder):
     additions = {**standard, **vault_tables(client)}
     client.close()
     print(f"writing {MERGED} and {HD_PATCH}", flush=True)
-    merge_into_merged(data, additions, backup_folder / (MERGED + ".before-vault"))
+    merge_into_merged(data, additions, backup_folder / (MERGED + ".before-vault"), fresh)
     hd_path = data / HD_PATCH
     if hd:
         write_archive(hd_path, listed(hd))
@@ -174,8 +175,10 @@ def main():
                     "patch-ZZZZY.MPQ and HD models into patch-ZZZZZ-HD.MPQ")
     parser.add_argument("data", type=Path, help="the client's Data folder")
     parser.add_argument("--backup", type=Path, help="folder for the patch-ZZZZY.MPQ backup (default: Data)")
+    parser.add_argument("--fresh", action="store_true",
+                        help="start patch-ZZZZY.MPQ over with only the Vault, dropping files merged into it before")
     args = parser.parse_args()
-    standard_sources, hd_sources, hd = build(args.data, args.backup or args.data)
+    standard_sources, hd_sources, hd = build(args.data, args.backup or args.data, args.fresh)
     for name in model_names():
         line = f"{name}: standard from {standard_sources[name].name}" if name in standard_sources else f"{name}: absent"
         if name in hd:

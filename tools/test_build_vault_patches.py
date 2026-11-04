@@ -99,6 +99,19 @@ class VaultPatchTest(unittest.TestCase):
         self.assertTrue(opened)
         self.assertTrue(all(archive.file.closed for archive in opened))
 
+    def test_a_fresh_build_drops_what_was_merged_before(self):
+        vault.build(self.data, self.data, fresh=True)
+        merged = self.built(vault.MERGED)
+        self.assertIsNone(merged.extract(OWN_FILE))
+        self.assertEqual(merged.extract(HUMAN), handspring.add_handsprings(self.standard))
+        self.assertEqual(Archive(str(self.data / (vault.MERGED + ".before-vault"))).extract(OWN_FILE), b"twins")
+
+    def test_tables_come_from_the_client_not_from_the_merged_patch(self):
+        archive(self.data / vault.MERGED, {OWN_FILE: b"twins", ANIMATIONS: table(8, [[7, 0, 0, 0, 0, 0, 0, 0]], b"\0"),
+                                           KITS: client_tables()[KITS]})
+        vault.build(self.data, self.data)
+        self.assertNotIn(7, rows(self.built(vault.MERGED).extract(ANIMATIONS)))
+
     def test_no_build_files_are_left_in_data(self):
         vault.build(self.data, self.data)
         self.assertEqual(sorted(path.name for path in self.data.iterdir() if ".building" in path.name or
