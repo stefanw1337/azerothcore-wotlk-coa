@@ -222,11 +222,49 @@ bool LoginQueryHolder::Initialize()
     stmt->SetData(0, m_guid.GetCounter());
     res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_PORTABLE_SESSION, stmt);
 
+    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_BODY_SHAPE);
+    stmt->SetData(0, rawGUID);
+    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_BODY_SHAPE, stmt);
+
+    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_RETAIL_LOOK);
+    stmt->SetData(0, rawGUID);
+    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_RETAIL_LOOK, stmt);
+
+    stmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_FORM_LOOK);
+    stmt->SetData(0, rawGUID);
+    res &= SetPreparedQuery(PLAYER_LOGIN_QUERY_LOAD_FORM_LOOK, stmt);
+
     return res;
 }
 
-void WorldSession::HandleCharEnum(PreparedQueryResult result)
+void WorldSession::HandleCharEnum(PreparedQueryResult result, PreparedQueryResult bodyShape, PreparedQueryResult retailLook)
 {
+    using RetailPayload = std::array<uint8, CharacterRetailLook::PayloadSize>;
+    std::unordered_map<uint32, RetailPayload> retailLooks, parkedLooks; // parked: the Two Forms look that is not showing
+    if (retailLook)
+    {
+        do
+        {
+            auto const payload = (*retailLook)[1].Get<Binary, CharacterRetailLook::PayloadSize>();
+            CharacterRetailLook::Look look;
+            if (CharacterRetailLook::ReadPayload(payload.data(), payload.size(), look))
+                ((*retailLook)[2].Get<uint8>() ? parkedLooks : retailLooks)[(*retailLook)[0].Get<uint32>()] = payload;
+        } while (retailLook->NextRow());
+    }
+    std::unordered_map<uint32, std::array<uint8, CharacterBodyShape::PayloadSize>> bodyShapes;
+    if (bodyShape)
+    {
+        do
+        {
+            auto const payload = (*bodyShape)[1].Get<Binary, CharacterBodyShape::PayloadSize>();
+            CharacterBodyShape::Values values{};
+            if (CharacterBodyShape::ReadPayload(payload.data(), payload.size(), values) && !CharacterBodyShape::AllDefault(values))
+                bodyShapes[(*bodyShape)[0].Get<uint32>()] = payload;
+        } while (bodyShape->NextRow());
+    }
+    ByteBuffer bodyShapeBlock, retailLookBlock, parkedLookBlock;
+    uint32 bodyShapeCount = 0, retailLookCount = 0, parkedLookCount = 0;
+
     WorldPacket data(SMSG_CHAR_ENUM, 100);                  // we guess size
 
     uint8 num = 0;
@@ -248,6 +286,24 @@ void WorldSession::HandleCharEnum(PreparedQueryResult result)
             {
                 _legitCharacters.insert(guid);
                 ++num;
+                if (auto const look = retailLooks.find(guid.GetCounter()); look != retailLooks.end())
+                {
+                    retailLookBlock << guid.GetRawValue();
+                    retailLookBlock.append(look->second.data(), look->second.size());
+                    ++retailLookCount;
+                }
+                if (auto const look = parkedLooks.find(guid.GetCounter()); look != parkedLooks.end())
+                {
+                    parkedLookBlock << guid.GetRawValue();
+                    parkedLookBlock.append(look->second.data(), look->second.size());
+                    ++parkedLookCount;
+                }
+                if (auto const shape = bodyShapes.find(guid.GetCounter()); shape != bodyShapes.end())
+                {
+                    bodyShapeBlock << guid.GetRawValue();
+                    bodyShapeBlock.append(shape->second.data(), shape->second.size());
+                    ++bodyShapeCount;
+                }
                 uint64 extra = (*result)[result->GetFieldCount() - 1].Get<uint64>();
                 if (UsesExtendedAppearance((*result)[2].Get<uint8>()))
                 {
@@ -277,6 +333,21 @@ void WorldSession::HandleCharEnum(PreparedQueryResult result)
             data << haranirCount << uint32(0x32455848);     // HXE2: GUID + uint64 extension
         }
     }
+    if (bodyShapeCount)
+    {
+        data.append(bodyShapeBlock);
+        data << bodyShapeCount << CharacterBodyShape::EnumMagic; // BSE1
+    }
+    if (retailLookCount)
+    {
+        data.append(retailLookBlock);
+        data << retailLookCount << CharacterRetailLook::EnumMagic; // RLE1
+    }
+    if (parkedLookCount)
+    {
+        data.append(parkedLookBlock);
+        data << parkedLookCount << CharacterRetailLook::ParkedMagic; // RLP1
+    }
 
     SendPacket(&data);
 }
@@ -295,7 +366,26 @@ void WorldSession::HandleCharEnumOpcode(WorldPacket& /*recvData*/)
     stmt->SetData(0, PET_SAVE_AS_CURRENT);
     stmt->SetData(1, GetAccountId());
 
-    _queryProcessor.AddCallback(CharacterDatabase.AsyncQuery(stmt).WithPreparedCallback(std::bind(&WorldSession::HandleCharEnum, this, std::placeholders::_1)));
+    _queryProcessor.AddCallback(CharacterDatabase.AsyncQuery(stmt).WithChainingPreparedCallback(
+        [this](QueryCallback& callback, PreparedQueryResult result)
+        {
+            auto* bodyShapeStmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_ENUM_BODY_SHAPE);
+            bodyShapeStmt->SetData(0, GetAccountId());
+            callback.WithChainingPreparedCallback(
+                [this, result](QueryCallback& lastCallback, PreparedQueryResult bodyShape)
+                {
+                    auto* lookStmt = CharacterDatabase.GetPreparedStatement(CHAR_SEL_ENUM_RETAIL_LOOK);
+                    lookStmt->SetData(0, GetAccountId());
+                    lookStmt->SetData(1, GetAccountId());
+                    lastCallback.WithPreparedCallback(
+                        [this, result, bodyShape](PreparedQueryResult retailLook)
+                        {
+                            HandleCharEnum(result, bodyShape, retailLook);
+                        });
+                    lastCallback.SetNextQuery(CharacterDatabase.AsyncQuery(lookStmt));
+                });
+            callback.SetNextQuery(CharacterDatabase.AsyncQuery(bodyShapeStmt));
+        }));
 }
 
 void WorldSession::HandleCharCreateOpcode(WorldPacket& recvData)
@@ -312,6 +402,15 @@ void WorldSession::HandleCharCreateOpcode(WorldPacket& recvData)
              >> createInfo->HairColor
              >> createInfo->FacialHair
              >> createInfo->OutfitId;
+
+    // CoA: Esteria's retail look / body slider footers ride at the very end of the packet
+    if (!CharacterRetailLook::ReadTail(recvData, createInfo->HasRetailLook, createInfo->RetailLook) ||
+        (createInfo->HasRetailLook && (createInfo->RetailLook.race != createInfo->Race || createInfo->RetailLook.sex != createInfo->Gender)) ||
+        !CharacterBodyShape::ReadTail(recvData, createInfo->HasBodyShape, createInfo->BodyShape))
+    {
+        SendCharCreate(CHAR_CREATE_FAILED);
+        return;
+    }
 
     // CoA: Esteria's Haranir append a uint64 appearance and the HRC1 magic to the stock packet
     if (UsesHaranirAppearance(createInfo->Race))
@@ -2063,6 +2162,87 @@ void WorldSession::HandleEquipmentSetUse(WorldPacket& recvData)
     WorldPacket data(SMSG_EQUIPMENT_SET_USE_RESULT, 1);
     data << uint8(errorId);                                       // 4 - equipment swap failed - inventory is full
     SendPacket(&data);
+}
+
+// Two Forms: the client commits both forms of a Worgen or Dracthyr after creating it (or editing it later).
+//   CMSG: guid(8) revision(u32) activeForm(u8) look(132) look(132). The first look is the active form's, the second the
+//         other form's; both are version-2 looks (CharacterRetailLook).
+//   SMSG_ESTERIA_FORM_LOOK_ACK: guid(8) revision(u32) result(u8): 0 saved, 1 not this account's character, 2 invalid,
+//         3 not a Two Forms race. The write is a plain REPLACE, so a resend of the same commit is harmless.
+void WorldSession::HandleEsteriaFormLookOpcode(WorldPacket& recvData)
+{
+    constexpr size_t payloadSize = CharacterRetailLook::PayloadSize;
+    if (recvData.size() - recvData.rpos() != 8 + 4 + 1 + 2 * payloadSize)
+        return;
+
+    uint64 rawGuid;
+    uint32 revision;
+    uint8 activeForm;
+    std::array<uint8, payloadSize> activePayload, parkedPayload;
+    recvData >> rawGuid >> revision >> activeForm;
+    recvData.read(activePayload.data(), payloadSize);
+    recvData.read(parkedPayload.data(), payloadSize);
+
+    ObjectGuid const guid(rawGuid);
+    auto reply = [&](uint8 result)
+    {
+        if (result)
+            LOG_WARN("network.opcode", "CMSG_ESTERIA_FORM_LOOK from account {} refused with result {}", GetAccountId(), result);
+        WorldPacket data(SMSG_ESTERIA_FORM_LOOK_ACK, 8 + 4 + 1);
+        data << rawGuid << revision << result;
+        SendPacket(&data);
+    };
+
+    if (!IsLegitCharacterForAccount(guid))
+    {
+        reply(1);
+        return;
+    }
+
+    CharacterCacheEntry const* character = sCharacterCache->GetCharacterCacheByGuid(guid);
+    if (!character)
+    {
+        reply(1);
+        return;
+    }
+
+    uint8 const first = CharacterRetailLook::FirstFormForRace(character->Race);
+    if (!first)
+    {
+        reply(3);
+        return;
+    }
+    uint8 const second = static_cast<uint8>(first + 1);
+
+    CharacterRetailLook::Look active, parked;
+    if (!CharacterRetailLook::ReadPayload(activePayload.data(), payloadSize, active)
+        || !CharacterRetailLook::ReadPayload(parkedPayload.data(), payloadSize, parked)
+        || (activeForm != first && activeForm != second)
+        || active.form != activeForm || parked.form != (activeForm == first ? second : first)
+        || active.race != character->Race || parked.race != character->Race
+        || active.sex != character->Sex || parked.sex != character->Sex)
+    {
+        reply(2);
+        return;
+    }
+
+    // Written from the parsed looks, so what is stored is always the canonical encoding.
+    std::vector<uint8> activeOut(payloadSize), parkedOut(payloadSize);
+    CharacterRetailLook::WritePayload(activeOut.data(), active);
+    CharacterRetailLook::WritePayload(parkedOut.data(), parked);
+
+    CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+    CharacterDatabasePreparedStatement* stmt = CharacterDatabase.GetPreparedStatement(CHAR_REP_RETAIL_LOOK);
+    stmt->SetData(0, guid.GetCounter());
+    stmt->SetData(1, activeOut);
+    trans->Append(stmt);
+    stmt = CharacterDatabase.GetPreparedStatement(CHAR_REP_FORM_LOOK);
+    stmt->SetData(0, guid.GetCounter());
+    stmt->SetData(1, parkedOut);
+    trans->Append(stmt);
+    CharacterDatabase.CommitTransaction(trans);
+
+    reply(0);
 }
 
 void WorldSession::HandleCharFactionOrRaceChange(WorldPacket& recvData)

@@ -17,7 +17,7 @@ sys.path.insert(0, str(FILES / "tools"))
 
 from apply_coa_sql import SCHEMAS, Log, Manifest, Server, Update, apply, plan  # noqa: E402
 
-PATCHES = ("patch-ZZZZS.MPQ", "patch-ZZZZC.MPQ", "patch-ZZZZW.MPQ")
+PATCHES = ("patch-ZZZZS.MPQ", "patch-ZZZZT.MPQ", "patch-ZZZZW.MPQ")
 GEOMETRY = "EsteriaAppearanceGeometry.bin"
 ADDONS = ("Ascension_Subclass", "SpellActivationOverlay-for-CoA")
 ALREADY_THERE = re.compile(r"ERROR (1050|1060|1061) ")

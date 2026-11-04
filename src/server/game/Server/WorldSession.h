@@ -25,6 +25,8 @@
 #include "AccountMgr.h"
 #include "AddonMgr.h"
 #include "AuthDefines.h"
+#include "BodyShapeWire.h"
+#include "RetailLookWire.h"
 #include "CircularBuffer.h"
 #include "Common.h"
 #include "DatabaseEnv.h"
@@ -384,6 +386,10 @@ protected:
     uint8 FacialHair = 0;
     uint8 OutfitId = 0;
     uint64 HaranirExtra = 0;                            // CoA: Esteria Haranir appearance extension
+    bool HasBodyShape = false;
+    CharacterBodyShape::Values BodyShape{};
+    bool HasRetailLook = false;
+    CharacterRetailLook::Look RetailLook;
 
     /// Server side data
     uint8 CharCount = 0;
@@ -725,7 +731,8 @@ public:                                                 // opcodes handlers
     void HandleCharDeleteOpcode(WorldPacket& recvPacket);
     void HandleCharCreateOpcode(WorldPacket& recvPacket);
     void HandlePlayerLoginOpcode(WorldPacket& recvPacket);
-    void HandleCharEnum(PreparedQueryResult result);
+    void HandleCharEnum(PreparedQueryResult result, PreparedQueryResult bodyShape, PreparedQueryResult retailLook);
+    void HandleEsteriaFormLookOpcode(WorldPacket& recvPacket);
     void HandlePlayerLoginFromDB(LoginQueryHolder const& holder);
     void HandlePlayerLoginToCharInWorld(Player* pCurrChar);
     void HandlePlayerLoginToCharOutOfWorld(Player* pCurrChar);

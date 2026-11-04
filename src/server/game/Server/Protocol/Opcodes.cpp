@@ -1444,6 +1444,10 @@ void OpcodeTable::Initialize()
     // by internal calls (WorldSession::HandleTC9PrepareForRedirect), not by the client.
     /*0x51F*/ DEFINE_HANDLER(CMSG_ANTICHEAT_ALERT,                                                  STATUS_AUTHED,     PROCESS_THREADUNSAFE,   &WorldSession::HandleAnticheatAlert                     );
     /*0x520*/ DEFINE_SERVER_OPCODE_HANDLER(TC9_SMSG_READY_FOR_REDIRECT, STATUS_NEVER);
+    DEFINE_SERVER_OPCODE_HANDLER(SMSG_ESTERIA_BODY_SHAPE, STATUS_NEVER);
+    DEFINE_SERVER_OPCODE_HANDLER(SMSG_ESTERIA_RETAIL_LOOK, STATUS_NEVER);
+    DEFINE_HANDLER(CMSG_ESTERIA_FORM_LOOK, STATUS_AUTHED, PROCESS_THREADUNSAFE, &WorldSession::HandleEsteriaFormLookOpcode);
+    DEFINE_SERVER_OPCODE_HANDLER(SMSG_ESTERIA_FORM_LOOK_ACK, STATUS_NEVER);
     // -- CoA extension range (consumed by mod-coa-challenges via CanPacketReceive;
     // -- Handle_NULL is the fallback when the module is disabled) --
     /*0x592*/ DEFINE_HANDLER(CMSG_COA_START_CHALLENGE,                                               STATUS_LOGGEDIN,   PROCESS_INPLACE,        &WorldSession::Handle_NULL                              );

@@ -256,6 +256,32 @@ void CharacterDatabaseConnection::DoPrepareStatements()
                      "LEFT JOIN character_ascension_state AS cas ON cas.guid = c.guid "
                      "WHERE c.account = ? AND c.deleteInfos_Name IS NULL AND (cas.active IS NULL OR cas.active <> 0) "
                      "ORDER BY COALESCE(c.order, c.guid)", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_SEL_ENUM_BODY_SHAPE,
+        "SELECT b.guid, b.data FROM character_body_shape AS b JOIN characters AS c ON c.guid = b.guid "
+        "WHERE c.account = ? AND c.deleteInfos_Name IS NULL", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_SEL_ENUM_RETAIL_LOOK,
+        "SELECT l.guid, l.data, 0 FROM character_retail_look AS l JOIN characters AS c ON c.guid = l.guid "
+        "WHERE c.account = ? AND c.deleteInfos_Name IS NULL "
+        "UNION ALL SELECT f.guid, f.data, 1 FROM character_form_look AS f JOIN characters AS c ON c.guid = f.guid "
+        "WHERE c.account = ? AND c.deleteInfos_Name IS NULL", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_SEL_RETAIL_LOOK,
+        "SELECT data FROM character_retail_look WHERE guid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_REP_RETAIL_LOOK,
+        "REPLACE INTO character_retail_look (guid, data) VALUES (?, ?)", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_DEL_RETAIL_LOOK,
+        "DELETE FROM character_retail_look WHERE guid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_SEL_FORM_LOOK,
+        "SELECT data FROM character_form_look WHERE guid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_REP_FORM_LOOK,
+        "REPLACE INTO character_form_look (guid, data) VALUES (?, ?)", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_DEL_FORM_LOOK,
+        "DELETE FROM character_form_look WHERE guid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_SEL_BODY_SHAPE,
+        "SELECT data FROM character_body_shape WHERE guid = ?", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_REP_BODY_SHAPE,
+        "REPLACE INTO character_body_shape (guid, data) VALUES (?, ?)", CONNECTION_ASYNC);
+    PrepareStatement(CHAR_DEL_BODY_SHAPE,
+        "DELETE FROM character_body_shape WHERE guid = ?", CONNECTION_ASYNC);
     PrepareStatement(CHAR_SEL_ENUM_DECLINED_NAME, "SELECT c.guid, c.name, c.race, c.class, c.gender, c.skin, c.face, c.hairStyle, c.hairColor, c.facialStyle, c.level, c.zone, c.map, "
                      "c.position_x, c.position_y, c.position_z, gm.guildid, c.playerFlags, c.at_login, cp.entry, cp.modelid, cp.level, c.equipmentCache, "
                      "cb.guid, c.extra_flags, cd.genitive, c.extraAppearance FROM characters AS c LEFT JOIN character_pet AS cp ON c.guid = cp.owner AND cp.slot = ? "
