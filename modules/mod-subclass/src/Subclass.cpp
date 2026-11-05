@@ -1869,6 +1869,21 @@ void KeepStockAutoShot(Player* player)
     player->removeSpell(copy, SPEC_MASK_ALL, false);
 }
 
+uint32 ForgetStrayBorrowedCopies(Player* player)
+{
+    std::vector<uint32> stray;
+    for (auto const& [spellId, known] : player->GetSpellMap())
+        if (known->State != PLAYERSPELL_REMOVED && spellId > BookCopyOffset && BookCopies().contains(spellId) &&
+            !IsBorrowedSpell(player, spellId - BookCopyOffset))
+            stray.push_back(spellId);
+    if (player->HasSpell(StockAutoShot) && player->getClass() != CLASS_HUNTER &&
+        !IsBorrowedSpell(player, StockAutoShot) && !OwnClassGrants(player, StockAutoShot))
+        stray.push_back(StockAutoShot);
+    for (uint32 spellId : stray)
+        player->removeSpell(spellId, SPEC_MASK_ALL, false);
+    return stray.size();
+}
+
 uint32 PreferBorrowedBookCopies(Player* player)
 {
     KeepStockAutoShot(player);
@@ -2004,6 +2019,7 @@ uint32 ApplyChoice(Player* player, Subclass::Choice const& wanted)
     StoreRecord(player, record);
     LendRunes(player);
     SyncBorrowedBaseSpells(player);
+    ForgetStrayBorrowedCopies(player);
     RefreshPowerPools(player);
     if (uint32 const active = GetAscensionActiveSpecialization(player))
         SwitchAscensionSpecialization(player, active);
@@ -3064,6 +3080,7 @@ public:
         LearnStandardMainWeaponSkills(player);
         LendRunes(player);
         SyncBorrowedBaseSpells(player);
+        ForgetStrayBorrowedCopies(player);
         if (SubclassRaceEnabled(player->getRace()))
             DropUnwieldedGearSkills(player);
         RefreshPowerPools(player);
