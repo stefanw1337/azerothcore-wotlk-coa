@@ -1370,11 +1370,9 @@ local function CyclopsPreviewOf(itemId)
     return path or nil
 end
 
-local SHEET_FIT = { zoom = 0.8, right = 0.45, up = -0.47 }
 
 local function SheetFit()
-    local saved = Ascension_SubclassDump and Ascension_SubclassDump.sheetFit
-    return saved or SHEET_FIT
+    return Ascension_SubclassDump and Ascension_SubclassDump.sheetFit
 end
 
 local function Inside(inner, outer)
@@ -1416,6 +1414,9 @@ local function FitSheetModel(frame)
         return
     end
     local fit = SheetFit()
+    if not fit then
+        return
+    end
     local x, y, z = model:GetPosition()
     if math.abs(x - fit.zoom) > 0.001 or math.abs(y - fit.right) > 0.001 or math.abs(z - fit.up) > 0.001 then
         if model.SetCamera then
@@ -3843,8 +3844,10 @@ SlashCmdList.ASCENSIONSUBCLASS = function(message)
             Ascension_SubclassDump.sheetFit = nil
         end
         local fit = SheetFit()
-        DEFAULT_CHAT_FRAME:AddMessage(string.format("Subclass: character window model zoom %.2f, right %.2f, up %.2f "
-            .. "(/subclass sheet <zoom> <right> <up>, /subclass sheet reset)", fit.zoom, fit.right, fit.up))
+        DEFAULT_CHAT_FRAME:AddMessage(fit and string.format("Subclass: character window model zoom %.2f, right %.2f, "
+            .. "up %.2f (/subclass sheet <zoom> <right> <up>, /subclass sheet reset)", fit.zoom, fit.right, fit.up)
+            or "Subclass: the character window shows the model as the game places it (/subclass sheet <zoom> <right> "
+            .. "<up> to move it)")
     elseif message == "art" then
         for index, tree in ipairs(state.trees) do
             DEFAULT_CHAT_FRAME:AddMessage(string.format("Subclass tree %d: %s / %s (spec %s) -> %s", index,
