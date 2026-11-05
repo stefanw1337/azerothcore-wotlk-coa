@@ -1,5 +1,6 @@
 import argparse
 import shutil
+import struct
 import sys
 from pathlib import Path
 
@@ -19,6 +20,8 @@ LOCALE_FOLDERS = ("enUS", "enGB")
 LOCALES = frozenset(folder.lower() for folder in LOCALE_FOLDERS)
 RACES = ("BloodElf", "Draenei", "Dwarf", "Gnome", "Human", "NightElf", "Orc", "Scourge", "Tauren", "Troll")
 SEXES = ("Male", "Female")
+STEADY_CAMERAS = ("Character\\Ogre\\Female\\TwoHeadedOgre.m2",)
+CAMERAS, CAMERA_SIZE, CAMERA_TRACKS = 0x110, 100, (16, 48, 80)
 TABLES = {"DBFilesClient\\AnimationData.dbc": handspring.add_animation_rows,
           "DBFilesClient\\SpellVisualKit.dbc": handspring.add_visual_kits}
 
@@ -99,6 +102,28 @@ def vaulted_models(client, among, kind):
     return models, sources
 
 
+def steady_cameras(model):
+    data = bytearray(model)
+    count, at = struct.unpack_from("<II", data, CAMERAS)
+    for camera in range(count):
+        for track in CAMERA_TRACKS:
+            place = at + camera * CAMERA_SIZE + track
+            for array in (place + 4, place + 12):
+                sequences, entries = struct.unpack_from("<II", data, array)
+                for sequence in range(sequences):
+                    struct.pack_into("<I", data, entries + sequence * 8, 0)
+    return bytes(data)
+
+
+def steadied_models(client):
+    models = {}
+    for name in STEADY_CAMERAS:
+        data, _ = client.newest(name, below_merged(client.archives))
+        if data is not None and steady_cameras(data) != data:
+            models[name] = steady_cameras(data)
+    return models
+
+
 def vault_tables(client):
     tables = {}
     for name, add_rows in TABLES.items():
@@ -165,7 +190,7 @@ def build(data, backup_folder, fresh=False):
     standard, standard_sources = vaulted_models(client, standard_archives(archives), "standard")
     hd, hd_sources = vaulted_models(client, original_archives(archives), "HD")
     hd = {name: model for name, model in hd.items() if hd_sources[name] != standard_sources.get(name)}
-    additions = {**standard, **vault_tables(client)}
+    additions = {**standard, **vault_tables(client), **steadied_models(client)}
     client.close()
     print(f"writing {MERGED} and {HD_PATCH}", flush=True)
     merge_into_merged(data, additions, backup_folder / (MERGED + ".before-vault"), fresh)

@@ -124,6 +124,21 @@ class VaultPatchTest(unittest.TestCase):
         vault.build(self.data, self.data, fresh=True)
         self.assertTrue(set(handspring.ANIMATION_NAMES) <= rows(self.built(vault.MERGED).extract(ANIMATIONS)))
 
+    def test_camera_keys_are_cleared_so_the_cameras_stand_still(self):
+        model = bytearray(64 + 0x140)
+        struct.pack_into("<II", model, vault.CAMERAS, 1, 0x200)
+        model += bytes(0x200 - len(model)) + bytes(100)
+        for track in vault.CAMERA_TRACKS:
+            struct.pack_into("<IIII", model, 0x200 + track + 4, 1, 0x300 + track, 1, 0x380 + track)
+        model += bytes(0x400 - len(model))
+        for track in vault.CAMERA_TRACKS:
+            struct.pack_into("<II", model, 0x300 + track, 1, 0)
+            struct.pack_into("<II", model, 0x380 + track, 1, 0)
+        steady = vault.steady_cameras(bytes(model))
+        for track in vault.CAMERA_TRACKS:
+            self.assertEqual(struct.unpack_from("<I", steady, 0x300 + track)[0], 0)
+            self.assertEqual(struct.unpack_from("<I", steady, 0x380 + track)[0], 0)
+
     def test_no_build_files_are_left_in_data(self):
         vault.build(self.data, self.data)
         self.assertEqual(sorted(path.name for path in self.data.iterdir() if ".building" in path.name or
