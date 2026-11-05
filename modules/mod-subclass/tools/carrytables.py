@@ -2,7 +2,8 @@
     python carrytables.py <Data folder> <archive with our tables> [<backup folder>]
 Spell.dbc, SkillLineAbility.dbc and SkillRaceClassInfo.dbc are taken from the archives that load before
 patch-ZZZZY.MPQ. Rows only our archive has are added, and fields where our row differs are set to ours, so the
-release's other changes stay."""
+release's other changes stay. The quest mark's row in SpellVisualKitModelAttach.dbc is set to float over the
+Two-Headed Ogre's second head (the visual's Y offset is mirrored from the model's axes)."""
 import struct
 import sys
 from pathlib import Path
@@ -77,6 +78,19 @@ def carried(base, ours, text_fields):
     return table, added, changed
 
 
+ATTACHES = "DBFilesClient\\SpellVisualKitModelAttach.dbc"
+QUEST_MARK, ABOVE_SECOND_HEAD = 9530120, (-0.085, -0.218, 2.878)
+
+
+def with_quest_mark(table):
+    rows, fields, size, texts = parsed(table)
+    for row in rows:
+        if row[0] == QUEST_MARK:
+            row[4:7] = list(struct.unpack("<3I", struct.pack("<3f", *ABOVE_SECOND_HEAD)))
+    body = b"".join(struct.pack(f"<{fields}I", *row) for row in rows)
+    return struct.pack("<4s4I", b"WDBC", len(rows), fields, size, len(texts)) + body + texts
+
+
 def carry(data, source, backup_folder):
     patches.require_writable([data / patches.MERGED])
     ours = Archive(str(source))
@@ -93,6 +107,10 @@ def carry(data, source, backup_folder):
             raise SystemExit(f"no archive in Data has {name}")
         additions[name], added, changed = carried(base, our_table, text_fields)
         print(f"{name}: {origin.name} + {added} of our rows, {changed} rows changed to ours", flush=True)
+    attaches, origin = client.newest(ATTACHES, below)
+    if attaches is not None:
+        additions[ATTACHES] = with_quest_mark(attaches)
+        print(f"{ATTACHES}: {origin.name} with the quest mark over the second head", flush=True)
     client.close()
     ours.close()
     if additions:
