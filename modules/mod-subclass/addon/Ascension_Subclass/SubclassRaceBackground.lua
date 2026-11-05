@@ -6,6 +6,9 @@ local fallbacks = {
 
 local DEFAULT = "DressUpBackground-Orc"
 
+DRESSUP_RACE_FALLBACK = DRESSUP_RACE_FALLBACK or {}
+DRESSUP_RACE_FALLBACK.Ogre = DRESSUP_RACE_FALLBACK.Ogre or "Orc"
+
 local function Patch()
     if type(AtlasUtil) ~= "table" or type(AtlasUtil.Unpack) ~= "function" or AtlasUtil.RaceBackgroundFix then
         return type(AtlasUtil) == "table" and AtlasUtil.RaceBackgroundFix
