@@ -610,6 +610,10 @@ local function RenderTree(tree, canvas)
     local strip = abilityRows * (NODE + 6) + (abilityRows > 0 and 18 or 0)
     local width, height = canvas:GetWidth() - NODE * 2, canvas:GetHeight() - NODE * 2 - 50 - strip
     local spanX, spanY = (maxX or 0) - (minX or 0), (maxY or 0) - (minY or 0)
+    local unit = math.min(spanX > 0 and width / spanX or math.huge, spanY > 0 and height / spanY or math.huge,
+        NODE * (30 + 14) / 30)
+    local left = NODE + (width - spanX * unit) / 2
+    local bottom = strip + NODE + (height - spanY * unit) / 2
     local centers, sharing = {}, {}
     for _, node in ipairs(tree.nodes) do
         local x, y = Position(node.entry, grid)
@@ -623,8 +627,8 @@ local function RenderTree(tree, canvas)
     for index, node in ipairs(tree.nodes) do
         local x, y = Position(node.entry, grid)
         local spot = sharing[x .. ":" .. y]
-        local cx = NODE + (spanX > 0 and (x - minX) / spanX * width or width / 2)
-        local cy = strip + NODE + (spanY > 0 and (maxY - y) / spanY * height or height / 2)
+        local cx = left + (x - (minX or 0)) * unit
+        local cy = bottom + ((maxY or 0) - y) * unit
         local px = cx + (node.choice - (#spot + 1) / 2) * (NODE + 6)
         local py = (#spot > 1 and asOne) and cy + NODE + 8 or cy
         centers[node.id] = (#spot > 1 and asOne) and { cx, cy } or { px, py }
