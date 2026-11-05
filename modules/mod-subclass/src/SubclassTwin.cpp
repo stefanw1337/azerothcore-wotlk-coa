@@ -49,6 +49,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <fstream>
 #include <set>
 #include <limits>
@@ -5095,6 +5096,33 @@ bool CancelsOnSecondPress(Player* player, SpellInfo const* info)
     return true;
 }
 
+bool IsMountSkillSpell(uint32 spellId)
+{
+    SkillLineAbilityMapBounds const bounds = sSpellMgr->GetSkillLineAbilityMapBounds(spellId);
+    return std::any_of(bounds.first, bounds.second,
+        [](auto const& entry) { return entry.second->SkillLine == SKILL_MOUNTS; });
+}
+
+bool SharesName(SpellInfo const* a, SpellInfo const* b)
+{
+    char const* first = a->SpellName[LOCALE_enUS];
+    char const* second = b->SpellName[LOCALE_enUS];
+    return first && second && *first && std::strcmp(first, second) == 0;
+}
+
+bool DismountsOnPress(Player* player, SpellInfo const* info)
+{
+    if (!player->IsMounted())
+        return false;
+    bool mount = info->HasAura(SPELL_AURA_MOUNTED) || IsMountSkillSpell(info->Id);
+    for (AuraEffect const* effect : player->GetAuraEffectsByType(SPELL_AURA_MOUNTED))
+        mount = mount || SharesName(effect->GetSpellInfo(), info);
+    if (!mount)
+        return false;
+    player->RemoveAurasByType(SPELL_AURA_MOUNTED);
+    return true;
+}
+
 void PressForOtherHalf(Player* player, uint32 spellId)
 {
     if (uint32 const replacement = BorrowedReplacementOf(player, spellId); replacement &&
@@ -5102,7 +5130,8 @@ void PressForOtherHalf(Player* player, uint32 spellId)
         spellId = replacement;
     SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
     if (!info || !player->IsAlive() || !player->HasSpell(spellId) || !IsBorrowedSpell(player, spellId) ||
-        TakeHalfForm(player, info) || CancelsOnSecondPress(player, info))
+        TakeHalfForm(player, info) || CancelsOnSecondPress(player, info) ||
+        DismountsOnPress(player, info))
         return;
     Unit* selected = player->GetSelectedUnit();
     Unit* target = player;

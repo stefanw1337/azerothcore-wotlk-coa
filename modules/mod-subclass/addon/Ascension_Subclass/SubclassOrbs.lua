@@ -49,6 +49,22 @@ local LOOKS = {
         art = { texture = "INTERFACE\\CoAResource\\cultistInsanityBorder", size = { 256, 64 }, layer = "BACKGROUND" },
         maximum = 100,
     },
+    [802985] = {
+        size = { 100, 100 },
+        stages = {
+            [4] = { "StarcallerMoonProgress0", "StarcallerMoonProgress41", "StarcallerMoonProgress42",
+                "StarcallerMoonProgress43", "StarcallerMoonProgressFull" },
+            [6] = { "StarcallerMoonProgress0", "StarcallerMoonProgress61", "StarcallerMoonProgress62",
+                "StarcallerMoonProgress63", "StarcallerMoonProgress64", "StarcallerMoonProgress65",
+                "StarcallerMoonProgressFull" },
+            [8] = { "StarcallerMoonProgress0", "StarcallerMoonProgress81", "StarcallerMoonProgress82",
+                "StarcallerMoonProgress83", "StarcallerMoonProgress84", "StarcallerMoonProgress85",
+                "StarcallerMoonProgress86", "StarcallerMoonProgress87", "StarcallerMoonProgressFull" },
+        },
+        ready = { atlas = "StarcallerMoonProgressReady", at = 4 },
+        text = { 0, -28 },
+        maximum = 4,
+    },
 }
 
 local Orbs = { shown = {} }
@@ -102,6 +118,26 @@ function Orbs.SavePosition()
     Ascension_SubclassDump.orbPoint = { point, relative, x, y }
 end
 
+function Orbs.Pulsing(orb, atlas, size)
+    local texture = orb:CreateTexture(nil, "OVERLAY")
+    texture:SetAtlas(atlas, IgnoreAtlasSize())
+    texture:SetSize(size[1], size[2])
+    texture:SetPoint("CENTER")
+    texture:SetBlendMode("ADD")
+    texture:Hide()
+    local pulse = texture:CreateAnimationGroup()
+    for order, change in ipairs({ -1, 1 }) do
+        local alpha = pulse:CreateAnimation("ALPHA")
+        alpha:SetChange(change)
+        alpha:SetDuration(0.5)
+        alpha:SetSmoothing(change < 0 and "IN" or "OUT")
+        alpha:SetOrder(order)
+    end
+    pulse:SetLooping("REPEAT")
+    texture.pulse = pulse
+    return texture
+end
+
 function Orbs.Create(spell, look)
     local orb = CreateFrame("Button", nil, Orbs.Container())
     orb:Hide()
@@ -119,8 +155,16 @@ function Orbs.Create(spell, look)
         orb.art:SetSize(look.art.size[1], look.art.size[2])
         orb.art:SetPoint("CENTER")
     end
+    if look.stages then
+        orb.stage = orb:CreateTexture(nil, "BORDER")
+        orb.stage:SetSize(look.size[1], look.size[2])
+        orb.stage:SetPoint("CENTER")
+    end
+    if look.ready then
+        orb.ready = Orbs.Pulsing(orb, look.ready.atlas, look.size)
+    end
     orb.loop = look.loop and Orbs.Flipbook(orb, look.loop)
-    orb.fill = Orbs.Flipbook(orb, look.fill)
+    orb.fill = look.fill and Orbs.Flipbook(orb, look.fill)
     orb.glow = look.glow and Orbs.Flipbook(orb, look.glow)
     if orb.glow then
         orb.glow:Hide()
@@ -140,6 +184,9 @@ function Orbs.Animate(orb, elapsed)
                 part.frame = 1
             end
         end
+    end
+    if not orb.fill then
+        return
     end
     local wanted = math.max(1, math.floor(orb.progress * FILL_FRAMES / 100 + 0.5))
     if orb.look.fill.emptiesUpward then
@@ -164,6 +211,19 @@ function Orbs.Show(orb, value, maximum, tinted)
     orb.progress = maximum > 0 and math.min(100, value * 100 / maximum) or 0
     orb.text:SetText(string.format("%d/%d", value, maximum))
     Orbs.Tint(orb, tinted and SUNSET_TINT or { 1, 1, 1 })
+    if orb.stage then
+        local stages = orb.look.stages[maximum] or orb.look.stages[orb.look.maximum]
+        orb.stage:SetAtlas(stages[math.min(math.max(value, 0), #stages - 1) + 1], IgnoreAtlasSize())
+    end
+    if orb.ready then
+        if value >= orb.look.ready.at then
+            orb.ready:Show()
+            orb.ready.pulse:Play()
+        else
+            orb.ready.pulse:Stop()
+            orb.ready:Hide()
+        end
+    end
     if orb.glow then
         if orb.progress >= 100 or tinted then
             orb.glow:Show()
