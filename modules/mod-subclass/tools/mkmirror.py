@@ -7,9 +7,11 @@ that arm. The shield points (forearm and back) sit on bones turned half a round 
 symmetric to, so the shield faces outward and still reaches the same way.
     python mkmirror.py <thinhumanmale.m2> <thinhumanmale00.skin> <out .m2> <out 00.skin>
     python mkmirror.py --client <Data folder> [<EsteriaAppearanceGeometry.bin>]
+    python mkmirror.py --server <dbc folder> [<more dbc folders>]
 The client form builds the mirrored model from the client's own Thin Twins model, adds display 977602 (model 901402)
 to CreatureDisplayInfo.dbc and CreatureModelData.dbc, merges all of it into patch-ZZZZY.MPQ and gives the mirrored
-model its own copy of the Thin Twins entry in EsteriaAppearanceGeometry.bin."""
+model its own copy of the Thin Twins entry in EsteriaAppearanceGeometry.bin. The server form adds the same two rows to
+CreatureDisplayInfo.dbc and CreatureModelData.dbc in each folder that has them (Data/dbc_races, Data/dbc_clientset)."""
 import math
 import struct
 import sys
@@ -357,7 +359,26 @@ def client(data, geometry=None, backup_folder=None):
     print("done: the brother's mirror model is in patch-ZZZZY.MPQ", flush=True)
 
 
+def server(folders):
+    for folder in folders:
+        model_data = folder / "CreatureModelData.dbc"
+        mirror = mirror_path(twin_model_path(model_data.read_bytes())) if model_data.exists() else MIRROR
+        for path, row, clone, change in ((model_data, MODEL_ROW, MIRROR_MODEL_ROW, mirror_model_row(mirror)),
+                                         (folder / "CreatureDisplayInfo.dbc", DISPLAY_ROW, MIRROR_DISPLAY_ROW,
+                                          mirror_display_row)):
+            if not path.exists():
+                continue
+            backup = path.with_name(path.name + ".before-mirror")
+            if not backup.exists():
+                backup.write_bytes(path.read_bytes())
+            path.write_bytes(with_cloned_row(path.read_bytes(), row, clone, change))
+            print(f"{path}: row {clone} made from row {row}", flush=True)
+
+
 def main(arguments):
+    if arguments and arguments[0] == "--server":
+        server([Path(folder) for folder in arguments[1:]])
+        return
     if arguments and arguments[0] == "--client":
         client(Path(arguments[1]), Path(arguments[2]) if len(arguments) > 2 else None,
                Path(arguments[3]) if len(arguments) > 3 else None)
