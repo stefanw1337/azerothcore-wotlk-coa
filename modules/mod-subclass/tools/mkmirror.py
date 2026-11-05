@@ -322,7 +322,7 @@ def with_mirrored_geometry(data, model=MODEL, mirror=MIRROR, skin=None):
 def client(data, geometry=None, backup_folder=None):
     backup_folder = backup_folder or data
     patches.require_writable([data / patches.MERGED] + ([geometry] if geometry else []))
-    archives = patches.original_archives(patches.ordered_archives(data))
+    archives = patches.below_merged(patches.ordered_archives(data))
     found = patches.Client(archives)
     model_data, _ = found.newest(MODEL_DATA, archives)
     if model_data is None:

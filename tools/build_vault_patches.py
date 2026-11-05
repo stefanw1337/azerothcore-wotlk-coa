@@ -16,6 +16,7 @@ HD_ARCHIVES = frozenset(("patch-4", "patch-5", "patch-x", "patch-u", "patch-z", 
 MERGED, HD_PATCH = "patch-ZZZZY.MPQ", "patch-ZZZZZ-HD.MPQ"
 OWN_ARCHIVES = frozenset(("patch-zzzzy", "patch-zzzzv", "patch-zzzzz", "patch-zzzzz-hd"))
 LOCALE_FOLDERS = ("enUS", "enGB")
+LOCALES = frozenset(folder.lower() for folder in LOCALE_FOLDERS)
 RACES = ("BloodElf", "Draenei", "Dwarf", "Gnome", "Human", "NightElf", "Orc", "Scourge", "Tauren", "Troll")
 SEXES = ("Male", "Female")
 TABLES = {"DBFilesClient\\AnimationData.dbc": handspring.add_animation_rows,
@@ -40,6 +41,12 @@ def ordered_archives(data):
 
 def original_archives(archives):
     return [path for path in archives if path.stem.lower() not in OWN_ARCHIVES]
+
+
+def below_merged(archives):
+    merged = patch_order(Path(MERGED))
+    return [path for path in original_archives(archives)
+            if path.parent.name.lower() in LOCALES or patch_order(path) < merged]
 
 
 def opens_without_hd(path):
@@ -95,13 +102,14 @@ def vaulted_models(client, among, kind):
 def vault_tables(client):
     tables = {}
     for name, add_rows in TABLES.items():
-        data, _ = client.newest(name, original_archives(client.archives))
+        data, _ = client.newest(name, below_merged(client.archives))
         if data is None:
             raise SystemExit(f"no archive in Data has {name}")
         try:
             tables[name] = add_rows(data)
-        except ValueError:
-            continue
+        except ValueError as refused:
+            if "already has ids" in str(refused):
+                tables[name] = data
     return tables
 
 

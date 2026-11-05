@@ -112,6 +112,18 @@ class VaultPatchTest(unittest.TestCase):
         vault.build(self.data, self.data)
         self.assertNotIn(7, rows(self.built(vault.MERGED).extract(ANIMATIONS)))
 
+    def test_tables_come_from_archives_below_the_merged_patch(self):
+        archive(self.data / "patch-ZZZZZZ-SKIN.MPQ", {ANIMATIONS: table(8, [[9, 0, 0, 0, 0, 0, 0, 0]], b"\0")})
+        vault.build(self.data, self.data)
+        built = rows(self.built(vault.MERGED).extract(ANIMATIONS))
+        self.assertIn(handspring.JUMP, built)
+        self.assertNotIn(9, built)
+
+    def test_a_table_that_already_has_the_vault_rows_is_still_written(self):
+        archive(self.data / "patch-ZZZZX.MPQ", {ANIMATIONS: handspring.add_animation_rows(client_tables()[ANIMATIONS])})
+        vault.build(self.data, self.data, fresh=True)
+        self.assertTrue(set(handspring.ANIMATION_NAMES) <= rows(self.built(vault.MERGED).extract(ANIMATIONS)))
+
     def test_no_build_files_are_left_in_data(self):
         vault.build(self.data, self.data)
         self.assertEqual(sorted(path.name for path in self.data.iterdir() if ".building" in path.name or
