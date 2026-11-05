@@ -1549,7 +1549,8 @@ uint32 ForgetBorrowedBaseSpells(Player* player, uint8 subClass)
 bool IsClassSkillLine(uint16 skillId)
 {
     SkillLineEntry const* skillLine = sSkillLineStore.LookupEntry(skillId);
-    return skillLine && skillLine->categoryId == SKILL_CATEGORY_CLASS;
+    return skillLine && skillLine->categoryId == SKILL_CATEGORY_CLASS && skillId != SKILL_MOUNTS &&
+        skillId != SKILL_COMPANIONS;
 }
 
 bool OwnClassSkill(Player const* player, uint16 skillId)
