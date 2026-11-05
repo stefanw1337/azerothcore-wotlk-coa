@@ -1425,7 +1425,6 @@ std::vector<uint32> TaughtBy(Trainer::Trainer const* trainer)
 }
 
 void DropClassSkill(Player* player, uint16 skillId);
-bool IsCollectedSpell(uint32 spellId);
 
 uint32 ForgetStandardKit(Player* player, uint8 playableClass)
 {
@@ -1436,8 +1435,7 @@ uint32 ForgetStandardKit(Player* player, uint8 playableClass)
             DropClassSkill(player, skill);
     uint32 removed = 0;
     for (uint32 spellId : TaughtBy(ClassTrainerOf(playableClass)))
-        if (player->HasSpell(spellId) && std::find(own.begin(), own.end(), spellId) == own.end() &&
-            !IsCollectedSpell(spellId))
+        if (player->HasSpell(spellId) && std::find(own.begin(), own.end(), spellId) == own.end())
         {
             player->removeSpell(spellId, SPEC_MASK_ALL, false);
             ++removed;
