@@ -1289,6 +1289,8 @@ void LearnFromAddon(Player* player, uint32 entryId, uint32 rank)
     SendSubclassState(player);
 }
 
+std::string PetOwnerState(Player const* player);
+
 void HandleAddonMessage(Player* player, std::string_view message)
 {
     if (message == "SYNC")
@@ -1307,6 +1309,11 @@ void HandleAddonMessage(Player* player, std::string_view message)
     {
         if (OffersQuest(player))
             ShowPrompt(player, player->GetGUID());
+        return;
+    }
+    if (message == "PETOWNER")
+    {
+        SendAddon(player, PetOwnerState(player));
         return;
     }
     if (message == "AIM")
@@ -1954,30 +1961,44 @@ uint32 SyncBorrowedBaseSpells(Player* player)
     return learned;
 }
 
-uint32 PetSummonSpell(Player const* player)
+bool PetFromSubclass(Player const* player)
 {
     Pet const* pet = player->GetPet();
-    uint32 const summonedBy = pet ? pet->GetUInt32Value(UNIT_CREATED_BY_SPELL) : 0;
-    return summonedBy && player->HasSpell(summonedBy) ? summonedBy : 0;
+    if (!pet)
+        return false;
+    if (uint32 const createdBy = pet->GetUInt32Value(UNIT_CREATED_BY_SPELL))
+        return IsBorrowedSpell(player, createdBy);
+    return pet->getPetType() == HUNTER_PET && player->getClass() != CLASS_HUNTER;
 }
 
-void DismissPetSummonedBy(Player* player, uint32 summonSpell)
+std::string PetOwnerState(Player const* player)
 {
-    if (Pet* pet = player->GetPet(); pet && summonSpell && !player->HasSpell(summonSpell) &&
-        pet->GetUInt32Value(UNIT_CREATED_BY_SPELL) == summonSpell)
+    if (!player->GetPet())
+        return "PETOWNER -";
+    return PetFromSubclass(player) ? "PETOWNER brother" : "PETOWNER main";
+}
+
+void DismissPetUnlessKnown(Player* player, bool fromSubclass)
+{
+    Pet* pet = player->GetPet();
+    if (!pet)
+        return;
+    uint32 const createdBy = pet->GetUInt32Value(UNIT_CREATED_BY_SPELL);
+    if (fromSubclass || (createdBy && !player->HasSpell(createdBy)))
         player->RemovePet(pet, PET_SAVE_NOT_IN_SLOT, false);
 }
 
 uint32 ApplyChoice(Player* player, Subclass::Choice const& wanted)
 {
     Record record = RecordOf(player);
+    bool const subclassChanged = record.Choice.SubClass && record.Choice.SubClass != wanted.SubClass;
+    bool const petFromSubclass = subclassChanged && PetFromSubclass(player);
     uint32 removed = record.Choice == wanted ? 0 : ForgetBorrowedTrees(player, record.Choice);
-    if (record.Choice.SubClass && record.Choice.SubClass != wanted.SubClass)
+    if (subclassChanged)
     {
-        uint32 const summonSpell = PetSummonSpell(player);
         removed += ForgetBorrowedBaseSpells(player, record.Choice.SubClass);
         ForgetBorrowedSkillLines(player, record.Choice.SubClass);
-        DismissPetSummonedBy(player, summonSpell);
+        DismissPetUnlessKnown(player, petFromSubclass);
     }
     record.Choice = wanted;
     StoreRecord(player, record);
@@ -1988,6 +2009,7 @@ uint32 ApplyChoice(Player* player, Subclass::Choice const& wanted)
         SwitchAscensionSpecialization(player, active);
     GrantSpecializationPresets(player);
     SendSubclassState(player);
+    SendAddon(player, PetOwnerState(player));
     return removed;
 }
 

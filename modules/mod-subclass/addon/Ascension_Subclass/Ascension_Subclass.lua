@@ -1903,6 +1903,12 @@ local function Receive(message)
         end
         return
     end
+    if command == "PETOWNER" then
+        if Ascension_Subclass.OnPetOwner then
+            Ascension_Subclass.OnPetOwner(rest)
+        end
+        return
+    end
     if command == "STANCES" then
         Stances.spells = {}
         for spellId in string.gmatch(rest, "%d+") do
