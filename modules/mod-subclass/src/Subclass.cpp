@@ -1929,14 +1929,30 @@ uint32 SyncBorrowedBaseSpells(Player* player)
     return learned;
 }
 
+uint32 PetSummonSpell(Player const* player)
+{
+    Pet const* pet = player->GetPet();
+    uint32 const summonedBy = pet ? pet->GetUInt32Value(UNIT_CREATED_BY_SPELL) : 0;
+    return summonedBy && player->HasSpell(summonedBy) ? summonedBy : 0;
+}
+
+void DismissPetSummonedBy(Player* player, uint32 summonSpell)
+{
+    if (Pet* pet = player->GetPet(); pet && summonSpell && !player->HasSpell(summonSpell) &&
+        pet->GetUInt32Value(UNIT_CREATED_BY_SPELL) == summonSpell)
+        player->RemovePet(pet, PET_SAVE_NOT_IN_SLOT, false);
+}
+
 uint32 ApplyChoice(Player* player, Subclass::Choice const& wanted)
 {
     Record record = RecordOf(player);
     uint32 removed = record.Choice == wanted ? 0 : ForgetBorrowedTrees(player, record.Choice);
     if (record.Choice.SubClass && record.Choice.SubClass != wanted.SubClass)
     {
+        uint32 const summonSpell = PetSummonSpell(player);
         removed += ForgetBorrowedBaseSpells(player, record.Choice.SubClass);
         ForgetBorrowedSkillLines(player, record.Choice.SubClass);
+        DismissPetSummonedBy(player, summonSpell);
     }
     record.Choice = wanted;
     StoreRecord(player, record);
