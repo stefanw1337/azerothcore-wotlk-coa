@@ -1417,13 +1417,15 @@ std::vector<uint32> TaughtBy(Trainer::Trainer const* trainer)
     return taught;
 }
 
+void DropClassSkill(Player* player, uint16 skillId);
+
 uint32 ForgetStandardKit(Player* player, uint8 playableClass)
 {
     std::vector<uint32> const own = TaughtBy(ClassTrainerOf(player->getClass()));
     std::vector<uint16> const ownLines = ClassSkillLinesOf(own);
     for (uint16 skill : ClassSkillLinesOf(TaughtBy(ClassTrainerOf(playableClass))))
         if (player->HasSkill(skill) && std::find(ownLines.begin(), ownLines.end(), skill) == ownLines.end())
-            player->SetSkill(skill, 0, 0, 0);
+            DropClassSkill(player, skill);
     uint32 removed = 0;
     for (uint32 spellId : TaughtBy(ClassTrainerOf(playableClass)))
         if (player->HasSpell(spellId) && std::find(own.begin(), own.end(), spellId) == own.end())
@@ -1553,6 +1555,29 @@ bool IsClassSkillLine(uint16 skillId)
         skillId != SKILL_COMPANIONS;
 }
 
+bool IsCollectedSpell(uint32 spellId)
+{
+    SkillLineAbilityMapBounds const bounds = sSpellMgr->GetSkillLineAbilityMapBounds(spellId);
+    return std::any_of(bounds.first, bounds.second, [](auto const& entry)
+    {
+        return entry.second->SkillLine == SKILL_MOUNTS || entry.second->SkillLine == SKILL_COMPANIONS;
+    });
+}
+
+void DropClassSkill(Player* player, uint16 skillId)
+{
+    std::vector<uint32> kept;
+    for (SkillLineAbilityEntry const* ability : GetSkillLineAbilitiesBySkillLine(skillId))
+    {
+        uint32 const spellId = sSpellMgr->GetFirstSpellInChain(ability->Spell);
+        if (player->HasSpell(spellId) && IsCollectedSpell(spellId))
+            kept.push_back(spellId);
+    }
+    player->SetSkill(skillId, 0, 0, 0);
+    for (uint32 spellId : kept)
+        player->learnSpell(spellId, false);
+}
+
 bool OwnClassSkill(Player const* player, uint16 skillId)
 {
     return std::any_of(AscensionLiveBaseline::Skills.begin(), AscensionLiveBaseline::Skills.end(),
@@ -1567,7 +1592,7 @@ void ForgetBorrowedSkillLines(Player* player, uint8 subClass)
     for (AscensionLiveBaseline::Skill const& skill : AscensionLiveBaseline::Skills)
         if (skill.ClassId == subClass && IsClassSkillLine(skill.SkillId) && player->HasSkill(skill.SkillId) &&
             !OwnClassSkill(player, skill.SkillId))
-            player->SetSkill(skill.SkillId, 0, 0, 0);
+            DropClassSkill(player, skill.SkillId);
 }
 
 void SyncBorrowedSkillLines(Player* player, uint8 subClass)
