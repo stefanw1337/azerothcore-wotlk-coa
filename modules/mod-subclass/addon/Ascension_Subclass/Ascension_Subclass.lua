@@ -1371,8 +1371,10 @@ local function CyclopsPreviewOf(itemId)
 end
 
 
+local SHEET_FIT = { zoom = 0, right = 0.3, up = -0.55, facing = -0.3 }
+
 local function SheetFit()
-    return Ascension_SubclassDump and Ascension_SubclassDump.sheetFit
+    return Ascension_SubclassDump and Ascension_SubclassDump.sheetFit or SHEET_FIT
 end
 
 local function Inside(inner, outer)
@@ -1414,15 +1416,12 @@ local function FitSheetModel(frame)
         return
     end
     local fit = SheetFit()
-    if not fit then
-        return
-    end
     local x, y, z = model:GetPosition()
     if math.abs(x - fit.zoom) > 0.001 or math.abs(y - fit.right) > 0.001 or math.abs(z - fit.up) > 0.001 then
-        if model.SetCamera then
-            model:SetCamera(1)
-        end
         model:SetPosition(fit.zoom, fit.right, fit.up)
+        if model.SetFacing then
+            model:SetFacing(fit.facing or 0)
+        end
     end
 end
 
@@ -3835,19 +3834,18 @@ SlashCmdList.ASCENSIONSUBCLASS = function(message)
     elseif message == "stancebar reset" then
         Ascension_Subclass.ResetStanceBar()
     elseif message:find("^sheet") then
-        local zoom, right, up = message:match("^sheet%s+(%S+)%s+(%S+)%s+(%S+)$")
+        local zoom, right, up, facing = message:match("^sheet%s+(%S+)%s+(%S+)%s+(%S+)%s*(%S*)$")
         Ascension_SubclassDump = Ascension_SubclassDump or {}
         if zoom then
             Ascension_SubclassDump.sheetFit = { zoom = tonumber(zoom) or 0, right = tonumber(right) or 0,
-                up = tonumber(up) or 0 }
+                up = tonumber(up) or 0, facing = tonumber(facing) or 0 }
         elseif message == "sheet reset" then
             Ascension_SubclassDump.sheetFit = nil
         end
         local fit = SheetFit()
-        DEFAULT_CHAT_FRAME:AddMessage(fit and string.format("Subclass: character window model zoom %.2f, right %.2f, "
-            .. "up %.2f (/subclass sheet <zoom> <right> <up>, /subclass sheet reset)", fit.zoom, fit.right, fit.up)
-            or "Subclass: the character window shows the model as the game places it (/subclass sheet <zoom> <right> "
-            .. "<up> to move it)")
+        DEFAULT_CHAT_FRAME:AddMessage(string.format("Subclass: character window model zoom %.2f, right %.2f, up %.2f, "
+            .. "turn %.2f (/subclass sheet <zoom> <right> <up> <turn>, /subclass sheet reset)", fit.zoom, fit.right,
+            fit.up, fit.facing or 0))
     elseif message == "art" then
         for index, tree in ipairs(state.trees) do
             DEFAULT_CHAT_FRAME:AddMessage(string.format("Subclass tree %d: %s / %s (spec %s) -> %s", index,
