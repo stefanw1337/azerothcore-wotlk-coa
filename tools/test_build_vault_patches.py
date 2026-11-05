@@ -119,6 +119,15 @@ class VaultPatchTest(unittest.TestCase):
         self.assertIn(handspring.JUMP, built)
         self.assertNotIn(9, built)
 
+    def test_a_release_patch_named_zzzzz_is_built_on_not_hidden(self):
+        release = table(8, [[handspring.JUMP, 1, 0, 257, 2, 0, 38, 0], [handspring.FLY_JUMP, 6, 0, 257, 2, 229, 38, 3],
+                            [9, 0, 0, 0, 0, 0, 0, 0]], b"\0Jump\0FlyJump\0")
+        archive(self.data / "patch-ZZZZZ.MPQ", {ANIMATIONS: release})
+        vault.build(self.data, self.data)
+        built = rows(self.built(vault.MERGED).extract(ANIMATIONS))
+        self.assertIn(9, built)
+        self.assertTrue(set(handspring.ANIMATION_NAMES) <= built)
+
     def test_a_table_that_already_has_the_vault_rows_is_still_written(self):
         archive(self.data / "patch-ZZZZX.MPQ", {ANIMATIONS: handspring.add_animation_rows(client_tables()[ANIMATIONS])})
         vault.build(self.data, self.data, fresh=True)
@@ -130,7 +139,7 @@ class VaultPatchTest(unittest.TestCase):
                                 path.name.endswith(".adding")), [])
 
     def test_hd_archives_are_left_out_of_the_standard_models(self):
-        names = [Path(name) for name in ("common.MPQ", "patch-Q.MPQ", "patch-CHA.MPQ", "patch-ZZZZY.MPQ",
+        names = [Path(name) for name in ("common.MPQ", "patch-Q.MPQ", "patch-CHA.MPQ", "patch-ZZZZZY.MPQ",
                                          "patch-ZZZZZ-HD.MPQ", "patch-Bear-HD.MPQ")]
         self.assertEqual([path.name for path in vault.standard_archives(names)], ["common.MPQ", "patch-CHA.MPQ"])
         self.assertEqual([path.name for path in vault.original_archives(names)],

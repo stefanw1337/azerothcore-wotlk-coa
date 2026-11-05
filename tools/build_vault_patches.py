@@ -13,8 +13,8 @@ from mkmergepatch import LISTFILE, merge, verified, written  # noqa: E402
 from mpqpull import Archive, patch_order  # noqa: E402
 
 HD_ARCHIVES = frozenset(("patch-4", "patch-5", "patch-x", "patch-u", "patch-z", "patch-q", "patch-r", "patch-v"))
-MERGED, HD_PATCH = "patch-ZZZZY.MPQ", "patch-ZZZZZ-HD.MPQ"
-OWN_ARCHIVES = frozenset(("patch-zzzzy", "patch-zzzzv", "patch-zzzzz", "patch-zzzzz-hd"))
+MERGED, HD_PATCH = "patch-ZZZZZY.MPQ", "patch-ZZZZZ-HD.MPQ"
+OWN_ARCHIVES = frozenset(("patch-zzzzzy", "patch-zzzzy", "patch-zzzzv", "patch-zzzzz-hd"))
 LOCALE_FOLDERS = ("enUS", "enGB")
 LOCALES = frozenset(folder.lower() for folder in LOCALE_FOLDERS)
 RACES = ("BloodElf", "Draenei", "Dwarf", "Gnome", "Human", "NightElf", "Orc", "Scourge", "Tauren", "Troll")
@@ -180,11 +180,11 @@ def build(data, backup_folder, fresh=False):
 def main():
     parser = argparse.ArgumentParser(
         description="Build the Vault for the original races from this client's own models: standard models into "
-                    "patch-ZZZZY.MPQ and HD models into patch-ZZZZZ-HD.MPQ")
+                    "patch-ZZZZZY.MPQ and HD models into patch-ZZZZZ-HD.MPQ")
     parser.add_argument("data", type=Path, help="the client's Data folder")
-    parser.add_argument("--backup", type=Path, help="folder for the patch-ZZZZY.MPQ backup (default: Data)")
+    parser.add_argument("--backup", type=Path, help="folder for the patch-ZZZZZY.MPQ backup (default: Data)")
     parser.add_argument("--fresh", action="store_true",
-                        help="start patch-ZZZZY.MPQ over with only the Vault, dropping files merged into it before")
+                        help="start patch-ZZZZZY.MPQ over with only the Vault, dropping files merged into it before")
     args = parser.parse_args()
     standard_sources, hd_sources, hd = build(args.data, args.backup or args.data, args.fresh)
     for name in model_names():

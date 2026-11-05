@@ -1,7 +1,7 @@
-"""Carry the subclass's client table rows onto the client's own newest tables and merge them into patch-ZZZZY.MPQ.
+"""Carry the subclass's client table rows onto the client's own newest tables and merge them into patch-ZZZZZY.MPQ.
     python carrytables.py <Data folder> <archive with our tables> [<backup folder>]
 Spell.dbc, SkillLineAbility.dbc and SkillRaceClassInfo.dbc are taken from the archives that load before
-patch-ZZZZY.MPQ. Rows only our archive has are added, and fields where our row differs are set to ours, so the
+patch-ZZZZZY.MPQ. Rows only our archive has are added, and fields where our row differs are set to ours, so the
 release's other changes stay. The quest mark's row in SpellVisualKitModelAttach.dbc is set to float over the
 Two-Headed Ogre's second head (the visual's Y offset is mirrored from the model's axes)."""
 import struct
@@ -116,7 +116,7 @@ def carry(data, source, backup_folder):
     if additions:
         print(f"writing {patches.MERGED}", flush=True)
         patches.merge_into_merged(data, additions, backup_folder / (patches.MERGED + ".before-tables"))
-    print("done: our client tables are in patch-ZZZZY.MPQ", flush=True)
+    print("done: our client tables are in patch-ZZZZZY.MPQ", flush=True)
 
 
 def main(arguments):

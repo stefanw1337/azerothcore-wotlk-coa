@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from mkmergepatch import LISTFILE, verified, written
 from mpqpull import Archive, patch_order
 
-MERGED_NAME = "patch-ZZZZZ.MPQ"
+MERGED_NAME = "patch-ZZZZZX.MPQ"
 LOCALE_FOLDERS = ("enUS", "enGB")
 BLIZZARD = {"common", "common-2", "expansion", "lichking", "patch", "patch-2", "patch-3"}
 TEXT_SUFFIXES = (".lua", ".xml", ".toc", ".txt", ".wtf", ".ini")

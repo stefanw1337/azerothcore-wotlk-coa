@@ -19,7 +19,7 @@ if not defined PY (
 )
 %PY% -B "%HERE%build_vault_patches.py" "%DATA%" --backup "%HERE%." %FRESH%
 if errorlevel 1 (
-    echo ERROR: see the lines above. patch-ZZZZY.MPQ was not replaced.
+    echo ERROR: see the lines above. patch-ZZZZZY.MPQ was not replaced.
     pause
     exit /b 1
 )

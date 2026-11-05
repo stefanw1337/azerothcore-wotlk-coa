@@ -9,7 +9,7 @@ symmetric to, so the shield faces outward and still reaches the same way.
     python mkmirror.py --client <Data folder> [<EsteriaAppearanceGeometry.bin>]
     python mkmirror.py --server <dbc folder> [<more dbc folders>]
 The client form builds the mirrored model from the client's own Thin Twins model, adds display 977602 (model 901402)
-to CreatureDisplayInfo.dbc and CreatureModelData.dbc, merges all of it into patch-ZZZZY.MPQ and gives the mirrored
+to CreatureDisplayInfo.dbc and CreatureModelData.dbc, merges all of it into patch-ZZZZZY.MPQ and gives the mirrored
 model its own copy of the Thin Twins entry in EsteriaAppearanceGeometry.bin. The server form adds the same two rows to
 CreatureDisplayInfo.dbc and CreatureModelData.dbc in each folder that has them (Data/dbc_races, Data/dbc_clientset)."""
 import math
@@ -356,7 +356,7 @@ def client(data, geometry=None, backup_folder=None):
                 backup.write_bytes(geometry.read_bytes())
             geometry.write_bytes(updated)
         print(f"{geometry.name}: {'mirrored entry added' if updated else 'nothing to add'}", flush=True)
-    print("done: the brother's mirror model is in patch-ZZZZY.MPQ", flush=True)
+    print("done: the brother's mirror model is in patch-ZZZZZY.MPQ", flush=True)
 
 
 def server(folders):
