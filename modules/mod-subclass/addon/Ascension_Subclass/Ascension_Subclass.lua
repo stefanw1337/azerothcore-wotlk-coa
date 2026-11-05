@@ -1371,7 +1371,7 @@ local function CyclopsPreviewOf(itemId)
 end
 
 
-local SHEET_FIT = { zoom = 0, right = 0.3, up = -0.55, facing = 0 }
+local SHEET_FIT = { zoom = 0.7, right = 0.3, up = -0.55, facing = 0 }
 
 local function SheetFit()
     return Ascension_SubclassDump and Ascension_SubclassDump.sheetFit or SHEET_FIT
