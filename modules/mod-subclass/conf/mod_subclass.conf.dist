@@ -112,7 +112,7 @@ Subclass.TravelForms.WholeBody = 1
 #    Subclass.ThinTwins.MirrorDisplay
 #        The display the Thin Twins brother wears: his mirror image, holding his main-hand weapon in his
 #        left hand and his shield on his right arm. Needs the mirrored model in the client patch
-#        (patch-ZZZZY.MPQ). 0 gives him the player's own model.
+#        (patch-ZZZZZY.MPQ). 0 gives him the player's own model.
 #        Default: 977602
 
 Subclass.ThinTwins.MirrorDisplay = 977602
