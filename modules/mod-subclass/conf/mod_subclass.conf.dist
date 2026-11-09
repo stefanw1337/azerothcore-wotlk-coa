@@ -165,3 +165,21 @@ Subclass.Bots.Force = 0
 #        Default: 4 (0 keeps the first build)
 
 Subclass.Bots.RebuildHours = 4
+
+#    Subclass.TwoPlayers.Bots
+#        When one head of a Two-Players pair is offline, the head still playing gets a bot for the missing
+#        one through SQUID Playerbots (mod-playerbots for Conquest of Azeroth, by Zyth45). A bot Melee Head
+#        walks, fights and quests with the Ranged Head on its back (/pair stop holds it still, /pair go lets
+#        it roam again); a bot Ranged Head casts from the Melee Head's back. The bot leaves when its player
+#        logs in or when the head who called it logs out. Without SQUID Playerbots the Ranged Head waits
+#        in place for the Melee Head.
+#        Default: 1 - enabled
+#                 0 - disabled
+
+Subclass.TwoPlayers.Bots = 1
+
+#    Subclass.TwoPlayers.BotSeconds
+#        How many seconds the remaining head waits before the bot is called.
+#        Default: 10
+
+Subclass.TwoPlayers.BotSeconds = 10

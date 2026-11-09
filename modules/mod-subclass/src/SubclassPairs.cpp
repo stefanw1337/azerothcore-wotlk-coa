@@ -29,6 +29,7 @@ using namespace Acore::ChatCommands;
 Subclass::SpecializationRoles RolesOfSpecialization(uint16 specialization);
 Subclass::SpecializationRoles RolesOfClass(uint8 classId);
 void TwoPlayersSeparate(uint32 first, uint32 second);
+std::string TwoPlayersHalt(Player* rider, bool halt);
 
 namespace
 {
@@ -435,7 +436,9 @@ public:
             { "echo", HandleEcho, SEC_PLAYER, Console::No },
             { "accept", HandleAccept, SEC_PLAYER, Console::No },
             { "decline", HandleDecline, SEC_PLAYER, Console::No },
-            { "status", HandleStatus, SEC_PLAYER, Console::No }
+            { "status", HandleStatus, SEC_PLAYER, Console::No },
+            { "stop", HandleStop, SEC_PLAYER, Console::No },
+            { "go", HandleGo, SEC_PLAYER, Console::No }
         };
         static ChatCommandTable commands = { { "pair", pairCommands } };
         return commands;
@@ -452,6 +455,18 @@ public:
             return true;
         }
         Invite(player, target);
+        return true;
+    }
+
+    static bool HandleStop(ChatHandler* handler)
+    {
+        handler->SendSysMessage(TwoPlayersHalt(handler->GetSession()->GetPlayer(), true));
+        return true;
+    }
+
+    static bool HandleGo(ChatHandler* handler)
+    {
+        handler->SendSysMessage(TwoPlayersHalt(handler->GetSession()->GetPlayer(), false));
         return true;
     }
 
@@ -550,6 +565,8 @@ void HandlePairMessage(Player* player, std::vector<std::string_view> const& word
         Status(player);
     else if (words.size() == 1 && words[0] == "PAIRECHO")
         ShowEcho(player);
+    else if (words.size() == 1 && (words[0] == "PAIRSTOP" || words[0] == "PAIRGO"))
+        Tell(player, TwoPlayersHalt(player, words[0] == "PAIRSTOP"));
 }
 
 void AddSC_mod_subclass_pairs()

@@ -4,6 +4,8 @@
 
 #include "AllSpellScript.h"
 #include "Chat.h"
+#include "Config.h"
+#include "GameTime.h"
 #include "Group.h"
 #include "GroupMgr.h"
 #include "ObjectAccessor.h"
@@ -25,17 +27,30 @@
 
 uint32 TwoPlayersPartnerOf(uint32 guid);
 bool TwoPlayersIsLeftHead(uint32 guid);
+bool TwoPlayersBotsAvailable();
+bool TwoPlayersCallBot(Player* master, uint32 headGuid);
+bool TwoPlayersHeadIsBot(Player const* head);
+void TwoPlayersSteerBotBody(Player* body, bool roam);
 
 namespace
 {
 constexpr uint32 KeepTogetherMs = 1000;
 constexpr float SeatReach = 40.0f;
 constexpr int8 RightHeadSeat = 0;
+constexpr uint32 BotRecallMs = 30000;
+
+struct Absence
+{
+    uint32 Since = 0;
+    uint32 Called = 0;
+};
 
 std::mutex& bodyMutex = *new std::mutex;
 std::unordered_map<uint32, std::vector<uint32>>& lent = *new std::unordered_map<uint32, std::vector<uint32>>;
 std::unordered_map<uint32, uint32>& sinceCheck = *new std::unordered_map<uint32, uint32>;
 std::unordered_set<uint32>& waiting = *new std::unordered_set<uint32>;
+std::unordered_set<uint32>& halted = *new std::unordered_set<uint32>;
+std::unordered_map<uint32, Absence>& absences = *new std::unordered_map<uint32, Absence>;
 
 Player* Online(uint32 guid)
 {
@@ -198,9 +213,52 @@ bool Ready(Player const* player)
     return !player->IsInFlight() && !player->IsBeingTeleported();
 }
 
-bool Connected(uint32 guid)
+Player* Connected(uint32 guid)
 {
-    return ObjectAccessor::FindConnectedPlayer(ObjectGuid::Create<HighGuid::Player>(guid)) != nullptr;
+    return ObjectAccessor::FindConnectedPlayer(ObjectGuid::Create<HighGuid::Player>(guid));
+}
+
+bool Halted(uint32 riderGuid)
+{
+    std::lock_guard<std::mutex> lock(bodyMutex);
+    return halted.count(riderGuid) != 0;
+}
+
+bool BotsTakeOver()
+{
+    return TwoPlayersBotsAvailable() && sConfigMgr->GetOption<bool>("Subclass.TwoPlayers.Bots", true);
+}
+
+bool TimeToCallBot(uint32 guid, bool missing)
+{
+    uint32 const now = std::max<uint32>(getMSTime(), 1);
+    uint32 const delay = sConfigMgr->GetOption<uint32>("Subclass.TwoPlayers.BotSeconds", 10) * IN_MILLISECONDS;
+    std::lock_guard<std::mutex> lock(bodyMutex);
+    if (!missing)
+    {
+        absences.erase(guid);
+        return false;
+    }
+    Absence& absence = absences[guid];
+    if (!absence.Since)
+        absence.Since = now;
+    if (getMSTimeDiff(absence.Since, now) < delay)
+        return false;
+    if (absence.Called && getMSTimeDiff(absence.Called, now) < BotRecallMs)
+        return false;
+    absence.Called = now;
+    return true;
+}
+
+void CallBotForMissingHead(Player* player, uint32 partnerGuid, bool missing, bool left)
+{
+    if (TwoPlayersHeadIsBot(player) || !BotsTakeOver())
+        return;
+    if (!TimeToCallBot(player->GetGUID().GetCounter(), missing) || !TwoPlayersCallBot(player, partnerGuid))
+        return;
+    Tell(player, left ? "A bot casts for your Ranged Head until they come back." :
+        "A bot steers your Melee Head's body until they come back. Type /pair stop to hold it still and /pair go "
+        "to let it roam again.");
 }
 
 bool MarkWaiting(uint32 guid, bool wait)
@@ -209,7 +267,7 @@ bool MarkWaiting(uint32 guid, bool wait)
     return wait ? waiting.insert(guid).second : waiting.erase(guid) != 0;
 }
 
-void WaitForBody(Player* rider, bool wait)
+void WaitForBody(Player* rider, bool wait, bool botBody)
 {
     bool const changed = MarkWaiting(rider->GetGUID().GetCounter(), wait && rider->IsAlive());
     if (wait && rider->IsAlive())
@@ -222,7 +280,7 @@ void WaitForBody(Player* rider, bool wait)
     if (!changed)
         return;
     rider->SetControlled(false, UNIT_STATE_ROOT);
-    if (!wait)
+    if (!wait && !botBody)
         Tell(rider, "Your Melee Head is back.");
 }
 
@@ -233,8 +291,10 @@ void KeepTogether(Player* player)
     if (!partnerGuid)
         return;
     bool const left = TwoPlayersIsLeftHead(guid);
+    Player* const connected = Connected(partnerGuid);
     if (!left)
-        WaitForBody(player, !Connected(partnerGuid));
+        WaitForBody(player, !connected, TwoPlayersHeadIsBot(connected));
+    CallBotForMissingHead(player, partnerGuid, !connected, left);
     Player* partner = Online(partnerGuid);
     if (!partner)
     {
@@ -244,6 +304,8 @@ void KeepTogether(Player* player)
     }
     Player* body = left ? player : partner;
     Player* rider = left ? partner : player;
+    if (!left && TwoPlayersHeadIsBot(body))
+        TwoPlayersSteerBotBody(body, !Halted(guid));
     if (left && SameMap(body, rider) && Ready(body) && Ready(rider))
         GroupUp(body, rider);
     if (Seated(body, rider) || !Ready(body) || !Ready(rider) || body->GetVehicle())
@@ -337,6 +399,8 @@ public:
         std::lock_guard<std::mutex> lock(bodyMutex);
         sinceCheck.erase(player->GetGUID().GetCounter());
         waiting.erase(player->GetGUID().GetCounter());
+        halted.erase(player->GetGUID().GetCounter());
+        absences.erase(player->GetGUID().GetCounter());
     }
 };
 
@@ -429,6 +493,26 @@ void TwoPlayersSeparate(uint32 first, uint32 second)
             if (MarkWaiting(guid, false))
                 player->SetControlled(false, UNIT_STATE_ROOT);
         }
+}
+
+std::string TwoPlayersHalt(Player* rider, bool halt)
+{
+    uint32 const guid = rider->GetGUID().GetCounter();
+    uint32 const partnerGuid = TwoPlayersPartnerOf(guid);
+    if (!partnerGuid || TwoPlayersIsLeftHead(guid))
+        return "Only a Ranged Head can stop or start a bot that steers the body.";
+    Player* body = Online(partnerGuid);
+    if (!TwoPlayersHeadIsBot(body))
+        return "Your Melee Head steers the body, not a bot.";
+    {
+        std::lock_guard<std::mutex> lock(bodyMutex);
+        if (halt)
+            halted.insert(guid);
+        else
+            halted.erase(guid);
+    }
+    TwoPlayersSteerBotBody(body, !halt);
+    return halt ? "The body stops and waits here." : "The body roams, fights and quests again.";
 }
 
 void AddSC_mod_subclass_two_players()

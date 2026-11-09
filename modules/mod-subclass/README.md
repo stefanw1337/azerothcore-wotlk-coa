@@ -12,6 +12,12 @@ The CoA core must have the talent hooks `AddAscensionTalentTreeProvider` (extra 
 `AddAscensionTalentBudgetProvider` in `src/server/coa/AscensionSpecialization.h`. Without them the module does not
 compile.
 
+Optional: [SQUID Playerbots](https://github.com/Zyth45/mod-playerbots/tree/coa), the Conquest of Azeroth fork of
+[mod-playerbots](https://github.com/mod-playerbots/mod-playerbots) by Zyth45 (Squid), built on the Playerbot AI of
+ike3 and the mod-playerbots authors (GPL-2.0). With it in `modules/`, a bot plays a Two-Players head whose player is
+offline (`Subclass.TwoPlayers.Bots`). The module calls SQUID's own bot login and strategies and contains none of its
+code; without it, a Ranged Head waits in place for the Melee Head.
+
 ## Install
 
 1. Copy this folder to `modules/mod-subclass` and re-run CMake.

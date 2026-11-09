@@ -66,6 +66,10 @@ SlashCmdList.SUBCLASSPAIR = function(text)
         Send("PAIRDECLINE")
     elseif lower == "echo" then
         Send("PAIRECHO")
+    elseif lower == "stop" then
+        Send("PAIRSTOP")
+    elseif lower == "go" then
+        Send("PAIRGO")
     elseif lower == "" or lower == "status" then
         if word == "" and UnitIsPlayer("target") and not UnitIsUnit("target", "player") then
             Send("PAIR " .. UnitName("target"))
