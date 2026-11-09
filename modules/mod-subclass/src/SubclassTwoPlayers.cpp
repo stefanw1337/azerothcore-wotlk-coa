@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 uint32 TwoPlayersPartnerOf(uint32 guid);
@@ -34,6 +35,7 @@ constexpr int8 RightHeadSeat = 0;
 std::mutex& bodyMutex = *new std::mutex;
 std::unordered_map<uint32, std::vector<uint32>>& lent = *new std::unordered_map<uint32, std::vector<uint32>>;
 std::unordered_map<uint32, uint32>& sinceCheck = *new std::unordered_map<uint32, uint32>;
+std::unordered_set<uint32>& waiting = *new std::unordered_set<uint32>;
 
 Player* Online(uint32 guid)
 {
@@ -196,12 +198,43 @@ bool Ready(Player const* player)
     return !player->IsInFlight() && !player->IsBeingTeleported();
 }
 
+bool Connected(uint32 guid)
+{
+    return ObjectAccessor::FindConnectedPlayer(ObjectGuid::Create<HighGuid::Player>(guid)) != nullptr;
+}
+
+bool MarkWaiting(uint32 guid, bool wait)
+{
+    std::lock_guard<std::mutex> lock(bodyMutex);
+    return wait ? waiting.insert(guid).second : waiting.erase(guid) != 0;
+}
+
+void WaitForBody(Player* rider, bool wait)
+{
+    bool const changed = MarkWaiting(rider->GetGUID().GetCounter(), wait && rider->IsAlive());
+    if (wait && rider->IsAlive())
+    {
+        rider->SetControlled(true, UNIT_STATE_ROOT);
+        if (changed)
+            Tell(rider, "Your Melee Head is offline. The body stands still here until they come back.");
+        return;
+    }
+    if (!changed)
+        return;
+    rider->SetControlled(false, UNIT_STATE_ROOT);
+    if (!wait)
+        Tell(rider, "Your Melee Head is back.");
+}
+
 void KeepTogether(Player* player)
 {
     uint32 const guid = player->GetGUID().GetCounter();
     uint32 const partnerGuid = TwoPlayersPartnerOf(guid);
     if (!partnerGuid)
         return;
+    bool const left = TwoPlayersIsLeftHead(guid);
+    if (!left)
+        WaitForBody(player, !Connected(partnerGuid));
     Player* partner = Online(partnerGuid);
     if (!partner)
     {
@@ -209,7 +242,6 @@ void KeepTogether(Player* player)
             Reclaim(player);
         return;
     }
-    bool const left = TwoPlayersIsLeftHead(guid);
     Player* body = left ? player : partner;
     Player* rider = left ? partner : player;
     if (left && SameMap(body, rider) && Ready(body) && Ready(rider))
@@ -304,6 +336,7 @@ public:
         DropBodyKit(player);
         std::lock_guard<std::mutex> lock(bodyMutex);
         sinceCheck.erase(player->GetGUID().GetCounter());
+        waiting.erase(player->GetGUID().GetCounter());
     }
 };
 
@@ -393,6 +426,8 @@ void TwoPlayersSeparate(uint32 first, uint32 second)
                 player->ExitVehicle();
             Reclaim(player);
             DropBodyKit(player);
+            if (MarkWaiting(guid, false))
+                player->SetControlled(false, UNIT_STATE_ROOT);
         }
 }
 
