@@ -790,6 +790,10 @@ std::unordered_set<uint32> runesLent;
 std::unordered_set<uint16> tankSpecializations;
 std::unordered_set<uint16> distantSpecializations;
 std::unordered_map<uint16, Subclass::SpecializationRoles> specializationRoles;
+std::unordered_map<uint8, Subclass::SpecializationRoles> classRoles;
+constexpr uint32 ChrClassesFields = 56;
+constexpr uint32 ChrClassesToken = 55;
+constexpr uint32 ChrSpecsClassToken = 1;
 constexpr uint32 ChrSpecsFields = 29;
 constexpr uint32 ChrSpecsMeleeRole = 11;
 constexpr uint32 ChrSpecsRangedRole = 12;
@@ -803,6 +807,17 @@ void LoadSpecializationRoles()
     std::unordered_set<uint16> tanks;
     std::unordered_set<uint16> distant;
     std::unordered_map<uint16, Subclass::SpecializationRoles> roleTable;
+    std::unordered_map<uint8, Subclass::SpecializationRoles> rolesOfClasses;
+    std::unordered_map<std::string, uint8> classOfToken;
+    ClientDBC classes;
+    if (classes.Load(GetClientDBCPath("ChrClasses.dbc"), ChrClassesFields))
+        for (uint32 row = 0; row < classes.GetRecordCount(); ++row)
+        {
+            ClientDBC::Record record = classes.GetRecord(row);
+            std::string token(record.GetString(ChrClassesToken));
+            std::transform(token.begin(), token.end(), token.begin(), ::toupper);
+            classOfToken[token] = uint8(record.GetUInt32(0));
+        }
     if (specs.Load(GetClientDBCPath("ChrSpecs.dbc"), ChrSpecsFields))
         for (uint32 row = 0; row < specs.GetRecordCount(); ++row)
         {
@@ -816,12 +831,17 @@ void LoadSpecializationRoles()
             if (Subclass::KeepsDistance(roles))
                 distant.insert(specId);
             roleTable[specId] = roles;
+            std::string token(record.GetString(ChrSpecsClassToken));
+            std::transform(token.begin(), token.end(), token.begin(), ::toupper);
+            if (auto const owner = classOfToken.find(token); owner != classOfToken.end())
+                rolesOfClasses[owner->second] = Subclass::Joined(rolesOfClasses[owner->second], roles);
         }
     LOG_INFO("module", "mod-subclass: {} tank and {} ranged specialization(s)", tanks.size(), distant.size());
     std::lock_guard<std::mutex> lock(subclassMutex);
     tankSpecializations = std::move(tanks);
     distantSpecializations = std::move(distant);
     specializationRoles = std::move(roleTable);
+    classRoles = std::move(rolesOfClasses);
 }
 
 constexpr uint32 AdvancementFields = 121;
@@ -3903,4 +3923,11 @@ Subclass::SpecializationRoles RolesOfSpecialization(uint16 specialization)
     std::lock_guard<std::mutex> lock(subclassMutex);
     auto const found = specializationRoles.find(specialization);
     return found == specializationRoles.end() ? Subclass::SpecializationRoles{} : found->second;
+}
+
+Subclass::SpecializationRoles RolesOfClass(uint8 classId)
+{
+    std::lock_guard<std::mutex> lock(subclassMutex);
+    auto const found = classRoles.find(classId);
+    return found == classRoles.end() ? Subclass::SpecializationRoles{} : found->second;
 }

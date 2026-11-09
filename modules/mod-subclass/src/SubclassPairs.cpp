@@ -27,6 +27,7 @@
 using namespace Acore::ChatCommands;
 
 Subclass::SpecializationRoles RolesOfSpecialization(uint16 specialization);
+Subclass::SpecializationRoles RolesOfClass(uint8 classId);
 void TwoPlayersSeparate(uint32 first, uint32 second);
 
 namespace
@@ -95,9 +96,10 @@ bool IsTwoPlayers(Player const* player)
 
 Subclass::PairHead HeadOf(Player const* player)
 {
-    return { IsTwoPlayers(player),
-        PartnerOf(player->GetGUID().GetCounter()) != 0, player->GetLevel(),
-        RolesOfSpecialization(uint16(GetAscensionActiveSpecialization(player))) };
+    Subclass::SpecializationRoles roles = RolesOfSpecialization(uint16(GetAscensionActiveSpecialization(player)));
+    if (!Subclass::HasAnyRole(roles))
+        roles = RolesOfClass(player->getClass());
+    return { IsTwoPlayers(player), PartnerOf(player->GetGUID().GetCounter()) != 0, player->GetLevel(), roles };
 }
 
 std::string RefusalText(Subclass::PairRefusal refusal, Player const* left, Player const* right)

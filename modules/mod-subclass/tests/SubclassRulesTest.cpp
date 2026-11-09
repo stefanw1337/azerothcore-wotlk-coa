@@ -461,11 +461,12 @@ PairHead const MeleeHead = { true, false, 20, MeleeRoles };
 PairHead const CasterHead = { true, false, 20, CasterRoles };
 }
 
-TEST(Subclass, OnlyTheMaleTwoHeadedOgreIsATwoPlayersBody)
+TEST(Subclass, TheMaleOgreAndTheFemaleSlotOfTheTwinsAreTwoPlayersBodies)
 {
     EXPECT_TRUE(IsTwoPlayersBody(TwoHeadedOgreRace, 0));
     EXPECT_FALSE(IsTwoPlayersBody(TwoHeadedOgreRace, 1));
     EXPECT_FALSE(IsTwoPlayersBody(ThinHumanRace, 0));
+    EXPECT_TRUE(IsTwoPlayersBody(ThinHumanRace, 1));
 }
 
 TEST(Subclass, TheLeftHeadFightsUpCloseAndTheRightHeadFromAfar)
@@ -581,4 +582,15 @@ TEST(Subclass, TheBodyCastsBorrowedSpellsAndThePresserPaysItsOwnShare)
     EXPECT_EQ(ShareOfOwnPower(45, 100, 1000), 450u);
     EXPECT_EQ(ShareOfOwnPower(1, 3000, 100), 1u);
     EXPECT_EQ(ShareOfOwnPower(0, 100, 100), 0u);
+}
+
+TEST(Subclass, BeforeASpecializationIsChosenTheClassRolesDecideTheHead)
+{
+    EXPECT_FALSE(HasAnyRole(SpecializationRoles{}));
+    SpecializationRoles const both = Joined(MeleeRoles, CasterRoles);
+    EXPECT_TRUE(HasAnyRole(both));
+    EXPECT_TRUE(FitsLeftHead(both));
+    EXPECT_TRUE(FitsRightHead(both));
+    EXPECT_EQ(CheckPair({ true, false, 1, MeleeRoles }, { true, false, 1, Joined(CasterRoles, HealerRoles) }),
+        PairRefusal::None);
 }

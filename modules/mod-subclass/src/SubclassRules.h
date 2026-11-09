@@ -537,7 +537,18 @@ constexpr std::uint8_t MaxPairLevelGap = 3;
 
 inline bool IsTwoPlayersBody(std::uint8_t race, std::uint8_t gender)
 {
-    return race == TwoHeadedOgreRace && gender == 0;
+    return (race == TwoHeadedOgreRace && gender == 0) || (race == ThinHumanRace && gender == 1);
+}
+
+inline bool HasAnyRole(SpecializationRoles const& roles)
+{
+    return roles.Melee || roles.Ranged || roles.Caster || roles.Tank || roles.Healer;
+}
+
+inline SpecializationRoles Joined(SpecializationRoles const& first, SpecializationRoles const& second)
+{
+    return { first.Melee || second.Melee, first.Ranged || second.Ranged, first.Caster || second.Caster,
+        first.Tank || second.Tank, first.Healer || second.Healer };
 }
 
 inline bool FitsLeftHead(SpecializationRoles const& roles)
