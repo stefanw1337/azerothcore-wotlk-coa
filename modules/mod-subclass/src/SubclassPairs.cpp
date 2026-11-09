@@ -88,9 +88,14 @@ std::string NameOf(uint32 guid)
     return name;
 }
 
+bool IsTwoPlayers(Player const* player)
+{
+    return Subclass::IsTwoPlayersBody(player->getRace(true), player->GetByteValue(PLAYER_BYTES_3, 0));
+}
+
 Subclass::PairHead HeadOf(Player const* player)
 {
-    return { Subclass::IsTwoPlayersBody(player->getRace(), player->getGender()),
+    return { IsTwoPlayers(player),
         PartnerOf(player->GetGUID().GetCounter()) != 0, player->GetLevel(),
         RolesOfSpecialization(uint16(GetAscensionActiveSpecialization(player))) };
 }
@@ -126,7 +131,11 @@ std::string StateOf(Player const* player)
     if (!partner)
     {
         std::string const formerLeft = StandInBodyOf(guid);
-        return formerLeft.empty() ? "PAIRSTATE NONE" : "PAIRSTATE ECHO " + formerLeft;
+        if (!formerLeft.empty())
+            return "PAIRSTATE ECHO " + formerLeft;
+        Subclass::SpecializationRoles const roles = HeadOf(player).Roles;
+        return std::string("PAIRSTATE NONE ") + (Subclass::FitsLeftHead(roles) ? "LEFT"
+            : Subclass::FitsRightHead(roles) ? "RIGHT" : "ANY");
     }
     return std::string("PAIRSTATE ") + (IsLeftHead(guid) ? "LEFT " : "RIGHT ") + NameOf(partner);
 }
@@ -389,7 +398,7 @@ void LoadPairs()
 
 void FitHoldingBody(Player* player)
 {
-    if (!Subclass::IsTwoPlayersBody(player->getRace(), player->getGender()))
+    if (!IsTwoPlayers(player))
         return;
     Item const* offHand = player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
     bool const holding = offHand && offHand->GetTemplate()->InventoryType == Subclass::HeldInOffHand;

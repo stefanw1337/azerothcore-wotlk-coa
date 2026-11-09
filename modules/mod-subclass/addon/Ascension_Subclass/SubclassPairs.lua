@@ -2,6 +2,7 @@ local PREFIX = "SUBCLASS"
 local TWO_PLAYERS_RACE = "Two-Headed Ogre"
 local MALE = 2
 local pairState = "NONE"
+local ownHead = "ANY"
 
 local function Send(message)
     SendAddonMessage(PREFIX, message, "WHISPER", UnitName("player"))
@@ -50,10 +51,12 @@ hooksecurefunc("UnitPopup_ShowMenu", function(_, which, unit, name)
         end
         UIDropDownMenu_AddButton(info, 1)
     end
-    if pairState == "NONE" then
+    if pairState == "NONE" and ownHead ~= "RIGHT" then
         AddInvite("Invite as Right Head", "PAIR")
     end
-    AddInvite("Invite as Left Head", "PAIRLEFT")
+    if pairState == "ECHO" or ownHead ~= "LEFT" then
+        AddInvite("Invite as Left Head", "PAIRLEFT")
+    end
 end)
 
 SLASH_SUBCLASSPAIR1 = "/pair"
@@ -101,8 +104,11 @@ frame:SetScript("OnEvent", function(_, _, prefix, message, _, sender)
         StaticPopup_Show("SUBCLASS_PAIR_INVITE", body, "Left Head")
         return
     end
-    local head = message:match("^PAIRSTATE (%u+)")
+    local head, fits = message:match("^PAIRSTATE (%u+)%s*(%u*)")
     if head then
         pairState = head
+        if head == "NONE" then
+            ownHead = fits ~= "" and fits or "ANY"
+        end
     end
 end)
