@@ -533,6 +533,63 @@ inline float SplitShare(float his, std::uint32_t before, std::uint32_t total, fl
     return std::clamp(his, std::max(0.0f, float(total) - half), std::min(half, float(total)));
 }
 
+constexpr std::uint8_t MaxPairLevelGap = 3;
+
+inline bool IsTwoPlayersBody(std::uint8_t race, std::uint8_t gender)
+{
+    return race == TwoHeadedOgreRace && gender == 0;
+}
+
+inline bool FitsLeftHead(SpecializationRoles const& roles)
+{
+    return roles.Melee || roles.Tank;
+}
+
+inline bool FitsRightHead(SpecializationRoles const& roles)
+{
+    return roles.Caster || roles.Ranged;
+}
+
+struct PairHead
+{
+    bool TwoPlayers = false;
+    bool Paired = false;
+    std::uint8_t Level = 0;
+    SpecializationRoles Roles;
+};
+
+enum class PairRefusal
+{
+    None,
+    LeftNotTwoPlayers,
+    RightNotTwoPlayers,
+    LeftPaired,
+    RightPaired,
+    LevelGap,
+    LeftSpecialization,
+    RightSpecialization
+};
+
+inline PairRefusal CheckPair(PairHead const& left, PairHead const& right)
+{
+    if (!left.TwoPlayers)
+        return PairRefusal::LeftNotTwoPlayers;
+    if (!right.TwoPlayers)
+        return PairRefusal::RightNotTwoPlayers;
+    if (left.Paired)
+        return PairRefusal::LeftPaired;
+    if (right.Paired)
+        return PairRefusal::RightPaired;
+    std::uint8_t const gap = left.Level > right.Level ? left.Level - right.Level : right.Level - left.Level;
+    if (gap > MaxPairLevelGap)
+        return PairRefusal::LevelGap;
+    if (!FitsLeftHead(left.Roles))
+        return PairRefusal::LeftSpecialization;
+    if (!FitsRightHead(right.Roles))
+        return PairRefusal::RightSpecialization;
+    return PairRefusal::None;
+}
+
 inline Choice Trimmed(std::vector<Pair> const& pairs, Character const& character, Choice const& choice)
 {
     if (!choice.Complete() || !AllowsChoice(pairs, character, choice))

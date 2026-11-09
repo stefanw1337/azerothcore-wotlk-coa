@@ -73,6 +73,7 @@ std::string TwinWearing(Player const* player);
 void EchoCyclopsHelmet(Player* player);
 std::string RelicState(Player* player);
 std::string HandleRelicMessage(Player* player, std::vector<std::string_view> const& words);
+void HandlePairMessage(Player* player, std::vector<std::string_view> const& words);
 std::string TwinState(Player const* player);
 std::string CyclopsModelState(Player const* player);
 std::string CyclopsPreview(uint32 itemId);
@@ -788,6 +789,7 @@ bool HandlesOwnPet(SpellInfo const* info)
 std::unordered_set<uint32> runesLent;
 std::unordered_set<uint16> tankSpecializations;
 std::unordered_set<uint16> distantSpecializations;
+std::unordered_map<uint16, Subclass::SpecializationRoles> specializationRoles;
 constexpr uint32 ChrSpecsFields = 29;
 constexpr uint32 ChrSpecsMeleeRole = 11;
 constexpr uint32 ChrSpecsRangedRole = 12;
@@ -800,6 +802,7 @@ void LoadSpecializationRoles()
     ClientDBC specs;
     std::unordered_set<uint16> tanks;
     std::unordered_set<uint16> distant;
+    std::unordered_map<uint16, Subclass::SpecializationRoles> roleTable;
     if (specs.Load(GetClientDBCPath("ChrSpecs.dbc"), ChrSpecsFields))
         for (uint32 row = 0; row < specs.GetRecordCount(); ++row)
         {
@@ -812,11 +815,13 @@ void LoadSpecializationRoles()
                 tanks.insert(specId);
             if (Subclass::KeepsDistance(roles))
                 distant.insert(specId);
+            roleTable[specId] = roles;
         }
     LOG_INFO("module", "mod-subclass: {} tank and {} ranged specialization(s)", tanks.size(), distant.size());
     std::lock_guard<std::mutex> lock(subclassMutex);
     tankSpecializations = std::move(tanks);
     distantSpecializations = std::move(distant);
+    specializationRoles = std::move(roleTable);
 }
 
 constexpr uint32 AdvancementFields = 121;
@@ -1381,6 +1386,8 @@ void HandleAddonMessage(Player* player, std::string_view message)
             ChatHandler(player->GetSession()).SendSysMessage(refusal);
         SendAddon(player, RelicState(player));
     }
+    else if (!words.empty() && words[0].starts_with("PAIR"))
+        HandlePairMessage(player, words);
     else if (words.size() == 1 && words[0] == "CYCLOPSECHO")
     {
         EchoCyclopsHelmet(player);
@@ -3889,4 +3896,11 @@ void AddSC_mod_subclass()
         else
             Subclass::AddBonusPoints(settings, borrowsClassTree, classPoints, specializationPoints);
     });
+}
+
+Subclass::SpecializationRoles RolesOfSpecialization(uint16 specialization)
+{
+    std::lock_guard<std::mutex> lock(subclassMutex);
+    auto const found = specializationRoles.find(specialization);
+    return found == specializationRoles.end() ? Subclass::SpecializationRoles{} : found->second;
 }

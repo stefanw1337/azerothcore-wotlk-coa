@@ -449,3 +449,62 @@ TEST(Subclass, TheThinTwinsBrotherOnlyTakesFeaturesTheRaceOffers)
     EXPECT_FALSE(BrotherFeatureFits(4, 4));
     EXPECT_FALSE(BrotherFeatureFits(0, 0));
 }
+
+namespace
+{
+SpecializationRoles const MeleeRoles = { true, false, false, false, false };
+SpecializationRoles const TankRoles = { false, false, false, true, false };
+SpecializationRoles const CasterRoles = { false, false, true, false, false };
+SpecializationRoles const RangedRoles = { false, true, false, false, false };
+SpecializationRoles const HealerRoles = { false, false, false, false, true };
+PairHead const MeleeHead = { true, false, 20, MeleeRoles };
+PairHead const CasterHead = { true, false, 20, CasterRoles };
+}
+
+TEST(Subclass, OnlyTheMaleTwoHeadedOgreIsATwoPlayersBody)
+{
+    EXPECT_TRUE(IsTwoPlayersBody(TwoHeadedOgreRace, 0));
+    EXPECT_FALSE(IsTwoPlayersBody(TwoHeadedOgreRace, 1));
+    EXPECT_FALSE(IsTwoPlayersBody(ThinHumanRace, 0));
+}
+
+TEST(Subclass, TheLeftHeadFightsUpCloseAndTheRightHeadFromAfar)
+{
+    EXPECT_TRUE(FitsLeftHead(MeleeRoles));
+    EXPECT_TRUE(FitsLeftHead(TankRoles));
+    EXPECT_FALSE(FitsLeftHead(CasterRoles));
+    EXPECT_FALSE(FitsLeftHead(HealerRoles));
+    EXPECT_TRUE(FitsRightHead(CasterRoles));
+    EXPECT_TRUE(FitsRightHead(RangedRoles));
+    EXPECT_FALSE(FitsRightHead(MeleeRoles));
+    EXPECT_FALSE(FitsRightHead(HealerRoles));
+}
+
+TEST(Subclass, AMeleeLeftHeadAndACasterRightHeadPairUp)
+{
+    EXPECT_EQ(CheckPair(MeleeHead, CasterHead), PairRefusal::None);
+    EXPECT_EQ(CheckPair({ true, false, 20, TankRoles }, { true, false, 20, RangedRoles }), PairRefusal::None);
+}
+
+TEST(Subclass, BothHeadsMustBeFreeTwoPlayersBodies)
+{
+    EXPECT_EQ(CheckPair({ false, false, 20, MeleeRoles }, CasterHead), PairRefusal::LeftNotTwoPlayers);
+    EXPECT_EQ(CheckPair(MeleeHead, { false, false, 20, CasterRoles }), PairRefusal::RightNotTwoPlayers);
+    EXPECT_EQ(CheckPair({ true, true, 20, MeleeRoles }, CasterHead), PairRefusal::LeftPaired);
+    EXPECT_EQ(CheckPair(MeleeHead, { true, true, 20, CasterRoles }), PairRefusal::RightPaired);
+}
+
+TEST(Subclass, HeadsPairOnlyWithinThreeLevels)
+{
+    EXPECT_EQ(CheckPair({ true, false, 23, MeleeRoles }, CasterHead), PairRefusal::None);
+    EXPECT_EQ(CheckPair(MeleeHead, { true, false, 17, CasterRoles }), PairRefusal::None);
+    EXPECT_EQ(CheckPair({ true, false, 24, MeleeRoles }, CasterHead), PairRefusal::LevelGap);
+    EXPECT_EQ(CheckPair(MeleeHead, { true, false, 16, CasterRoles }), PairRefusal::LevelGap);
+}
+
+TEST(Subclass, EachHeadNeedsASpecializationThatFitsIt)
+{
+    EXPECT_EQ(CheckPair(CasterHead, CasterHead), PairRefusal::LeftSpecialization);
+    EXPECT_EQ(CheckPair(MeleeHead, MeleeHead), PairRefusal::RightSpecialization);
+    EXPECT_EQ(CheckPair(MeleeHead, { true, false, 20, HealerRoles }), PairRefusal::RightSpecialization);
+}

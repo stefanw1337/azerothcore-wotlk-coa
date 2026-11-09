@@ -14,3 +14,4 @@ SubclassNodes.lua
 SubclassChoices.lua
 SubclassGlow.lua
 SubclassPetBar.lua
+SubclassPairs.lua

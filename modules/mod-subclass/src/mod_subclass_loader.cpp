@@ -8,6 +8,7 @@ void AddSC_mod_subclass_relic();
 void AddSC_mod_subclass_bots();
 void AddSC_mod_subclass_quests();
 void AddSC_mod_subclass_spellbook();
+void AddSC_mod_subclass_pairs();
 
 void Addmod_subclassScripts()
 {
@@ -17,4 +18,5 @@ void Addmod_subclassScripts()
     AddSC_mod_subclass_bots();
     AddSC_mod_subclass_quests();
     AddSC_mod_subclass_spellbook();
+    AddSC_mod_subclass_pairs();
 }
