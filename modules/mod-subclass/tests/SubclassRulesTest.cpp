@@ -508,3 +508,12 @@ TEST(Subclass, EachHeadNeedsASpecializationThatFitsIt)
     EXPECT_EQ(CheckPair(MeleeHead, MeleeHead), PairRefusal::RightSpecialization);
     EXPECT_EQ(CheckPair(MeleeHead, { true, false, 20, HealerRoles }), PairRefusal::RightSpecialization);
 }
+
+TEST(Subclass, TheEchoKeepsEveryWornSlotWithStatsButNotShirtOrTabard)
+{
+    std::vector<std::uint8_t> echoed;
+    for (std::uint8_t slot = 0; slot < 40; ++slot)
+        if (IsEchoSlot(slot))
+            echoed.push_back(slot);
+    EXPECT_EQ(echoed, (std::vector<std::uint8_t>{ 0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 }));
+}

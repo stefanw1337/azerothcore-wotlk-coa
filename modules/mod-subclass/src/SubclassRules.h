@@ -590,6 +590,15 @@ inline PairRefusal CheckPair(PairHead const& left, PairHead const& right)
     return PairRefusal::None;
 }
 
+constexpr std::uint8_t EquipmentSlotCount = 19;
+constexpr std::uint8_t ShirtSlot = 3;
+constexpr std::uint8_t TabardSlot = 18;
+
+inline bool IsEchoSlot(std::uint8_t slot)
+{
+    return slot < EquipmentSlotCount && slot != ShirtSlot && slot != TabardSlot;
+}
+
 inline Choice Trimmed(std::vector<Pair> const& pairs, Character const& character, Choice const& choice)
 {
     if (!choice.Complete() || !AllowsChoice(pairs, character, choice))

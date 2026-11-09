@@ -12,7 +12,7 @@ local function IsTwoPlayersBody()
 end
 
 StaticPopupDialogs["SUBCLASS_PAIR_INVITE"] = {
-    text = "%s invites you to be the Right Head of their body.",
+    text = "%s invites you to be the %s of their body.",
     button1 = "Join",
     button2 = "Cancel",
     OnAccept = function()
@@ -31,20 +31,29 @@ StaticPopupDialogs["SUBCLASS_PAIR_INVITE"] = {
 local MENUS = { PLAYER = true, PARTY = true, RAID_PLAYER = true, FRIEND = true, TARGET = true }
 
 hooksecurefunc("UnitPopup_ShowMenu", function(_, which, unit, name)
-    if UIDROPDOWNMENU_MENU_LEVEL ~= 1 or not MENUS[which] or pairState ~= "NONE" or not IsTwoPlayersBody() then
+    if UIDROPDOWNMENU_MENU_LEVEL ~= 1 or not MENUS[which] or not IsTwoPlayersBody() then
+        return
+    end
+    if pairState ~= "NONE" and pairState ~= "ECHO" then
         return
     end
     local target = name or (unit and UnitName(unit))
     if not target or target == UnitName("player") or (unit and not UnitIsPlayer(unit)) then
         return
     end
-    local info = UIDropDownMenu_CreateInfo()
-    info.text = "Invite as Right Head"
-    info.notCheckable = 1
-    info.func = function()
-        Send("PAIR " .. target)
+    local function AddInvite(text, message)
+        local info = UIDropDownMenu_CreateInfo()
+        info.text = text
+        info.notCheckable = 1
+        info.func = function()
+            Send(message .. " " .. target)
+        end
+        UIDropDownMenu_AddButton(info, 1)
     end
-    UIDropDownMenu_AddButton(info, 1)
+    if pairState == "NONE" then
+        AddInvite("Invite as Right Head", "PAIR")
+    end
+    AddInvite("Invite as Left Head", "PAIRLEFT")
 end)
 
 SLASH_SUBCLASSPAIR1 = "/pair"
@@ -55,6 +64,16 @@ SlashCmdList.SUBCLASSPAIR = function(text)
         Send("PAIRACCEPT")
     elseif lower == "decline" then
         Send("PAIRDECLINE")
+    elseif lower == "echo" then
+        Send("PAIRECHO")
+    elseif lower == "left" or lower:match("^left%s") then
+        local name = strtrim(word:sub(5))
+        if name == "" and UnitIsPlayer("target") and not UnitIsUnit("target", "player") then
+            name = UnitName("target")
+        end
+        if name ~= "" then
+            Send("PAIRLEFT " .. name)
+        end
     elseif lower == "" or lower == "status" then
         if word == "" and UnitIsPlayer("target") and not UnitIsUnit("target", "player") then
             Send("PAIR " .. UnitName("target"))
@@ -74,7 +93,12 @@ frame:SetScript("OnEvent", function(_, _, prefix, message, _, sender)
     end
     local inviter = message:match("^PAIRINVITE (.+)$")
     if inviter then
-        StaticPopup_Show("SUBCLASS_PAIR_INVITE", inviter)
+        StaticPopup_Show("SUBCLASS_PAIR_INVITE", inviter, "Right Head")
+        return
+    end
+    local body = message:match("^PAIRINVITELEFT (.+)$")
+    if body then
+        StaticPopup_Show("SUBCLASS_PAIR_INVITE", body, "Left Head")
         return
     end
     local head = message:match("^PAIRSTATE (%u+)")
