@@ -517,3 +517,13 @@ TEST(Subclass, TheEchoKeepsEveryWornSlotWithStatsButNotShirtOrTabard)
             echoed.push_back(slot);
     EXPECT_EQ(echoed, (std::vector<std::uint8_t>{ 0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17 }));
 }
+
+TEST(Subclass, ABookPouchOrOrbInTheOffHandSwapsTheBodyToItsHoldingVersion)
+{
+    EXPECT_EQ(BodyDisplayFor(TwoPlayersBodyDisplay, true), TwoPlayersHoldingDisplay);
+    EXPECT_EQ(BodyDisplayFor(TwoPlayersHoldingDisplay, false), TwoPlayersBodyDisplay);
+    EXPECT_EQ(BodyDisplayFor(MutatedBodyDisplay, true), MutatedHoldingDisplay);
+    EXPECT_EQ(BodyDisplayFor(MutatedHoldingDisplay, false), MutatedBodyDisplay);
+    EXPECT_EQ(BodyDisplayFor(TwoPlayersBodyDisplay, false), TwoPlayersBodyDisplay);
+    EXPECT_EQ(BodyDisplayFor(1234, true), 1234u);
+}

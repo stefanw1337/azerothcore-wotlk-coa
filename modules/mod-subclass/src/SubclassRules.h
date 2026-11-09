@@ -599,6 +599,21 @@ inline bool IsEchoSlot(std::uint8_t slot)
     return slot < EquipmentSlotCount && slot != ShirtSlot && slot != TabardSlot;
 }
 
+constexpr std::uint32_t TwoPlayersBodyDisplay = 985001;
+constexpr std::uint32_t MutatedBodyDisplay = 985002;
+constexpr std::uint32_t TwoPlayersHoldingDisplay = 985003;
+constexpr std::uint32_t MutatedHoldingDisplay = 985004;
+constexpr std::uint32_t HeldInOffHand = 23;
+
+inline std::uint32_t BodyDisplayFor(std::uint32_t display, bool holding)
+{
+    if (display == TwoPlayersBodyDisplay || display == TwoPlayersHoldingDisplay)
+        return holding ? TwoPlayersHoldingDisplay : TwoPlayersBodyDisplay;
+    if (display == MutatedBodyDisplay || display == MutatedHoldingDisplay)
+        return holding ? MutatedHoldingDisplay : MutatedBodyDisplay;
+    return display;
+}
+
 inline Choice Trimmed(std::vector<Pair> const& pairs, Character const& character, Choice const& choice)
 {
     if (!choice.Complete() || !AllowsChoice(pairs, character, choice))
