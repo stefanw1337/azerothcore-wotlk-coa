@@ -37,7 +37,6 @@ constexpr uint64 InviteMilliseconds = 120000;
 struct PairInvite
 {
     uint32 Inviter = 0;
-    bool InviterIsLeft = true;
     uint64 Until = 0;
 };
 
@@ -141,31 +140,28 @@ std::string StateOf(Player const* player)
     return std::string("PAIRSTATE ") + (IsLeftHead(guid) ? "LEFT " : "RIGHT ") + NameOf(partner);
 }
 
-void Invite(Player* inviter, Player* invitee, bool inviterIsLeft)
+void Invite(Player* left, Player* right)
 {
-    if (inviter == invitee)
+    if (left == right)
     {
-        Tell(inviter, "You can't pair with yourself.");
+        Tell(left, "You can't pair with yourself.");
         return;
     }
-    Player* left = inviterIsLeft ? inviter : invitee;
-    Player* right = inviterIsLeft ? invitee : inviter;
     Subclass::PairRefusal const refusal = Subclass::CheckPair(HeadOf(left), HeadOf(right));
     if (refusal != Subclass::PairRefusal::None)
     {
-        Tell(inviter, RefusalText(refusal, left, right));
+        Tell(left, RefusalText(refusal, left, right));
         return;
     }
     {
         std::lock_guard<std::mutex> lock(pairMutex);
-        invites[invitee->GetGUID().GetCounter()] = { inviter->GetGUID().GetCounter(), inviterIsLeft,
+        invites[right->GetGUID().GetCounter()] = { left->GetGUID().GetCounter(),
             uint64(GameTime::GetGameTimeMS().count()) + InviteMilliseconds };
     }
-    std::string const seat = inviterIsLeft ? "Ranged Head" : "Melee Head";
-    Tell(inviter, "You invited " + invitee->GetName() + " to be your " + seat + ".");
-    Tell(invitee, inviter->GetName() + " invites you to be the " + seat + " of their body. Type .pair accept or "
+    Tell(left, "You invited " + right->GetName() + " to be your Ranged Head.");
+    Tell(right, left->GetName() + " invites you to be the Ranged Head of their body. Type .pair accept or "
         ".pair decline.");
-    SendPairAddon(invitee, (inviterIsLeft ? "PAIRINVITE " : "PAIRINVITELEFT ") + inviter->GetName());
+    SendPairAddon(right, "PAIRINVITE " + left->GetName());
 }
 
 void ForgetStandInBody(uint32 right)
@@ -228,8 +224,8 @@ void Accept(Player* invitee)
         Tell(invitee, "The head that invited you is no longer online.");
         return;
     }
-    Player* left = invite.InviterIsLeft ? inviter : invitee;
-    Player* right = invite.InviterIsLeft ? invitee : inviter;
+    Player* left = inviter;
+    Player* right = invitee;
     Subclass::PairRefusal const refusal = Subclass::CheckPair(HeadOf(left), HeadOf(right));
     if (refusal != Subclass::PairRefusal::None)
     {
@@ -273,8 +269,7 @@ void Decline(Player* invitee)
     }
     Tell(invitee, "You declined the invitation.");
     if (Player* inviter = ObjectAccessor::FindPlayerByLowGUID(invite.Inviter))
-        Tell(inviter, invitee->GetName() + " declined to be your " + (invite.InviterIsLeft ? "Right" : "Left")
-            + " Head.");
+        Tell(inviter, invitee->GetName() + " declined to be your Ranged Head.");
 }
 
 void Status(Player* player)
@@ -435,7 +430,6 @@ public:
         static ChatCommandTable pairCommands =
         {
             { "invite", HandleInvite, SEC_PLAYER, Console::No },
-            { "inviteleft", HandleInviteLeft, SEC_PLAYER, Console::No },
             { "echo", HandleEcho, SEC_PLAYER, Console::No },
             { "accept", HandleAccept, SEC_PLAYER, Console::No },
             { "decline", HandleDecline, SEC_PLAYER, Console::No },
@@ -445,29 +439,18 @@ public:
         return commands;
     }
 
-    static bool InviteFrom(ChatHandler* handler, Optional<std::string> const& name, bool asLeft)
+    static bool HandleInvite(ChatHandler* handler, Optional<std::string> name)
     {
         Player* player = handler->GetSession()->GetPlayer();
         Player* target = name ? NamedPlayer(handler, *name) : handler->getSelectedPlayer();
         if (!target)
         {
             if (!name)
-                handler->SendSysMessage(asLeft ? "Target a player or name one: .pair invite Name"
-                    : "Target a player or name one: .pair inviteleft Name");
+                handler->SendSysMessage("Target a player or name one: .pair invite Name");
             return true;
         }
-        Invite(player, target, asLeft);
+        Invite(player, target);
         return true;
-    }
-
-    static bool HandleInvite(ChatHandler* handler, Optional<std::string> name)
-    {
-        return InviteFrom(handler, name, true);
-    }
-
-    static bool HandleInviteLeft(ChatHandler* handler, Optional<std::string> name)
-    {
-        return InviteFrom(handler, name, false);
     }
 
     static bool HandleEcho(ChatHandler* handler)
@@ -547,13 +530,13 @@ bool TwoPlayersIsLeftHead(uint32 guid)
 
 void HandlePairMessage(Player* player, std::vector<std::string_view> const& words)
 {
-    if (words.size() == 2 && (words[0] == "PAIR" || words[0] == "PAIRLEFT"))
+    if (words.size() == 2 && words[0] == "PAIR")
     {
         std::string name(words[1]);
         if (!normalizePlayerName(name))
             return;
         if (Player* target = ObjectAccessor::FindPlayerByName(name, false))
-            Invite(player, target, words[0] == "PAIR");
+            Invite(player, target);
         else
             Tell(player, name + " is not online.");
     }

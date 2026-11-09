@@ -2,7 +2,6 @@
 area: modules
 type: added
 audience: players
-title: A Right Head keeps an echo of its deleted Left Head's gear
+title: A Ranged Head keeps an echo of its deleted Melee Head's gear
 ---
-When a paired Left Head is deleted, the Right Head keeps a stats-only copy of the gear it wore (.pair echo). A free
-Right Head can also invite a new Left Head with "Invite as Left Head" or /pair left.
+When a paired Melee Head is deleted, the Ranged Head keeps a stats-only copy of the gear it wore (.pair echo).

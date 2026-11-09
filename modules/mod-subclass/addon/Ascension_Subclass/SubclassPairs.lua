@@ -54,9 +54,6 @@ hooksecurefunc("UnitPopup_ShowMenu", function(_, which, unit, name)
     if pairState == "NONE" and ownHead ~= "RIGHT" then
         AddInvite("Invite as Ranged Head", "PAIR")
     end
-    if pairState == "ECHO" or ownHead ~= "LEFT" then
-        AddInvite("Invite as Melee Head", "PAIRLEFT")
-    end
 end)
 
 SLASH_SUBCLASSPAIR1 = "/pair"
@@ -69,14 +66,6 @@ SlashCmdList.SUBCLASSPAIR = function(text)
         Send("PAIRDECLINE")
     elseif lower == "echo" then
         Send("PAIRECHO")
-    elseif lower == "left" or lower:match("^left%s") then
-        local name = strtrim(word:sub(5))
-        if name == "" and UnitIsPlayer("target") and not UnitIsUnit("target", "player") then
-            name = UnitName("target")
-        end
-        if name ~= "" then
-            Send("PAIRLEFT " .. name)
-        end
     elseif lower == "" or lower == "status" then
         if word == "" and UnitIsPlayer("target") and not UnitIsUnit("target", "player") then
             Send("PAIR " .. UnitName("target"))
@@ -97,11 +86,6 @@ frame:SetScript("OnEvent", function(_, _, prefix, message, _, sender)
     local inviter = message:match("^PAIRINVITE (.+)$")
     if inviter then
         StaticPopup_Show("SUBCLASS_PAIR_INVITE", inviter, "Ranged Head")
-        return
-    end
-    local body = message:match("^PAIRINVITELEFT (.+)$")
-    if body then
-        StaticPopup_Show("SUBCLASS_PAIR_INVITE", body, "Melee Head")
         return
     end
     local head, fits = message:match("^PAIRSTATE (%u+)%s*(%u*)")
