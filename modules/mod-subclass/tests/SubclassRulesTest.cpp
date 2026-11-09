@@ -477,7 +477,7 @@ TEST(Subclass, TheLeftHeadFightsUpCloseAndTheRightHeadFromAfar)
     EXPECT_TRUE(FitsRightHead(CasterRoles));
     EXPECT_TRUE(FitsRightHead(RangedRoles));
     EXPECT_FALSE(FitsRightHead(MeleeRoles));
-    EXPECT_FALSE(FitsRightHead(HealerRoles));
+    EXPECT_TRUE(FitsRightHead(HealerRoles));
 }
 
 TEST(Subclass, AMeleeLeftHeadAndACasterRightHeadPairUp)
@@ -506,7 +506,8 @@ TEST(Subclass, EachHeadNeedsASpecializationThatFitsIt)
 {
     EXPECT_EQ(CheckPair(CasterHead, CasterHead), PairRefusal::LeftSpecialization);
     EXPECT_EQ(CheckPair(MeleeHead, MeleeHead), PairRefusal::RightSpecialization);
-    EXPECT_EQ(CheckPair(MeleeHead, { true, false, 20, HealerRoles }), PairRefusal::RightSpecialization);
+    EXPECT_EQ(CheckPair(MeleeHead, { true, false, 20, HealerRoles }), PairRefusal::None);
+    EXPECT_EQ(CheckPair({ true, false, 20, HealerRoles }, CasterHead), PairRefusal::LeftSpecialization);
 }
 
 TEST(Subclass, TheEchoKeepsEveryWornSlotWithStatsButNotShirtOrTabard)

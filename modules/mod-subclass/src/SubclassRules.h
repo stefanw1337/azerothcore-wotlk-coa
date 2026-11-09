@@ -547,7 +547,7 @@ inline bool FitsLeftHead(SpecializationRoles const& roles)
 
 inline bool FitsRightHead(SpecializationRoles const& roles)
 {
-    return roles.Caster || roles.Ranged;
+    return roles.Caster || roles.Ranged || roles.Healer;
 }
 
 struct PairHead

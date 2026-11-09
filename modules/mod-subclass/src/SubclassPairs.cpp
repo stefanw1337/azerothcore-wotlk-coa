@@ -117,7 +117,7 @@ std::string RefusalText(Subclass::PairRefusal refusal, Player const* left, Playe
         case Subclass::PairRefusal::LeftSpecialization:
             return left->GetName() + " needs a melee or tank specialization to be the Melee Head.";
         case Subclass::PairRefusal::RightSpecialization:
-            return right->GetName() + " needs a caster or ranged specialization to be the Ranged Head.";
+            return right->GetName() + " needs a caster, healer or ranged specialization to be the Ranged Head.";
         case Subclass::PairRefusal::None:
             break;
     }
