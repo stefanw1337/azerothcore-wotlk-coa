@@ -151,8 +151,10 @@ bool HasLent(Player const* player)
 void GroupUp(Player* left, Player* right)
 {
     Group* group = left->GetGroup();
-    if (right->GetGroup())
+    if (right->GetGroup() && right->GetGroup() == group)
         return;
+    if (right->GetGroup())
+        right->RemoveFromGroup();
     if (!group)
     {
         group = new Group();
@@ -210,6 +212,8 @@ void KeepTogether(Player* player)
     bool const left = TwoPlayersIsLeftHead(guid);
     Player* body = left ? player : partner;
     Player* rider = left ? partner : player;
+    if (left && SameMap(body, rider) && Ready(body) && Ready(rider))
+        GroupUp(body, rider);
     if (Seated(body, rider) || !Ready(body) || !Ready(rider) || body->GetVehicle())
         return;
     bool const close = SameMap(body, rider) && rider->IsWithinDist(body, SeatReach);
@@ -217,7 +221,6 @@ void KeepTogether(Player* player)
     {
         if (!close)
             return;
-        GroupUp(body, rider);
         if (body->IsAlive() && rider->IsAlive())
             Seat(body, rider);
         return;
@@ -250,7 +253,7 @@ class mod_subclass_two_players_player : public PlayerScript
 {
 public:
     mod_subclass_two_players_player() : PlayerScript("mod_subclass_two_players_player", { PLAYERHOOK_ON_UPDATE,
-        PLAYERHOOK_ON_PLAYER_JUST_DIED, PLAYERHOOK_ON_LOGOUT })
+        PLAYERHOOK_ON_PLAYER_JUST_DIED, PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_CAN_GROUP_ACCEPT })
     {
     }
 
@@ -280,6 +283,19 @@ public:
         right->ExitVehicle();
         Unit::Kill(right, right, false);
         Tell(right, "The body you share has fallen, and you with it.");
+    }
+
+    bool OnPlayerCanGroupAccept(Player* player, Group* group) override
+    {
+        uint32 const guid = player->GetGUID().GetCounter();
+        uint32 const partnerGuid = TwoPlayersPartnerOf(guid);
+        if (!partnerGuid || TwoPlayersIsLeftHead(guid))
+            return true;
+        Player* left = Online(partnerGuid);
+        if (!left || left->GetGroup() == group)
+            return true;
+        Tell(player, "Your Melee Head handles the group: ask them to invite or join, and you come along.");
+        return false;
     }
 
     void OnPlayerLogout(Player* player) override

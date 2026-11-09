@@ -96,3 +96,18 @@ frame:SetScript("OnEvent", function(_, _, prefix, message, _, sender)
         end
     end
 end)
+
+local function HideLeaveButton(button)
+    if pairState == "RIGHT" and button and button:IsShown() then
+        button:Hide()
+    end
+end
+
+if MainMenuBarVehicleLeaveButton then
+    MainMenuBarVehicleLeaveButton:HookScript("OnShow", HideLeaveButton)
+end
+if MainMenuBarVehicleLeaveButton_Update then
+    hooksecurefunc("MainMenuBarVehicleLeaveButton_Update", function()
+        HideLeaveButton(MainMenuBarVehicleLeaveButton)
+    end)
+end
