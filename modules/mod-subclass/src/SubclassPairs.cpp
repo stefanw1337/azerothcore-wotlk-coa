@@ -116,9 +116,9 @@ std::string RefusalText(Subclass::PairRefusal refusal, Player const* left, Playe
         case Subclass::PairRefusal::LevelGap:
             return "The two heads must be within " + std::to_string(Subclass::MaxPairLevelGap) + " levels.";
         case Subclass::PairRefusal::LeftSpecialization:
-            return left->GetName() + " needs a melee or tank specialization to be the Left Head.";
+            return left->GetName() + " needs a melee or tank specialization to be the Melee Head.";
         case Subclass::PairRefusal::RightSpecialization:
-            return right->GetName() + " needs a caster or ranged specialization to be the Right Head.";
+            return right->GetName() + " needs a caster or ranged specialization to be the Ranged Head.";
         case Subclass::PairRefusal::None:
             break;
     }
@@ -161,7 +161,7 @@ void Invite(Player* inviter, Player* invitee, bool inviterIsLeft)
         invites[invitee->GetGUID().GetCounter()] = { inviter->GetGUID().GetCounter(), inviterIsLeft,
             uint64(GameTime::GetGameTimeMS().count()) + InviteMilliseconds };
     }
-    std::string const seat = inviterIsLeft ? "Right Head" : "Left Head";
+    std::string const seat = inviterIsLeft ? "Ranged Head" : "Melee Head";
     Tell(inviter, "You invited " + invitee->GetName() + " to be your " + seat + ".");
     Tell(invitee, inviter->GetName() + " invites you to be the " + seat + " of their body. Type .pair accept or "
         ".pair decline.");
@@ -249,8 +249,8 @@ void Accept(Player* invitee)
     }
     bool const hadStandInBody = !StandInBodyOf(rightGuid).empty();
     ForgetStandInBody(rightGuid);
-    Tell(left, right->GetName() + " is now your Right Head.");
-    Tell(right, "You are now " + left->GetName() + "'s Right Head.");
+    Tell(left, right->GetName() + " is now your Ranged Head.");
+    Tell(right, "You are now " + left->GetName() + "'s Ranged Head.");
     if (hadStandInBody)
         Tell(right, "The stand-in body and its echo gear are gone. You ride on " + left->GetName() + " now.");
     SendPairAddon(left, StateOf(left));
@@ -284,13 +284,13 @@ void Status(Player* player)
     std::string const formerLeft = StandInBodyOf(guid);
     if (!partner && !formerLeft.empty())
         Tell(player, "You ride a stand-in body wearing the echo of " + formerLeft + "'s gear. Type .pair echo to see "
-            "it, or find a new Left Head.");
+            "it, or find a new Melee Head.");
     else if (!partner)
         Tell(player, "You are not paired with another head.");
     else if (IsLeftHead(guid))
-        Tell(player, "You are the Left Head. Your Right Head is " + NameOf(partner) + ".");
+        Tell(player, "You are the Melee Head. Your Ranged Head is " + NameOf(partner) + ".");
     else
-        Tell(player, "You are the Right Head. Your Left Head is " + NameOf(partner) + ".");
+        Tell(player, "You are the Ranged Head. Your Melee Head is " + NameOf(partner) + ".");
     SendPairAddon(player, StateOf(player));
 }
 
@@ -339,7 +339,7 @@ void Forget(uint32 guid)
     if (Player* other = ObjectAccessor::FindPlayerByLowGUID(partner))
     {
         if (wasLeft)
-            Tell(other, "Your Left Head is gone. The echo of their gear is kept for your stand-in body.");
+            Tell(other, "Your Melee Head is gone. The echo of their gear is kept for your stand-in body.");
         else
             Tell(other, "The other head of your body is gone. The seat is free for a new partner.");
         SendPairAddon(other, StateOf(other));

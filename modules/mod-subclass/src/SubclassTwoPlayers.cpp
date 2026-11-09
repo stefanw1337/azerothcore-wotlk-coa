@@ -340,8 +340,8 @@ public:
             return true;
         if (!Subclass::BodyCasts(kind, pressedByLeft))
         {
-            Tell(presser, kind == Subclass::Borrow::Movement ? "Only the Left Head moves the body." :
-                "The Right Head uses the ranged attacks.");
+            Tell(presser, kind == Subclass::Borrow::Movement ? "Only the Melee Head moves the body." :
+                "The Ranged Head uses the ranged attacks.");
             return false;
         }
         if (!LentTo(presser, info->Id))

@@ -52,10 +52,10 @@ hooksecurefunc("UnitPopup_ShowMenu", function(_, which, unit, name)
         UIDropDownMenu_AddButton(info, 1)
     end
     if pairState == "NONE" and ownHead ~= "RIGHT" then
-        AddInvite("Invite as Right Head", "PAIR")
+        AddInvite("Invite as Ranged Head", "PAIR")
     end
     if pairState == "ECHO" or ownHead ~= "LEFT" then
-        AddInvite("Invite as Left Head", "PAIRLEFT")
+        AddInvite("Invite as Melee Head", "PAIRLEFT")
     end
 end)
 
@@ -96,12 +96,12 @@ frame:SetScript("OnEvent", function(_, _, prefix, message, _, sender)
     end
     local inviter = message:match("^PAIRINVITE (.+)$")
     if inviter then
-        StaticPopup_Show("SUBCLASS_PAIR_INVITE", inviter, "Right Head")
+        StaticPopup_Show("SUBCLASS_PAIR_INVITE", inviter, "Ranged Head")
         return
     end
     local body = message:match("^PAIRINVITELEFT (.+)$")
     if body then
-        StaticPopup_Show("SUBCLASS_PAIR_INVITE", body, "Left Head")
+        StaticPopup_Show("SUBCLASS_PAIR_INVITE", body, "Melee Head")
         return
     end
     local head, fits = message:match("^PAIRSTATE (%u+)%s*(%u*)")
