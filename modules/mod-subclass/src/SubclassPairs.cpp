@@ -27,6 +27,7 @@
 using namespace Acore::ChatCommands;
 
 Subclass::SpecializationRoles RolesOfSpecialization(uint16 specialization);
+void TwoPlayersSeparate(uint32 first, uint32 second);
 
 namespace
 {
@@ -334,6 +335,7 @@ void Forget(uint32 guid)
     }
     CharacterDatabase.DirectExecute(
         "DELETE FROM `mod_subclass_two_players` WHERE `left_guid` = {} OR `right_guid` = {}", guid, guid);
+    TwoPlayersSeparate(guid, partner);
     if (Player* other = ObjectAccessor::FindPlayerByLowGUID(partner))
     {
         if (wasLeft)
@@ -531,6 +533,16 @@ public:
         LoadPairs();
     }
 };
+}
+
+uint32 TwoPlayersPartnerOf(uint32 guid)
+{
+    return PartnerOf(guid);
+}
+
+bool TwoPlayersIsLeftHead(uint32 guid)
+{
+    return IsLeftHead(guid);
 }
 
 void HandlePairMessage(Player* player, std::vector<std::string_view> const& words)

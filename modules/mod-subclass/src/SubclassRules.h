@@ -605,6 +605,71 @@ constexpr std::uint32_t TwoPlayersHoldingDisplay = 985003;
 constexpr std::uint32_t MutatedHoldingDisplay = 985004;
 constexpr std::uint32_t HeldInOffHand = 23;
 
+constexpr std::uint32_t TwoPlayersVehicle = 9600;
+
+enum class Borrow
+{
+    None,
+    Movement,
+    RangedAttack
+};
+
+struct SpellShape
+{
+    std::array<std::uint32_t, 3> Effects{};
+    std::array<std::uint32_t, 3> Auras{};
+    std::array<std::uint32_t, 3> TargetsA{};
+    bool Passive = false;
+    std::int32_t EquippedClass = -1;
+    std::uint32_t EquippedSubClassMask = 0;
+};
+
+inline Borrow BorrowOf(SpellShape const& spell)
+{
+    constexpr std::uint32_t Teleport = 5, Leap = 29, Jump = 41, JumpDest = 42, Charge = 96, LeapBack = 138,
+        ChargeDest = 149;
+    constexpr std::uint32_t Fear = 7, IncreaseSpeed = 31, Mounted = 32, SpeedAlways = 129, SpeedNotStack = 171;
+    constexpr std::uint32_t Caster = 1, CasterParty = 20;
+    constexpr std::int32_t WeaponClass = 2;
+    constexpr std::uint32_t RangedWeapons = (1u << 2) | (1u << 3) | (1u << 16) | (1u << 18) | (1u << 19);
+    if (spell.Passive)
+        return Borrow::None;
+    bool fears = false;
+    bool mounts = false;
+    for (std::uint32_t aura : spell.Auras)
+    {
+        fears = fears || aura == Fear;
+        mounts = mounts || aura == Mounted;
+    }
+    for (std::size_t i = 0; i < 3; ++i)
+    {
+        std::uint32_t const effect = spell.Effects[i];
+        if (effect == Leap || effect == Jump || effect == JumpDest || effect == Charge || effect == LeapBack ||
+            effect == ChargeDest || (effect == Teleport && spell.TargetsA[i] == Caster))
+            return Borrow::Movement;
+        std::uint32_t const aura = spell.Auras[i];
+        bool const own = spell.TargetsA[i] == Caster || spell.TargetsA[i] == CasterParty;
+        if (!fears && !mounts && own && (aura == IncreaseSpeed || aura == SpeedAlways || aura == SpeedNotStack))
+            return Borrow::Movement;
+    }
+    if (spell.EquippedClass == WeaponClass && (spell.EquippedSubClassMask & RangedWeapons) &&
+        !(spell.EquippedSubClassMask & ~RangedWeapons))
+        return Borrow::RangedAttack;
+    return Borrow::None;
+}
+
+inline bool BodyCasts(Borrow borrow, bool pressedByLeftHead)
+{
+    return (borrow == Borrow::Movement && pressedByLeftHead) || (borrow == Borrow::RangedAttack && !pressedByLeftHead);
+}
+
+inline std::uint32_t ShareOfOwnPower(std::uint32_t cost, std::uint32_t ownerMax, std::uint32_t payerMax)
+{
+    if (!cost || !ownerMax)
+        return 0;
+    return std::uint32_t((std::uint64_t(cost) * payerMax + ownerMax - 1) / ownerMax);
+}
+
 inline std::uint32_t BodyDisplayFor(std::uint32_t display, bool holding)
 {
     if (display == TwoPlayersBodyDisplay || display == TwoPlayersHoldingDisplay)

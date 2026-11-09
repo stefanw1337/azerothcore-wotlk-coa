@@ -527,3 +527,57 @@ TEST(Subclass, ABookPouchOrOrbInTheOffHandSwapsTheBodyToItsHoldingVersion)
     EXPECT_EQ(BodyDisplayFor(TwoPlayersBodyDisplay, false), TwoPlayersBodyDisplay);
     EXPECT_EQ(BodyDisplayFor(1234, true), 1234u);
 }
+
+TEST(Subclass, MovementGoesToTheBodyAndRangedWeaponAttacksToTheRightHead)
+{
+    SpellShape blink;
+    blink.Effects = { 5, 0, 0 };
+    blink.TargetsA = { 1, 0, 0 };
+    EXPECT_EQ(BorrowOf(blink), Borrow::Movement);
+    SpellShape charge;
+    charge.Effects = { 96, 0, 0 };
+    EXPECT_EQ(BorrowOf(charge), Borrow::Movement);
+    SpellShape sprint;
+    sprint.Effects = { 6, 0, 0 };
+    sprint.Auras = { 31, 0, 0 };
+    sprint.TargetsA = { 1, 0, 0 };
+    EXPECT_EQ(BorrowOf(sprint), Borrow::Movement);
+    SpellShape throwWeapon;
+    throwWeapon.EquippedClass = 2;
+    throwWeapon.EquippedSubClassMask = 1u << 16;
+    EXPECT_EQ(BorrowOf(throwWeapon), Borrow::RangedAttack);
+}
+
+TEST(Subclass, FearsTeleportsOfOthersPassivesAndMeleeWeaponsAreNotBorrowed)
+{
+    SpellShape fear;
+    fear.Effects = { 6, 6, 0 };
+    fear.Auras = { 7, 31, 0 };
+    fear.TargetsA = { 6, 1, 0 };
+    EXPECT_EQ(BorrowOf(fear), Borrow::None);
+    SpellShape summon;
+    summon.Effects = { 5, 0, 0 };
+    summon.TargetsA = { 6, 0, 0 };
+    EXPECT_EQ(BorrowOf(summon), Borrow::None);
+    SpellShape fleetFooted;
+    fleetFooted.Passive = true;
+    fleetFooted.Auras = { 31, 0, 0 };
+    fleetFooted.TargetsA = { 1, 0, 0 };
+    EXPECT_EQ(BorrowOf(fleetFooted), Borrow::None);
+    SpellShape anyWeapon;
+    anyWeapon.EquippedClass = 2;
+    anyWeapon.EquippedSubClassMask = (1u << 16) | (1u << 7);
+    EXPECT_EQ(BorrowOf(anyWeapon), Borrow::None);
+}
+
+TEST(Subclass, TheBodyCastsBorrowedSpellsAndThePresserPaysItsOwnShare)
+{
+    EXPECT_TRUE(BodyCasts(Borrow::Movement, true));
+    EXPECT_TRUE(BodyCasts(Borrow::RangedAttack, false));
+    EXPECT_FALSE(BodyCasts(Borrow::Movement, false));
+    EXPECT_FALSE(BodyCasts(Borrow::None, true));
+    EXPECT_EQ(ShareOfOwnPower(210, 2100, 1000), 100u);
+    EXPECT_EQ(ShareOfOwnPower(45, 100, 1000), 450u);
+    EXPECT_EQ(ShareOfOwnPower(1, 3000, 100), 1u);
+    EXPECT_EQ(ShareOfOwnPower(0, 100, 100), 0u);
+}
