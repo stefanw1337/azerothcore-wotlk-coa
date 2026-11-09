@@ -13,7 +13,7 @@ local function IsTwoPlayersBody()
 end
 
 StaticPopupDialogs["SUBCLASS_PAIR_INVITE"] = {
-    text = "%s invites you to be the %s of their body.",
+    text = "Pair request from %s: ride on their body as the %s?",
     button1 = "Join",
     button2 = "Cancel",
     OnAccept = function()
@@ -52,7 +52,7 @@ hooksecurefunc("UnitPopup_ShowMenu", function(_, which, unit, name)
         UIDropDownMenu_AddButton(info, 1)
     end
     if pairState == "NONE" and ownHead ~= "RIGHT" then
-        AddInvite("Invite as Ranged Head", "PAIR")
+        AddInvite("Pair request", "PAIR")
     end
 end)
 

@@ -158,8 +158,8 @@ void Invite(Player* left, Player* right)
         invites[right->GetGUID().GetCounter()] = { left->GetGUID().GetCounter(),
             uint64(GameTime::GetGameTimeMS().count()) + InviteMilliseconds };
     }
-    Tell(left, "You invited " + right->GetName() + " to be your Ranged Head.");
-    Tell(right, left->GetName() + " invites you to be the Ranged Head of their body. Type .pair accept or "
+    Tell(left, "You sent " + right->GetName() + " a pair request to be your Ranged Head.");
+    Tell(right, left->GetName() + " sends you a pair request to ride as the Ranged Head. Type .pair accept or "
         ".pair decline.");
     SendPairAddon(right, "PAIRINVITE " + left->GetName());
 }
