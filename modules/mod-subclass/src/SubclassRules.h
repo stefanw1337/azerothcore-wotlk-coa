@@ -9,6 +9,10 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Subclass
@@ -688,6 +692,15 @@ inline std::uint32_t BodyDisplayFor(std::uint32_t display, bool holding)
     if (display == MutatedBodyDisplay || display == MutatedHoldingDisplay)
         return holding ? MutatedHoldingDisplay : MutatedBodyDisplay;
     return display;
+}
+
+inline std::optional<std::pair<std::string, std::string>> SplitJoinedName(std::string_view joined)
+{
+    std::size_t const mark = joined.find('\'');
+    if (mark == std::string_view::npos || mark == 0 || mark + 1 >= joined.size() ||
+        joined.find('\'', mark + 1) != std::string_view::npos)
+        return std::nullopt;
+    return std::make_pair(std::string(joined.substr(0, mark)), std::string(joined.substr(mark + 1)));
 }
 
 inline Choice Trimmed(std::vector<Pair> const& pairs, Character const& character, Choice const& choice)

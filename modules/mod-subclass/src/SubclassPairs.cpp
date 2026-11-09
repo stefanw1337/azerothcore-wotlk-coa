@@ -13,12 +13,15 @@
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "Player.h"
+#include "Opcodes.h"
 #include "PlayerScript.h"
+#include "ServerScript.h"
 #include "SubclassRules.h"
 #include "WorldPacket.h"
 #include "WorldScript.h"
 #include "WorldSession.h"
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -523,6 +526,85 @@ public:
     }
 };
 
+std::optional<std::string> BodyNameOf(std::string const& joined)
+{
+    auto heads = Subclass::SplitJoinedName(joined);
+    if (!heads || !normalizePlayerName(heads->first) || !normalizePlayerName(heads->second))
+        return std::nullopt;
+    ObjectGuid const left = sCharacterCache->GetCharacterGuidByName(heads->first);
+    if (!left || !IsLeftHead(left.GetCounter()))
+        return std::nullopt;
+    uint32 const right = PartnerOf(left.GetCounter());
+    std::string rightName;
+    if (!right || !sCharacterCache->GetCharacterNameByGuid(ObjectGuid::Create<HighGuid::Player>(right), rightName) ||
+        rightName != heads->second)
+        return std::nullopt;
+    return heads->first;
+}
+
+bool SendWhisperToBody(WorldSession* session, WorldPacket const& packet)
+{
+    WorldPacket read(packet);
+    read.rpos(0);
+    uint32 type = 0;
+    uint32 language = 0;
+    read >> type >> language;
+    if (type != CHAT_MSG_WHISPER)
+        return false;
+    std::string to;
+    read >> to;
+    std::optional<std::string> const body = to.find('\'') == std::string::npos ? std::nullopt : BodyNameOf(to);
+    if (!body)
+        return false;
+    WorldPacket rewritten(CMSG_MESSAGECHAT, packet.size());
+    rewritten << type << language << *body;
+    rewritten.append(read.contents() + read.rpos(), read.size() - read.rpos());
+    session->HandleMessagechatOpcode(rewritten);
+    return true;
+}
+
+bool SendInviteToBody(WorldSession* session, WorldPacket const& packet)
+{
+    WorldPacket read(packet);
+    read.rpos(0);
+    std::string name;
+    read >> name;
+    std::optional<std::string> const body = name.find('\'') == std::string::npos ? std::nullopt : BodyNameOf(name);
+    if (!body)
+        return false;
+    WorldPacket rewritten(CMSG_GROUP_INVITE, packet.size());
+    rewritten << *body;
+    rewritten.append(read.contents() + read.rpos(), read.size() - read.rpos());
+    session->HandleGroupInviteOpcode(rewritten);
+    return true;
+}
+
+class mod_subclass_pairs_names : public ServerScript
+{
+public:
+    mod_subclass_pairs_names() : ServerScript("mod_subclass_pairs_names", { SERVERHOOK_CAN_PACKET_RECEIVE }) { }
+
+    using ServerScript::CanPacketReceive;
+
+    bool CanPacketReceive(WorldSession* session, WorldPacket const& packet) override
+    {
+        uint16 const opcode = packet.GetOpcode();
+        if ((opcode != CMSG_MESSAGECHAT && opcode != CMSG_GROUP_INVITE) || !session || !session->GetPlayer() ||
+            !session->GetPlayer()->IsInWorld())
+            return true;
+        try
+        {
+            bool const handled = opcode == CMSG_MESSAGECHAT ? SendWhisperToBody(session, packet) :
+                SendInviteToBody(session, packet);
+            return !handled;
+        }
+        catch (ByteBufferException const&)
+        {
+            return true;
+        }
+    }
+};
+
 class mod_subclass_pairs_world : public WorldScript
 {
 public:
@@ -574,4 +656,5 @@ void AddSC_mod_subclass_pairs()
     new mod_subclass_pairs_commands();
     new mod_subclass_pairs_player();
     new mod_subclass_pairs_world();
+    new mod_subclass_pairs_names();
 }

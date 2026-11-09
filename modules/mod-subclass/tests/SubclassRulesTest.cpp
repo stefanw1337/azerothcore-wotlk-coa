@@ -594,3 +594,15 @@ TEST(Subclass, BeforeASpecializationIsChosenTheClassRolesDecideTheHead)
     EXPECT_EQ(CheckPair({ true, false, 1, MeleeRoles }, { true, false, 1, Joined(CasterRoles, HealerRoles) }),
         PairRefusal::None);
 }
+
+TEST(Subclass, AJoinedBodyNameSplitsIntoTheMeleeAndRangedHeads)
+{
+    auto const heads = SplitJoinedName("Grogh'Rogh");
+    ASSERT_TRUE(heads.has_value());
+    EXPECT_EQ(heads->first, "Grogh");
+    EXPECT_EQ(heads->second, "Rogh");
+    EXPECT_FALSE(SplitJoinedName("Grogh").has_value());
+    EXPECT_FALSE(SplitJoinedName("'Rogh").has_value());
+    EXPECT_FALSE(SplitJoinedName("Grogh'").has_value());
+    EXPECT_FALSE(SplitJoinedName("Gro'gh'Rogh").has_value());
+}
