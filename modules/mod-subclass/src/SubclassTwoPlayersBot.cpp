@@ -4,7 +4,6 @@
 
 #include "CharacterCache.h"
 #include "DatabaseEnv.h"
-#include "Log.h"
 #include "MotionMaster.h"
 #include "Player.h"
 #include "WorldSession.h"
@@ -60,14 +59,10 @@ bool TwoPlayersCallBot(Player* master, uint32 headGuid)
     bool const alreadyLinked = headAccount == masterAccount || manager->IsAccountLinked(headAccount, masterAccount);
     if (!alreadyLinked)
         LinkForOneLogin(headAccount, masterAccount, true);
-    std::string const refusal = manager->AddPlayerBotRefusal(head, masterAccount);
-    if (refusal.empty())
-        manager->AddPlayerBot(head, masterAccount);
+    manager->AddPlayerBot(head, masterAccount);
     if (!alreadyLinked)
         LinkForOneLogin(headAccount, masterAccount, false);
-    if (!refusal.empty())
-        LOG_INFO("module", "mod-subclass: no bot head for {}: {}", master->GetName(), refusal);
-    return refusal.empty();
+    return true;
 }
 
 void TwoPlayersSteerBotBody(Player* body, bool roam)
