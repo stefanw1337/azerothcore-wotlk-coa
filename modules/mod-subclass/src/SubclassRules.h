@@ -760,6 +760,55 @@ inline std::uint32_t BodyDisplayFor(std::uint32_t display, bool holding)
     return display;
 }
 
+enum class AccordMode
+{
+    None,
+    Agree,
+    Disagree
+};
+
+struct Accord
+{
+    AccordMode Mode = AccordMode::None;
+    std::uint32_t Stacks = 0;
+    std::uint64_t MeleeTarget = 0;
+    std::uint64_t RangedTarget = 0;
+    bool MeleeHit = false;
+    bool RangedHit = false;
+    std::uint32_t LastStackAt = 0;
+};
+
+struct AccordSettings
+{
+    std::uint32_t AgreeMaxStacks = 3;
+    std::uint32_t DisagreeMaxStacks = 3;
+    std::uint32_t HoldMs = 5000;
+};
+
+inline bool AccordExpired(Accord const& accord, std::uint32_t now, AccordSettings const& settings)
+{
+    return accord.Mode != AccordMode::None && now - accord.LastStackAt > settings.HoldMs;
+}
+
+inline Accord AccordAfterHit(Accord accord, bool byMeleeHead, std::uint64_t target, std::uint32_t now,
+    AccordSettings const& settings)
+{
+    if (AccordExpired(accord, now, settings))
+        accord = Accord{ AccordMode::None, 0, accord.MeleeTarget, accord.RangedTarget, false, false, 0 };
+    (byMeleeHead ? accord.MeleeTarget : accord.RangedTarget) = target;
+    (byMeleeHead ? accord.MeleeHit : accord.RangedHit) = true;
+    if (!accord.MeleeHit || !accord.RangedHit)
+        return accord;
+    AccordMode const mode = accord.MeleeTarget == accord.RangedTarget ? AccordMode::Agree : AccordMode::Disagree;
+    std::uint32_t const most = mode == AccordMode::Agree ? settings.AgreeMaxStacks : settings.DisagreeMaxStacks;
+    accord.Stacks = mode == accord.Mode ? std::min(most, accord.Stacks + 1) : std::min<std::uint32_t>(most, 1);
+    accord.Mode = mode;
+    accord.MeleeHit = false;
+    accord.RangedHit = false;
+    accord.LastStackAt = now;
+    return accord;
+}
+
 inline std::optional<std::pair<std::string, std::string>> SplitJoinedName(std::string_view joined)
 {
     std::size_t const mark = joined.find('\'');

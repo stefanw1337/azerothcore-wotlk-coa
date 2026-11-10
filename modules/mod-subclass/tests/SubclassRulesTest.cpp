@@ -689,3 +689,50 @@ TEST(Subclass, AJoinedBodyNameSplitsIntoTheMeleeAndRangedHeads)
     EXPECT_FALSE(SplitJoinedName("Grogh'").has_value());
     EXPECT_FALSE(SplitJoinedName("Gro'gh'Rogh").has_value());
 }
+
+TEST(Subclass, BothHeadsOnOneFoeAgreeAndStackUpToTheLimit)
+{
+    AccordSettings const settings;
+    Accord accord;
+    accord = AccordAfterHit(accord, true, 7, 1000, settings);
+    EXPECT_EQ(accord.Mode, AccordMode::None);
+    accord = AccordAfterHit(accord, false, 7, 1500, settings);
+    EXPECT_EQ(accord.Mode, AccordMode::Agree);
+    EXPECT_EQ(accord.Stacks, 1u);
+    accord = AccordAfterHit(accord, true, 7, 2000, settings);
+    EXPECT_EQ(accord.Stacks, 1u);
+    accord = AccordAfterHit(accord, false, 7, 2500, settings);
+    accord = AccordAfterHit(accord, true, 7, 3000, settings);
+    accord = AccordAfterHit(accord, false, 7, 3500, settings);
+    accord = AccordAfterHit(accord, true, 7, 4000, settings);
+    accord = AccordAfterHit(accord, false, 7, 4500, settings);
+    EXPECT_EQ(accord.Stacks, 3u);
+}
+
+TEST(Subclass, HeadsOnDifferentFoesDisagreeAndASwitchStartsAtOneStack)
+{
+    AccordSettings const settings;
+    Accord accord;
+    accord = AccordAfterHit(accord, true, 7, 1000, settings);
+    accord = AccordAfterHit(accord, false, 7, 1100, settings);
+    accord = AccordAfterHit(accord, true, 7, 1200, settings);
+    accord = AccordAfterHit(accord, false, 7, 1300, settings);
+    EXPECT_EQ(accord.Stacks, 2u);
+    accord = AccordAfterHit(accord, true, 8, 1400, settings);
+    accord = AccordAfterHit(accord, false, 7, 1500, settings);
+    EXPECT_EQ(accord.Mode, AccordMode::Disagree);
+    EXPECT_EQ(accord.Stacks, 1u);
+}
+
+TEST(Subclass, AnAccordFadesAfterFiveSecondsWithoutSharedHits)
+{
+    AccordSettings const settings;
+    Accord accord;
+    accord = AccordAfterHit(accord, true, 7, 1000, settings);
+    accord = AccordAfterHit(accord, false, 7, 1100, settings);
+    EXPECT_FALSE(AccordExpired(accord, 6100, settings));
+    EXPECT_TRUE(AccordExpired(accord, 6101, settings));
+    accord = AccordAfterHit(accord, true, 7, 7000, settings);
+    EXPECT_EQ(accord.Mode, AccordMode::None);
+    EXPECT_EQ(accord.Stacks, 0u);
+}

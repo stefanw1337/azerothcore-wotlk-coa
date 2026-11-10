@@ -13,7 +13,8 @@ ATTR0_CANT_CANCEL = 0x80000000
 ATTR0_HIDDEN_CLIENTSIDE = 0x00000080
 ATTR3_DEATH_PERSISTENT = 0x00100000
 
-RACIAL, AURA, MODE, REACH, PASSIVE, VISUAL = "racial", "aura", "mode", "reach", "passive", "visual"
+RACIAL, AURA, MODE, REACH, PASSIVE, VISUAL, STACKS = "racial", "aura", "mode", "reach", "passive", "visual", "stacks"
+MOST_STACKS = 3
 SPELL_VISUAL = 131
 VISUAL_ICON = 1
 ATTR0_PASSIVE = 0x00000040
@@ -65,6 +66,12 @@ SPELLS = [
      "Your body shares blood, one health pool. When both heads use the same resource pool type, they will share one "
      "bigger pool of it. It will be twice as big and refill twice as fast. If the resource pools are of different "
      "types, they will also share their strength with each other.", ""),
+    (9530130, RACIAL, 25332, "Mutate Me!", "Racial",
+     "Your body sprouts eyes everywhere and takes on a stranger look. Use it again to change back.", ""),
+    (9530131, STACKS, 24897, "Agree", "", "",
+     "Both heads strike the same foe: 1% more hit and damage against it for each stack."),
+    (9530132, STACKS, 25332, "Disagree", "", "",
+     "Each head fights its own foe: 1% more critical strike chance against it for each stack."),
 ]
 CASTER_AURA = {9530106: 9530102, 9530107: 9530105}
 
@@ -124,6 +131,11 @@ def build(spell_id, kind, icon, name, rank, description, tooltip):
         row[71] = 6
         row[95] = 4
         row[SPELL_VISUAL] = VISUALS[spell_id]
+    elif kind == STACKS:
+        row[4] = ATTR0_CANT_CANCEL
+        row[49] = MOST_STACKS
+        row[71] = 6
+        row[95] = 4
     elif kind == REACH:
         row[4] = ATTR0_CANT_CANCEL | ATTR0_HIDDEN_CLIENTSIDE
         row[7] = ATTR3_DEATH_PERSISTENT

@@ -665,6 +665,16 @@ public:
 };
 }
 
+Player* TwoPlayersSeatedPartner(Player const* head)
+{
+    uint32 const guid = head->GetGUID().GetCounter();
+    Player* partner = Online(TwoPlayersPartnerOf(guid));
+    if (!partner)
+        return nullptr;
+    bool const left = TwoPlayersIsLeftHead(guid);
+    return (left ? Seated(head, partner) : Seated(partner, head)) ? partner : nullptr;
+}
+
 void TwoPlayersSeparate(uint32 first, uint32 second)
 {
     for (uint32 guid : { first, second })

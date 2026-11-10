@@ -183,3 +183,29 @@ Subclass.TwoPlayers.Bots = 1
 #        Default: 10
 
 Subclass.TwoPlayers.BotSeconds = 10
+
+#    Subclass.TwoPlayers.Agree.MaxStacks
+#    Subclass.TwoPlayers.Disagree.MaxStacks
+#        Agree builds while both heads hit the same foe, Disagree while each hits its own. One stack is
+#        gained each time both heads have hit since the last stack, up to this many.
+#        Default: 3
+
+Subclass.TwoPlayers.Agree.MaxStacks = 3
+Subclass.TwoPlayers.Disagree.MaxStacks = 3
+
+#    Subclass.TwoPlayers.Agree.HitPerStack
+#    Subclass.TwoPlayers.Agree.DamagePerStack
+#    Subclass.TwoPlayers.Disagree.CritPerStack
+#        Percent per stack: Agree gives hit (melee) and damage against the shared foe, Disagree gives
+#        critical strike chance against each head's own foe.
+#        Default: 1
+
+Subclass.TwoPlayers.Agree.HitPerStack = 1
+Subclass.TwoPlayers.Agree.DamagePerStack = 1
+Subclass.TwoPlayers.Disagree.CritPerStack = 1
+
+#    Subclass.TwoPlayers.AgreeDisagree.Seconds
+#        The stacks fade this many seconds after the last stack was gained.
+#        Default: 5
+
+Subclass.TwoPlayers.AgreeDisagree.Seconds = 5
