@@ -40,6 +40,7 @@ bool TwoPlayersBotsAvailable();
 bool TwoPlayersCallBot(Player* master, uint32 headGuid);
 bool TwoPlayersHeadIsBot(Player const* head);
 std::string TwoPlayersHalt(Player* rider, bool halt);
+Player* TwoPlayersSeatedPartner(Player const* head);
 void TwoPlayersSteerBotBody(Player* body, bool roam);
 
 namespace
@@ -371,6 +372,8 @@ void Seat(Player* left, Player* right)
         return;
     if (right->GetVehicle())
         right->ExitVehicle();
+    if (TwoPlayersHeadIsBot(right) && !right->IsVisible())
+        right->SetVisible(true);
     right->EnterVehicle(left, RightHeadSeat);
     if (!Seated(left, right))
         return;
@@ -847,6 +850,10 @@ public:
 
     void OnPlayerLogout(Player* player) override
     {
+        Player* seated = TwoPlayersSeatedPartner(player);
+        for (Player* head : { player, seated })
+            if (head && head->GetVehicle() && TwoPlayersHeadIsBot(head))
+                head->SetVisible(false);
         RedirectThreatTo(player, nullptr);
         WearTheBodysGear(player, nullptr);
         Reclaim(player);
