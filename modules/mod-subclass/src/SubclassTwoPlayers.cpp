@@ -500,6 +500,20 @@ bool WearsNoGearOfItsOwn(Player const* player)
     return TwoPlayersPartnerOf(guid) && !TwoPlayersIsLeftHead(guid);
 }
 
+bool RoomForBothHeads(Player* body, Group* group)
+{
+    if (!group || group == body->GetGroup())
+        return true;
+    uint32 const capacity = group->isRaidGroup() ? MAXRAIDSIZE : MAXGROUPSIZE;
+    if (group->GetMembersCount() + 2 <= capacity)
+        return true;
+    std::string const refusal = "The two-headed ogre needs two free spots in the party, one for each head.";
+    Tell(body, refusal);
+    if (Player* leader = ObjectAccessor::FindConnectedPlayer(group->GetLeaderGUID()))
+        Tell(leader, refusal);
+    return false;
+}
+
 class mod_subclass_two_players_player : public PlayerScript
 {
 public:
@@ -554,8 +568,10 @@ public:
     {
         uint32 const guid = player->GetGUID().GetCounter();
         uint32 const partnerGuid = TwoPlayersPartnerOf(guid);
-        if (!partnerGuid || TwoPlayersIsLeftHead(guid))
+        if (!partnerGuid)
             return true;
+        if (TwoPlayersIsLeftHead(guid))
+            return RoomForBothHeads(player, group);
         Player* left = Online(partnerGuid);
         if (!left || left->GetGroup() == group)
             return true;
