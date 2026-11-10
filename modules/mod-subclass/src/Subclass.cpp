@@ -87,6 +87,7 @@ std::vector<uint32> KnownBorrowedActives(Player const* player);
 bool OffersStandardMains();
 bool SubclassRaceEnabled(uint8 race);
 bool ForcedBot(Player const* player);
+uint32 TwoPlayersPartnerOf(uint32 guid);
 void AssignBotSubclass(Player* player);
 void SpendBotPoints(Player* player);
 void ForgetBotPlayer(Player const* player);
@@ -2340,7 +2341,7 @@ public:
 bool ForcedBot(Player const* player)
 {
     WorldSession const* session = player->GetSession();
-    return forceBots && session && session->IsBot();
+    return forceBots && session && session->IsBot() && !TwoPlayersPartnerOf(player->GetGUID().GetCounter());
 }
 
 bool SubclassEligible(Player const* player)

@@ -18,6 +18,7 @@
 #include <unordered_map>
 
 uint32 TwoPlayersPartnerOf(uint32 guid);
+bool TwoPlayersAskStopOrGo(uint32 guid);
 bool TwoPlayersIsLeftHead(uint32 guid);
 Player* TwoPlayersSeatedPartner(Player const* head);
 Subclass::SpecializationRoles RolesOfSpecialization(uint16 specialization);
@@ -175,6 +176,8 @@ public:
 
     bool CanPacketReceive(WorldSession* session, WorldPacket& packet) override
     {
+        if (packet.GetOpcode() == CMSG_REQUEST_VEHICLE_EXIT && session && session->GetPlayer())
+            return !TwoPlayersAskStopOrGo(session->GetPlayer()->GetGUID().GetCounter());
         if (packet.GetOpcode() != CMSG_LOOT_ROLL || !session || !session->GetPlayer() ||
             !RangedHead(session->GetPlayer()) || packet.size() < 13)
             return true;

@@ -36,6 +36,7 @@ bool TwoPlayersIsLeftHead(uint32 guid);
 bool TwoPlayersBotsAvailable();
 bool TwoPlayersCallBot(Player* master, uint32 headGuid);
 bool TwoPlayersHeadIsBot(Player const* head);
+std::string TwoPlayersHalt(Player* rider, bool halt);
 void TwoPlayersSteerBotBody(Player* body, bool roam);
 
 namespace
@@ -58,6 +59,7 @@ std::unordered_map<uint32, uint32>& sinceCheck = *new std::unordered_map<uint32,
 std::unordered_set<uint32>& waiting = *new std::unordered_set<uint32>;
 std::unordered_set<uint32>& halted = *new std::unordered_set<uint32>;
 std::unordered_set<uint32>& greeted = *new std::unordered_set<uint32>;
+std::unordered_set<uint32>& exitRequests = *new std::unordered_set<uint32>;
 std::unordered_map<uint32, std::vector<uint32>>& handedOver = *new std::unordered_map<uint32, std::vector<uint32>>;
 std::unordered_map<uint32, std::vector<uint32>>& toldLent = *new std::unordered_map<uint32, std::vector<uint32>>;
 std::unordered_map<uint32, std::vector<uint32>>& toldHanded = *new std::unordered_map<uint32, std::vector<uint32>>;
@@ -438,13 +440,35 @@ void WaitForBody(Player* rider, bool wait, bool botBody)
         Tell(rider, "Your Melee Head is back.");
 }
 
+void KeepTheTwoPlayersBody(Player* player)
+{
+    uint8 const race = player->getRace(true);
+    uint8 const gender = race == Subclass::ThinHumanRace ? GENDER_FEMALE : GENDER_MALE;
+    if ((race != Subclass::TwoHeadedOgreRace && race != Subclass::ThinHumanRace) ||
+        player->GetByteValue(PLAYER_BYTES_3, 0) == gender)
+        return;
+    player->SetByteValue(UNIT_FIELD_BYTES_0, 2, gender);
+    player->SetByteValue(PLAYER_BYTES_3, 0, gender);
+    player->InitDisplayIds();
+    LOG_INFO("module", "mod-subclass: Two-Players head {} gets its Two-Players body back", player->GetName());
+}
+
+bool TakeExitRequest(uint32 guid)
+{
+    std::lock_guard<std::mutex> lock(bodyMutex);
+    return exitRequests.erase(guid) != 0;
+}
+
 void KeepTogether(Player* player)
 {
     uint32 const guid = player->GetGUID().GetCounter();
     uint32 const partnerGuid = TwoPlayersPartnerOf(guid);
     if (!partnerGuid)
         return;
+    KeepTheTwoPlayersBody(player);
     bool const left = TwoPlayersIsLeftHead(guid);
+    if (!left && TakeExitRequest(guid))
+        Tell(player, TwoPlayersHalt(player, !Halted(guid)));
     Player* const connected = Connected(partnerGuid);
     if (!left)
         WaitForBody(player, !connected, TwoPlayersHeadIsBot(connected));
@@ -842,6 +866,16 @@ void TwoPlayersSeparate(uint32 first, uint32 second)
             if (MarkWaiting(guid, false))
                 player->SetControlled(false, UNIT_STATE_ROOT);
         }
+}
+
+bool TwoPlayersAskStopOrGo(uint32 guid)
+{
+    uint32 const partnerGuid = TwoPlayersPartnerOf(guid);
+    if (!partnerGuid || TwoPlayersIsLeftHead(guid))
+        return false;
+    std::lock_guard<std::mutex> lock(bodyMutex);
+    exitRequests.insert(guid);
+    return true;
 }
 
 std::string TwoPlayersHalt(Player* rider, bool halt)
