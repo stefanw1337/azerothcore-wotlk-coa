@@ -72,6 +72,9 @@ SPELLS = [
      "Both heads strike the same foe: 1% more hit and damage against it for each stack."),
     (9530132, STACKS, 25332, "Disagree", "", "",
      "Each head fights its own foe: 1% more critical strike chance against it for each stack."),
+    (9530133, RACIAL, 6102, "Head Swap", "Racial",
+     "Fills while both heads agree on their foes. When ready, both heads press it within a second: the Melee Head "
+     "throws what he wields and the Ranged Head breathes his magic over the foes in front for 10 seconds.", ""),
 ]
 CASTER_AURA = {9530106: 9530102, 9530107: 9530105}
 

@@ -616,9 +616,6 @@ inline bool IsEchoSlot(std::uint8_t slot)
 
 constexpr std::uint32_t TwoPlayersBodyDisplay = 985001;
 constexpr std::uint32_t MutatedBodyDisplay = 985002;
-constexpr std::uint32_t TwoPlayersHoldingDisplay = 985003;
-constexpr std::uint32_t MutatedHoldingDisplay = 985004;
-constexpr std::uint32_t HeldInOffHand = 23;
 
 constexpr std::uint32_t TwoPlayersVehicle = 9600;
 
@@ -751,15 +748,6 @@ inline std::uint32_t ShareOfOwnPower(std::uint32_t cost, std::uint32_t ownerMax,
     return std::uint32_t((std::uint64_t(cost) * payerMax + ownerMax - 1) / ownerMax);
 }
 
-inline std::uint32_t BodyDisplayFor(std::uint32_t display, bool holding)
-{
-    if (display == TwoPlayersBodyDisplay || display == TwoPlayersHoldingDisplay)
-        return holding ? TwoPlayersHoldingDisplay : TwoPlayersBodyDisplay;
-    if (display == MutatedBodyDisplay || display == MutatedHoldingDisplay)
-        return holding ? MutatedHoldingDisplay : MutatedBodyDisplay;
-    return display;
-}
-
 enum class AccordMode
 {
     None,
@@ -807,6 +795,30 @@ inline Accord AccordAfterHit(Accord accord, bool byMeleeHead, std::uint64_t targ
     accord.RangedHit = false;
     accord.LastStackAt = now;
     return accord;
+}
+
+inline std::int32_t QuestGoldShare(std::int32_t money, bool meleeHead)
+{
+    if (money <= 0)
+        return money;
+    return meleeHead ? money - money / 2 : money / 2;
+}
+
+inline std::pair<std::uint32_t, std::uint32_t> SharedPool(std::uint32_t first, std::uint32_t firstMax,
+    std::uint32_t second, std::uint32_t secondMax)
+{
+    std::uint64_t const most = std::uint64_t(firstMax) + secondMax;
+    if (!most)
+        return { first, second };
+    std::uint64_t const held = std::uint64_t(first) + second;
+    std::uint32_t const firstShare = std::uint32_t((held * firstMax + most / 2) / most);
+    return { std::min(firstShare, firstMax), std::uint32_t(std::min<std::uint64_t>(held - firstShare, secondMax)) };
+}
+
+inline bool RangedHeadMayNeed(std::uint32_t itemClass)
+{
+    constexpr std::uint32_t Weapon = 2, Armor = 4;
+    return itemClass != Weapon && itemClass != Armor;
 }
 
 inline std::optional<std::pair<std::string, std::string>> SplitJoinedName(std::string_view joined)

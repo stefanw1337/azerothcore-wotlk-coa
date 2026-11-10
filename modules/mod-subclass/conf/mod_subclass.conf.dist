@@ -209,3 +209,9 @@ Subclass.TwoPlayers.Disagree.CritPerStack = 1
 #        Default: 5
 
 Subclass.TwoPlayers.AgreeDisagree.Seconds = 5
+
+#    Subclass.TwoPlayers.HeadSwap.SharedHits
+#        Head Swap is ready after this many shared hits while the heads agree.
+#        Default: 20
+
+Subclass.TwoPlayers.HeadSwap.SharedHits = 20

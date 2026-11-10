@@ -399,22 +399,6 @@ void LoadPairs()
     standInBodies = std::move(bodies);
 }
 
-void FitHoldingBody(Player* player)
-{
-    if (!IsTwoPlayers(player))
-        return;
-    Item const* offHand = player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
-    bool const holding = offHand && offHand->GetTemplate()->InventoryType == Subclass::HeldInOffHand;
-    uint32 const body = player->GetNativeDisplayId();
-    uint32 const wanted = Subclass::BodyDisplayFor(body, holding);
-    if (wanted == body)
-        return;
-    bool const showingBody = player->GetDisplayId() == body;
-    player->SetNativeDisplayId(wanted);
-    if (showingBody)
-        player->SetDisplayId(wanted);
-}
-
 Player* NamedPlayer(ChatHandler* handler, std::string_view name)
 {
     std::string wanted(name);
@@ -502,19 +486,12 @@ class mod_subclass_pairs_player : public PlayerScript
 {
 public:
     mod_subclass_pairs_player() : PlayerScript("mod_subclass_pairs_player", { PLAYERHOOK_ON_LOGIN,
-        PLAYERHOOK_ON_DELETE, PLAYERHOOK_ON_AFTER_SET_VISIBLE_ITEM_SLOT })
+        PLAYERHOOK_ON_DELETE })
     {
-    }
-
-    void OnPlayerAfterSetVisibleItemSlot(Player* player, uint8 slot, Item* /*item*/) override
-    {
-        if (slot == EQUIPMENT_SLOT_OFFHAND)
-            FitHoldingBody(player);
     }
 
     void OnPlayerLogin(Player* player) override
     {
-        FitHoldingBody(player);
         SendPairAddon(player, StateOf(player));
         if (!PartnerOf(player->GetGUID().GetCounter()) && !StandInBodyOf(player->GetGUID().GetCounter()).empty())
             Status(player);

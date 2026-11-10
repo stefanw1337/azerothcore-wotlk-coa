@@ -6,13 +6,17 @@
 #include "Chat.h"
 #include "Config.h"
 #include "DatabaseEnv.h"
+#include "CellImpl.h"
 #include "GameTime.h"
+#include "GridNotifiers.h"
+#include "GridNotifiersImpl.h"
 #include "Group.h"
 #include "Player.h"
 #include "PlayerScript.h"
 #include "Spell.h"
 #include "SpellAuras.h"
 #include "SpellInfo.h"
+#include "SpellMgr.h"
 #include "SubclassRules.h"
 #include "Timer.h"
 #include "UnitScript.h"
@@ -31,12 +35,45 @@ constexpr uint32 SharedBloodSpell = 9530119;
 constexpr uint32 MutateSpell = 9530130;
 constexpr uint32 AgreeAura = 9530131;
 constexpr uint32 DisagreeAura = 9530132;
+constexpr uint32 HeadSwapSpell = 9530133;
 constexpr uint32 RacialTickMs = 1000;
+constexpr uint32 BothPressMs = 1000;
+constexpr uint32 BreathTicks = 10;
+constexpr float BreathReach = 10.0f;
+constexpr float BreathArc = float(M_PI) / 2.0f;
+constexpr uint32 HeroicThrow = 57755;
+constexpr uint32 AvengersShield = 31935;
+
+struct SchoolSpell
+{
+    SpellSchoolMask School;
+    uint32 Spell;
+};
+
+constexpr SchoolSpell BreathSpells[] = {
+    { SPELL_SCHOOL_MASK_FIRE, 2136 }, { SPELL_SCHOOL_MASK_FROST, 116 }, { SPELL_SCHOOL_MASK_SHADOW, 8092 },
+    { SPELL_SCHOOL_MASK_NATURE, 5176 }, { SPELL_SCHOOL_MASK_ARCANE, 30451 }, { SPELL_SCHOOL_MASK_HOLY, 585 } };
+
+struct LimitBreak
+{
+    uint32 Gauge = 0;
+    bool Announced = false;
+    uint32 MeleePressedAt = 0;
+    uint32 RangedPressedAt = 0;
+    uint32 BreathLeft = 0;
+    uint32 BreathSpell = 0;
+};
 
 std::mutex& racialMutex = *new std::mutex;
 std::unordered_map<uint32, Subclass::Accord>& accords = *new std::unordered_map<uint32, Subclass::Accord>;
 std::unordered_set<uint32>& mutated = *new std::unordered_set<uint32>;
 std::unordered_map<uint32, uint32>& sinceTick = *new std::unordered_map<uint32, uint32>;
+std::unordered_map<uint32, LimitBreak>& limitBreaks = *new std::unordered_map<uint32, LimitBreak>;
+
+uint32 GaugeSize()
+{
+    return std::max<uint32>(1, sConfigMgr->GetOption<uint32>("Subclass.TwoPlayers.HeadSwap.SharedHits", 20));
+}
 
 void Tell(Player* player, std::string const& text)
 {
@@ -122,6 +159,23 @@ void CountHit(Player* head, Unit* victim)
         accord = Subclass::AccordAfterHit(accord, byMelee, victim->GetGUID().GetRawValue(), getMSTime(), Settings());
         after = accord;
     }
+    bool const agreedHit = after.Mode == Subclass::AccordMode::Agree && after.LastStackAt != before.LastStackAt;
+    bool announce = false;
+    if (agreedHit)
+    {
+        std::lock_guard<std::mutex> lock(racialMutex);
+        LimitBreak& limit = limitBreaks[body->GetGUID().GetCounter()];
+        limit.Gauge = std::min(GaugeSize(), limit.Gauge + 1);
+        announce = limit.Gauge >= GaugeSize() && !limit.Announced;
+        limit.Announced = limit.Announced || announce;
+    }
+    if (announce)
+    {
+        std::string const line = "|cffd8b46a[The body]|r The heads are of one mind. Head Swap is ready: both press it "
+            "within a second.";
+        Tell(body, line);
+        Tell(rider, line);
+    }
     if (after.Mode == before.Mode && after.Stacks == before.Stacks)
         return;
     ShowAccord(body, after);
@@ -190,7 +244,7 @@ void LearnRacials(Player* player)
 {
     if (!TwoPlayersBody(player))
         return;
-    for (uint32 spell : { SharedBloodSpell, MutateSpell })
+    for (uint32 spell : { SharedBloodSpell, MutateSpell, HeadSwapSpell })
         if (!player->HasSpell(spell))
             player->learnSpell(spell, false);
 }
@@ -202,6 +256,132 @@ void ShareBlood(Player* rider, Player const* body)
     uint32 const health = std::max<uint32>(1, uint32(rider->GetMaxHealth() * body->GetHealthPct() / 100.0f));
     if (rider->GetHealth() != health)
         rider->SetHealth(health);
+}
+
+uint32 BreathSpellOf(Player* rider)
+{
+    SchoolSpell best = BreathSpells[0];
+    int32 most = rider->SpellBaseDamageBonusDone(best.School);
+    for (SchoolSpell const& option : BreathSpells)
+    {
+        int32 const power = rider->SpellBaseDamageBonusDone(option.School);
+        if (power > most)
+        {
+            most = power;
+            best = option;
+        }
+    }
+    return best.Spell;
+}
+
+Unit* SwapTarget(Player* body)
+{
+    Unit* target = body->GetVictim();
+    if (!target)
+        target = body->GetSelectedUnit();
+    return target && target->IsAlive() && body->IsValidAttackTarget(target) && body->IsWithinDist(target, 30.0f) ?
+        target : nullptr;
+}
+
+void ThrowWhatIsWielded(Player* body, Unit* target)
+{
+    Item const* offHand = body->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
+    ItemTemplate const* offProto = offHand ? offHand->GetTemplate() : nullptr;
+    if (offProto && offProto->InventoryType == INVTYPE_SHIELD)
+    {
+        body->CastSpell(target, AvengersShield, TRIGGERED_FULL_MASK);
+        return;
+    }
+    body->CastSpell(target, HeroicThrow, TRIGGERED_FULL_MASK);
+    if (offProto && offProto->Class == ITEM_CLASS_WEAPON)
+        body->CastSpell(target, HeroicThrow, TRIGGERED_FULL_MASK);
+}
+
+void Breathe(Player* body, Player* rider, uint32 spell)
+{
+    std::list<Unit*> enemies;
+    Acore::AnyUnfriendlyUnitInObjectRangeCheck check(body, body, BreathReach);
+    Acore::UnitListSearcher<Acore::AnyUnfriendlyUnitInObjectRangeCheck> searcher(body, enemies, check);
+    Cell::VisitObjects(body, searcher, BreathReach);
+    SpellInfo const* info = sSpellMgr->GetSpellInfo(spell);
+    if (!info)
+        return;
+    int32 const damage = int32(rider->SpellBaseDamageBonusDone(info->GetSchoolMask()) * 0.4f) +
+        int32(rider->GetLevel()) * 4 + 4;
+    for (Unit* enemy : enemies)
+        if (enemy->IsAlive() && body->isInFront(enemy, BreathArc) && rider->IsValidAttackTarget(enemy))
+            rider->CastCustomSpell(enemy, spell, &damage, nullptr, nullptr, true);
+}
+
+void HeadSwap(Player* body, Player* rider)
+{
+    Unit* target = SwapTarget(body);
+    std::string const line = "|cffd8b46a[The body]|r Head Swap! The Melee Head throws, the Ranged Head breathes.";
+    Tell(body, line);
+    Tell(rider, line);
+    if (target)
+        ThrowWhatIsWielded(body, target);
+    std::lock_guard<std::mutex> lock(racialMutex);
+    LimitBreak& limit = limitBreaks[body->GetGUID().GetCounter()];
+    limit.Gauge = 0;
+    limit.Announced = false;
+    limit.BreathLeft = BreathTicks;
+    limit.BreathSpell = BreathSpellOf(rider);
+}
+
+void PressHeadSwap(Player* presser)
+{
+    Player* partner = TwoPlayersSeatedPartner(presser);
+    if (!partner)
+    {
+        Tell(presser, "Head Swap needs both heads on one body.");
+        return;
+    }
+    bool const byMelee = TwoPlayersIsLeftHead(presser->GetGUID().GetCounter());
+    Player* body = byMelee ? presser : partner;
+    Player* rider = byMelee ? partner : presser;
+    uint32 const now = getMSTime();
+    bool fire = false;
+    bool ready = false;
+    {
+        std::lock_guard<std::mutex> lock(racialMutex);
+        LimitBreak& limit = limitBreaks[body->GetGUID().GetCounter()];
+        ready = limit.Gauge >= GaugeSize();
+        if (ready)
+        {
+            (byMelee ? limit.MeleePressedAt : limit.RangedPressedAt) = now;
+            uint32 const other = byMelee ? limit.RangedPressedAt : limit.MeleePressedAt;
+            fire = other && getMSTimeDiff(other, now) <= BothPressMs;
+            if (fire)
+                limit.MeleePressedAt = limit.RangedPressedAt = 0;
+        }
+    }
+    if (!ready)
+    {
+        Tell(presser, "Head Swap isn't ready: the heads must agree on more foes first.");
+        return;
+    }
+    if (fire)
+    {
+        HeadSwap(body, rider);
+        return;
+    }
+    Tell(partner, "|cffd8b46a[The body]|r " + presser->GetName() + " wants to swap heads. Press Head Swap now!");
+}
+
+void BreathTick(Player* body, Player* rider)
+{
+    uint32 spell = 0;
+    {
+        std::lock_guard<std::mutex> lock(racialMutex);
+        auto const found = limitBreaks.find(body->GetGUID().GetCounter());
+        if (found == limitBreaks.end() || !found->second.BreathLeft)
+            return;
+        --found->second.BreathLeft;
+        spell = found->second.BreathSpell;
+    }
+    if (rider)
+        Breathe(body, rider, spell);
 }
 
 void RacialTick(Player* player)
@@ -222,6 +402,7 @@ void RacialTick(Player* player)
     }
     KeepMutatedLook(player);
     FadeAccord(player, partner);
+    BreathTick(player, partner);
 }
 
 class mod_subclass_two_players_racials_player : public PlayerScript
@@ -251,6 +432,7 @@ public:
         mutated.erase(guid);
         sinceTick.erase(guid);
         accords.erase(guid);
+        limitBreaks.erase(guid);
     }
 
     void OnPlayerUpdate(Player* player, uint32 diff) override
@@ -324,6 +506,11 @@ public:
     void OnSpellCast(Spell* /*spell*/, Unit* caster, SpellInfo const* spellInfo, bool /*skipCheck*/) override
     {
         Player* player = caster ? caster->ToPlayer() : nullptr;
+        if (player && spellInfo->Id == HeadSwapSpell)
+        {
+            PressHeadSwap(player);
+            return;
+        }
         if (!player || spellInfo->Id != MutateSpell)
             return;
         uint32 const guid = player->GetGUID().GetCounter();
