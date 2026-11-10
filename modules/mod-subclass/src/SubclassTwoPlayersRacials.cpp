@@ -32,7 +32,8 @@ Player* TwoPlayersSeatedPartner(Player const* head);
 
 namespace
 {
-constexpr uint32 SharedBloodSpell = 9530119;
+constexpr uint32 OnePlayerSharedBloodSpell = 9530119;
+constexpr uint32 SharedBloodSpell = 9530134;
 constexpr uint32 MutateSpell = 9530130;
 constexpr uint32 AgreeAura = 9530131;
 constexpr uint32 DisagreeAura = 9530132;
@@ -248,6 +249,8 @@ void LearnRacials(Player* player)
     for (uint32 spell : { SharedBloodSpell, HeadSwapSpell })
         if (!player->HasSpell(spell))
             player->learnSpell(spell, false);
+    if (player->HasSpell(OnePlayerSharedBloodSpell))
+        player->removeSpell(OnePlayerSharedBloodSpell, SPEC_MASK_ALL, false);
     uint32 const guid = player->GetGUID().GetCounter();
     bool const rider = TwoPlayersPartnerOf(guid) && !TwoPlayersIsLeftHead(guid);
     if ((rider || player->getRace(true) != Subclass::TwoHeadedOgreRace) && player->HasSpell(MutateSpell))

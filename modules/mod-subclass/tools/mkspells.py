@@ -66,6 +66,9 @@ SPELLS = [
      "Your body shares blood, one health pool. When both heads use the same resource pool type, they will share one "
      "bigger pool of it. It will be twice as big and refill twice as fast. If the resource pools are of different "
      "types, they will also share their strength with each other.", ""),
+    (9530134, PASSIVE, 2636, "Shared Blood", "Racial Passive",
+     "Two heads, one body, one blood. While the Ranged Head rides, he can't be hurt: his health is the body's. Heads "
+     "that use the same resource share one pool of it; different resources stay apart.", ""),
     (9530130, RACIAL, 25332, "Mutate Me!", "Racial",
      "Your body sprouts eyes everywhere and takes on a stranger look. Use it again to change back.", ""),
     (9530131, STACKS, 24897, "Agree", "", "",
