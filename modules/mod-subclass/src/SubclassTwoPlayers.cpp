@@ -42,6 +42,8 @@ bool TwoPlayersHeadIsBot(Player const* head);
 std::string TwoPlayersHalt(Player* rider, bool halt);
 void SendSubclassMessage(Player* player, std::string const& message);
 Player* TwoPlayersSeatedPartner(Player const* head);
+void TwoPlayersShareBuffs(Player* first, Player* second);
+void TwoPlayersDropSharedBuffs(Player* holder);
 void TwoPlayersSteerBotBody(Player* body, bool roam);
 
 namespace
@@ -350,6 +352,7 @@ void Reclaim(Player* player)
     if (!spells.empty())
         ShowLentOnBar(player, {});
     GiveBack(player, handed);
+    TwoPlayersDropSharedBuffs(player);
 }
 
 bool HasLent(Player const* player)
@@ -405,6 +408,7 @@ void Seat(Player* left, Player* right)
     Reclaim(left);
     Reclaim(right);
     LendBothWays(left, right);
+    TwoPlayersShareBuffs(left, right);
     if (!Greet(left->GetGUID().GetCounter(), true))
         return;
     bool const piggyback = Subclass::BodyVehicleFor(left->getRace(true)) == Subclass::TwinsTwoPlayersVehicle;
