@@ -215,3 +215,17 @@ Subclass.TwoPlayers.AgreeDisagree.Seconds = 5
 #        Default: 20
 
 Subclass.TwoPlayers.BonkHeads.SharedHits = 20
+
+#    Subclass.Bots.QuestRoute.Enable
+#        Questing bots (new rpg) work through their quest log along one short route: every quest
+#        near them first, in the order that walks the least, re-planned whenever the log changes.
+#        Default: 1
+
+Subclass.Bots.QuestRoute.Enable = 1
+
+#    Subclass.Bots.QuestRoute.PreferQuests
+#        1: a questing bot with quests left on its route goes on with them instead of picking a
+#        random activity (grinding, wandering, the city). 0: only the quest it picks is steered.
+#        Default: 1
+
+Subclass.Bots.QuestRoute.PreferQuests = 1
