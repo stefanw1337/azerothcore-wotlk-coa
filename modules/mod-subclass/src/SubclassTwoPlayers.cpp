@@ -875,7 +875,8 @@ public:
             return true;
         SpellInfo const* info = spell->GetSpellInfo();
         Subclass::Borrow const kind = BorrowOfSpell(info->Id);
-        if (kind != Subclass::Borrow::None && !Subclass::BodyCasts(kind, pressedByLeft))
+        if (kind != Subclass::Borrow::None && !Subclass::BodyCasts(kind, pressedByLeft) &&
+            ClassAbilityOf(presser, info->Id))
         {
             if (!TwoPlayersHeadIsBot(presser))
                 Tell(presser, RefusalFor(kind));

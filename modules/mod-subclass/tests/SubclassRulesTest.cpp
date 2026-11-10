@@ -618,6 +618,13 @@ TEST(Subclass, StancesFormsAndShortInstantSelfSpellsStayWithTheirOwner)
     enrage.Duration = 12000;
     enrage.Positive = true;
     EXPECT_EQ(BorrowOf(enrage), Borrow::None);
+    SpellShape mount;
+    mount.Effects = { 6, 3, 3 };
+    mount.Auras = { 78, 0, 0 };
+    mount.CastTime = 1500;
+    mount.Duration = -1;
+    mount.Positive = true;
+    EXPECT_EQ(BorrowOf(mount), Borrow::None);
 }
 
 TEST(Subclass, FearsTeleportsOfOthersPassivesAndMeleeWeaponsAreNotBorrowed)

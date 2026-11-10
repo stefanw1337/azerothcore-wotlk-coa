@@ -689,9 +689,9 @@ inline bool MovesTheBody(SpellShape const& spell)
 
 inline bool ChangesForm(SpellShape const& spell)
 {
-    constexpr std::uint32_t Shapeshift = 36, Mounted = 32;
+    constexpr std::uint32_t Shapeshift = 36, MountedSpeed = 32, Mounted = 78;
     return std::any_of(spell.Auras.begin(), spell.Auras.end(),
-        [](std::uint32_t aura) { return aura == Shapeshift || aura == Mounted; });
+        [](std::uint32_t aura) { return aura == Shapeshift || aura == MountedSpeed || aura == Mounted; });
 }
 
 inline bool FightsUpClose(SpellShape const& spell)
