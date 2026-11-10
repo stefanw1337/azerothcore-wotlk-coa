@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <array>
 #include <initializer_list>
+#include <map>
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
@@ -45,6 +46,8 @@ namespace
 {
 constexpr uint32 KeepTogetherMs = 1000;
 constexpr float SeatReach = 40.0f;
+constexpr uint32 LentBuffRecastMs = 60000;
+constexpr float LentHealBelowPct = 60.0f;
 constexpr int8 RightHeadSeat = 0;
 constexpr uint32 BotRecallMs = 30000;
 constexpr uint32 BodyThreatKey = 0x7FF09600;
@@ -63,6 +66,7 @@ std::unordered_set<uint32>& halted = *new std::unordered_set<uint32>;
 std::unordered_set<uint32>& greeted = *new std::unordered_set<uint32>;
 std::unordered_set<uint32>& exitRequests = *new std::unordered_set<uint32>;
 std::unordered_set<uint32>& steered = *new std::unordered_set<uint32>;
+std::map<std::pair<uint32, uint32>, uint32>& lentBuffs = *new std::map<std::pair<uint32, uint32>, uint32>;
 std::unordered_map<uint32, std::vector<uint32>>& handedOver = *new std::unordered_map<uint32, std::vector<uint32>>;
 std::unordered_map<uint32, std::vector<uint32>>& toldLent = *new std::unordered_map<uint32, std::vector<uint32>>;
 std::unordered_map<uint32, std::vector<uint32>>& toldHanded = *new std::unordered_map<uint32, std::vector<uint32>>;
@@ -472,29 +476,68 @@ void KeepTheTwoPlayersBody(Player* player)
     LOG_INFO("module", "mod-subclass: Two-Players head {} gets its Two-Players body back", player->GetName());
 }
 
-void StrikeWithLentMelee(Player* body)
+Unit* FoeOfTheBody(Player* body)
 {
-    if (!TwoPlayersHeadIsBot(body) || !body->IsInCombat() || body->IsNonMeleeSpellCast(false))
-        return;
-    Unit* victim = body->GetVictim();
-    if (!victim || !victim->IsAlive() || !body->IsWithinMeleeRange(victim))
+    Unit* foe = body->GetVictim();
+    if (!foe && body->GetTarget())
+        foe = ObjectAccessor::GetUnit(*body, body->GetTarget());
+    return foe && foe->IsAlive() && body->IsValidAttackTarget(foe) ? foe : nullptr;
+}
+
+bool LeavesAnAura(SpellInfo const* info)
+{
+    for (SpellEffectInfo const& effect : info->Effects)
+        if (effect.IsAura())
+            return true;
+    return false;
+}
+
+bool BuffedRecently(Player const* bot, SpellInfo const* info, uint32 now)
+{
+    uint32 const keep = info->GetMaxDuration() > 0 ? uint32(info->GetMaxDuration()) : LentBuffRecastMs;
+    std::lock_guard<std::mutex> lock(bodyMutex);
+    uint32& last = lentBuffs[{ bot->GetGUID().GetCounter(), info->Id }];
+    if (last && getMSTimeDiff(last, now) < keep)
+        return true;
+    last = now;
+    return false;
+}
+
+void UseLentAbilities(Player* bot, Player* body)
+{
+    if (!TwoPlayersHeadIsBot(bot) || !bot->IsAlive() || bot->IsNonMeleeSpellCast(false))
         return;
     std::vector<uint32> spells;
     {
         std::lock_guard<std::mutex> lock(bodyMutex);
-        auto const found = lent.find(body->GetGUID().GetCounter());
+        auto const found = lent.find(bot->GetGUID().GetCounter());
         if (found == lent.end())
             return;
         spells = found->second;
     }
+    Unit* foe = body->IsInCombat() ? FoeOfTheBody(body) : nullptr;
+    uint32 const now = getMSTime();
     for (uint32 spellId : spells)
     {
         SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
-        if (!info || info->IsPassive() || info->IsPositive() || BorrowOfSpell(spellId) != Subclass::Borrow::Melee)
+        if (!info || info->IsPassive() || bot->HasSpellCooldown(spellId) ||
+            bot->GetGlobalCooldownMgr().HasGlobalCooldown(info))
             continue;
-        if (body->HasSpellCooldown(spellId) || body->GetGlobalCooldownMgr().HasGlobalCooldown(info))
-            continue;
-        if (body->CastSpell(victim, spellId, false) == SPELL_CAST_OK)
+        Unit* target = nullptr;
+        if (!info->IsPositive())
+        {
+            bool const upClose = BorrowOfSpell(spellId) == Subclass::Borrow::Melee;
+            if (foe && (!upClose || body->IsWithinMeleeRange(foe)))
+                target = foe;
+        }
+        else if (LeavesAnAura(info))
+        {
+            if (!bot->HasAura(spellId) && !BuffedRecently(bot, info, now))
+                target = bot;
+        }
+        else if (body->GetHealthPct() < LentHealBelowPct)
+            target = body;
+        if (target && bot->CastSpell(target, spellId, false) == SPELL_CAST_OK)
             return;
     }
 }
@@ -553,8 +596,10 @@ void KeepTogether(Player* player)
         if (left)
         {
             LendBothWays(body, rider);
-            StrikeWithLentMelee(body);
+            UseLentAbilities(body, body);
         }
+        else
+            UseLentAbilities(rider, body);
         return;
     }
     if (!Ready(body) || !Ready(rider) || body->GetVehicle())
