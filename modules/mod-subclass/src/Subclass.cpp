@@ -82,6 +82,7 @@ bool SubclassResting(Player const* player);
 bool LonelyTwin(Player const* player);
 bool OrderBrother(Player* player, uint32 spellId, Unit* target);
 void PressForOtherHalf(Player* player, uint32 spellId);
+bool TwoPlayersPressLent(Player* player, uint32 spellId);
 void SendTwinGearToCharacterSelect(WorldSession* session);
 std::vector<uint32> KnownBorrowedActives(Player const* player);
 bool OffersStandardMains();
@@ -1356,7 +1357,8 @@ void HandleAddonMessage(Player* player, std::string_view message)
     std::vector<std::string_view> const words = Acore::Tokenize(message, ' ', false);
     if (words.size() == 2 && words[0] == "PRESS")
     {
-        if (Optional<uint32> spellId = Acore::StringTo<uint32>(words[1]))
+        if (Optional<uint32> spellId = Acore::StringTo<uint32>(words[1]); spellId &&
+            !TwoPlayersPressLent(player, *spellId))
             PressForOtherHalf(player, *spellId);
         return;
     }

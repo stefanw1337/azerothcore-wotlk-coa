@@ -1137,6 +1137,31 @@ Player* TwoPlayersSeatedPartner(Player const* head)
     return (left ? Seated(head, partner) : Seated(partner, head)) ? partner : nullptr;
 }
 
+bool TwoPlayersPressLent(Player* player, uint32 spellId)
+{
+    if (!LentTo(player, spellId))
+        return false;
+    SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+    if (!info || !player->IsAlive() || !player->HasSpell(spellId))
+        return true;
+    Unit* selected = player->GetSelectedUnit();
+    Unit* target = player;
+    if (info->NeedsExplicitUnitTarget())
+    {
+        if (info->IsPositive())
+            target = selected && !player->IsValidAttackTarget(selected) ? selected : player;
+        else
+            target = selected && player->IsValidAttackTarget(selected) ? selected : nullptr;
+    }
+    if (!target)
+    {
+        ChatHandler(player->GetSession()).SendNotification("That needs an enemy target.");
+        return true;
+    }
+    player->CastSpell(target, spellId, false);
+    return true;
+}
+
 void TwoPlayersSeparate(uint32 first, uint32 second)
 {
     for (uint32 guid : { first, second })
