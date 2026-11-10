@@ -435,14 +435,17 @@ bool Group::AddMember(Player* player, uint8 roles /* = 0 */)
     if (!player)
         return false;
 
-    // Get first not-full group
+    // Get first not-full group; a rider sharing a body joins its body's group
     uint8 subGroup = 0;
-    if (m_subGroupsCounts)
+    ObjectGuid const ridersBody = BodyOfRider(player->GetGUID());
+    if (m_subGroupsCounts && ridersBody && IsMember(ridersBody))
+        subGroup = GetMemberGroup(ridersBody);
+    else if (m_subGroupsCounts)
     {
         bool groupFound = false;
         for (; subGroup < MAX_RAID_SUBGROUPS; ++subGroup)
         {
-            if (m_subGroupsCounts[subGroup] < MAXGROUPSIZE)
+            if (HasFreeSlotSubGroup(subGroup))
             {
                 groupFound = true;
                 break;
@@ -1919,13 +1922,15 @@ void Group::SendUpdateToPlayer(ObjectGuid playerGUID, MemberSlot* slot)
         data << uint32(sLFGMgr->GetDungeon(m_guid));
     }
 
-    // a rider sharing a body is listed only to itself and its body: the client shows at most four others
+    // two heads sharing a body take one place in the list: others see the body, the rider sees itself
     auto const listed = [&](MemberSlot const& member)
     {
         if (slot->guid == member.guid)
             return false;
         ObjectGuid const body = BodyOfRider(member.guid);
-        return !body || body == slot->guid || !IsMember(body);
+        if (body && IsMember(body))
+            return false;
+        return BodyOfRider(slot->guid) != member.guid;
     };
     data << m_guid;
     data << uint32(m_counter++);                        // 3.3, value increases every time this packet gets sent
@@ -2046,6 +2051,14 @@ void Group::ChangeMembersGroup(ObjectGuid guid, uint8 group)
     if (slot == m_memberSlots.end())
         return;
 
+    // A rider sharing a body moves with its body
+    ObjectGuid const body = BodyOfRider(guid);
+    if (body && IsMember(body) && GetMemberGroup(body) != group)
+    {
+        ChangeMembersGroup(body, group);
+        return;
+    }
+
     // Abort if the player is already in the target sub group
     uint8 prevSubGroup = GetMemberGroup(guid);
     if (prevSubGroup == group)
@@ -2078,6 +2091,15 @@ void Group::ChangeMembersGroup(ObjectGuid guid, uint8 group)
             player->GetGroupRef().setSubGroup(group);
         else // If player is in BG raid, it is possible that he is also in normal raid - and that normal raid is stored in m_originalGroup reference
             player->GetOriginalGroupRef().setSubGroup(group);
+    }
+
+    for (MemberSlot const& member : m_memberSlots)
+    {
+        if (BodyOfRider(member.guid) == guid && member.group != group)
+        {
+            ChangeMembersGroup(member.guid, group);
+            break;
+        }
     }
 
     // Broadcast the changes to the group
@@ -2659,7 +2681,16 @@ bool Group::SameSubGroup(ObjectGuid guid1, MemberSlot const* slot2) const
 
 bool Group::HasFreeSlotSubGroup(uint8 subgroup) const
 {
-    return (m_subGroupsCounts && m_subGroupsCounts[subgroup] < MAXGROUPSIZE);
+    if (!m_subGroupsCounts)
+        return false;
+    uint32 counted = 0;
+    for (MemberSlot const& slot : m_memberSlots)
+    {
+        ObjectGuid const body = BodyOfRider(slot.guid);
+        if (slot.group == subgroup && (!body || !IsMember(body)))
+            ++counted;
+    }
+    return counted < MAXGROUPSIZE;
 }
 
 uint8 Group::GetMemberGroup(ObjectGuid guid) const
