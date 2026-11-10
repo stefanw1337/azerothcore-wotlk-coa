@@ -59,6 +59,7 @@ constexpr uint32 OneBodyRepeatMs = 30000;
 constexpr int8 RightHeadSeat = 0;
 constexpr uint32 BotRecallMs = 30000;
 constexpr uint32 BodyThreatKey = 0x7FF09600;
+constexpr uint32 HiddenArrivalMs = 15000;
 
 struct Absence
 {
@@ -81,6 +82,7 @@ std::unordered_map<uint32, std::vector<uint32>>& handedOver = *new std::unordere
 std::unordered_map<uint32, std::vector<uint32>>& toldLent = *new std::unordered_map<uint32, std::vector<uint32>>;
 std::unordered_map<uint32, std::vector<uint32>>& toldHanded = *new std::unordered_map<uint32, std::vector<uint32>>;
 std::unordered_map<uint32, Absence>& absences = *new std::unordered_map<uint32, Absence>;
+std::unordered_map<uint32, uint32>& hiddenArrivals = *new std::unordered_map<uint32, uint32>;
 
 struct WornCopy
 {
@@ -441,6 +443,30 @@ bool Greet(uint32 bodyGuid, bool together)
     return together ? greeted.insert(bodyGuid).second : greeted.erase(bodyGuid) != 0;
 }
 
+void HideArrival(Player* rider)
+{
+    {
+        std::lock_guard<std::mutex> lock(bodyMutex);
+        hiddenArrivals[rider->GetGUID().GetCounter()] = getMSTime();
+    }
+    rider->SetVisible(false);
+}
+
+void RevealArrival(Player* rider, bool onlyWhenOverdue)
+{
+    {
+        std::lock_guard<std::mutex> lock(bodyMutex);
+        auto const found = hiddenArrivals.find(rider->GetGUID().GetCounter());
+        if (found == hiddenArrivals.end())
+            return;
+        if (onlyWhenOverdue && getMSTimeDiff(found->second, getMSTime()) < HiddenArrivalMs)
+            return;
+        hiddenArrivals.erase(found);
+    }
+    if (!rider->IsVisible())
+        rider->SetVisible(true);
+}
+
 void Seat(Player* left, Player* right)
 {
     if (Seated(left, right) || !GiveBodyKit(left))
@@ -449,6 +475,7 @@ void Seat(Player* left, Player* right)
         right->ExitVehicle();
     if (TwoPlayersHeadIsBot(right) && !right->IsVisible())
         right->SetVisible(true);
+    RevealArrival(right, false);
     right->EnterVehicle(left, RightHeadSeat);
     if (!Seated(left, right))
         return;
@@ -650,6 +677,8 @@ void KeepTogether(Player* player)
     if (!leaving)
         CallBotForMissingHead(player, partnerGuid, !connected, left);
     Player* partner = Online(partnerGuid);
+    if (!left)
+        RevealArrival(player, partner != nullptr);
     if (!partner)
     {
         Greet(left ? guid : partnerGuid, false);
@@ -855,8 +884,16 @@ class mod_subclass_two_players_player : public PlayerScript
 public:
     mod_subclass_two_players_player() : PlayerScript("mod_subclass_two_players_player", { PLAYERHOOK_ON_UPDATE,
         PLAYERHOOK_ON_PLAYER_JUST_DIED, PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_CAN_GROUP_ACCEPT, PLAYERHOOK_CAN_EQUIP_ITEM,
-        PLAYERHOOK_CAN_UNEQUIP_ITEM })
+        PLAYERHOOK_CAN_UNEQUIP_ITEM, PLAYERHOOK_ON_LOAD_FROM_DB })
     {
+    }
+
+    void OnPlayerLoadFromDB(Player* player) override
+    {
+        uint32 const guid = player->GetGUID().GetCounter();
+        uint32 const partnerGuid = TwoPlayersPartnerOf(guid);
+        if (partnerGuid && !TwoPlayersIsLeftHead(guid) && Online(partnerGuid))
+            HideArrival(player);
     }
 
     void OnPlayerUpdate(Player* player, uint32 diff) override
@@ -935,6 +972,7 @@ public:
         steered.erase(player->GetGUID().GetCounter());
         groupToldAt.erase(player->GetGUID().GetCounter());
         toldHanded.erase(player->GetGUID().GetCounter());
+        hiddenArrivals.erase(player->GetGUID().GetCounter());
     }
 };
 
@@ -950,11 +988,45 @@ Player* VisibleRiderOf(Unit* unit)
     return Seated(body, rider) ? rider : nullptr;
 }
 
+bool HealsManyAtOnce(SpellInfo const* info)
+{
+    if (info->IsAffectingArea())
+        return true;
+    for (SpellEffectInfo const& effect : info->Effects)
+        if (effect.ChainTarget > 1)
+            return true;
+    return false;
+}
+
+Player* BodyOfSeatedRider(Unit* unit)
+{
+    Player* rider = unit ? unit->ToPlayer() : nullptr;
+    if (!rider || !rider->GetVehicle())
+        return nullptr;
+    uint32 const guid = rider->GetGUID().GetCounter();
+    if (TwoPlayersIsLeftHead(guid))
+        return nullptr;
+    Player* body = Online(TwoPlayersPartnerOf(guid));
+    return Seated(body, rider) ? body : nullptr;
+}
+
 class mod_subclass_two_players_unit : public UnitScript
 {
 public:
     mod_subclass_two_players_unit() : UnitScript("mod_subclass_two_players_unit", true,
-        { UNITHOOK_ON_DAMAGE, UNITHOOK_MODIFY_MELEE_DAMAGE }) { }
+        { UNITHOOK_ON_DAMAGE, UNITHOOK_MODIFY_MELEE_DAMAGE, UNITHOOK_MODIFY_HEAL_RECEIVED }) { }
+
+    void ModifyHealReceived(Unit* healer, Unit* receiver, uint32& heal, SpellInfo const* info) override
+    {
+        if (!healer || !heal || !info || HealsManyAtOnce(info))
+            return;
+        Player* body = BodyOfSeatedRider(receiver);
+        if (!body || !body->IsAlive())
+            return;
+        HealInfo bodyHeal(healer, body, heal, info, info->GetSchoolMask());
+        heal = 0;
+        healer->HealBySpell(bodyHeal);
+    }
 
     void ModifyMeleeDamage(Unit* /*target*/, Unit* attacker, uint32& /*damage*/) override
     {
@@ -967,14 +1039,7 @@ public:
 
     void OnDamage(Unit* /*attacker*/, Unit* victim, uint32& damage) override
     {
-        Player* right = victim ? victim->ToPlayer() : nullptr;
-        if (!right || !right->GetVehicle())
-            return;
-        uint32 const guid = right->GetGUID().GetCounter();
-        if (TwoPlayersIsLeftHead(guid))
-            return;
-        Player* left = Online(TwoPlayersPartnerOf(guid));
-        if (Seated(left, right))
+        if (BodyOfSeatedRider(victim))
             damage = 0;
     }
 };

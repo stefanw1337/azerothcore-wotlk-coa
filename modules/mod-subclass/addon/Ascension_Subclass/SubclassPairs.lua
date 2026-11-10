@@ -221,13 +221,18 @@ function Ascension_Subclass.SetOneBody(body, rider)
     for name, of in pairs(riders) do
         if of == body then
             riders[name] = nil
+            joinedNames[name] = nil
         end
     end
     joinedNames[body] = rider and body .. "'" .. rider or nil
     if rider then
         riders[rider] = body
+        joinedNames[rider] = joinedNames[body]
     end
     RefreshPartyFrames()
+    if PlayerFrame and UnitFrame_Update then
+        UnitFrame_Update(PlayerFrame)
+    end
     if RaidGroupFrame_Update and RaidFrame and RaidFrame:IsShown() then
         RaidGroupFrame_Update()
     end
