@@ -9,6 +9,7 @@
 #include "GameTime.h"
 #include "Group.h"
 #include "GroupMgr.h"
+#include "GroupSharedSlots.h"
 #include "Item.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
@@ -425,7 +426,7 @@ void GroupUp(Player* left, Player* right)
         }
         sGroupMgr->AddGroup(group);
     }
-    if (!group->IsFull())
+    if (GroupHasRoomFor(group, right->GetGUID()))
         group->AddMember(right);
 }
 
@@ -849,20 +850,6 @@ bool WearsNoGearOfItsOwn(Player const* player)
     return TwoPlayersPartnerOf(guid) && !TwoPlayersIsLeftHead(guid);
 }
 
-bool RoomForBothHeads(Player* body, Group* group)
-{
-    if (!group || group == body->GetGroup())
-        return true;
-    uint32 const capacity = group->isRaidGroup() ? MAXRAIDSIZE : MAXGROUPSIZE;
-    if (group->GetMembersCount() + 2 <= capacity)
-        return true;
-    std::string const refusal = "The two-headed ogre needs two free spots in the party, one for each head.";
-    Tell(body, refusal);
-    if (Player* leader = ObjectAccessor::FindConnectedPlayer(group->GetLeaderGUID()))
-        Tell(leader, refusal);
-    return false;
-}
-
 class mod_subclass_two_players_player : public PlayerScript
 {
 public:
@@ -920,7 +907,7 @@ public:
         if (!partnerGuid)
             return true;
         if (TwoPlayersIsLeftHead(guid))
-            return RoomForBothHeads(player, group);
+            return true;
         Player* left = Online(partnerGuid);
         if (!left || left->GetGroup() == group)
             return true;
@@ -1129,8 +1116,20 @@ std::string TwoPlayersHalt(Player* rider, bool halt)
     return halt ? "The body stops and waits here." : "The body roams, fights and quests again.";
 }
 
+ObjectGuid BodyOfTwoPlayersRider(ObjectGuid rider)
+{
+    if (!rider.IsPlayer())
+        return ObjectGuid::Empty;
+    uint32 const guid = rider.GetCounter();
+    uint32 const partner = TwoPlayersPartnerOf(guid);
+    if (!partner || TwoPlayersIsLeftHead(guid))
+        return ObjectGuid::Empty;
+    return ObjectGuid::Create<HighGuid::Player>(partner);
+}
+
 void AddSC_mod_subclass_two_players()
 {
+    SetBodyOfRider(&BodyOfTwoPlayersRider);
     new mod_subclass_two_players_player();
     new mod_subclass_two_players_unit();
     new mod_subclass_two_players_spells();

@@ -25,6 +25,7 @@
 #include "Geometry.h"
 #include "GridNotifiers.h"
 #include "Group.h"
+#include "GroupSharedSlots.h"
 #include "InstanceScript.h"
 #include "IVMapMgr.h"
 #include "LFGMgr.h"
@@ -2049,9 +2050,20 @@ Map::EnterState InstanceMap::CannotEnter(Player* player, bool loginCheck)
     if (player->IsGameMaster())
         return Map::CannotEnter(player, loginCheck);
 
-    // cannot enter if the instance is full (player cap), GMs don't count
+    // cannot enter if the instance is full (player cap), GMs don't count; a rider sharing a body inside counts as one
     uint32 maxPlayers = GetMaxPlayers();
-    if (GetPlayersCountExceptGMs() >= (loginCheck ? maxPlayers + 1 : maxPlayers))
+    uint32 riders = 0;
+    for (MapReference const& ref : GetPlayers())
+        if (Player const* inside = ref.GetSource())
+        {
+            ObjectGuid const body = BodyOfRider(inside->GetGUID());
+            if (body && ObjectAccessor::GetPlayer(this, body))
+                ++riders;
+        }
+    ObjectGuid const ownBody = BodyOfRider(player->GetGUID());
+    bool const ridesIn = ownBody && ObjectAccessor::GetPlayer(this, ownBody);
+    if (!ridesIn && GetPlayersCountExceptGMs() - std::min(riders, GetPlayersCountExceptGMs()) >=
+        (loginCheck ? maxPlayers + 1 : maxPlayers))
     {
         LOG_DEBUG("maps", "MAP: Instance '{}' of map '{}' cannot have more than '{}' players. Player '{}' rejected", GetInstanceId(), GetMapName(), maxPlayers, player->GetName());
         player->SendTransferAborted(GetId(), TRANSFER_ABORT_MAX_PLAYERS);

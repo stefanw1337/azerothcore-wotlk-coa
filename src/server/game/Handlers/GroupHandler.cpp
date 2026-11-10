@@ -18,6 +18,7 @@
 #include "Chat.h"
 #include "DatabaseEnv.h"
 #include "Group.h"
+#include "GroupSharedSlots.h"
 #include "GroupMgr.h"
 #include "LFGMgr.h"
 #include "Language.h"
@@ -187,7 +188,7 @@ void WorldSession::HandleGroupInviteOpcode(WorldPacket& recvData)
             return;
         }
         // not have place
-        if (group->IsFull())
+        if (!GroupHasRoomFor(group, invitedPlayer->GetGUID()))
         {
             SendPartyResult(PARTY_OP_INVITE, "", ERR_GROUP_FULL);
             return;
@@ -299,7 +300,7 @@ void WorldSession::HandleGroupAcceptOpcode(WorldPacket& recvData)
     }
 
     // Group is full
-    if (group->IsFull())
+    if (!GroupHasRoomFor(group, GetPlayer()->GetGUID()))
     {
         SendPartyResult(PARTY_OP_INVITE, "", ERR_GROUP_FULL);
         return;

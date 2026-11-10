@@ -16,6 +16,7 @@
  */
 
 #include "Group.h"
+#include "GroupSharedSlots.h"
 #include "AreaDefines.h"
 #include "Battleground.h"
 #include "BattlegroundMgr.h"
@@ -1918,12 +1919,20 @@ void Group::SendUpdateToPlayer(ObjectGuid playerGUID, MemberSlot* slot)
         data << uint32(sLFGMgr->GetDungeon(m_guid));
     }
 
+    // a rider sharing a body is listed only to itself and its body: the client shows at most four others
+    auto const listed = [&](MemberSlot const& member)
+    {
+        if (slot->guid == member.guid)
+            return false;
+        ObjectGuid const body = BodyOfRider(member.guid);
+        return !body || body == slot->guid || !IsMember(body);
+    };
     data << m_guid;
     data << uint32(m_counter++);                        // 3.3, value increases every time this packet gets sent
-    data << uint32(GetMembersCount() - 1);
+    data << uint32(std::count_if(m_memberSlots.begin(), m_memberSlots.end(), listed));
     for (member_citerator citr = m_memberSlots.begin(); citr != m_memberSlots.end(); ++citr)
     {
-        if (slot->guid == citr->guid)
+        if (!listed(*citr))
             continue;
 
         Player* member = ObjectAccessor::FindConnectedPlayer(citr->guid);
@@ -2487,9 +2496,51 @@ void Group::SetLfgRoles(ObjectGuid guid, const uint8 roles)
     SendUpdate();
 }
 
+namespace
+{
+ObjectGuid (*s_bodyOfRider)(ObjectGuid) = nullptr;
+
+uint32 GroupCapacity(Group const* group)
+{
+    return group->isRaidGroup() ? MAXRAIDSIZE : MAXGROUPSIZE;
+}
+}
+
+void SetBodyOfRider(ObjectGuid (*bodyOfRider)(ObjectGuid rider))
+{
+    s_bodyOfRider = bodyOfRider;
+}
+
+ObjectGuid BodyOfRider(ObjectGuid rider)
+{
+    return s_bodyOfRider ? s_bodyOfRider(rider) : ObjectGuid::Empty;
+}
+
+// A rider sharing a body with another member does not take a slot of its own
+uint32 SharedGroupSlots(Group const* group)
+{
+    uint32 shared = 0;
+    for (Group::MemberSlot const& slot : group->GetMemberSlots())
+    {
+        ObjectGuid const body = BodyOfRider(slot.guid);
+        if (body && group->IsMember(body))
+            ++shared;
+    }
+    return shared;
+}
+
+bool GroupHasRoomFor(Group const* group, ObjectGuid joiner)
+{
+    if (!group->IsFull())
+        return true;
+    ObjectGuid const body = BodyOfRider(joiner);
+    return body && group->IsMember(body) &&
+        group->GetMembersCount() < GroupCapacity(group) + SharedGroupSlots(group) + 1;
+}
+
 bool Group::IsFull() const
 {
-    return isRaidGroup() ? (m_memberSlots.size() >= MAXRAIDSIZE) : (m_memberSlots.size() >= MAXGROUPSIZE);
+    return GetMembersCount() >= GroupCapacity(this) + SharedGroupSlots(this);
 }
 
 bool Group::isLFGGroup(bool restricted /*= false*/) const
