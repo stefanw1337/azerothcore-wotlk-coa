@@ -1,0 +1,5 @@
+## Interface: 30300
+## Title: CoAC Bot Plan
+## Notes: Works alongside SquidBots Lite without changing it.
+## OptionalDeps: SquidBotsLite
+BotChat.lua
