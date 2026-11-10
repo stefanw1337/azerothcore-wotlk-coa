@@ -37,7 +37,7 @@ constexpr uint32 SharedBloodSpell = 9530134;
 constexpr uint32 MutateSpell = 9530130;
 constexpr uint32 AgreeAura = 9530131;
 constexpr uint32 DisagreeAura = 9530132;
-constexpr uint32 HeadSwapSpell = 9530133;
+constexpr uint32 BonkHeadsSpell = 9530133;
 constexpr uint32 RacialTickMs = 1000;
 constexpr uint32 BothPressMs = 1000;
 constexpr uint32 BreathTicks = 10;
@@ -74,7 +74,7 @@ std::unordered_map<uint32, LimitBreak>& limitBreaks = *new std::unordered_map<ui
 
 uint32 GaugeSize()
 {
-    return std::max<uint32>(1, sConfigMgr->GetOption<uint32>("Subclass.TwoPlayers.HeadSwap.SharedHits", 20));
+    return std::max<uint32>(1, sConfigMgr->GetOption<uint32>("Subclass.TwoPlayers.BonkHeads.SharedHits", 20));
 }
 
 void Tell(Player* player, std::string const& text)
@@ -173,8 +173,8 @@ void CountHit(Player* head, Unit* victim)
     }
     if (announce)
     {
-        std::string const line = "|cffd8b46a[The body]|r The heads are of one mind. Head Swap is ready: both press it "
-            "within a second.";
+        std::string const line = "|cffd8b46a[The body]|r Heads agree. Time to bonk! Both press Bonk Heads! within "
+            "a second.";
         Tell(body, line);
         Tell(rider, line);
     }
@@ -246,7 +246,7 @@ void LearnRacials(Player* player)
 {
     if (!TwoPlayersBody(player))
         return;
-    for (uint32 spell : { SharedBloodSpell, HeadSwapSpell })
+    for (uint32 spell : { SharedBloodSpell, BonkHeadsSpell })
         if (!player->HasSpell(spell))
             player->learnSpell(spell, false);
     if (player->HasSpell(OnePlayerSharedBloodSpell))
@@ -323,10 +323,10 @@ void Breathe(Player* body, Player* rider, uint32 spell)
             rider->CastCustomSpell(enemy, spell, &damage, nullptr, nullptr, true);
 }
 
-void HeadSwap(Player* body, Player* rider)
+void BonkHeads(Player* body, Player* rider)
 {
     Unit* target = SwapTarget(body);
-    std::string const line = "|cffd8b46a[The body]|r Head Swap! The Melee Head throws, the Ranged Head breathes.";
+    std::string const line = "|cffd8b46a[The body]|r BONK! The Melee Head throws, the Ranged Head breathes.";
     Tell(body, line);
     Tell(rider, line);
     if (target)
@@ -339,12 +339,12 @@ void HeadSwap(Player* body, Player* rider)
     limit.BreathSpell = BreathSpellOf(rider);
 }
 
-void PressHeadSwap(Player* presser)
+void PressBonkHeads(Player* presser)
 {
     Player* partner = TwoPlayersSeatedPartner(presser);
     if (!partner)
     {
-        Tell(presser, "Head Swap needs both heads on one body.");
+        Tell(presser, "Bonk Heads! needs both heads on one body.");
         return;
     }
     bool const byMelee = TwoPlayersIsLeftHead(presser->GetGUID().GetCounter());
@@ -368,15 +368,15 @@ void PressHeadSwap(Player* presser)
     }
     if (!ready)
     {
-        Tell(presser, "Head Swap isn't ready: the heads must agree on more foes first.");
+        Tell(presser, "Heads no agree enough yet. Hit the same foes more!");
         return;
     }
     if (fire)
     {
-        HeadSwap(body, rider);
+        BonkHeads(body, rider);
         return;
     }
-    Tell(partner, "|cffd8b46a[The body]|r " + presser->GetName() + " wants to swap heads. Press Head Swap now!");
+    Tell(partner, "|cffd8b46a[The body]|r " + presser->GetName() + " wants to bonk heads. Press Bonk Heads! now!");
 }
 
 void BreathTick(Player* body, Player* rider)
@@ -516,9 +516,9 @@ public:
     void OnSpellCast(Spell* /*spell*/, Unit* caster, SpellInfo const* spellInfo, bool /*skipCheck*/) override
     {
         Player* player = caster ? caster->ToPlayer() : nullptr;
-        if (player && spellInfo->Id == HeadSwapSpell)
+        if (player && spellInfo->Id == BonkHeadsSpell)
         {
-            PressHeadSwap(player);
+            PressBonkHeads(player);
             return;
         }
         if (!player || spellInfo->Id != MutateSpell)
