@@ -60,6 +60,7 @@ std::unordered_set<uint32>& waiting = *new std::unordered_set<uint32>;
 std::unordered_set<uint32>& halted = *new std::unordered_set<uint32>;
 std::unordered_set<uint32>& greeted = *new std::unordered_set<uint32>;
 std::unordered_set<uint32>& exitRequests = *new std::unordered_set<uint32>;
+std::unordered_set<uint32>& steered = *new std::unordered_set<uint32>;
 std::unordered_map<uint32, std::vector<uint32>>& handedOver = *new std::unordered_map<uint32, std::vector<uint32>>;
 std::unordered_map<uint32, std::vector<uint32>>& toldLent = *new std::unordered_map<uint32, std::vector<uint32>>;
 std::unordered_map<uint32, std::vector<uint32>>& toldHanded = *new std::unordered_map<uint32, std::vector<uint32>>;
@@ -453,6 +454,12 @@ void KeepTheTwoPlayersBody(Player* player)
     LOG_INFO("module", "mod-subclass: Two-Players head {} gets its Two-Players body back", player->GetName());
 }
 
+bool Steered(uint32 riderGuid, bool botBody)
+{
+    std::lock_guard<std::mutex> lock(bodyMutex);
+    return botBody ? steered.insert(riderGuid).second : (steered.erase(riderGuid), false);
+}
+
 bool TakeExitRequest(uint32 guid)
 {
     std::lock_guard<std::mutex> lock(bodyMutex);
@@ -478,13 +485,14 @@ void KeepTogether(Player* player)
     {
         Greet(left ? guid : partnerGuid, false);
         ForgetTold(guid);
+        Steered(guid, false);
         if (HasLent(player))
             Reclaim(player);
         return;
     }
     Player* body = left ? player : partner;
     Player* rider = left ? partner : player;
-    if (!left && TwoPlayersHeadIsBot(body))
+    if (!left && Steered(guid, TwoPlayersHeadIsBot(body)))
         TwoPlayersSteerBotBody(body, !Halted(guid));
     if (left && SameMap(body, rider) && Ready(body) && Ready(rider))
         GroupUp(body, rider);
@@ -749,6 +757,7 @@ public:
         halted.erase(player->GetGUID().GetCounter());
         absences.erase(player->GetGUID().GetCounter());
         toldLent.erase(player->GetGUID().GetCounter());
+        steered.erase(player->GetGUID().GetCounter());
         toldHanded.erase(player->GetGUID().GetCounter());
     }
 };
