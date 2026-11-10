@@ -110,7 +110,7 @@ Subclass::Borrow BorrowOfSpell(uint32 spellId)
 bool HasBodyKit(Player const* body)
 {
     Vehicle const* kit = body->GetVehicleKit();
-    return kit && kit->GetVehicleInfo()->m_ID == Subclass::TwoPlayersVehicle;
+    return kit && kit->GetVehicleInfo()->m_ID == Subclass::BodyVehicleFor(body->getRace(true));
 }
 
 void SendVehicleData(Player* body, uint32 vehicleId)
@@ -125,11 +125,12 @@ bool GiveBodyKit(Player* body)
 {
     if (HasBodyKit(body))
         return true;
-    if (body->GetVehicleKit() || !body->CreateVehicleKit(Subclass::TwoPlayersVehicle, 0))
+    uint32 const vehicle = Subclass::BodyVehicleFor(body->getRace(true));
+    if (body->GetVehicleKit() || !body->CreateVehicleKit(vehicle, 0))
         return false;
     body->GetVehicleKit()->Reset();
     body->RemoveNpcFlag(UNIT_NPC_FLAG_SPELLCLICK | UNIT_NPC_FLAG_PLAYER_VEHICLE);
-    SendVehicleData(body, Subclass::TwoPlayersVehicle);
+    SendVehicleData(body, vehicle);
     return true;
 }
 

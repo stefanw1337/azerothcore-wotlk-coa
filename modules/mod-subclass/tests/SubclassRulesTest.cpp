@@ -750,3 +750,9 @@ TEST(Subclass, TheRangedHeadNeedsNoGearButMayNeedEverythingElse)
     EXPECT_TRUE(RangedHeadMayNeed(9));
     EXPECT_TRUE(RangedHeadMayNeed(12));
 }
+
+TEST(Subclass, TheTwinsCarryTheSecondBrotherOnTheirOwnVisibleSeat)
+{
+    EXPECT_EQ(BodyVehicleFor(TwoHeadedOgreRace), TwoPlayersVehicle);
+    EXPECT_EQ(BodyVehicleFor(ThinHumanRace), TwinsTwoPlayersVehicle);
+}

@@ -618,6 +618,12 @@ constexpr std::uint32_t TwoPlayersBodyDisplay = 985001;
 constexpr std::uint32_t MutatedBodyDisplay = 985002;
 
 constexpr std::uint32_t TwoPlayersVehicle = 9600;
+constexpr std::uint32_t TwinsTwoPlayersVehicle = 9601;
+
+inline std::uint32_t BodyVehicleFor(std::uint8_t race)
+{
+    return race == ThinHumanRace ? TwinsTwoPlayersVehicle : TwoPlayersVehicle;
+}
 
 enum class Borrow
 {
