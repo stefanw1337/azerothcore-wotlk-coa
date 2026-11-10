@@ -378,8 +378,12 @@ local function OutOfCombat(key, apply)
     apply()
 end
 
+local function Hidden()
+    return Ascension_SubclassDump and Ascension_SubclassDump.subclassBarHidden
+end
+
 local function ApplyShown()
-    if bar and HasAnything() and not lent then
+    if bar and HasAnything() and not lent and not Hidden() then
         bar:Show()
     elseif bar then
         bar:Hide()
@@ -545,7 +549,7 @@ local function IsBorrowedSpell(spellId)
 end
 
 local function TakeBackBorrowedAutoPlacements()
-    if InCombatLockdown() or GetCursorInfo() or not next(autoPlaced) then
+    if Hidden() or InCombatLockdown() or GetCursorInfo() or not next(autoPlaced) then
         return
     end
     local now = GetTime()
@@ -616,12 +620,84 @@ function Ascension_Subclass.OnOtherSpells(list)
     end
 end
 
+local lentSpells = {}
+local pendingLent = {}
+
+local function PlaceLent(fresh)
+    local saved = Saved()
+    local slot = 1
+    for _, spellId in ipairs(fresh) do
+        local placed = false
+        for index = 1, BUTTONS do
+            placed = placed or saved[index] == spellId
+        end
+        if not placed then
+            while saved[slot] and slot <= BUTTONS do
+                slot = slot + 1
+            end
+            if slot > BUTTONS then
+                return
+            end
+            saved[slot] = spellId
+        end
+    end
+end
+
+local function ApplyLent()
+    local now = pendingLent
+    pendingLent = {}
+    local saved = Saved()
+    for index = 1, BUTTONS do
+        local spellId = saved[index]
+        if spellId and lentSpells[spellId] and not now[spellId] then
+            saved[index] = nil
+        end
+    end
+    local fresh = {}
+    for spellId in pairs(lentSpells) do
+        if not now[spellId] then
+            knownSpells[spellId] = nil
+        end
+    end
+    for spellId in pairs(now) do
+        knownSpells[spellId] = true
+        if not lentSpells[spellId] then
+            fresh[#fresh + 1] = spellId
+        end
+    end
+    lentSpells = now
+    table.sort(fresh)
+    PlaceLent(fresh)
+    TakeBackBorrowedAutoPlacements()
+    if bar then
+        RefreshAll()
+        UpdateShown()
+    end
+end
+
+Ascension_Subclass.BarMessages.LENTSPELLS = function(rest)
+    for id in string.gmatch(rest or "", "%d+") do
+        pendingLent[tonumber(id)] = true
+    end
+end
+
+Ascension_Subclass.BarMessages.LENTDONE = function()
+    ApplyLent()
+end
+
 local function Forget(saved)
     for index = 1, BUTTONS do
         saved[index] = nil
     end
     saved.filled = nil
     knownSpells = {}
+    local kept = {}
+    for spellId in pairs(lentSpells) do
+        knownSpells[spellId] = true
+        kept[#kept + 1] = spellId
+    end
+    table.sort(kept)
+    PlaceLent(kept)
 end
 
 local function HoldsOnlyKnownSpells(saved)
@@ -679,6 +755,12 @@ SlashCmdList.ASCENSIONSUBCLASSBAR = function(message)
     elseif message == "castbar" then
         castBarUnlocked = not castBarUnlocked
         Ascension_Subclass.UnlockCastBar(castBarUnlocked)
+    elseif message == "hide" or message == "show" then
+        Ascension_SubclassDump = Ascension_SubclassDump or {}
+        Ascension_SubclassDump.subclassBarHidden = message == "hide" or nil
+        UpdateShown()
+        DEFAULT_CHAT_FRAME:AddMessage(message == "hide" and "Subclass Bar 1 is hidden: borrowed spells go on your "
+            .. "own bars. /subclassbar show brings it back." or "Subclass Bar 1 is shown again.")
     elseif message == "clear" then
         Forget(Saved())
         RefreshAll()
@@ -687,8 +769,8 @@ SlashCmdList.ASCENSIONSUBCLASSBAR = function(message)
     else
         DEFAULT_CHAT_FRAME:AddMessage("Subclass Bar 1: /subclassbar reset (position), /subclassbar clear (refill "
             .. "the buttons with your subclass spells), /subclassbar castbar (show the subclass cast bar to Alt-drag "
-            .. "it, again to lock it). Alt-drag a button to move the bar. Bind keys under Key Bindings > Subclass "
-            .. "Bar 1.")
+            .. "it, again to lock it), /subclassbar hide or show (use your own bars instead). Alt-drag a button "
+            .. "to move the bar. Bind keys under Key Bindings > Subclass Bar 1.")
     end
 end
 

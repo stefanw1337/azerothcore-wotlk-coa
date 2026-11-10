@@ -40,6 +40,7 @@ bool TwoPlayersBotsAvailable();
 bool TwoPlayersCallBot(Player* master, uint32 headGuid);
 bool TwoPlayersHeadIsBot(Player const* head);
 std::string TwoPlayersHalt(Player* rider, bool halt);
+void SendSubclassMessage(Player* player, std::string const& message);
 Player* TwoPlayersSeatedPartner(Player const* head);
 void TwoPlayersSteerBotBody(Player* body, bool roam);
 
@@ -49,6 +50,7 @@ constexpr uint32 KeepTogetherMs = 1000;
 constexpr float SeatReach = 40.0f;
 constexpr uint32 LentBuffRecastMs = 60000;
 constexpr float LentHealBelowPct = 60.0f;
+constexpr std::size_t LentBarChunk = 200;
 constexpr int8 RightHeadSeat = 0;
 constexpr uint32 BotRecallMs = 30000;
 constexpr uint32 BodyThreatKey = 0x7FF09600;
@@ -215,6 +217,25 @@ void ForgetTold(uint32 guid)
     toldHanded.erase(guid);
 }
 
+void ShowLentOnBar(Player* to, std::vector<uint32> spells)
+{
+    std::sort(spells.begin(), spells.end());
+    std::string line;
+    for (uint32 spellId : spells)
+    {
+        std::string const item = std::to_string(spellId);
+        if (!line.empty() && line.size() + item.size() + 1 > LentBarChunk)
+        {
+            SendSubclassMessage(to, "LENTSPELLS " + line);
+            line.clear();
+        }
+        line += (line.empty() ? "" : ",") + item;
+    }
+    if (!line.empty())
+        SendSubclassMessage(to, "LENTSPELLS " + line);
+    SendSubclassMessage(to, "LENTDONE");
+}
+
 void Lend(Player* to, Player const* from, std::initializer_list<Subclass::Borrow> kinds)
 {
     std::vector<uint32> current;
@@ -244,6 +265,8 @@ void Lend(Player* to, Player const* from, std::initializer_list<Subclass::Borrow
         if (to->HasSpell(spellId) || to->addSpell(spellId, SPEC_MASK_ALL, true, true))
             kept.push_back(spellId);
     TellOnce(to, toldLent, kept, "From " + from->GetName() + " you now use: ");
+    if (std::unordered_set<uint32>(kept.begin(), kept.end()) != had)
+        ShowLentOnBar(to, kept);
     std::lock_guard<std::mutex> lock(bodyMutex);
     lent[to->GetGUID().GetCounter()] = std::move(kept);
 }
@@ -324,6 +347,8 @@ void Reclaim(Player* player)
     }
     for (uint32 spellId : spells)
         player->removeSpell(spellId, SPEC_MASK_ALL, true);
+    if (!spells.empty())
+        ShowLentOnBar(player, {});
     GiveBack(player, handed);
 }
 
