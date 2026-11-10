@@ -530,7 +530,7 @@ TEST(Subclass, ABookPouchOrOrbInTheOffHandSwapsTheBodyToItsHoldingVersion)
     EXPECT_EQ(BodyDisplayFor(1234, true), 1234u);
 }
 
-TEST(Subclass, MovementGoesToTheBodyAndRangedWeaponAttacksToTheRightHead)
+TEST(Subclass, MovementGoesToTheBodyAndRangedWeaponAttacksToTheRangedHead)
 {
     SpellShape blink;
     blink.Effects = { 5, 0, 0 };
@@ -547,7 +547,87 @@ TEST(Subclass, MovementGoesToTheBodyAndRangedWeaponAttacksToTheRightHead)
     SpellShape throwWeapon;
     throwWeapon.EquippedClass = 2;
     throwWeapon.EquippedSubClassMask = 1u << 16;
-    EXPECT_EQ(BorrowOf(throwWeapon), Borrow::RangedAttack);
+    EXPECT_EQ(BorrowOf(throwWeapon), Borrow::Ranged);
+}
+
+TEST(Subclass, MeleeAbilitiesAndMeleeBuffsGoToTheMeleeHead)
+{
+    SpellShape wildclaw;
+    wildclaw.Effects = { 2, 0, 0 };
+    wildclaw.DamageClass = 2;
+    wildclaw.MaxRange = 5.0f;
+    EXPECT_EQ(BorrowOf(wildclaw), Borrow::Melee);
+    SpellShape needsAnAxe;
+    needsAnAxe.EquippedClass = 2;
+    needsAnAxe.EquippedSubClassMask = (1u << 0) | (1u << 1);
+    EXPECT_EQ(BorrowOf(needsAnAxe), Borrow::Melee);
+    SpellShape battleShout;
+    battleShout.Effects = { 6, 0, 0 };
+    battleShout.Auras = { 99, 0, 0 };
+    battleShout.TargetsA = { 20, 0, 0 };
+    battleShout.Duration = 120000;
+    battleShout.Positive = true;
+    EXPECT_EQ(BorrowOf(battleShout), Borrow::Melee);
+    SpellShape strength;
+    strength.Effects = { 6, 0, 0 };
+    strength.Auras = { 29, 0, 0 };
+    strength.AuraValues = { 0, 0, 0 };
+    strength.Duration = 1800000;
+    strength.Positive = true;
+    EXPECT_EQ(BorrowOf(strength), Borrow::Melee);
+    SpellShape taunt;
+    taunt.Effects = { 114, 6, 0 };
+    taunt.Auras = { 0, 11, 0 };
+    taunt.MaxRange = 30.0f;
+    EXPECT_EQ(BorrowOf(taunt), Borrow::Melee);
+}
+
+TEST(Subclass, RangedCastChanneledAndLongNonMeleeBuffsGoToTheRangedHead)
+{
+    SpellShape bolt;
+    bolt.Effects = { 2, 0, 0 };
+    bolt.DamageClass = 1;
+    bolt.MaxRange = 30.0f;
+    bolt.CastTime = 2500;
+    EXPECT_EQ(BorrowOf(bolt), Borrow::Ranged);
+    SpellShape selfHealWithCast;
+    selfHealWithCast.Effects = { 10, 0, 0 };
+    selfHealWithCast.CastTime = 1500;
+    EXPECT_EQ(BorrowOf(selfHealWithCast), Borrow::Ranged);
+    SpellShape channel;
+    channel.Effects = { 6, 0, 0 };
+    channel.Auras = { 3, 0, 0 };
+    channel.Channeled = true;
+    EXPECT_EQ(BorrowOf(channel), Borrow::Ranged);
+    SpellShape intellect;
+    intellect.Effects = { 6, 0, 0 };
+    intellect.Auras = { 29, 0, 0 };
+    intellect.AuraValues = { 3, 0, 0 };
+    intellect.Duration = 1800000;
+    intellect.Positive = true;
+    EXPECT_EQ(BorrowOf(intellect), Borrow::Ranged);
+    SpellShape aura;
+    aura.Effects = { 35, 0, 0 };
+    aura.Auras = { 22, 0, 0 };
+    aura.Duration = -1;
+    aura.Positive = true;
+    EXPECT_EQ(BorrowOf(aura), Borrow::Ranged);
+}
+
+TEST(Subclass, StancesFormsAndShortInstantSelfSpellsStayWithTheirOwner)
+{
+    SpellShape stance;
+    stance.Effects = { 6, 0, 0 };
+    stance.Auras = { 36, 0, 0 };
+    stance.Duration = -1;
+    stance.Positive = true;
+    EXPECT_EQ(BorrowOf(stance), Borrow::None);
+    SpellShape enrage;
+    enrage.Effects = { 6, 0, 0 };
+    enrage.Auras = { 79, 0, 0 };
+    enrage.Duration = 12000;
+    enrage.Positive = true;
+    EXPECT_EQ(BorrowOf(enrage), Borrow::None);
 }
 
 TEST(Subclass, FearsTeleportsOfOthersPassivesAndMeleeWeaponsAreNotBorrowed)
@@ -575,7 +655,10 @@ TEST(Subclass, FearsTeleportsOfOthersPassivesAndMeleeWeaponsAreNotBorrowed)
 TEST(Subclass, TheBodyCastsBorrowedSpellsAndThePresserPaysItsOwnShare)
 {
     EXPECT_TRUE(BodyCasts(Borrow::Movement, true));
-    EXPECT_TRUE(BodyCasts(Borrow::RangedAttack, false));
+    EXPECT_TRUE(BodyCasts(Borrow::Ranged, false));
+    EXPECT_TRUE(BodyCasts(Borrow::Melee, true));
+    EXPECT_FALSE(BodyCasts(Borrow::Melee, false));
+    EXPECT_FALSE(BodyCasts(Borrow::Ranged, true));
     EXPECT_FALSE(BodyCasts(Borrow::Movement, false));
     EXPECT_FALSE(BodyCasts(Borrow::None, true));
     EXPECT_EQ(ShareOfOwnPower(210, 2100, 1000), 100u);

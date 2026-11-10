@@ -590,6 +590,7 @@ public:
         return HasTriggeredCastFlag(TRIGGERED_FULL_MASK) && !HasTriggeredCastFlag(TRIGGERED_COUNTS_AS_CAST);
     };
     bool HasTriggeredCastFlag(TriggerCastFlags flag) const { return _triggeredCastFlags & flag; };
+    void AddTriggeredCastFlag(TriggerCastFlags flag) { _triggeredCastFlags = TriggerCastFlags(_triggeredCastFlags | flag); }
     [[nodiscard]] bool IsProcDisabled() const { return HasTriggeredCastFlag(TRIGGERED_DISALLOW_PROC_EVENTS); }
     bool IsChannelActive() const { return m_caster->GetUInt32Value(UNIT_CHANNEL_SPELL) != 0; }
     bool IsAutoActionResetSpell() const;

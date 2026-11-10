@@ -8,7 +8,9 @@
 #include "GameTime.h"
 #include "Group.h"
 #include "GroupMgr.h"
+#include "Item.h"
 #include "ObjectAccessor.h"
+#include "ObjectMgr.h"
 #include "Opcodes.h"
 #include "Player.h"
 #include "PlayerScript.h"
@@ -16,10 +18,13 @@
 #include "SpellInfo.h"
 #include "SpellMgr.h"
 #include "SubclassRules.h"
+#include "ThreatManager.h"
 #include "UnitScript.h"
+#include "UpdateData.h"
 #include "Vehicle.h"
 #include "WorldPacket.h"
 #include <algorithm>
+#include <array>
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
@@ -38,6 +43,7 @@ constexpr uint32 KeepTogetherMs = 1000;
 constexpr float SeatReach = 40.0f;
 constexpr int8 RightHeadSeat = 0;
 constexpr uint32 BotRecallMs = 30000;
+constexpr uint32 BodyThreatKey = 0x7FF09600;
 
 struct Absence
 {
@@ -51,6 +57,18 @@ std::unordered_map<uint32, uint32>& sinceCheck = *new std::unordered_map<uint32,
 std::unordered_set<uint32>& waiting = *new std::unordered_set<uint32>;
 std::unordered_set<uint32>& halted = *new std::unordered_set<uint32>;
 std::unordered_map<uint32, Absence>& absences = *new std::unordered_map<uint32, Absence>;
+
+struct WornCopy
+{
+    Item* Copy = nullptr;
+    ObjectGuid Source;
+    uint32 Look = 0;
+};
+
+using WornCopies = std::array<WornCopy, EQUIPMENT_SLOT_END>;
+std::mutex& copyMutex = *new std::mutex;
+std::unordered_map<uint32, WornCopies>& wornCopies = *new std::unordered_map<uint32, WornCopies>;
+std::unordered_set<uint32>& redirected = *new std::unordered_set<uint32>;
 
 Player* Online(uint32 guid)
 {
@@ -75,9 +93,17 @@ Subclass::Borrow BorrowOfSpell(uint32 spellId)
         shape.Auras[i] = info->Effects[i].ApplyAuraName;
         shape.TargetsA[i] = info->Effects[i].TargetA.GetTarget();
     }
+    for (uint8 i = 0; i < 3; ++i)
+        shape.AuraValues[i] = info->Effects[i].MiscValue;
     shape.Passive = info->IsPassive();
     shape.EquippedClass = info->EquippedItemClass;
     shape.EquippedSubClassMask = uint32(info->EquippedItemSubClassMask);
+    shape.DamageClass = info->DmgClass;
+    shape.MaxRange = std::max(info->GetMaxRange(false), info->GetMaxRange(true));
+    shape.CastTime = info->CastTimeEntry ? info->CastTimeEntry->CastTime : 0;
+    shape.Channeled = info->IsChanneled();
+    shape.Duration = info->GetMaxDuration();
+    shape.Positive = info->IsPositive();
     return Subclass::BorrowOf(shape);
 }
 
@@ -203,9 +229,11 @@ void Seat(Player* left, Player* right)
     Reclaim(left);
     Reclaim(right);
     Lend(left, right, Subclass::Borrow::Movement);
-    Lend(right, left, Subclass::Borrow::RangedAttack);
-    Tell(left, right->GetName() + " sits on your shoulders now. Their movement spells are yours to use.");
-    Tell(right, "You ride on " + left->GetName() + "'s body now. Their ranged attacks are yours to use.");
+    Lend(left, right, Subclass::Borrow::Melee);
+    Lend(right, left, Subclass::Borrow::Ranged);
+    Tell(left, right->GetName() + " sits on your shoulders now. Their movement and melee abilities are yours to use.");
+    Tell(right, "You ride on " + left->GetName() + "'s body now. Their ranged spells, casts and buffs are yours to "
+        "use.");
 }
 
 bool Ready(Player const* player)
@@ -343,11 +371,141 @@ void LetGoOfLentSpells(Player* player)
         Reclaim(player);
 }
 
+uint32 LookOf(Item const* item)
+{
+    uint32 look = item->GetEntry();
+    for (uint8 slot = 0; slot < MAX_ENCHANTMENT_SLOT; ++slot)
+        look = look * 31 + item->GetEnchantmentId(EnchantmentSlot(slot));
+    return look * 31 + uint32(item->GetItemRandomPropertyId());
+}
+
+void DropCopy(Player* rider, uint8 slot, WornCopy& worn)
+{
+    if (!worn.Copy)
+        return;
+    rider->_ApplyItemBonuses(worn.Copy->GetTemplate(), slot, false);
+    if (!rider->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+        rider->SetGuidValue(PLAYER_FIELD_INV_SLOT_HEAD + (slot * 2), ObjectGuid::Empty);
+    if (rider->IsInWorld())
+        worn.Copy->DestroyForPlayer(rider);
+    delete worn.Copy;
+    worn = {};
+}
+
+Item* CopyOf(Player* rider, Item const* source)
+{
+    Item* copy = new Item();
+    if (!copy->Create(sObjectMgr->GetGenerator<HighGuid::Item>().Generate(), source->GetEntry(), rider))
+    {
+        delete copy;
+        return nullptr;
+    }
+    for (uint16 field : { ITEM_FIELD_FLAGS, ITEM_FIELD_RANDOM_PROPERTIES_ID, ITEM_FIELD_PROPERTY_SEED,
+        ITEM_FIELD_DURABILITY, ITEM_FIELD_MAXDURABILITY })
+        copy->SetUInt32Value(field, source->GetUInt32Value(field));
+    for (uint8 slot = 0; slot < MAX_ENCHANTMENT_SLOT; ++slot)
+        copy->SetUInt32Value(ITEM_FIELD_ENCHANTMENT_1_1 + slot * MAX_ENCHANTMENT_OFFSET,
+            source->GetEnchantmentId(EnchantmentSlot(slot)));
+    return copy;
+}
+
+void ShowCopy(Player* rider, Item* copy)
+{
+    UpdateData data;
+    copy->BuildCreateUpdateBlockForPlayer(&data, rider);
+    WorldPacket packet;
+    data.BuildPacket(packet);
+    rider->SendDirectMessage(&packet);
+}
+
+void WearTheBodysGear(Player* rider, Player const* body)
+{
+    std::lock_guard<std::mutex> lock(copyMutex);
+    uint32 const guid = rider->GetGUID().GetCounter();
+    if (!body)
+    {
+        auto const found = wornCopies.find(guid);
+        if (found == wornCopies.end())
+            return;
+        for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
+            DropCopy(rider, slot, found->second[slot]);
+        wornCopies.erase(found);
+        return;
+    }
+    WornCopies& copies = wornCopies[guid];
+    for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
+    {
+        Item const* worn = body->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
+        WornCopy& copy = copies[slot];
+        uint32 const look = worn ? LookOf(worn) : 0;
+        if (!copy.Copy && !worn)
+            continue;
+        if (copy.Copy && worn && copy.Source == worn->GetGUID() && copy.Look == look)
+            continue;
+        DropCopy(rider, slot, copy);
+        if (!worn || rider->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+            continue;
+        Item* made = CopyOf(rider, worn);
+        if (!made)
+            continue;
+        copy = { made, worn->GetGUID(), look };
+        ShowCopy(rider, made);
+        rider->SetGuidValue(PLAYER_FIELD_INV_SLOT_HEAD + (slot * 2), made->GetGUID());
+        rider->_ApplyItemBonuses(made->GetTemplate(), slot, true);
+    }
+}
+
+void LeaveOwnGearBehind(Player* rider)
+{
+    bool destroyed = false;
+    for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
+        if (rider->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+        {
+            rider->DestroyItem(INVENTORY_SLOT_BAG_0, slot, true);
+            destroyed = true;
+        }
+    if (destroyed)
+        Tell(rider, "Your own gear is gone: the body wears the gear for both of you.");
+}
+
+void RedirectThreatTo(Player* rider, Player const* body)
+{
+    uint32 const guid = rider->GetGUID().GetCounter();
+    {
+        std::lock_guard<std::mutex> lock(copyMutex);
+        if (body ? !redirected.insert(guid).second : !redirected.erase(guid))
+            return;
+    }
+    if (body)
+        rider->GetThreatMgr().RegisterRedirectThreat(BodyThreatKey, body->GetGUID(), 100);
+    else
+        rider->GetThreatMgr().UnregisterRedirectThreat(BodyThreatKey);
+}
+
+void FollowTheBody(Player* rider)
+{
+    uint32 const guid = rider->GetGUID().GetCounter();
+    uint32 const partnerGuid = TwoPlayersPartnerOf(guid);
+    Player* body = partnerGuid && !TwoPlayersIsLeftHead(guid) ? Online(partnerGuid) : nullptr;
+    bool const seated = Seated(body, rider);
+    if (seated)
+        LeaveOwnGearBehind(rider);
+    RedirectThreatTo(rider, seated ? body : nullptr);
+    WearTheBodysGear(rider, seated ? body : nullptr);
+}
+
+bool WearsNoGearOfItsOwn(Player const* player)
+{
+    uint32 const guid = player->GetGUID().GetCounter();
+    return TwoPlayersPartnerOf(guid) && !TwoPlayersIsLeftHead(guid);
+}
+
 class mod_subclass_two_players_player : public PlayerScript
 {
 public:
     mod_subclass_two_players_player() : PlayerScript("mod_subclass_two_players_player", { PLAYERHOOK_ON_UPDATE,
-        PLAYERHOOK_ON_PLAYER_JUST_DIED, PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_CAN_GROUP_ACCEPT })
+        PLAYERHOOK_ON_PLAYER_JUST_DIED, PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_CAN_GROUP_ACCEPT, PLAYERHOOK_CAN_EQUIP_ITEM,
+        PLAYERHOOK_CAN_UNEQUIP_ITEM })
     {
     }
 
@@ -364,6 +522,19 @@ public:
         }
         KeepTogether(player);
         LetGoOfLentSpells(player);
+        FollowTheBody(player);
+    }
+
+    bool OnPlayerCanEquipItem(Player* player, uint8 /*slot*/, uint16& /*dest*/, Item* item, bool /*swap*/,
+        bool notLoading) override
+    {
+        return !notLoading || item->GetTemplate()->InventoryType == INVTYPE_BAG || !WearsNoGearOfItsOwn(player);
+    }
+
+    bool OnPlayerCanUnequipItem(Player* player, uint16 pos, bool /*swap*/) override
+    {
+        return (pos >> 8) != INVENTORY_SLOT_BAG_0 || (pos & 255) >= EQUIPMENT_SLOT_END ||
+            !WearsNoGearOfItsOwn(player);
     }
 
     void OnPlayerJustDied(Player* player) override
@@ -394,6 +565,8 @@ public:
 
     void OnPlayerLogout(Player* player) override
     {
+        RedirectThreatTo(player, nullptr);
+        WearTheBodysGear(player, nullptr);
         Reclaim(player);
         DropBodyKit(player);
         std::lock_guard<std::mutex> lock(bodyMutex);
@@ -423,6 +596,19 @@ public:
     }
 };
 
+char const* RefusalFor(Subclass::Borrow kind)
+{
+    switch (kind)
+    {
+        case Subclass::Borrow::Movement:
+            return "Only the Melee Head moves the body.";
+        case Subclass::Borrow::Melee:
+            return "The Melee Head uses the melee abilities.";
+        default:
+            return "The Ranged Head uses the ranged spells, casts and buffs.";
+    }
+}
+
 class mod_subclass_two_players_spells : public AllSpellScript
 {
 public:
@@ -441,25 +627,24 @@ public:
         uint32 const partnerGuid = TwoPlayersPartnerOf(guid);
         if (!partnerGuid)
             return true;
-        SpellInfo const* info = spell->GetSpellInfo();
-        Subclass::Borrow const kind = BorrowOfSpell(info->Id);
-        if (kind == Subclass::Borrow::None)
-            return true;
         bool const pressedByLeft = TwoPlayersIsLeftHead(guid);
         Player* other = Online(partnerGuid);
         Player* left = pressedByLeft ? presser : other;
         Player* right = pressedByLeft ? other : presser;
         if (!Seated(left, right))
             return true;
-        if (!Subclass::BodyCasts(kind, pressedByLeft))
+        SpellInfo const* info = spell->GetSpellInfo();
+        Subclass::Borrow const kind = BorrowOfSpell(info->Id);
+        if (kind != Subclass::Borrow::None && !Subclass::BodyCasts(kind, pressedByLeft))
         {
-            Tell(presser, kind == Subclass::Borrow::Movement ? "Only the Melee Head moves the body." :
-                "The Ranged Head uses the ranged attacks.");
+            Tell(presser, RefusalFor(kind));
             return false;
         }
+        if (!pressedByLeft)
+            spell->AddTriggeredCastFlag(TRIGGERED_IGNORE_EQUIPPED_ITEM_REQUIREMENT);
         if (!LentTo(presser, info->Id))
             return true;
-        Player* owner = pressedByLeft ? right : left;
+        Player* owner = other;
         Powers const ownerPower = Powers(info->PowerType);
         Powers const payerPower = presser->getPowerType();
         int32 const ownerCost = std::max(0, info->CalcPowerCost(owner, info->GetSchoolMask()));
@@ -472,10 +657,10 @@ public:
         }
         if (share)
             presser->ModifyPower(payerPower, -int32(share));
-        SpellCastTargets aimed = *targets;
-        left->CastSpell(aimed, info, nullptr, TriggerCastFlags(TRIGGERED_IGNORE_POWER_AND_REAGENT_COST |
-            TRIGGERED_IGNORE_CASTER_MOUNTED_OR_ON_VEHICLE | TRIGGERED_COUNTS_AS_CAST));
-        return false;
+        spell->AddTriggeredCastFlag(TriggerCastFlags(TRIGGERED_IGNORE_POWER_AND_REAGENT_COST |
+            TRIGGERED_IGNORE_CASTER_MOUNTED_OR_ON_VEHICLE | TRIGGERED_COUNTS_AS_CAST |
+            TRIGGERED_IGNORE_EQUIPPED_ITEM_REQUIREMENT));
+        return true;
     }
 };
 }
@@ -488,6 +673,8 @@ void TwoPlayersSeparate(uint32 first, uint32 second)
             if (player->GetVehicle() && player->GetVehicleBase() &&
                 player->GetVehicleBase()->GetGUID().GetCounter() == (guid == first ? second : first))
                 player->ExitVehicle();
+            RedirectThreatTo(player, nullptr);
+            WearTheBodysGear(player, nullptr);
             Reclaim(player);
             DropBodyKit(player);
             if (MarkWaiting(guid, false))

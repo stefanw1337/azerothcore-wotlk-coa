@@ -7485,8 +7485,8 @@ SpellCastResult Spell::CheckItems(uint32* param1, uint32* param2)
     else
     {
         // Xinef: this is not true in my opinion, in eg bladestorm will not be canceled after disarm
-        //if (!HasTriggeredCastFlag(TRIGGERED_IGNORE_EQUIPPED_ITEM_REQUIREMENT))
-        if (m_caster->IsPlayer() && !m_caster->ToPlayer()->HasItemFitToSpellRequirements(m_spellInfo))
+        if (!HasTriggeredCastFlag(TRIGGERED_IGNORE_EQUIPPED_ITEM_REQUIREMENT) && m_caster->IsPlayer() &&
+            !m_caster->ToPlayer()->HasItemFitToSpellRequirements(m_spellInfo))
             return SPELL_FAILED_EQUIPPED_ITEM_CLASS;
     }
 
@@ -7863,7 +7863,11 @@ SpellCastResult Spell::CheckItems(uint32* param1, uint32* param2)
 
                     Item* pItem = m_caster->ToPlayer()->GetWeaponForAttack(m_attackType);
                     if (!pItem || pItem->IsBroken())
+                    {
+                        if (HasTriggeredCastFlag(TRIGGERED_IGNORE_EQUIPPED_ITEM_REQUIREMENT))
+                            break;
                         return SPELL_FAILED_EQUIPPED_ITEM;
+                    }
 
                     // Keep the real ranged-weapon/broken-item checks above.
                     // Custom classes and Hero do not require or consume projectile stacks.
@@ -7952,10 +7956,12 @@ SpellCastResult Spell::CheckItems(uint32* param1, uint32* param2)
     }
 
     // check weapon presence in slots for main/offhand weapons
-    if (/*never skip those checks !HasTriggeredCastFlag(TRIGGERED_IGNORE_EQUIPPED_ITEM_REQUIREMENT) &&*/ m_spellInfo->EquippedItemClass >= 0)
+    if (m_spellInfo->EquippedItemClass >= 0)
     {
+        bool const checkHands = !HasTriggeredCastFlag(TRIGGERED_IGNORE_EQUIPPED_ITEM_REQUIREMENT);
+
         // main hand weapon required
-        if (m_spellInfo->HasAttribute(SPELL_ATTR3_REQUIRES_MAIN_HAND_WEAPON))
+        if (checkHands && m_spellInfo->HasAttribute(SPELL_ATTR3_REQUIRES_MAIN_HAND_WEAPON))
         {
             Item* item = m_caster->ToPlayer()->GetWeaponForAttack(BASE_ATTACK);
 
@@ -7969,7 +7975,7 @@ SpellCastResult Spell::CheckItems(uint32* param1, uint32* param2)
         }
 
         // offhand hand weapon required
-        if (m_spellInfo->HasAttribute(SPELL_ATTR3_REQUIRES_OFF_HAND_WEAPON))
+        if (checkHands && m_spellInfo->HasAttribute(SPELL_ATTR3_REQUIRES_OFF_HAND_WEAPON))
         {
             Item* item = m_caster->ToPlayer()->GetWeaponForAttack(OFF_ATTACK);
 

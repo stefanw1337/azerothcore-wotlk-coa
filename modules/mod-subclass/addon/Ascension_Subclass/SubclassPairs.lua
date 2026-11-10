@@ -81,6 +81,58 @@ SlashCmdList.SUBCLASSPAIR = function(text)
     end
 end
 
+local GEAR_SLOTS = { "Head", "Neck", "Shoulder", "Shirt", "Chest", "Waist", "Legs", "Feet", "Wrist", "Hands",
+    "Finger0", "Finger1", "Trinket0", "Trinket1", "Back", "MainHand", "SecondaryHand", "Ranged", "Tabard" }
+
+local GEAR_BUTTONS = {}
+for _, name in ipairs(GEAR_SLOTS) do
+    GEAR_BUTTONS["Character" .. name .. "Slot"] = true
+end
+
+local function FreezeSlot(button)
+    if not button or not GEAR_BUTTONS[button:GetName() or ""] then
+        return
+    end
+    local frozen = pairState == "RIGHT"
+    if not button.subclassFrost then
+        if not frozen then
+            return
+        end
+        local frost = button:CreateTexture(nil, "OVERLAY")
+        frost:SetAllPoints(button)
+        frost:SetTexture("Interface\\Icons\\Spell_Frost_FrostArmor02")
+        frost:SetBlendMode("ADD")
+        frost:SetAlpha(0.45)
+        local lock = button:CreateTexture(nil, "OVERLAY")
+        lock:SetWidth(14)
+        lock:SetHeight(14)
+        lock:SetPoint("TOPRIGHT", button, "TOPRIGHT", -1, -1)
+        lock:SetTexture("Interface\\LFGFrame\\UI-LFG-ICON-LOCK")
+        button.subclassFrost = frost
+        button.subclassLock = lock
+    end
+    if frozen then
+        button.subclassFrost:Show()
+        button.subclassLock:Show()
+    else
+        button.subclassFrost:Hide()
+        button.subclassLock:Hide()
+    end
+end
+
+local function FreezeGear()
+    for _, name in ipairs(GEAR_SLOTS) do
+        local button = _G["Character" .. name .. "Slot"]
+        if button then
+            FreezeSlot(button)
+        end
+    end
+end
+
+if PaperDollItemSlotButton_Update then
+    hooksecurefunc("PaperDollItemSlotButton_Update", FreezeSlot)
+end
+
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("CHAT_MSG_ADDON")
 frame:SetScript("OnEvent", function(_, _, prefix, message, _, sender)
@@ -98,6 +150,7 @@ frame:SetScript("OnEvent", function(_, _, prefix, message, _, sender)
         if head == "NONE" then
             ownHead = fits ~= "" and fits or "ANY"
         end
+        FreezeGear()
     end
 end)
 

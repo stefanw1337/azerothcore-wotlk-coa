@@ -626,29 +626,36 @@ enum class Borrow
 {
     None,
     Movement,
-    RangedAttack
+    Melee,
+    Ranged
 };
 
 struct SpellShape
 {
     std::array<std::uint32_t, 3> Effects{};
     std::array<std::uint32_t, 3> Auras{};
+    std::array<std::int32_t, 3> AuraValues{};
     std::array<std::uint32_t, 3> TargetsA{};
     bool Passive = false;
     std::int32_t EquippedClass = -1;
     std::uint32_t EquippedSubClassMask = 0;
+    std::uint32_t DamageClass = 0;
+    float MaxRange = 0.0f;
+    std::int32_t CastTime = 0;
+    bool Channeled = false;
+    std::int32_t Duration = 0;
+    bool Positive = false;
 };
 
-inline Borrow BorrowOf(SpellShape const& spell)
+constexpr float MeleeReach = 6.0f;
+constexpr std::int32_t LongBuff = 60000;
+
+inline bool MovesTheBody(SpellShape const& spell)
 {
     constexpr std::uint32_t Teleport = 5, Leap = 29, Jump = 41, JumpDest = 42, Charge = 96, LeapBack = 138,
         ChargeDest = 149;
     constexpr std::uint32_t Fear = 7, IncreaseSpeed = 31, Mounted = 32, SpeedAlways = 129, SpeedNotStack = 171;
     constexpr std::uint32_t Caster = 1, CasterParty = 20;
-    constexpr std::int32_t WeaponClass = 2;
-    constexpr std::uint32_t RangedWeapons = (1u << 2) | (1u << 3) | (1u << 16) | (1u << 18) | (1u << 19);
-    if (spell.Passive)
-        return Borrow::None;
     bool fears = false;
     bool mounts = false;
     for (std::uint32_t aura : spell.Auras)
@@ -661,21 +668,80 @@ inline Borrow BorrowOf(SpellShape const& spell)
         std::uint32_t const effect = spell.Effects[i];
         if (effect == Leap || effect == Jump || effect == JumpDest || effect == Charge || effect == LeapBack ||
             effect == ChargeDest || (effect == Teleport && spell.TargetsA[i] == Caster))
-            return Borrow::Movement;
+            return true;
         std::uint32_t const aura = spell.Auras[i];
         bool const own = spell.TargetsA[i] == Caster || spell.TargetsA[i] == CasterParty;
         if (!fears && !mounts && own && (aura == IncreaseSpeed || aura == SpeedAlways || aura == SpeedNotStack))
-            return Borrow::Movement;
+            return true;
     }
+    return false;
+}
+
+inline bool ChangesForm(SpellShape const& spell)
+{
+    constexpr std::uint32_t Shapeshift = 36, Mounted = 32;
+    return std::any_of(spell.Auras.begin(), spell.Auras.end(),
+        [](std::uint32_t aura) { return aura == Shapeshift || aura == Mounted; });
+}
+
+inline bool FightsUpClose(SpellShape const& spell)
+{
+    constexpr std::uint32_t MeleeDamage = 2, AttackMe = 114;
+    constexpr std::uint32_t DamageShield = 15, Taunt = 11, ModStat = 29, Parry = 47, Dodge = 49, Block = 51,
+        WeaponCrit = 52, HitChance = 54, AttackPower = 99, MeleeHaste = 138, Expertise = 240;
+    constexpr std::int32_t Strength = 0;
+    constexpr std::int32_t WeaponClass = 2;
+    constexpr std::uint32_t RangedWeapons = (1u << 2) | (1u << 3) | (1u << 16) | (1u << 18) | (1u << 19);
+    if (spell.DamageClass == MeleeDamage)
+        return true;
+    if (spell.EquippedClass == WeaponClass && spell.EquippedSubClassMask &&
+        !(spell.EquippedSubClassMask & RangedWeapons))
+        return true;
+    for (std::size_t i = 0; i < 3; ++i)
+    {
+        std::uint32_t const aura = spell.Auras[i];
+        if (spell.Effects[i] == AttackMe || aura == Taunt || aura == DamageShield || aura == Parry || aura == Dodge ||
+            aura == Block || aura == WeaponCrit || aura == HitChance || aura == AttackPower || aura == MeleeHaste ||
+            aura == Expertise || (aura == ModStat && spell.AuraValues[i] == Strength))
+            return true;
+    }
+    return false;
+}
+
+inline bool WorksFromAfar(SpellShape const& spell)
+{
+    constexpr std::uint32_t RangedDamage = 3;
+    constexpr std::int32_t WeaponClass = 2;
+    constexpr std::uint32_t RangedWeapons = (1u << 2) | (1u << 3) | (1u << 16) | (1u << 18) | (1u << 19);
     if (spell.EquippedClass == WeaponClass && (spell.EquippedSubClassMask & RangedWeapons) &&
         !(spell.EquippedSubClassMask & ~RangedWeapons))
-        return Borrow::RangedAttack;
+        return true;
+    if (spell.DamageClass == RangedDamage || spell.CastTime > 0 || spell.Channeled || spell.MaxRange > MeleeReach)
+        return true;
+    bool const buff = spell.Positive && std::any_of(spell.Auras.begin(), spell.Auras.end(),
+        [](std::uint32_t aura) { return aura != 0; });
+    return buff && (spell.Duration < 0 || spell.Duration >= LongBuff);
+}
+
+inline Borrow BorrowOf(SpellShape const& spell)
+{
+    if (spell.Passive)
+        return Borrow::None;
+    if (MovesTheBody(spell))
+        return Borrow::Movement;
+    if (ChangesForm(spell))
+        return Borrow::None;
+    if (FightsUpClose(spell))
+        return Borrow::Melee;
+    if (WorksFromAfar(spell))
+        return Borrow::Ranged;
     return Borrow::None;
 }
 
 inline bool BodyCasts(Borrow borrow, bool pressedByLeftHead)
 {
-    return (borrow == Borrow::Movement && pressedByLeftHead) || (borrow == Borrow::RangedAttack && !pressedByLeftHead);
+    return ((borrow == Borrow::Movement || borrow == Borrow::Melee) && pressedByLeftHead) ||
+        (borrow == Borrow::Ranged && !pressedByLeftHead);
 }
 
 inline std::uint32_t ShareOfOwnPower(std::uint32_t cost, std::uint32_t ownerMax, std::uint32_t payerMax)

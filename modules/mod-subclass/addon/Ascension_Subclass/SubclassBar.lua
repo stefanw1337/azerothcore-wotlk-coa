@@ -358,7 +358,27 @@ local function HasAnything()
     return next(knownSpells) ~= nil
 end
 
-local function UpdateShown()
+local afterCombat = {}
+local combatWaiter = CreateFrame("Frame")
+combatWaiter:SetScript("OnEvent", function(self)
+    self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+    local waiting = afterCombat
+    afterCombat = {}
+    for _, apply in pairs(waiting) do
+        apply()
+    end
+end)
+
+local function OutOfCombat(key, apply)
+    if InCombatLockdown() then
+        afterCombat[key] = apply
+        combatWaiter:RegisterEvent("PLAYER_REGEN_ENABLED")
+        return
+    end
+    apply()
+end
+
+local function ApplyShown()
     if bar and HasAnything() and not lent then
         bar:Show()
     elseif bar then
@@ -366,29 +386,28 @@ local function UpdateShown()
     end
 end
 
+local function UpdateShown()
+    OutOfCombat("shown", ApplyShown)
+end
+
 local function ClearSetPoint(button, ...)
     button:ClearAllPoints()
     button:SetPoint(...)
 end
 
-local function Lend(btBar)
-    lent = btBar
-    if not btBar or not bar then
+local function ApplyLending()
+    if not bar then
         return
     end
-    btBar.buttons = {}
-    for index, button in ipairs(buttons) do
-        button:SetParent(btBar)
-        button.ClearSetPoint = ClearSetPoint
-        btBar.buttons[index] = button
-    end
-    bar:Hide()
-    btBar:UpdateButtonLayout()
-end
-
-local function TakeBack()
-    lent = nil
-    if not bar then
+    if lent then
+        lent.buttons = {}
+        for index, button in ipairs(buttons) do
+            button:SetParent(lent)
+            button.ClearSetPoint = ClearSetPoint
+            lent.buttons[index] = button
+        end
+        bar:Hide()
+        lent:UpdateButtonLayout()
         return
     end
     for index, button in ipairs(buttons) do
@@ -396,7 +415,19 @@ local function TakeBack()
         button:ClearAllPoints()
         button:SetPoint("LEFT", bar, "LEFT", (index - 1) * (SIZE + GAP), 0)
     end
-    UpdateShown()
+    ApplyShown()
+end
+
+local function Lend(btBar)
+    lent = btBar
+    if btBar then
+        OutOfCombat("lending", ApplyLending)
+    end
+end
+
+local function TakeBack()
+    lent = nil
+    OutOfCombat("lending", ApplyLending)
 end
 
 local function CreateBar()
