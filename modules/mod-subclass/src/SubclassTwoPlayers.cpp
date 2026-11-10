@@ -57,6 +57,7 @@ std::unordered_map<uint32, std::vector<uint32>>& lent = *new std::unordered_map<
 std::unordered_map<uint32, uint32>& sinceCheck = *new std::unordered_map<uint32, uint32>;
 std::unordered_set<uint32>& waiting = *new std::unordered_set<uint32>;
 std::unordered_set<uint32>& halted = *new std::unordered_set<uint32>;
+std::unordered_set<uint32>& greeted = *new std::unordered_set<uint32>;
 std::unordered_map<uint32, Absence>& absences = *new std::unordered_map<uint32, Absence>;
 
 struct WornCopy
@@ -240,6 +241,12 @@ bool SameMap(Player const* first, Player const* second)
     return first->GetMapId() == second->GetMapId() && first->GetInstanceId() == second->GetInstanceId();
 }
 
+bool Greet(uint32 bodyGuid, bool together)
+{
+    std::lock_guard<std::mutex> lock(bodyMutex);
+    return together ? greeted.insert(bodyGuid).second : greeted.erase(bodyGuid) != 0;
+}
+
 void Seat(Player* left, Player* right)
 {
     if (Seated(left, right) || !GiveBodyKit(left))
@@ -252,9 +259,14 @@ void Seat(Player* left, Player* right)
     Reclaim(left);
     Reclaim(right);
     LendBothWays(left, right);
-    Tell(left, right->GetName() + " sits on your shoulders now. Their movement and melee abilities are yours to use.");
-    Tell(right, "You ride on " + left->GetName() + "'s body now. Their ranged spells, casts and buffs are yours to "
-        "use.");
+    if (!Greet(left->GetGUID().GetCounter(), true))
+        return;
+    bool const piggyback = Subclass::BodyVehicleFor(left->getRace(true)) == Subclass::TwinsTwoPlayersVehicle;
+    Tell(left, right->GetName() + (piggyback ? " rides on your back now." : " is your other head now.") +
+        " Their movement and melee abilities are yours to use.");
+    Tell(right, (piggyback ? "You ride on " + left->GetName() + "'s back now." :
+        "You are " + left->GetName() + "'s other head now.") +
+        " Their ranged spells, casts and buffs are yours to use.");
 }
 
 bool Ready(Player const* player)
@@ -347,6 +359,7 @@ void KeepTogether(Player* player)
     Player* partner = Online(partnerGuid);
     if (!partner)
     {
+        Greet(left ? guid : partnerGuid, false);
         if (HasLent(player))
             Reclaim(player);
         return;
