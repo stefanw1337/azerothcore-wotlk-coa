@@ -245,9 +245,15 @@ void LearnRacials(Player* player)
 {
     if (!TwoPlayersBody(player))
         return;
-    for (uint32 spell : { SharedBloodSpell, MutateSpell, HeadSwapSpell })
+    for (uint32 spell : { SharedBloodSpell, HeadSwapSpell })
         if (!player->HasSpell(spell))
             player->learnSpell(spell, false);
+    uint32 const guid = player->GetGUID().GetCounter();
+    bool const rider = TwoPlayersPartnerOf(guid) && !TwoPlayersIsLeftHead(guid);
+    if (rider && player->HasSpell(MutateSpell))
+        player->removeSpell(MutateSpell, SPEC_MASK_ALL, false);
+    else if (!rider && !player->HasSpell(MutateSpell))
+        player->learnSpell(MutateSpell, false);
 }
 
 void ShareBlood(Player* rider, Player const* body)
@@ -515,15 +521,12 @@ public:
         if (!player || spellInfo->Id != MutateSpell)
             return;
         uint32 const guid = player->GetGUID().GetCounter();
-        Player* body = player;
         if (TwoPlayersPartnerOf(guid) && !TwoPlayersIsLeftHead(guid))
-            body = TwoPlayersSeatedPartner(player);
-        if (!body)
         {
-            Tell(player, "Mutate Me! changes the body you share, and you are not on it right now.");
+            Tell(player, "Only the Melee Head changes the body with Mutate Me!");
             return;
         }
-        Mutate(body);
+        Mutate(player);
     }
 
     void OnSpellCritChance(Spell* spell, Unit* target, float& chance) override
