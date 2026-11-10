@@ -144,6 +144,16 @@ frame:SetScript("OnEvent", function(_, _, prefix, message, _, sender)
         StaticPopup_Show("SUBCLASS_PAIR_INVITE", inviter, "Ranged Head")
         return
     end
+    local body, rider = message:match("^TWOPLAYERS (%S+) (%S+)$")
+    if body then
+        Ascension_Subclass.SetOneBody(body, rider)
+        return
+    end
+    local parted = message:match("^TWOPLAYERSOFF (%S+)$")
+    if parted then
+        Ascension_Subclass.SetOneBody(parted, nil)
+        return
+    end
     local head, fits = message:match("^PAIRSTATE (%u+)%s*(%u*)")
     if head then
         pairState = head
@@ -157,13 +167,23 @@ frame:SetScript("OnEvent", function(_, _, prefix, message, _, sender)
 end)
 
 local partnerName
+local riders, joinedNames = {}, {}
 local partyFrames = CreateFrame("Frame")
 
+local function ShowJoinedName(unitFrame)
+    local name = unitFrame and unitFrame.unit and unitFrame.name and UnitName(unitFrame.unit)
+    if name and joinedNames[name] then
+        unitFrame.name:SetText(joinedNames[name])
+    end
+end
+
 local function HidePartner(partyFrame)
-    if not partnerName or not partyFrame or not partyFrame.unit then
+    if not partyFrame or not partyFrame.unit then
         return
     end
-    if UnitName(partyFrame.unit) ~= partnerName or not partyFrame:IsShown() then
+    ShowJoinedName(partyFrame)
+    local name = UnitName(partyFrame.unit)
+    if not name or (name ~= partnerName and not riders[name]) or not partyFrame:IsShown() then
         return
     end
     if InCombatLockdown() then
@@ -187,6 +207,32 @@ local function RefreshPartyFrames()
     end
 end
 
+local function JoinRaidNames()
+    for index = 1, MAX_RAID_MEMBERS or 40 do
+        local text = _G["RaidGroupButton" .. index .. "Name"]
+        local name = text and text:GetText()
+        if name and joinedNames[name] then
+            text:SetText(joinedNames[name])
+        end
+    end
+end
+
+function Ascension_Subclass.SetOneBody(body, rider)
+    for name, of in pairs(riders) do
+        if of == body then
+            riders[name] = nil
+        end
+    end
+    joinedNames[body] = rider and body .. "'" .. rider or nil
+    if rider then
+        riders[rider] = body
+    end
+    RefreshPartyFrames()
+    if RaidGroupFrame_Update and RaidFrame and RaidFrame:IsShown() then
+        RaidGroupFrame_Update()
+    end
+end
+
 function Ascension_Subclass.SetPartner(name)
     if name == partnerName then
         return
@@ -198,13 +244,29 @@ end
 if PartyMemberFrame_UpdateMember then
     hooksecurefunc("PartyMemberFrame_UpdateMember", HidePartner)
 end
+if UnitFrame_Update then
+    hooksecurefunc("UnitFrame_Update", ShowJoinedName)
+end
+if UnitFrame_OnEvent then
+    hooksecurefunc("UnitFrame_OnEvent", ShowJoinedName)
+end
 partyFrames:RegisterEvent("PARTY_MEMBERS_CHANGED")
-partyFrames:SetScript("OnEvent", function(self, event)
+partyFrames:RegisterEvent("ADDON_LOADED")
+partyFrames:SetScript("OnEvent", function(self, event, addon)
+    if event == "ADDON_LOADED" then
+        if addon == "Blizzard_RaidUI" and RaidGroupFrame_Update then
+            hooksecurefunc("RaidGroupFrame_Update", JoinRaidNames)
+        end
+        return
+    end
     if event == "PLAYER_REGEN_ENABLED" then
         self:UnregisterEvent("PLAYER_REGEN_ENABLED")
     end
     RefreshPartyFrames()
 end)
+if IsAddOnLoaded and IsAddOnLoaded("Blizzard_RaidUI") and RaidGroupFrame_Update then
+    hooksecurefunc("RaidGroupFrame_Update", JoinRaidNames)
+end
 
 local function HideLeaveButton(button)
     if pairState == "RIGHT" and button and button:IsShown() then

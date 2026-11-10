@@ -30,6 +30,7 @@
 #include <initializer_list>
 #include <map>
 #include <mutex>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -53,6 +54,7 @@ constexpr float SeatReach = 40.0f;
 constexpr uint32 LentBuffRecastMs = 60000;
 constexpr float LentHealBelowPct = 60.0f;
 constexpr std::size_t LentBarChunk = 200;
+constexpr uint32 OneBodyRepeatMs = 30000;
 constexpr int8 RightHeadSeat = 0;
 constexpr uint32 BotRecallMs = 30000;
 constexpr uint32 BodyThreatKey = 0x7FF09600;
@@ -71,6 +73,8 @@ std::unordered_set<uint32>& halted = *new std::unordered_set<uint32>;
 std::unordered_set<uint32>& greeted = *new std::unordered_set<uint32>;
 std::unordered_set<uint32>& exitRequests = *new std::unordered_set<uint32>;
 std::unordered_set<uint32>& steered = *new std::unordered_set<uint32>;
+std::map<uint32, std::set<uint32>>& toldGroups = *new std::map<uint32, std::set<uint32>>;
+std::unordered_map<uint32, uint32>& groupToldAt = *new std::unordered_map<uint32, uint32>;
 std::map<std::pair<uint32, uint32>, uint32>& lentBuffs = *new std::map<std::pair<uint32, uint32>, uint32>;
 std::unordered_map<uint32, std::vector<uint32>>& handedOver = *new std::unordered_map<uint32, std::vector<uint32>>;
 std::unordered_map<uint32, std::vector<uint32>>& toldLent = *new std::unordered_map<uint32, std::vector<uint32>>;
@@ -362,6 +366,48 @@ bool HasLent(Player const* player)
     return lent.count(guid) != 0 || handedOver.count(guid) != 0;
 }
 
+void ShowOneBodyToGroup(Player* body, Player* rider)
+{
+    Group* group = body->GetGroup();
+    if (!group)
+        return;
+    std::string const line = "TWOPLAYERS " + body->GetName() + " " + rider->GetName();
+    for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+    {
+        Player* member = ref->GetSource();
+        if (!member || !member->IsInWorld())
+            continue;
+        {
+            std::lock_guard<std::mutex> lock(bodyMutex);
+            uint32& last = groupToldAt[body->GetGUID().GetCounter()];
+            if (getMSTimeDiff(last, getMSTime()) > OneBodyRepeatMs)
+            {
+                toldGroups.erase(body->GetGUID().GetCounter());
+                last = getMSTime();
+            }
+            if (!toldGroups[body->GetGUID().GetCounter()].insert(member->GetGUID().GetCounter()).second)
+                continue;
+        }
+        SendSubclassMessage(member, line);
+    }
+}
+
+void ShowTwoAgain(Player* body)
+{
+    std::set<uint32> told;
+    {
+        std::lock_guard<std::mutex> lock(bodyMutex);
+        auto const found = toldGroups.find(body->GetGUID().GetCounter());
+        if (found == toldGroups.end())
+            return;
+        told = std::move(found->second);
+        toldGroups.erase(found);
+    }
+    for (uint32 guid : told)
+        if (Player* member = Online(guid))
+            SendSubclassMessage(member, "TWOPLAYERSOFF " + body->GetName());
+}
+
 void GroupUp(Player* left, Player* right)
 {
     Group* group = left->GetGroup();
@@ -607,6 +653,8 @@ void KeepTogether(Player* player)
     {
         Greet(left ? guid : partnerGuid, false);
         ForgetTold(guid);
+        if (left)
+            ShowTwoAgain(player);
         Steered(guid, false);
         if (HasLent(player))
             Reclaim(player);
@@ -629,11 +677,14 @@ void KeepTogether(Player* player)
         {
             LendBothWays(body, rider);
             UseLentAbilities(body, body);
+            ShowOneBodyToGroup(body, rider);
         }
         else
             UseLentAbilities(rider, body);
         return;
     }
+    if (left)
+        ShowTwoAgain(body);
     if (!Ready(body) || !Ready(rider) || body->GetVehicle())
         return;
     bool const close = SameMap(body, rider) && rider->IsWithinDist(body, SeatReach);
@@ -883,6 +934,7 @@ public:
         for (Player* head : { player, seated })
             if (head && head->GetVehicle() && TwoPlayersHeadIsBot(head))
                 head->SetVisible(false);
+        ShowTwoAgain(player);
         RedirectThreatTo(player, nullptr);
         WearTheBodysGear(player, nullptr);
         Reclaim(player);
@@ -894,6 +946,7 @@ public:
         absences.erase(player->GetGUID().GetCounter());
         toldLent.erase(player->GetGUID().GetCounter());
         steered.erase(player->GetGUID().GetCounter());
+        groupToldAt.erase(player->GetGUID().GetCounter());
         toldHanded.erase(player->GetGUID().GetCounter());
     }
 };
