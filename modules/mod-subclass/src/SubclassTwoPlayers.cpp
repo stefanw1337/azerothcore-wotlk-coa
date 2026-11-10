@@ -454,6 +454,33 @@ void KeepTheTwoPlayersBody(Player* player)
     LOG_INFO("module", "mod-subclass: Two-Players head {} gets its Two-Players body back", player->GetName());
 }
 
+void StrikeWithLentMelee(Player* body)
+{
+    if (!TwoPlayersHeadIsBot(body) || !body->IsInCombat() || body->IsNonMeleeSpellCast(false))
+        return;
+    Unit* victim = body->GetVictim();
+    if (!victim || !victim->IsAlive() || !body->IsWithinMeleeRange(victim))
+        return;
+    std::vector<uint32> spells;
+    {
+        std::lock_guard<std::mutex> lock(bodyMutex);
+        auto const found = lent.find(body->GetGUID().GetCounter());
+        if (found == lent.end())
+            return;
+        spells = found->second;
+    }
+    for (uint32 spellId : spells)
+    {
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+        if (!info || info->IsPassive() || info->IsPositive() || BorrowOfSpell(spellId) != Subclass::Borrow::Melee)
+            continue;
+        if (body->HasSpellCooldown(spellId) || body->GetGlobalCooldownMgr().HasGlobalCooldown(info))
+            continue;
+        if (body->CastSpell(victim, spellId, false) == SPELL_CAST_OK)
+            return;
+    }
+}
+
 bool Steered(uint32 riderGuid, bool botBody)
 {
     std::lock_guard<std::mutex> lock(bodyMutex);
@@ -499,7 +526,10 @@ void KeepTogether(Player* player)
     if (Seated(body, rider))
     {
         if (left)
+        {
             LendBothWays(body, rider);
+            StrikeWithLentMelee(body);
+        }
         return;
     }
     if (!Ready(body) || !Ready(rider) || body->GetVehicle())
@@ -822,7 +852,8 @@ public:
         Subclass::Borrow const kind = BorrowOfSpell(info->Id);
         if (kind != Subclass::Borrow::None && !Subclass::BodyCasts(kind, pressedByLeft))
         {
-            Tell(presser, RefusalFor(kind));
+            if (!TwoPlayersHeadIsBot(presser))
+                Tell(presser, RefusalFor(kind));
             return false;
         }
         if (!pressedByLeft)
