@@ -328,6 +328,49 @@ std::string PlainClassName(uint8 classId)
 constexpr uint16 MiscPlayerDataPayload = 0x77D;
 constexpr uint32 CharacterSelectSubclassesId = 0x53554243;
 
+std::string CharacterSelectEntry(std::string const& name, std::string const& line, std::string color,
+    std::string const& pair)
+{
+    if (color == "-")
+        color.clear();
+    std::string entry = Acore::StringFormat("\"{}\":{{\"name\":\"{}\",\"color\":\"{}\"", name, line, color);
+    if (!pair.empty())
+        entry += Acore::StringFormat(",\"pair\":\"{}\"", pair);
+    return entry + "}";
+}
+
+void SendCharacterSelectPayload(WorldSession* session, std::string const& payload)
+{
+    WorldPacket packet(MiscPlayerDataPayload, 4 + payload.size() + 1);
+    packet << CharacterSelectSubclassesId << payload;
+    session->SendPacket(&packet);
+}
+
+void AddPairsToCharacterSelect(WorldSession* session, std::string payload)
+{
+    session->QueueQueryCallback(CharacterDatabase.AsyncQuery(Acore::StringFormat(
+        "SELECT `c`.`name`, `o`.`name`, `o`.`class`, `c`.`guid` = `t`.`left_guid` FROM `characters` AS `c` "
+        "JOIN `mod_subclass_two_players` AS `t` ON `c`.`guid` IN (`t`.`left_guid`, `t`.`right_guid`) "
+        "JOIN `characters` AS `o` ON `o`.`guid` = IF(`c`.`guid` = `t`.`left_guid`, `t`.`right_guid`, `t`.`left_guid`) "
+        "WHERE `c`.`account` = {} AND `c`.`deleteInfos_Name` IS NULL", session->GetAccountId())).WithCallback(
+        [session, payload](QueryResult result) mutable
+        {
+            if (result)
+                do
+                {
+                    Field* fields = result->Fetch();
+                    std::string const name = fields[0].Get<std::string>();
+                    std::string const partner = fields[1].Get<std::string>();
+                    uint8 const partnerClass = fields[2].Get<uint8>();
+                    bool const left = fields[3].Get<int64>() != 0;
+                    payload += (payload.size() > 1 ? "," : "") + CharacterSelectEntry(name,
+                        PlainClassName(partnerClass), ClassColorHex(partnerClass),
+                        left ? name + "'" + partner : partner + "'" + name);
+                } while (result->NextRow());
+            SendCharacterSelectPayload(session, payload + "}");
+        }));
+}
+
 void SendSubclassesToCharacterSelect(WorldSession* session)
 {
     session->QueueQueryCallback(CharacterDatabase.AsyncQuery(Acore::StringFormat(
@@ -342,16 +385,10 @@ void SendSubclassesToCharacterSelect(WorldSession* session)
                 {
                     Field* fields = result->Fetch();
                     uint8 const subClass = fields[1].Get<uint8>();
-                    std::string color = ClassColorHex(subClass);
-                    if (color == "-")
-                        color.clear();
-                    payload += Acore::StringFormat("{}\"{}\":{{\"name\":\"{}\",\"color\":\"{}\"}}",
-                        payload.size() > 1 ? "," : "", fields[0].Get<std::string>(), PlainClassName(subClass), color);
+                    payload += (payload.size() > 1 ? "," : "") + CharacterSelectEntry(fields[0].Get<std::string>(),
+                        PlainClassName(subClass), ClassColorHex(subClass), "");
                 } while (result->NextRow());
-            payload += "}";
-            WorldPacket packet(MiscPlayerDataPayload, 4 + payload.size() + 1);
-            packet << CharacterSelectSubclassesId << payload;
-            session->SendPacket(&packet);
+            AddPairsToCharacterSelect(session, payload);
         }));
 }
 

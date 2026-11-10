@@ -94,8 +94,9 @@ void TwoPlayersKeepBotRiderStill(Player* rider)
     if (!brain)
         return;
     std::string const questing = QuestingStrategy();
-    if (brain->HasStrategy("grind", BOT_STATE_NON_COMBAT) || brain->HasStrategy(questing, BOT_STATE_NON_COMBAT))
-        brain->ChangeStrategy("-grind,-" + questing, BOT_STATE_NON_COMBAT);
+    if (brain->HasStrategy("grind", BOT_STATE_NON_COMBAT) || brain->HasStrategy(questing, BOT_STATE_NON_COMBAT) ||
+        brain->HasStrategy("food", BOT_STATE_NON_COMBAT))
+        brain->ChangeStrategy("-grind,-food,-" + questing, BOT_STATE_NON_COMBAT);
     if (brain->rpgInfo.GetStatus() == RPG_IDLE)
         return;
     brain->rpgInfo.ChangeToIdle();
