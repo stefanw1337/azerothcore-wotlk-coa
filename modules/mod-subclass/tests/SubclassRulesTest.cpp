@@ -756,3 +756,16 @@ TEST(Subclass, TheTwinsCarryTheSecondBrotherOnTheirOwnVisibleSeat)
     EXPECT_EQ(BodyVehicleFor(TwoHeadedOgreRace), TwoPlayersVehicle);
     EXPECT_EQ(BodyVehicleFor(ThinHumanRace), TwinsTwoPlayersVehicle);
 }
+
+TEST(Subclass, OnlyCoAClassesPairUpAsHeads)
+{
+    SpecializationRoles melee;
+    melee.Melee = true;
+    SpecializationRoles caster;
+    caster.Caster = true;
+    PairHead const left{ true, false, 10, melee, true };
+    PairHead const right{ true, false, 10, caster, true };
+    EXPECT_EQ(CheckPair(left, right), PairRefusal::None);
+    EXPECT_EQ(CheckPair(PairHead{ true, false, 10, melee, false }, right), PairRefusal::LeftClass);
+    EXPECT_EQ(CheckPair(left, PairHead{ true, false, 10, caster, false }), PairRefusal::RightClass);
+}

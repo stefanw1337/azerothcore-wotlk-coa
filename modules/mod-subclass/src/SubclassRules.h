@@ -571,6 +571,7 @@ struct PairHead
     bool Paired = false;
     std::uint8_t Level = 0;
     SpecializationRoles Roles;
+    bool CoAClass = true;
 };
 
 enum class PairRefusal
@@ -582,7 +583,9 @@ enum class PairRefusal
     RightPaired,
     LevelGap,
     LeftSpecialization,
-    RightSpecialization
+    RightSpecialization,
+    LeftClass,
+    RightClass
 };
 
 inline PairRefusal CheckPair(PairHead const& left, PairHead const& right)
@@ -595,6 +598,10 @@ inline PairRefusal CheckPair(PairHead const& left, PairHead const& right)
         return PairRefusal::LeftPaired;
     if (right.Paired)
         return PairRefusal::RightPaired;
+    if (!left.CoAClass)
+        return PairRefusal::LeftClass;
+    if (!right.CoAClass)
+        return PairRefusal::RightClass;
     std::uint8_t const gap = left.Level > right.Level ? left.Level - right.Level : right.Level - left.Level;
     if (gap > MaxPairLevelGap)
         return PairRefusal::LevelGap;

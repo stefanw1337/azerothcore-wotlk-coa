@@ -103,7 +103,8 @@ Subclass::PairHead HeadOf(Player const* player)
     Subclass::SpecializationRoles roles = RolesOfSpecialization(uint16(GetAscensionActiveSpecialization(player)));
     if (!Subclass::HasAnyRole(roles))
         roles = RolesOfClass(player->getClass());
-    return { IsTwoPlayers(player), PartnerOf(player->GetGUID().GetCounter()) != 0, player->GetLevel(), roles };
+    return { IsTwoPlayers(player), PartnerOf(player->GetGUID().GetCounter()) != 0, player->GetLevel(), roles,
+        IsAscensionCustomClassId(player->getClass()) };
 }
 
 std::string RefusalText(Subclass::PairRefusal refusal, Player const* left, Player const* right)
@@ -124,6 +125,10 @@ std::string RefusalText(Subclass::PairRefusal refusal, Player const* left, Playe
             return left->GetName() + " needs a melee or tank specialization to be the Melee Head.";
         case Subclass::PairRefusal::RightSpecialization:
             return right->GetName() + " needs a caster, healer or ranged specialization to be the Ranged Head.";
+        case Subclass::PairRefusal::LeftClass:
+            return left->GetName() + " has an original class. Two-Players heads are CoA classes only.";
+        case Subclass::PairRefusal::RightClass:
+            return right->GetName() + " has an original class. Two-Players heads are CoA classes only.";
         case Subclass::PairRefusal::None:
             break;
     }
