@@ -3720,20 +3720,20 @@ void TickSelfAura(Player* player, uint32 diff)
     HoldYourDrink(player);
 }
 
+void KeepRacial(Player* player, uint32 spell, bool wanted)
+{
+    if (wanted && !player->HasSpell(spell))
+        player->learnSpell(spell, false);
+    else if (!wanted && player->HasSpell(spell))
+        player->removeSpell(spell, SPEC_MASK_ALL, false);
+}
+
 void LearnRacials(Player* player)
 {
-    if (HasTwin(player) && !player->HasSpell(BrotherSpell))
-        player->learnSpell(BrotherSpell, false);
-    if (HasSecondHead(player) && !player->HasSpell(HeadsSpell))
-        player->learnSpell(HeadsSpell, false);
-    if (HasTwin(player) && !player->HasSpell(CowboySpell))
-        player->learnSpell(CowboySpell, false);
-    if (HasSecondHead(player) && !player->HasSpell(HalfBrainSpell))
-        player->learnSpell(HalfBrainSpell, false);
-    if (HasTwin(player) && !player->HasSpell(TwinLinkedSpell))
-        player->learnSpell(TwinLinkedSpell, false);
-    if (HasTwin(player) && !player->HasSpell(OwnPoolSpell))
-        player->learnSpell(OwnPoolSpell, false);
+    for (uint32 spell : { BrotherSpell, CowboySpell, TwinLinkedSpell, OwnPoolSpell })
+        KeepRacial(player, spell, HasTwin(player));
+    for (uint32 spell : { HeadsSpell, HalfBrainSpell })
+        KeepRacial(player, spell, HasSecondHead(player));
     if (HasSecondHead(player) && !player->HasSpell(SharedBloodSpell))
         player->learnSpell(SharedBloodSpell, false);
     if (player->getRace() == OgreRace && SubclassRaceEnabled(OgreRace) && !player->HasSpell(ToleranceSpell))
