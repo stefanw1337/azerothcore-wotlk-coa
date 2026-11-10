@@ -37,6 +37,8 @@ public:
     Unit* GetBase() const { return _me; }
     VehicleEntry const* GetVehicleInfo() const { return _vehicleInfo; }
     uint32 GetCreatureEntry() const { return _creatureEntry; }
+    void MarkMountKit() { _mountKit = true; }
+    bool IsMountKit() const { return _mountKit; }
 
     bool HasEmptySeat(int8 seatId) const;
     Unit* GetPassenger(int8 seatId) const;
@@ -95,6 +97,7 @@ private:
     VehicleEntry const* _vehicleInfo;
     uint32 _usableSeatNum;         // Number of seats that match VehicleSeatEntry::UsableByPlayer, used for proper display flags
     uint32 _creatureEntry;         // Can be different than me->GetBase()->GetEntry() in case of players
+    bool _mountKit = false;
     Status _status;
     bool _accessoriesInstalled;
 };

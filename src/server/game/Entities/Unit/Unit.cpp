@@ -11609,6 +11609,7 @@ void Unit::Mount(uint32 mount, uint32 VehicleId, uint32 creatureEntry)
         {
             if (CreateVehicleKit(VehicleId, creatureEntry))
             {
+                GetVehicleKit()->MarkMountKit();
                 GetVehicleKit()->Reset();
 
                 // Send others that we now have a vehicle
@@ -11678,8 +11679,8 @@ void Unit::Dismount()
     data << GetPackGUID();
     SendMessageToSet(&data, true);
 
-    // dismount as a vehicle
-    if (IsPlayer() && GetVehicleKit())
+    // dismount as a vehicle; a vehicle kit the mount did not create stays
+    if (IsPlayer() && GetVehicleKit() && GetVehicleKit()->IsMountKit())
     {
         // Send other players that we are no longer a vehicle
         data.Initialize(SMSG_PLAYER_VEHICLE_DATA, 8 + 4);
