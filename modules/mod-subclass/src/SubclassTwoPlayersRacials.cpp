@@ -26,6 +26,7 @@
 #include <unordered_set>
 
 uint32 TwoPlayersPartnerOf(uint32 guid);
+bool TwoPlayersHeadIsBot(Player const* head);
 bool TwoPlayersIsLeftHead(uint32 guid);
 Player* TwoPlayersSeatedPartner(Player const* head);
 
@@ -351,7 +352,7 @@ void PressHeadSwap(Player* presser)
         {
             (byMelee ? limit.MeleePressedAt : limit.RangedPressedAt) = now;
             uint32 const other = byMelee ? limit.RangedPressedAt : limit.MeleePressedAt;
-            fire = other && getMSTimeDiff(other, now) <= BothPressMs;
+            fire = TwoPlayersHeadIsBot(partner) || (other && getMSTimeDiff(other, now) <= BothPressMs);
             if (fire)
                 limit.MeleePressedAt = limit.RangedPressedAt = 0;
         }
