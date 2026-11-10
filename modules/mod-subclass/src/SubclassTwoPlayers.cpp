@@ -43,6 +43,7 @@ bool TwoPlayersCallBot(Player* master, uint32 headGuid);
 bool TwoPlayersHeadIsBot(Player const* head);
 std::string TwoPlayersHalt(Player* rider, bool halt);
 void SendSubclassMessage(Player* player, std::string const& message);
+void TwoPlayersKeepBotRiderStill(Player* rider);
 Player* TwoPlayersSeatedPartner(Player const* head);
 void TwoPlayersShareBuffs(Player* first, Player* second);
 void TwoPlayersDropSharedBuffs(Player* holder);
@@ -674,6 +675,8 @@ void KeepTogether(Player* player)
     Player* const connected = Connected(partnerGuid);
     if (!left)
         WaitForBody(player, !connected, TwoPlayersHeadIsBot(connected));
+    if (!left && connected && TwoPlayersHeadIsBot(player))
+        TwoPlayersKeepBotRiderStill(player);
     if (!leaving)
         CallBotForMissingHead(player, partnerGuid, !connected, left);
     Player* partner = Online(partnerGuid);

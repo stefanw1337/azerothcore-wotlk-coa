@@ -45,7 +45,8 @@ void MarkMirror(Player const* holder, uint32 spellId, bool mirror)
 
 bool Shared(SpellInfo const* info)
 {
-    if (!info || info->IsPassive() || !info->IsPositive() || info->Id == AgreeAura || info->Id == DisagreeAura)
+    if (!info || info->IsPassive() || !info->IsPositive() || info->Id == AgreeAura || info->Id == DisagreeAura ||
+        (info->AuraInterruptFlags & AURA_INTERRUPT_FLAG_NOT_SEATED))
         return false;
     for (SpellEffectInfo const& effect : info->Effects)
     {
@@ -90,6 +91,7 @@ void CopyOnto(Player* other, Aura const* original)
             copy->SetStackAmount(original->GetStackAmount());
         if (copy->GetCharges() != original->GetCharges())
             copy->SetCharges(original->GetCharges());
+        copy->SetNeedClientUpdateForTargets();
     }
     mirroring = false;
 }

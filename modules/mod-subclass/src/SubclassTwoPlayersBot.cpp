@@ -88,6 +88,20 @@ void TwoPlayersSteerBotBody(Player* body, bool roam)
     body->GetMotionMaster()->Clear();
 }
 
+void TwoPlayersKeepBotRiderStill(Player* rider)
+{
+    PlayerbotAI* brain = GET_PLAYERBOT_AI(rider);
+    if (!brain)
+        return;
+    std::string const questing = QuestingStrategy();
+    if (brain->HasStrategy("grind", BOT_STATE_NON_COMBAT) || brain->HasStrategy(questing, BOT_STATE_NON_COMBAT))
+        brain->ChangeStrategy("-grind,-" + questing, BOT_STATE_NON_COMBAT);
+    if (brain->rpgInfo.GetStatus() != RPG_IDLE)
+        brain->rpgInfo.ChangeToIdle();
+    if (rider->getStandState() != UNIT_STAND_STATE_STAND)
+        rider->SetStandState(UNIT_STAND_STATE_STAND);
+}
+
 #else
 
 bool TwoPlayersBotsAvailable()
@@ -101,6 +115,10 @@ bool TwoPlayersCallBot(Player* /*master*/, uint32 /*headGuid*/)
 }
 
 void TwoPlayersSteerBotBody(Player* /*body*/, bool /*roam*/)
+{
+}
+
+void TwoPlayersKeepBotRiderStill(Player* /*rider*/)
 {
 }
 
