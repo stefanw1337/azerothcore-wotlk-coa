@@ -35,6 +35,7 @@ std::string SubclassClassName(uint8 classId);
 std::vector<uint32> KnownBorrowedActives(Player const* player);
 uint8 SubclassMinLevel();
 uint8 StoryGenderOf(Player const* player);
+uint32 TwoPlayersPartnerOf(uint32 guid);
 void SpendBotPoints(Player* player);
 
 namespace
@@ -318,14 +319,14 @@ public:
 
 void AssignBotSubclass(Player* player)
 {
-    if (!IsBot(player))
-        return;
     uint32 const guid = player->GetGUID().GetCounter();
     bool wasForced = false;
     {
         std::lock_guard<std::mutex> lock(botMutex);
         wasForced = forcedBots.contains(guid);
     }
+    if (!IsBot(player) && !(wasForced && TwoPlayersPartnerOf(guid)))
+        return;
     if (!ForcedBot(player))
     {
         if (!wasForced)
