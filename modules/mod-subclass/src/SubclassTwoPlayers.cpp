@@ -25,6 +25,7 @@
 #include "WorldPacket.h"
 #include <algorithm>
 #include <array>
+#include <initializer_list>
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
@@ -154,21 +155,42 @@ bool LentTo(Player const* player, uint32 spellId)
     return found != lent.end() && std::find(found->second.begin(), found->second.end(), spellId) != found->second.end();
 }
 
-void Lend(Player* to, Player const* from, Subclass::Borrow kind)
+void Lend(Player* to, Player const* from, std::initializer_list<Subclass::Borrow> kinds)
 {
-    std::vector<uint32> added;
+    std::vector<uint32> current;
+    {
+        std::lock_guard<std::mutex> lock(bodyMutex);
+        auto const found = lent.find(to->GetGUID().GetCounter());
+        if (found != lent.end())
+            current = found->second;
+    }
+    std::unordered_set<uint32> const had(current.begin(), current.end());
+    std::unordered_set<uint32> wanted;
     for (auto const& [spellId, spell] : from->GetSpellMap())
     {
-        if (spell->State == PLAYERSPELL_REMOVED || !spell->Active || to->HasSpell(spellId))
+        if (spell->State == PLAYERSPELL_REMOVED || !spell->Active)
             continue;
-        if (BorrowOfSpell(spellId) != kind)
+        if (std::find(kinds.begin(), kinds.end(), BorrowOfSpell(spellId)) == kinds.end())
             continue;
-        if (to->addSpell(spellId, SPEC_MASK_ALL, true, true))
-            added.push_back(spellId);
+        if (!had.count(spellId) && to->HasSpell(spellId))
+            continue;
+        wanted.insert(spellId);
     }
+    for (uint32 spellId : current)
+        if (!wanted.count(spellId))
+            to->removeSpell(spellId, SPEC_MASK_ALL, true);
+    std::vector<uint32> kept;
+    for (uint32 spellId : wanted)
+        if (to->HasSpell(spellId) || to->addSpell(spellId, SPEC_MASK_ALL, true, true))
+            kept.push_back(spellId);
     std::lock_guard<std::mutex> lock(bodyMutex);
-    auto& mine = lent[to->GetGUID().GetCounter()];
-    mine.insert(mine.end(), added.begin(), added.end());
+    lent[to->GetGUID().GetCounter()] = std::move(kept);
+}
+
+void LendBothWays(Player* left, Player* right)
+{
+    Lend(left, right, { Subclass::Borrow::Movement, Subclass::Borrow::Melee });
+    Lend(right, left, { Subclass::Borrow::Ranged });
 }
 
 void Reclaim(Player* player)
@@ -229,9 +251,7 @@ void Seat(Player* left, Player* right)
         return;
     Reclaim(left);
     Reclaim(right);
-    Lend(left, right, Subclass::Borrow::Movement);
-    Lend(left, right, Subclass::Borrow::Melee);
-    Lend(right, left, Subclass::Borrow::Ranged);
+    LendBothWays(left, right);
     Tell(left, right->GetName() + " sits on your shoulders now. Their movement and melee abilities are yours to use.");
     Tell(right, "You ride on " + left->GetName() + "'s body now. Their ranged spells, casts and buffs are yours to "
         "use.");
@@ -337,7 +357,13 @@ void KeepTogether(Player* player)
         TwoPlayersSteerBotBody(body, !Halted(guid));
     if (left && SameMap(body, rider) && Ready(body) && Ready(rider))
         GroupUp(body, rider);
-    if (Seated(body, rider) || !Ready(body) || !Ready(rider) || body->GetVehicle())
+    if (Seated(body, rider))
+    {
+        if (left)
+            LendBothWays(body, rider);
+        return;
+    }
+    if (!Ready(body) || !Ready(rider) || body->GetVehicle())
         return;
     bool const close = SameMap(body, rider) && rider->IsWithinDist(body, SeatReach);
     if (left)
