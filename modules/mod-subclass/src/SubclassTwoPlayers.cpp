@@ -3,6 +3,7 @@
  */
 
 #include "AllSpellScript.h"
+#include "AscensionSpecialization.h"
 #include "Chat.h"
 #include "Config.h"
 #include "GameTime.h"
@@ -23,6 +24,7 @@
 #include "UpdateData.h"
 #include "Vehicle.h"
 #include "WorldPacket.h"
+#include "WorldSession.h"
 #include <algorithm>
 #include <array>
 #include <initializer_list>
@@ -113,6 +115,21 @@ Subclass::Borrow BorrowOfSpell(uint32 spellId)
     shape.Duration = info->GetMaxDuration();
     shape.Positive = info->IsPositive();
     return Subclass::BorrowOf(shape);
+}
+
+bool ClassAbilityOf(Player const* owner, uint32 spellId)
+{
+    static std::mutex abilityMutex;
+    static std::unordered_map<uint8, std::unordered_set<uint32>> byClass;
+    std::lock_guard<std::mutex> lock(abilityMutex);
+    auto [found, fresh] = byClass.try_emplace(owner->getClass());
+    if (fresh)
+        for (AscensionClassAbility const& ability : GetAscensionClassAbilities(owner->getClass()))
+        {
+            found->second.insert(ability.SpellId);
+            found->second.insert(ability.FirstSpellId);
+        }
+    return found->second.count(spellId) != 0;
 }
 
 bool HasBodyKit(Player const* body)
@@ -206,7 +223,7 @@ void Lend(Player* to, Player const* from, std::initializer_list<Subclass::Borrow
     std::unordered_set<uint32> wanted;
     for (auto const& [spellId, spell] : from->GetSpellMap())
     {
-        if (spell->State == PLAYERSPELL_REMOVED || !spell->Active)
+        if (spell->State == PLAYERSPELL_REMOVED || !spell->Active || !ClassAbilityOf(from, spellId))
             continue;
         if (std::find(kinds.begin(), kinds.end(), BorrowOfSpell(spellId)) == kinds.end())
             continue;
@@ -254,7 +271,8 @@ void HandOver(Player* owner, Player const* holder, std::initializer_list<Subclas
     std::vector<uint32> wanted;
     for (auto const& [spellId, spell] : owner->GetSpellMap())
     {
-        if (spell->State == PLAYERSPELL_REMOVED || !spell->Active || LentTo(owner, spellId))
+        if (spell->State == PLAYERSPELL_REMOVED || !spell->Active || LentTo(owner, spellId) ||
+            !ClassAbilityOf(owner, spellId))
             continue;
         if (std::find(kinds.begin(), kinds.end(), BorrowOfSpell(spellId)) != kinds.end())
             wanted.push_back(spellId);
@@ -501,12 +519,14 @@ void KeepTogether(Player* player)
         return;
     KeepTheTwoPlayersBody(player);
     bool const left = TwoPlayersIsLeftHead(guid);
+    bool const leaving = player->GetSession() && player->GetSession()->isLogingOut();
     if (!left && TakeExitRequest(guid))
         Tell(player, TwoPlayersHalt(player, !Halted(guid)));
     Player* const connected = Connected(partnerGuid);
     if (!left)
         WaitForBody(player, !connected, TwoPlayersHeadIsBot(connected));
-    CallBotForMissingHead(player, partnerGuid, !connected, left);
+    if (!leaving)
+        CallBotForMissingHead(player, partnerGuid, !connected, left);
     Player* partner = Online(partnerGuid);
     if (!partner)
     {
@@ -519,7 +539,12 @@ void KeepTogether(Player* player)
     }
     Player* body = left ? player : partner;
     Player* rider = left ? partner : player;
-    if (!left && Steered(guid, TwoPlayersHeadIsBot(body)))
+    if (!left && leaving && TwoPlayersHeadIsBot(body))
+    {
+        Steered(guid, false);
+        TwoPlayersSteerBotBody(body, false);
+    }
+    else if (!left && Steered(guid, TwoPlayersHeadIsBot(body)))
         TwoPlayersSteerBotBody(body, !Halted(guid));
     if (left && SameMap(body, rider) && Ready(body) && Ready(rider))
         GroupUp(body, rider);
