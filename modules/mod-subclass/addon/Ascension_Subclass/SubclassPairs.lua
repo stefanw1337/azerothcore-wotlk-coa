@@ -89,34 +89,54 @@ for _, name in ipairs(GEAR_SLOTS) do
     GEAR_BUTTONS["Character" .. name .. "Slot"] = true
 end
 
+local function ShowFrozenTooltip(ice)
+    GameTooltip:SetOwner(ice, "ANCHOR_RIGHT")
+    if not GameTooltip:SetInventoryItem("player", ice.slot:GetID()) then
+        GameTooltip:SetText((ice.slot:GetName():gsub("^Character", ""):gsub("Slot$", "")))
+    end
+    GameTooltip:AddLine("Frozen: the body wears this gear for both heads.", 0.5, 0.8, 1, true)
+    GameTooltip:Show()
+end
+
+local function LinkFrozenItem(ice)
+    local link = GetInventoryItemLink("player", ice.slot:GetID())
+    if link and IsModifiedClick("CHATLINK") then
+        ChatEdit_InsertLink(link)
+    end
+end
+
+local function IceOver(button)
+    if button.subclassIce then
+        return button.subclassIce
+    end
+    local ice = CreateFrame("Button", nil, button)
+    ice.slot = button
+    ice:SetAllPoints(button)
+    ice:SetFrameLevel(button:GetFrameLevel() + 5)
+    ice:RegisterForClicks("AnyUp")
+    ice:SetScript("OnClick", LinkFrozenItem)
+    ice:SetScript("OnEnter", ShowFrozenTooltip)
+    ice:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    local frost = ice:CreateTexture(nil, "OVERLAY")
+    frost:SetAllPoints(ice)
+    frost:SetTexture("Interface\\AddOns\\Ascension_Subclass\\Textures\\IceFrame")
+    local lock = ice:CreateTexture(nil, "OVERLAY")
+    lock:SetWidth(16)
+    lock:SetHeight(16)
+    lock:SetPoint("TOPRIGHT", ice, "TOPRIGHT", 0, 0)
+    lock:SetTexture("Interface\\LFGFrame\\UI-LFG-ICON-LOCK")
+    button.subclassIce = ice
+    return ice
+end
+
 local function FreezeSlot(button)
     if not button or not GEAR_BUTTONS[button:GetName() or ""] then
         return
     end
-    local frozen = pairState == "RIGHT"
-    if not button.subclassFrost then
-        if not frozen then
-            return
-        end
-        local frost = button:CreateTexture(nil, "OVERLAY")
-        frost:SetAllPoints(button)
-        frost:SetTexture("Interface\\Icons\\Spell_Frost_FrostArmor02")
-        frost:SetBlendMode("ADD")
-        frost:SetAlpha(0.45)
-        local lock = button:CreateTexture(nil, "OVERLAY")
-        lock:SetWidth(14)
-        lock:SetHeight(14)
-        lock:SetPoint("TOPRIGHT", button, "TOPRIGHT", -1, -1)
-        lock:SetTexture("Interface\\LFGFrame\\UI-LFG-ICON-LOCK")
-        button.subclassFrost = frost
-        button.subclassLock = lock
-    end
-    if frozen then
-        button.subclassFrost:Show()
-        button.subclassLock:Show()
-    else
-        button.subclassFrost:Hide()
-        button.subclassLock:Hide()
+    if pairState == "RIGHT" then
+        IceOver(button):Show()
+    elseif button.subclassIce then
+        button.subclassIce:Hide()
     end
 end
 
