@@ -58,6 +58,9 @@ std::unordered_map<uint32, uint32>& sinceCheck = *new std::unordered_map<uint32,
 std::unordered_set<uint32>& waiting = *new std::unordered_set<uint32>;
 std::unordered_set<uint32>& halted = *new std::unordered_set<uint32>;
 std::unordered_set<uint32>& greeted = *new std::unordered_set<uint32>;
+std::unordered_map<uint32, std::vector<uint32>>& handedOver = *new std::unordered_map<uint32, std::vector<uint32>>;
+std::unordered_map<uint32, std::vector<uint32>>& toldLent = *new std::unordered_map<uint32, std::vector<uint32>>;
+std::unordered_map<uint32, std::vector<uint32>>& toldHanded = *new std::unordered_map<uint32, std::vector<uint32>>;
 std::unordered_map<uint32, Absence>& absences = *new std::unordered_map<uint32, Absence>;
 
 struct WornCopy
@@ -156,6 +159,37 @@ bool LentTo(Player const* player, uint32 spellId)
     return found != lent.end() && std::find(found->second.begin(), found->second.end(), spellId) != found->second.end();
 }
 
+std::string SpellNames(std::vector<uint32> const& spells)
+{
+    std::string names;
+    for (uint32 spellId : spells)
+        if (SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId))
+            names += (names.empty() ? "" : ", ") + std::string(info->SpellName[0]);
+    return names;
+}
+
+void TellOnce(Player* player, std::unordered_map<uint32, std::vector<uint32>>& told, std::vector<uint32> spells,
+    std::string const& lead)
+{
+    std::sort(spells.begin(), spells.end());
+    {
+        std::lock_guard<std::mutex> lock(bodyMutex);
+        std::vector<uint32>& last = told[player->GetGUID().GetCounter()];
+        if (last == spells)
+            return;
+        last = spells;
+    }
+    if (!spells.empty())
+        Tell(player, lead + SpellNames(spells) + ".");
+}
+
+void ForgetTold(uint32 guid)
+{
+    std::lock_guard<std::mutex> lock(bodyMutex);
+    toldLent.erase(guid);
+    toldHanded.erase(guid);
+}
+
 void Lend(Player* to, Player const* from, std::initializer_list<Subclass::Borrow> kinds)
 {
     std::vector<uint32> current;
@@ -184,35 +218,94 @@ void Lend(Player* to, Player const* from, std::initializer_list<Subclass::Borrow
     for (uint32 spellId : wanted)
         if (to->HasSpell(spellId) || to->addSpell(spellId, SPEC_MASK_ALL, true, true))
             kept.push_back(spellId);
+    TellOnce(to, toldLent, kept, "From " + from->GetName() + " you now use: ");
     std::lock_guard<std::mutex> lock(bodyMutex);
     lent[to->GetGUID().GetCounter()] = std::move(kept);
+}
+
+std::vector<uint32> HandedOver(Player const* owner)
+{
+    std::lock_guard<std::mutex> lock(bodyMutex);
+    auto const found = handedOver.find(owner->GetGUID().GetCounter());
+    return found == handedOver.end() ? std::vector<uint32>() : found->second;
+}
+
+void GiveBack(Player* owner, std::vector<uint32> const& spells)
+{
+    bool returned = false;
+    for (uint32 spellId : spells)
+    {
+        if (!owner->HasSpell(spellId))
+            continue;
+        owner->SendLearnPacket(spellId, true);
+        returned = true;
+    }
+    if (returned)
+        owner->SendActionButtons(1);
+}
+
+void HandOver(Player* owner, Player const* holder, std::initializer_list<Subclass::Borrow> kinds)
+{
+    std::vector<uint32> const current = HandedOver(owner);
+    std::unordered_set<uint32> const had(current.begin(), current.end());
+    std::vector<uint32> wanted;
+    for (auto const& [spellId, spell] : owner->GetSpellMap())
+    {
+        if (spell->State == PLAYERSPELL_REMOVED || !spell->Active || LentTo(owner, spellId))
+            continue;
+        if (std::find(kinds.begin(), kinds.end(), BorrowOfSpell(spellId)) != kinds.end())
+            wanted.push_back(spellId);
+    }
+    std::unordered_set<uint32> const keep(wanted.begin(), wanted.end());
+    std::vector<uint32> back;
+    for (uint32 spellId : current)
+        if (!keep.count(spellId))
+            back.push_back(spellId);
+    GiveBack(owner, back);
+    for (uint32 spellId : wanted)
+        if (!had.count(spellId))
+            owner->SendLearnPacket(spellId, false);
+    TellOnce(owner, toldHanded, wanted, holder->GetName() + " uses these now: ");
+    std::lock_guard<std::mutex> lock(bodyMutex);
+    handedOver[owner->GetGUID().GetCounter()] = std::move(wanted);
 }
 
 void LendBothWays(Player* left, Player* right)
 {
     Lend(left, right, { Subclass::Borrow::Movement, Subclass::Borrow::Melee });
     Lend(right, left, { Subclass::Borrow::Ranged });
+    HandOver(left, right, { Subclass::Borrow::Ranged });
+    HandOver(right, left, { Subclass::Borrow::Movement, Subclass::Borrow::Melee });
 }
 
 void Reclaim(Player* player)
 {
     std::vector<uint32> spells;
+    std::vector<uint32> handed;
     {
         std::lock_guard<std::mutex> lock(bodyMutex);
-        auto const found = lent.find(player->GetGUID().GetCounter());
-        if (found == lent.end())
-            return;
-        spells = std::move(found->second);
-        lent.erase(found);
+        uint32 const guid = player->GetGUID().GetCounter();
+        if (auto const found = lent.find(guid); found != lent.end())
+        {
+            spells = std::move(found->second);
+            lent.erase(found);
+        }
+        if (auto const found = handedOver.find(guid); found != handedOver.end())
+        {
+            handed = std::move(found->second);
+            handedOver.erase(found);
+        }
     }
     for (uint32 spellId : spells)
         player->removeSpell(spellId, SPEC_MASK_ALL, true);
+    GiveBack(player, handed);
 }
 
 bool HasLent(Player const* player)
 {
     std::lock_guard<std::mutex> lock(bodyMutex);
-    return lent.count(player->GetGUID().GetCounter()) != 0;
+    uint32 const guid = player->GetGUID().GetCounter();
+    return lent.count(guid) != 0 || handedOver.count(guid) != 0;
 }
 
 void GroupUp(Player* left, Player* right)
@@ -360,6 +453,7 @@ void KeepTogether(Player* player)
     if (!partner)
     {
         Greet(left ? guid : partnerGuid, false);
+        ForgetTold(guid);
         if (HasLent(player))
             Reclaim(player);
         return;
@@ -630,6 +724,8 @@ public:
         waiting.erase(player->GetGUID().GetCounter());
         halted.erase(player->GetGUID().GetCounter());
         absences.erase(player->GetGUID().GetCounter());
+        toldLent.erase(player->GetGUID().GetCounter());
+        toldHanded.erase(player->GetGUID().GetCounter());
     }
 };
 
