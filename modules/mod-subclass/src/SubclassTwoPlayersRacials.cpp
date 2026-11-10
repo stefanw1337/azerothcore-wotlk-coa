@@ -250,9 +250,9 @@ void LearnRacials(Player* player)
             player->learnSpell(spell, false);
     uint32 const guid = player->GetGUID().GetCounter();
     bool const rider = TwoPlayersPartnerOf(guid) && !TwoPlayersIsLeftHead(guid);
-    if (rider && player->HasSpell(MutateSpell))
+    if ((rider || player->getRace(true) != Subclass::TwoHeadedOgreRace) && player->HasSpell(MutateSpell))
         player->removeSpell(MutateSpell, SPEC_MASK_ALL, false);
-    else if (!rider && !player->HasSpell(MutateSpell))
+    else if (!rider && player->getRace(true) == Subclass::TwoHeadedOgreRace && !player->HasSpell(MutateSpell))
         player->learnSpell(MutateSpell, false);
 }
 

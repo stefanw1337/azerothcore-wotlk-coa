@@ -862,10 +862,32 @@ public:
     }
 };
 
+Player* VisibleRiderOf(Unit* unit)
+{
+    Player* body = unit ? unit->ToPlayer() : nullptr;
+    if (!body || Subclass::BodyVehicleFor(body->getRace(true)) != Subclass::TwinsTwoPlayersVehicle)
+        return nullptr;
+    uint32 const guid = body->GetGUID().GetCounter();
+    if (!TwoPlayersIsLeftHead(guid))
+        return nullptr;
+    Player* rider = Online(TwoPlayersPartnerOf(guid));
+    return Seated(body, rider) ? rider : nullptr;
+}
+
 class mod_subclass_two_players_unit : public UnitScript
 {
 public:
-    mod_subclass_two_players_unit() : UnitScript("mod_subclass_two_players_unit", true, { UNITHOOK_ON_DAMAGE }) { }
+    mod_subclass_two_players_unit() : UnitScript("mod_subclass_two_players_unit", true,
+        { UNITHOOK_ON_DAMAGE, UNITHOOK_MODIFY_MELEE_DAMAGE }) { }
+
+    void ModifyMeleeDamage(Unit* /*target*/, Unit* attacker, uint32& /*damage*/) override
+    {
+        Player* rider = VisibleRiderOf(attacker);
+        if (!rider)
+            return;
+        bool const armed = attacker->ToPlayer()->GetWeaponForAttack(BASE_ATTACK, true) != nullptr;
+        rider->HandleEmoteCommand(armed ? EMOTE_ONESHOT_ATTACK1H : EMOTE_ONESHOT_ATTACK_UNARMED);
+    }
 
     void OnDamage(Unit* /*attacker*/, Unit* victim, uint32& damage) override
     {
@@ -897,8 +919,17 @@ char const* RefusalFor(Subclass::Borrow kind)
 class mod_subclass_two_players_spells : public AllSpellScript
 {
 public:
-    mod_subclass_two_players_spells() : AllSpellScript("mod_subclass_two_players_spells", { ALLSPELLHOOK_CAN_PREPARE })
+    mod_subclass_two_players_spells() : AllSpellScript("mod_subclass_two_players_spells",
+        { ALLSPELLHOOK_CAN_PREPARE, ALLSPELLHOOK_ON_CAST })
     {
+    }
+
+    void OnSpellCast(Spell* spell, Unit* caster, SpellInfo const* info, bool /*skipCheck*/) override
+    {
+        if (spell->IsTriggered() || info->IsPassive())
+            return;
+        if (Player* rider = VisibleRiderOf(caster))
+            rider->HandleEmoteCommand(info->IsPositive() ? EMOTE_ONESHOT_SPELL_CAST_OMNI : EMOTE_ONESHOT_SPELL_CAST);
     }
 
     bool CanPrepare(Spell* spell, SpellCastTargets const* targets, AuraEffect const* /*triggeredByAura*/) override
