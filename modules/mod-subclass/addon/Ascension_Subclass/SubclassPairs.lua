@@ -150,8 +150,60 @@ frame:SetScript("OnEvent", function(_, _, prefix, message, _, sender)
         if head == "NONE" then
             ownHead = fits ~= "" and fits or "ANY"
         end
+        Ascension_Subclass.SetPartner(head ~= "NONE" and head ~= "ECHO" and message:match("^PAIRSTATE %u+ (.+)$")
+            or nil)
         FreezeGear()
     end
+end)
+
+local partnerName
+local partyFrames = CreateFrame("Frame")
+
+local function HidePartner(partyFrame)
+    if not partnerName or not partyFrame or not partyFrame.unit then
+        return
+    end
+    if UnitName(partyFrame.unit) ~= partnerName or not partyFrame:IsShown() then
+        return
+    end
+    if InCombatLockdown() then
+        partyFrames:RegisterEvent("PLAYER_REGEN_ENABLED")
+        return
+    end
+    partyFrame:Hide()
+end
+
+local function RefreshPartyFrames()
+    if InCombatLockdown() then
+        partyFrames:RegisterEvent("PLAYER_REGEN_ENABLED")
+        return
+    end
+    for index = 1, MAX_PARTY_MEMBERS or 4 do
+        local partyFrame = _G["PartyMemberFrame" .. index]
+        if partyFrame and PartyMemberFrame_UpdateMember then
+            PartyMemberFrame_UpdateMember(partyFrame)
+        end
+        HidePartner(partyFrame)
+    end
+end
+
+function Ascension_Subclass.SetPartner(name)
+    if name == partnerName then
+        return
+    end
+    partnerName = name
+    RefreshPartyFrames()
+end
+
+if PartyMemberFrame_UpdateMember then
+    hooksecurefunc("PartyMemberFrame_UpdateMember", HidePartner)
+end
+partyFrames:RegisterEvent("PARTY_MEMBERS_CHANGED")
+partyFrames:SetScript("OnEvent", function(self, event)
+    if event == "PLAYER_REGEN_ENABLED" then
+        self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+    end
+    RefreshPartyFrames()
 end)
 
 local function HideLeaveButton(button)
