@@ -5642,6 +5642,25 @@ private:
       requested.insert(id);
       descriptionIds.insert(id);
     }
+    if (QueryResult sqlSpells = WorldDatabase.Query(
+            "SELECT DISTINCT `spell`.`ID` FROM `spell_dbc` AS `spell` "
+            "JOIN `skilllineability_dbc` AS `ability` ON `ability`.`Spell` = `spell`.`ID` "
+            "JOIN `coa_client_skill_line_ability` AS `streamed` ON `streamed`.`ID` = `ability`.`ID`"))
+    {
+      std::filesystem::path const clientSpells =
+          std::filesystem::path(sWorld->GetDataPath()) / "dbc" / "Spell.dbc";
+      if (std::optional<std::unordered_set<uint32>> const known = LoadDbcIds(clientSpells, SPELL_DBC_FIELD_COUNT))
+      {
+        uint32 added = 0;
+        do {
+          uint32 const id = sqlSpells->Fetch()[0].Get<uint32>();
+          if (!known->contains(id) && requested.insert(id).second)
+            ++added;
+        } while (sqlSpells->NextRow());
+        if (added)
+          LOG_INFO("coa", "Streaming {} new spell(s) from spell_dbc", added);
+      }
+    }
     std::vector<SpellPatchRow> rows = LoadSqlSpellPatchRows(requested);
     std::unordered_map<uint32, std::size_t> overridden;
     for (std::size_t index = 0; index < rows.size(); ++index)
