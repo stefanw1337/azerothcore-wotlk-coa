@@ -4497,10 +4497,6 @@ public:
     for (VanityCollectionPatchRow const& row : rows.VanityCollections)
       bytes += SendVanityCollectionRow(player, row);
 
-    if (std::any_of(rows.NewSpellIds.begin(), rows.NewSpellIds.end(),
-                    [player](uint32 spellId) { return player->HasSpell(spellId); }))
-      player->SendInitialSpells();
-
     LOG_INFO("coa",
              "Streamed {} CreatureModelData, {} CreatureDisplayInfo, {} ItemDisplayInfo, {} of {} Item, "
              "{} Spell, {} SuperTrack, {} QuestSuperTrack, {} SkillLineAbility, {} SpellShapeshiftForm and "
@@ -4638,7 +4634,6 @@ private:
     std::unordered_set<uint32> SqlItemIds;
     std::unordered_map<uint32, std::size_t> ItemRowIndexById;
     std::vector<SpellPatchRow> Spells;
-    std::unordered_set<uint32> NewSpellIds;
     std::unordered_map<uint32, std::size_t> SpellRowIndexById;
     std::vector<SuperTrackPatchRow> SuperTracks;
     std::vector<QuestSuperTrackPatchRow> QuestSuperTracks;
@@ -5322,7 +5317,7 @@ private:
       }
       std::sort(_rows.ItemCapacityOrder.begin(), _rows.ItemCapacityOrder.end(),
           [this](std::size_t left, std::size_t right) { return _rows.Items[left][0] > _rows.Items[right][0]; });
-      _rows.Spells = BuildSpellPatchRows(_rows.NewSpellIds);
+      _rows.Spells = BuildSpellPatchRows();
       for (std::size_t index = 0; index < _rows.Spells.size(); ++index)
         _rows.SpellRowIndexById.emplace(_rows.Spells[index].Values[0], index);
       _rows.SuperTracks = LoadSuperTrackPatchRows();
@@ -5684,7 +5679,7 @@ private:
     return rows;
   }
 
-  static std::vector<SpellPatchRow> BuildSpellPatchRows(std::unordered_set<uint32> &newSpellIds) {
+  static std::vector<SpellPatchRow> BuildSpellPatchRows() {
     std::unordered_map<uint32, char const*> const blacksmithingTiers = {
         {2018, "Apprentice"}, {3100, "Journeyman"}, {3538, "Expert"},
         {9785, "Artisan"}, {29844, "Master"}, {51300, "Grand Master"}};
@@ -5708,6 +5703,7 @@ private:
       requested.insert(id);
       descriptionIds.insert(id);
     }
+    std::unordered_set<uint32> newSpellIds;
     if (QueryResult sqlSpells = WorldDatabase.Query(
             "SELECT DISTINCT `spell`.`ID` FROM `spell_dbc` AS `spell` "
             "JOIN `skilllineability_dbc` AS `ability` ON `ability`.`Spell` = `spell`.`ID` "
