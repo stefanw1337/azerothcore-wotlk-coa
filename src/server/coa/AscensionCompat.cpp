@@ -5703,6 +5703,7 @@ private:
       requested.insert(id);
       descriptionIds.insert(id);
     }
+    std::unordered_set<uint32> newSpellIds;
     if (QueryResult sqlSpells = WorldDatabase.Query(
             "SELECT DISTINCT `spell`.`ID` FROM `spell_dbc` AS `spell` "
             "JOIN `skilllineability_dbc` AS `ability` ON `ability`.`Spell` = `spell`.`ID` "
@@ -5715,7 +5716,10 @@ private:
         uint32 added = 0;
         do {
           uint32 const id = sqlSpells->Fetch()[0].Get<uint32>();
-          if (!known->contains(id) && requested.insert(id).second)
+          if (known->contains(id))
+            continue;
+          newSpellIds.insert(id);
+          if (requested.insert(id).second)
             ++added;
         } while (sqlSpells->NextRow());
         if (added)
@@ -5827,7 +5831,7 @@ private:
     {
       if (auto const tier = blacksmithingTiers.find(row.Values[0]); tier != blacksmithingTiers.end())
         row.Strings[SPELL_WIRE_RANK] = tier->second;
-      row.RequiresRegistration = !descriptionIds.contains(row.Values[0]);
+      row.RequiresRegistration = !descriptionIds.contains(row.Values[0]) && !newSpellIds.contains(row.Values[0]);
     }
     return rows;
   }
