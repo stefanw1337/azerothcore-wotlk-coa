@@ -4292,11 +4292,23 @@ public:
             return;
 
         PreparedPatchRows const& rows = GetPreparedPatchRows();
+        std::vector<uint32> displayIds;
         for (uint16 field : { UNIT_FIELD_DISPLAYID, UNIT_FIELD_NATIVEDISPLAYID, UNIT_FIELD_MOUNTDISPLAYID })
+            displayIds.push_back(player->GetUInt32Value(field));
+        uint32 const mountSpellId = player->GetMountBlockId();
+        if (SpellInfo const* mountSpell = mountSpellId ? sSpellMgr->GetSpellInfo(mountSpellId) : nullptr)
+            for (SpellEffectInfo const& effect : mountSpell->GetEffects())
+                if (effect.ApplyAuraName == SPELL_AURA_MOUNTED)
+                    if (CreatureTemplate const* mount = sObjectMgr->GetCreatureTemplate(effect.MiscValue))
+                        for (CreatureModel const& model : mount->Models)
+                            displayIds.push_back(model.CreatureDisplayID);
+
+        std::unordered_set<uint32> sentDisplays;
+        for (uint32 displayId : displayIds)
         {
-            uint32 const displayId = player->GetUInt32Value(field);
-            if (!displayId || std::find(rows.CreatureDisplayIds.begin(), rows.CreatureDisplayIds.end(), displayId) ==
-                                  rows.CreatureDisplayIds.end())
+            if (!displayId || !sentDisplays.insert(displayId).second ||
+                std::find(rows.CreatureDisplayIds.begin(), rows.CreatureDisplayIds.end(), displayId) ==
+                    rows.CreatureDisplayIds.end())
                 continue;
             CreatureDisplayInfoEntry const* entry = sCreatureDisplayInfoStore.LookupEntry(displayId);
             if (!entry)
@@ -4313,7 +4325,7 @@ public:
         for (uint32 spellId : rows.NewSpellIds)
         {
             known = known || player->HasSpell(spellId);
-            active = active || player->HasAura(spellId);
+            active = active || player->HasAura(spellId) || spellId == mountSpellId;
         }
         if (!known && !active)
             return;
@@ -4323,7 +4335,7 @@ public:
                 SendSkillLineAbilityRow(player, row);
         for (SpellPatchRow const& row : rows.Spells)
             if (rows.NewSpellIds.contains(row.Values[0]) &&
-                (player->HasSpell(row.Values[0]) || player->HasAura(row.Values[0])))
+                (player->HasSpell(row.Values[0]) || player->HasAura(row.Values[0]) || row.Values[0] == mountSpellId))
             {
                 SpellPatchRow sent = row;
                 ApplyServerSpellSelectors(sent);
