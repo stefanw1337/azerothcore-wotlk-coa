@@ -4442,6 +4442,8 @@ public:
     std::vector<ItemPatchRow> itemRows;
     std::unordered_set<uint32> itemIds = CollectOwnedItemIds(player);
     itemIds.merge(CollectKnownRecipeItemIds(player));
+    for (VanityCollectionPatchRow const &vanity : rows.VanityCollections)
+        itemIds.insert(vanity.Values[1]);
     for (uint32 itemId : itemIds)
         if (std::optional<ItemPatchRow> const row = FindItemRow(rows, itemId))
             itemRows.push_back(*row);
