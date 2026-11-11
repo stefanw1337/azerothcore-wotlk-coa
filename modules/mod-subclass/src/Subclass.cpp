@@ -84,6 +84,7 @@ bool OrderBrother(Player* player, uint32 spellId, Unit* target);
 void PressForOtherHalf(Player* player, uint32 spellId);
 bool TwoPlayersPressLent(Player* player, uint32 spellId);
 void SendTwinGearToCharacterSelect(WorldSession* session);
+void SendMutatedToCharacterSelect(WorldSession* session);
 std::vector<uint32> KnownBorrowedActives(Player const* player);
 bool OffersStandardMains();
 bool SubclassRaceEnabled(uint8 race);
@@ -3882,6 +3883,7 @@ public:
         {
             SendSubclassesToCharacterSelect(session);
             SendTwinGearToCharacterSelect(session);
+            SendMutatedToCharacterSelect(session);
         }
         return !session || (AllowsCreation(session, packet) && KeepsRelicOutOfBank(session, packet));
     }

@@ -361,3 +361,27 @@ if MainMenuBarVehicleLeaveButton_Update then
         HideLeaveButton(MainMenuBarVehicleLeaveButton)
     end)
 end
+
+local function ReframeOnOpen(modelFrame)
+    if not modelFrame or not modelFrame.SetUnit then
+        return
+    end
+    local waiting = CreateFrame("Frame")
+    waiting:Hide()
+    waiting:SetScript("OnUpdate", function(self, elapsed)
+        self.left = self.left - elapsed
+        if self.left > 0 then
+            return
+        end
+        self:Hide()
+        if modelFrame:IsVisible() then
+            modelFrame:SetUnit("player")
+        end
+    end)
+    modelFrame:HookScript("OnShow", function()
+        waiting.left = 0.25
+        waiting:Show()
+    end)
+end
+
+ReframeOnOpen(CharacterModelFrame)

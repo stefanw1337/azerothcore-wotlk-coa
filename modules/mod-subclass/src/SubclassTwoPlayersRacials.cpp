@@ -20,7 +20,9 @@
 #include "SubclassRules.h"
 #include "Timer.h"
 #include "UnitScript.h"
+#include "WorldPacket.h"
 #include "WorldScript.h"
+#include "WorldSession.h"
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
@@ -558,6 +560,29 @@ public:
             "COLLATE=utf8mb4_unicode_ci");
     }
 };
+}
+
+void SendMutatedToCharacterSelect(WorldSession* session)
+{
+    constexpr uint16 MiscPlayerDataPayload = 0x77D;
+    constexpr uint32 MutatedPayload = 0x4D555444;
+    session->QueueQueryCallback(CharacterDatabase.AsyncQuery(Acore::StringFormat(
+        "SELECT `c`.`name` FROM `characters` AS `c` JOIN `mod_subclass_two_players_mutated` AS `m` "
+        "ON `m`.`guid` = `c`.`guid` WHERE `c`.`account` = {} AND `c`.`deleteInfos_Name` IS NULL",
+        session->GetAccountId())).WithCallback(
+        [session](QueryResult result)
+        {
+            std::string payload = "{";
+            if (result)
+                do
+                    payload += Acore::StringFormat("{}\"{}\":{}", payload.size() > 1 ? "," : "",
+                        result->Fetch()[0].Get<std::string>(), Subclass::MutatedBodyDisplay);
+                while (result->NextRow());
+            payload += "}";
+            WorldPacket packet(MiscPlayerDataPayload, 4 + payload.size() + 1);
+            packet << MutatedPayload << payload;
+            session->SendPacket(&packet);
+        }));
 }
 
 void AddSC_mod_subclass_two_players_racials()
