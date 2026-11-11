@@ -5886,7 +5886,9 @@ private:
 
   static std::vector<ItemPatchRow> LoadItemPatchRows(std::unordered_set<uint32>& sqlIds) {
     std::vector<ItemPatchRow> rows;
-    std::unordered_set<uint32> const requested = Ascension::ClientItemPatches::Instance().GetIds(true);
+    std::unordered_set<uint32> requested = Ascension::ClientItemPatches::Instance().GetIds(true);
+    for (AddedVanityRow const &added : LoadAddedVanityRows())
+      requested.insert(added.ItemId);
     QueryResult result = WorldDatabase.Query(
         "SELECT `ID`, `ClassID`, `SubclassID`, `Sound_Override_Subclassid`, "
         "`Material`, `DisplayInfoID`, `InventoryType`, `SheatheType` "
