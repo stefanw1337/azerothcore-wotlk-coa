@@ -21,6 +21,7 @@ local PROFILES = {
     { name = "Phoenix", scale = 0.8, yaw = 15, pitch = 0, roll = 0, x = -0.2, y = -0.1, z = -0.9 },
     { name = "Surfboard", scale = 1, yaw = 10, pitch = 0, roll = -90, x = 0, y = -0.6, z = 0.5 },
     { name = "Turtle", scale = 0.5, yaw = 10, pitch = 0, roll = -90, x = 0, y = -0.5, z = 0.5 },
+    { name = "Reaver", scale = 0.7, yaw = 15, pitch = 0, roll = 0, x = -0.4, y = -0.2, z = -0.2 },
     { name = "Bar / Card", scale = 0.8, yaw = 15, pitch = 0, roll = 90, x = -0.2, y = 0.4, z = 0.7 },
     { name = "Disc (Nexagon)", scale = 1, yaw = 0.7, pitch = 0, roll = 90, x = 0, y = 0.3, z = 1 },
     { name = "D.R.I.V.E. car", scale = 0.8, yaw = 0, pitch = 0, roll = 90, x = 0, y = 0.5, z = 1.3 },
