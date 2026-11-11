@@ -1,0 +1,103 @@
+diff --git a/WoW/Source/Ui/SpellBookFrame.cpp b/WoW/Source/Ui/SpellBookFrame.cpp
+index 8840374..e1981ac 100644
+--- a/WoW/Source/Ui/SpellBookFrame.cpp
++++ b/WoW/Source/Ui/SpellBookFrame.cpp
+@@ -739,11 +739,45 @@ void CGSpellBook::UpdateCompanions() {
+ 
+ // VERIFY: 3365a24e manual
+ // OFFSET: 0x0053CA70
++// Skinshifter: defined further down; the tab sizes below need it.
++static uint32_t GetSpellSkillInfoIndex(int32_t spellId);
++
+ void CGSpellBook::UpdateSpells(int32_t a1, int32_t a2, int32_t a3) {
+     if (a1) {
+         qsort(s_skillInfos.m_data, s_numSkillInfos, sizeof(s_skillInfos.m_data[0]), SortSkillInfoByName);
+         qsort(s_spellList, s_numSpells, sizeof(s_spellList[0]), SortSpellsForDisplay);
+ 
++        // Skinshifter: each tab's size from where the sort put its spells. A spell's tab can change after it was
++        // counted (CoA streams SkillLineAbility rows after login); a stale size showed the neighbouring tab's spells.
++        for (uint32_t i = 0; i < s_numSkillInfos; i++) {
++            s_skillInfos.m_data[i]->m_count = 0;
++        }
++
++        for (uint32_t i = 0; i < s_numSpells; i++) {
++            uint32_t tab = GetSpellSkillInfoIndex(s_spellList[i]);
++
++            if (tab < s_numSkillInfos) {
++                s_skillInfos.m_data[tab]->m_count++;
++            } else if (s_numSkillInfos) {
++                s_skillInfos.m_data[s_numSkillInfos - 1]->m_count++;  // sorted last
++            }
++        }
++
++        for (uint32_t i = 0; i < s_numSkillInfos; ) {
++            if (s_skillInfos.m_data[i]->m_count) {
++                i++;
++                continue;
++            }
++
++            SpellBookSkillInfo* empty = s_skillInfos.m_data[i];
++
++            for (uint32_t j = i; j + 1 < s_numSkillInfos; j++) {
++                s_skillInfos.m_data[j] = s_skillInfos.m_data[j + 1];
++            }
++
++            s_skillInfos.m_data[--s_numSkillInfos] = empty;  // kept for reuse, as AddKnownSpell expects
++        }
++
+         if (s_trackingSpells.Count()) {
+             qsort(s_trackingSpells.m_data, s_trackingSpells.Count(), sizeof(s_trackingSpells.m_data[0]), SortSpellsForDisplay);
+         }
+@@ -1208,6 +1242,16 @@ static uint32_t GetSpellSkillInfoIndex(int32_t spellId) {
+         }
+     }
+ 
++    // Skinshifter: a skill line without a tab of its own (its SkillLineAbility row came after the spell) goes to the
++    // General tab, as AddKnownSpell would have put it, so the sort and the tab sizes agree.
++    if (i == s_numSkillInfos) {
++        for (uint32_t j = 0; j < s_numSkillInfos; j++) {
++            if (!s_skillInfos.m_data[j]->m_skillLine) {
++                return j;
++            }
++        }
++    }
++
+     return i;
+ }
+ 
+@@ -1216,18 +1260,29 @@ static uint32_t GetSpellSkillInfoIndex(int32_t spellId) {
+ int __cdecl SortSpellsForDisplay(const void* a, const void* b) {
+     SpellRec spellA;
+     SpellRec spellB;
++    int32_t idA = *static_cast<const int32_t*>(a);
++    int32_t idB = *static_cast<const int32_t*>(b);
+ 
+-    if (!g_spellDB.GetRecord(*static_cast<const int32_t*>(a), &spellA) || !g_spellDB.GetRecord(*static_cast<const int32_t*>(b), &spellB)) {
+-        return 0;
+-    }
+-
+-    uint32_t tabA = GetSpellSkillInfoIndex(spellA.m_id);
+-    uint32_t tabB = GetSpellSkillInfoIndex(spellB.m_id);
++    // Skinshifter: the tab first, which needs no Spell.dbc row; a spell the client has no row for yet used to
++    // compare equal to everything, which mixed the tabs (spells in the wrong tab, others missing).
++    uint32_t tabA = GetSpellSkillInfoIndex(idA);
++    uint32_t tabB = GetSpellSkillInfoIndex(idB);
+ 
+     if (tabA != tabB) {
+         return tabA < tabB ? -1 : 1;
+     }
+ 
++    bool knownA = g_spellDB.GetRecord(idA, &spellA) != 0;
++    bool knownB = g_spellDB.GetRecord(idB, &spellB) != 0;
++
++    if (!knownA || !knownB) {
++        if (knownA != knownB) {
++            return knownA ? -1 : 1;
++        }
++
++        return idA < idB ? -1 : (idA > idB ? 1 : 0);
++    }
++
+     int result = SStrSortUTF8I(spellA.m_name, spellB.m_name, STORM_MAX_STR);
+ 
+     if (result) {

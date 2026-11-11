@@ -118,6 +118,7 @@ typedef std::unordered_set<uint32> AuctionPlayerSpells;
 struct AuctionHouseUsablePlayerInfo
 {
     uint32 classMask;
+    uint8 classId;
     uint32 raceMask;
     uint8 level;
     AuctionPlayerSkills skills; // active skills only

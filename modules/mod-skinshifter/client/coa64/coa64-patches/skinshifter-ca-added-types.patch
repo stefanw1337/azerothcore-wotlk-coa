@@ -1,0 +1,167 @@
+diff --git a/CoA/Source/Modules/CANatives.cpp b/CoA/Source/Modules/CANatives.cpp
+index d0fc663..816fb27 100644
+--- a/CoA/Source/Modules/CANatives.cpp
++++ b/CoA/Source/Modules/CANatives.cpp
+@@ -33,6 +33,36 @@ int CoA::CA::detail::Usage(lua_State* L, const char* msg) {
+     return luaL_error(L, msg);
+ }
+ 
++namespace {
++    // CAEnums.generated.inc lists CoA's own class and tab types, ending in MaxClass / MaxTab. A row added to the
++    // tables after them (another class's trees) is found by its name in the table, as its row id.
++    uint32_t AddedTypeByName(const char* name, const char* const* names, uint32_t count) {
++        CoA::Dbc::Table* table = nullptr;
++
++        if (count && strcmp(names[count - 1], "MaxClass") == 0) {
++            table = &ClassTypes();
++        } else if (count && strcmp(names[count - 1], "MaxTab") == 0) {
++            table = &TabTypes();
++        }
++
++        if (!table || !name) {
++            return 0;
++        }
++
++        for (uint32_t i = 0; i < table->Count(); ++i) {
++            const uint8_t* row = table->RowAt(i);
++
++            const char* rowName = row ? table->Str(row, 4) : nullptr;
++
++            if (rowName && strcmp(rowName, name) == 0) {
++                return CoA::Dbc::Table::U32(row, 0);
++            }
++        }
++
++        return 0;
++    }
++}
++
+ uint32_t CoA::CA::detail::EnumByName(const char* name, const char* const* names, uint32_t count) {
+     for (uint32_t i = 0; i < count; ++i) {
+         if (strcmp(name, names[i]) == 0) {
+@@ -40,6 +70,10 @@ uint32_t CoA::CA::detail::EnumByName(const char* name, const char* const* names,
+         }
+     }
+ 
++    if (const uint32_t added = AddedTypeByName(name, names, count)) {
++        return added;
++    }
++
+     CoA::Log::Printf("Unexpected Value: %s", name);
+     return 0;
+ }
+@@ -53,6 +87,10 @@ uint32_t CoA::CA::detail::EnumArg(lua_State* L, int idx, const char* const* name
+         }
+     }
+ 
++    if (const uint32_t added = AddedTypeByName(s, names, count)) {
++        return added;
++    }
++
+     CoA::Log::Printf("lua_tovalue<enum>: Unknown string '%s'", s);
+     return 0;
+ }
+@@ -94,6 +132,30 @@ std::string CoA::CA::detail::TabName(uint32_t tab) {
+     return "INVALID_TAB_TYPE_" + std::to_string(tab);
+ }
+ 
++std::string CoA::CA::detail::ClassTypeName(uint32_t cls) {
++    if (cls >= 1 && cls < 0x2F) {
++        return kClassTypes[cls - 1];
++    }
++
++    if (const uint8_t* ct = ClassTypes().Row(cls)) {
++        return ClassTypes().Str(ct, 4);
++    }
++
++    return "UNEXPECTED_ENUM_VALUE_" + std::to_string(cls);
++}
++
++std::string CoA::CA::detail::TabTypeName(uint32_t tab) {
++    if (tab >= 1 && tab < 0x5F) {
++        return kTabTypes[tab - 1];
++    }
++
++    if (const uint8_t* tt = TabTypes().Row(tab)) {
++        return TabTypes().Str(tt, 4);
++    }
++
++    return "UNEXPECTED_ENUM_VALUE_" + std::to_string(tab);
++}
++
+ void CoA::CA::detail::SetInt(lua_State* L, const char* k, int32_t v) {
+     lua_pushstring(L, k);
+     lua_pushinteger(L, v);
+diff --git a/CoA/Source/Modules/CANativesInternal.h b/CoA/Source/Modules/CANativesInternal.h
+index 42978dc..f12f96d 100644
+--- a/CoA/Source/Modules/CANativesInternal.h
++++ b/CoA/Source/Modules/CANativesInternal.h
+@@ -23,6 +23,10 @@ namespace CoA::CA::detail {
+ 
+     std::string ClassName(uint32_t cls);   // ClassTypes +4, else INVALID_CLASS_TYPE_<n>
+     std::string TabName(uint32_t tab);     // TabTypes +4, else INVALID_TAB_TYPE_<n>
++    // An enum value's name: CoA's own list (CAEnums.generated.inc), else the table's name for a row added after
++    // it, else UNEXPECTED_ENUM_VALUE_<n>.
++    std::string ClassTypeName(uint32_t cls);
++    std::string TabTypeName(uint32_t tab);
+ 
+     void SetInt(lua_State* L, const char* k, int32_t v);              // t[k] = v, t at -1
+     void SetStr(lua_State* L, const char* k, const std::string& v);
+diff --git a/CoA/Source/Modules/CAPackets.cpp b/CoA/Source/Modules/CAPackets.cpp
+index c4b0885..6663f98 100644
+--- a/CoA/Source/Modules/CAPackets.cpp
++++ b/CoA/Source/Modules/CAPackets.cpp
+@@ -404,11 +404,11 @@ namespace {
+         memcpy(&cls, &row[0x80], 4);
+         memcpy(&tab, &row[0x84], 4);
+ 
+-        if (cls - 1 > 0x2E) {
++        if (cls - 1 > 0x2E && !CoA::CA::detail::ClassTypes().Row(cls)) {
+             cls = 1;
+         }
+ 
+-        if (tab - 1 > 0x5E) {
++        if (tab - 1 > 0x5E && !CoA::CA::detail::TabTypes().Row(tab)) {
+             tab = 1;
+         }
+ 
+@@ -441,7 +441,8 @@ namespace {
+             CoA::Events::Signal("ASCENSION_ENTRY_UPDATED", "%u", id);
+         }
+ 
+-        CoA::Events::Signal("CHARACTER_ADVANCEMENT_ENTRY_PATCHED", "%b%s%s%u", inserted, kClassTypes[cls - 1], kTabTypes[tab - 1], id);
++        CoA::Events::Signal("CHARACTER_ADVANCEMENT_ENTRY_PATCHED", "%b%s%s%u", inserted,
++                            CoA::CA::detail::ClassTypeName(cls).c_str(), CoA::CA::detail::TabTypeName(tab).c_str(), id);
+         return 1;
+     }
+ 
+diff --git a/CoA/Source/Modules/MysticEnchant.cpp b/CoA/Source/Modules/MysticEnchant.cpp
+index a20d556..5860445 100644
+--- a/CoA/Source/Modules/MysticEnchant.cpp
++++ b/CoA/Source/Modules/MysticEnchant.cpp
+@@ -1,6 +1,7 @@
+ // AscMysticEnchant.cpp (see MysticEnchant.h).
+ #include "CoA/Source/Modules/MysticEnchant.h"
+ #include "CoA/Source/Modules/BridgeStore.h"
++#include "CoA/Source/Modules/CANativesInternal.h"
+ #include "CoA/Source/Modules/Config.h"
+ #include "CoA/Source/Modules/GameMode.h"
+ #include "CoA/Source/Modules/Modules.h"
+@@ -1593,7 +1594,7 @@ namespace {
+             lua_checkstack(L, 2);
+             lua_pushstring(L, "ClassType");
+             const uint32_t cls = groups[g].first;
+-            PushStr(L, cls - 1 < 0x2F ? kClassTypes[cls - 1] : ("UNEXPECTED_ENUM_VALUE_" + std::to_string(cls)).c_str());
++            PushStr(L, CoA::CA::detail::ClassTypeName(cls).c_str());
+             lua_settable(L, -3);
+             lua_pushstring(L, "TabTypes");
+             lua_createtable(L, 0, static_cast<int>(groups[g].second.size()));
+@@ -1605,7 +1606,7 @@ namespace {
+                 lua_createtable(L, 0, 0);
+                 lua_checkstack(L, 2);
+                 lua_pushstring(L, "Tab");
+-                PushStr(L, t.tab - 1 < 0x5F ? kTabTypes[t.tab - 1] : ("UNEXPECTED_ENUM_VALUE_" + std::to_string(t.tab)).c_str());
++                PushStr(L, CoA::CA::detail::TabTypeName(t.tab).c_str());
+                 lua_settable(L, -3);
+                 SetNumber(L, "RequiredAE", static_cast<double>(t.ae));
+                 SetNumber(L, "RequiredTE", static_cast<double>(t.te));

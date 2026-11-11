@@ -1,0 +1,426 @@
+###################################################################################################
+#  mod-skinshifter
+#
+#  The Skinshifter class (class 33; Possessor for Banshee and Ethereal): steal abilities from creatures
+#  into your Grimoire, wear their skins, take them over. Commands (.skin or .skinshifter): steal | list |
+#  wear <n> | shed | grimoire | forget <all|spellId> | leave; for game masters: tokens [n] (alias soultokens;
+#  no number: full) | unlock allskins | unlock count. Separate from mod-subclass and every other module.
+###################################################################################################
+
+#    Skinshifter.Enable
+#        Default: 1
+Skinshifter.Enable = 1
+
+#    Skinshifter.Lift.*  (Steal Form: stealing a skin and abilities; "Lift" is its old name)
+
+#    Skinshifter.Lift.Range
+#        Yards from the creature you must be to steal from it. Also the spell's range on its tooltip (the
+#        nearest standard range that reaches this far).
+#        Default: 10
+Skinshifter.Lift.Range = 10
+
+#    Skinshifter.Lift.AllowFriendly
+#        Allow lifting from friendly NPCs (the "Study" idea). Faction leaders are always refused.
+#        Default: 1
+Skinshifter.Lift.AllowFriendly = 1
+
+#    Skinshifter.Lift.AllowBosses
+#        Default: 0
+Skinshifter.Lift.AllowBosses = 0
+
+#    Skinshifter.Lift.AllowElites
+#        Default: 1
+Skinshifter.Lift.AllowElites = 1
+
+#    Skinshifter.Lift.MaxLevelAbovePlayer
+#        How many levels above you a creature may be.
+#        Default: 3
+Skinshifter.Lift.MaxLevelAbovePlayer = 3
+
+#    Skinshifter.Lift.StarterMaxLevel
+#        Creatures up to this level that have no abilities of their own still teach one starter ability of their
+#        kind (a wolf Tendon Rip or Furious Howl, a kobold Strike, a skeleton Disease Touch, ...).
+#        0 = off.
+#        Default: 10
+Skinshifter.Lift.StarterMaxLevel = 10
+
+#    Skinshifter.Wear.InCombat
+#        Allow changing skin in combat (shifting mid-fight is part of the class; Echoes build on it).
+#        Default: 1
+Skinshifter.Wear.InCombat = 1
+
+#    Skinshifter.Wear.SmallestSize / LargestSize
+#        A worn skin has the creature's own size in the world. Only the extremes change: a model whose radius
+#        would be below SmallestSize yards grows to it (rats, critters), above LargestSize it shrinks to it
+#        (dragons, giants, Onyxia). A human is about 0.4, a tauren about 1.0, a large mount about 2.
+#        Default: 0.3 / 2.0
+Skinshifter.Wear.SmallestSize = 0.3
+Skinshifter.Wear.LargestSize = 2.0
+
+#    Skinshifter.SkinBuff.BeastHealthPercent / BeastArmorPercent
+#        Borrowed Hide: while you wear a beast's skin, your health and armour are this many percent higher.
+#        Shown on your buff bar; it goes when you shed the skin. The client tooltip takes the numbers from the
+#        server, so after a change: start the server once, then run Build-Skinshifter-Client.bat.
+#        Default: 20 / 50
+Skinshifter.SkinBuff.BeastHealthPercent = 20
+Skinshifter.SkinBuff.BeastArmorPercent = 50
+
+#    Skinshifter.WraithRunning.Visual
+#        The look of Wraith Running (ghost Possessors' travel form): a spell visual of the game client, shown as long
+#        as you run.
+#          9900001  the Death Knight's Wraith Walk as far as 3.3.5 can show it: a see-through pale blue body, blue
+#                   flames at the feet and Wraith Walk's cast sound (made by Build-Skinshifter-Client.bat)
+#            20236  corrupted eredar shadow form only
+#            25243  Shadowlands Shadowform smoke (dark wisps around you)
+#             1376  Emerald Nightmare shadow form (dark purple)
+#        0 keeps Unholy Presence's mist. The client takes it from the server: start the server once, then run
+#        Build-Skinshifter-Client.bat.
+#        Default: 9900001
+Skinshifter.WraithRunning.Visual = 9900001
+
+#    Skinshifter.RootWalk.Display / Scale
+#        Root Walk, the Skinshifter's travel form (outdoors only, at mount speed: +60%, +100% with riding skill
+#        150). Standing still you come up as the herb or ore vein nearest to you; in a city, a rested area or a
+#        sanctuary, or with no node near, as this worm: the creature display (16892: the pink Outland larva) and
+#        its size (a creature's 1.0 is its normal size).
+#        Default: 16892 / 0.05
+Skinshifter.RootWalk.Display = 16892
+Skinshifter.RootWalk.Scale = 0.05
+
+#    Skinshifter.RootWalk.BurrowDisplay / BurrowScale
+#        What others see while you dig along underground: 462175 is a small burrowing mound of earth
+#        (400828, Spells\BurrowEarth_Brown_Missile, is a bigger mound).
+#        Default: 462175 / 0.1
+Skinshifter.RootWalk.BurrowDisplay = 462175
+Skinshifter.RootWalk.BurrowScale = 0.1
+
+#    Skinshifter.RootWalk.SurfaceDelay
+#        How long you stand still (milliseconds) before you come up as a herb, a vein or the worm.
+#        Default: 500
+Skinshifter.RootWalk.SurfaceDelay = 500
+
+#    Skinshifter.RootWalk.NodeRange
+#        How far (yards) the herb or ore vein you come up as may be: the nearest spawn point of a gathering node
+#        in the world database (also the ones not spawned right now). Farther than that, you come up as the worm.
+#        The client needs the looks of the nodes CoA has none for: start the server once, then run
+#        Build-Skinshifter-Client.bat.
+#        Default: 100
+Skinshifter.RootWalk.NodeRange = 100
+
+#    Skinshifter.RootWalk.HideFromCreatures
+#        1: during Root Walk, underground or standing still as a herb or vein, creatures leave you alone (they do
+#        not attack you on sight; one already fighting you goes on). Attacking, casting or taking damage ends Root
+#        Walk.
+#        Default: 1
+Skinshifter.RootWalk.HideFromCreatures = 1
+
+#    Skinshifter.RootWalk.BlockedAreas
+#        Areas and zones (AreaTable ids, comma-separated) closed to Root Walk, the "invisible walls": you cannot
+#        start it there, and digging into one puts you back at your last open spot. Instances are always closed.
+#        Underground you pass under buildings, trees and fences (with the client patch
+#        skinshifter-burrow-collision.patch); only the ground and water stop you.
+#        Default: "876" (GM Island)
+Skinshifter.RootWalk.BlockedAreas = "876"
+
+#    Skinshifter.Wear.SwapDelay
+#        The game client blends a change of size over a moment but swaps the model at once, so you would be huge
+#        for a moment after taking off a large skin. When the size changes you are invisible for this many
+#        milliseconds under the change effect, then the new look comes at its own size. 0 turns it off.
+#        Default: 500
+Skinshifter.Wear.SwapDelay = 500
+
+#    Skinshifter.Wear.ScaleFloor / ScaleCeiling
+#        A last safety limit on the resulting scale.
+#        Default: 0.1 / 5.0
+Skinshifter.Wear.ScaleFloor = 0.1
+Skinshifter.Wear.ScaleCeiling = 5.0
+
+#    Skinshifter.Grimoire.ShortSpellCooldown
+#        Creature spells usually have no cooldown (the AI times them). Lifted spells that are instant
+#        or cast in 1.5 s or less and have no cooldown of their own get this one, in milliseconds.
+#        0 = off.
+#        Default: 8000
+Skinshifter.Grimoire.ShortSpellCooldown = 8000
+
+#    Skinshifter.Grimoire.CrowdControlCooldown
+#        Stolen abilities without a cooldown of their own that silence, stun, fear, root, confuse or charm get
+#        this one (ms), whatever their cast time. 0 = off.
+#        Default: 20000
+Skinshifter.Grimoire.CrowdControlCooldown = 20000
+
+#    Skinshifter.Grimoire.DebuffStacks
+#        A debuff or damage over time a stolen ability leaves on an enemy stacks up to this many times: each use adds a
+#        stack, and a Double Take second strike another (two per use), so an even number. 1: no stacking.
+#        Default: 6
+Skinshifter.Grimoire.DebuffStacks = 6
+
+#    Skinshifter.Grimoire.MaxCrowdControlDuration / MaxDebuffDuration / MaxAreaDuration /
+#    MaxSummonDuration / MaxChannelDuration
+#        Creature spells may last forever (a script ends them for the creature). A stolen copy that is not a buff
+#        on you or your allies lasts at most this long (ms); a buff may stay endless. The copy gets the longest
+#        standard duration that fits.
+#        Default: 8000 / 30000 / 20000 / 60000 / 10000
+Skinshifter.Grimoire.MaxCrowdControlDuration = 8000
+Skinshifter.Grimoire.MaxDebuffDuration = 30000
+Skinshifter.Grimoire.MaxAreaDuration = 20000
+Skinshifter.Grimoire.MaxSummonDuration = 60000
+Skinshifter.Grimoire.MaxChannelDuration = 10000
+
+#    Skinshifter.Grimoire.MaxRange / MaxRadius
+#        A stolen copy reaches at most this far (yd), and its area is at most this wide (yd, radius).
+#        Default: 40 / 30
+Skinshifter.Grimoire.MaxRange = 40
+Skinshifter.Grimoire.MaxRadius = 30
+
+#    Skinshifter.Spells.OwnIcons
+#        1 = the Skinshifter spells use their own icons, which come with the client patch
+#            (patch-ZZZZZZ-SKIN.MPQ). A client without the patch shows a question mark instead.
+#        0 = borrow icons of existing spells, for clients without the patch.
+#        Default: 1
+Skinshifter.Spells.OwnIcons = 1
+
+#    Skinshifter.Class.PossessorRaces
+#        Races that play the class as a Possessor: Possess and Release instead of Steal Form and Shed Skin,
+#        and the ghost or energy effects. Add the Alliance ghost race here when it arrives.
+#        Default: "90,109" (Banshee, Ethereal)
+Skinshifter.Class.PossessorRaces = "90,109"
+
+#    Skinshifter.Advancement.Enable
+#        1 = the Skinshifter is in CoA's Character Advancement (N): a class tree with the four signatures and
+#            the class talents, and a tree per specialization. Buying a signature chooses the specialization.
+#            The server writes its rows to DataDir/dbc_skinshifter/ and DataDir/skinshifter_advancement.txt at
+#            start-up; Build-Skinshifter-Client.bat puts the same rows into the client patch.
+#        0 = the module's own specialization window (no talents).
+#        Default: 1
+Skinshifter.Advancement.Enable = 1
+
+#    Skinshifter.Spec.ChangeCost
+#        Without Character Advancement: what changing specialization costs, in copper (the first choice at
+#        level 10 is always free).
+#        Default: 0 (free while testing)
+Skinshifter.Spec.ChangeCost = 0
+
+#    Skinshifter.Fx.EnergyRaces
+#        Possessor races that use the energy effects instead of the ghost effects.
+#        Default: "109" (Ethereal)
+Skinshifter.Fx.EnergyRaces = "109"
+
+#    Skinshifter.Fx.MinSwapDelay
+#        Possess: the body is put on when the travel effect lands, but never sooner than this (ms).
+#        Default: 250
+Skinshifter.Fx.MinSwapDelay = 250
+
+###################################################################################################
+#  The Skinshifter class (class 33). Needs a worldserver built with skinshifter-core.patch
+#  (see README.md); without it the class rows are removed again at startup.
+###################################################################################################
+
+#    Skinshifter.Class.Enable
+#        Keep class 33 in the database (class table, level stats, start positions).
+#        Default: 1
+Skinshifter.Class.Enable = 1
+
+#    Skinshifter.Class.Name
+#        Default: "Skinshifter"
+Skinshifter.Class.Name = "Skinshifter"
+
+#    Skinshifter.Class.Races
+#        Races that can be Skinshifters, a comma-separated list of race ids ("all" = every race that has a start
+#        position for some class). The chosen races, from ilusixn's CoA Custom pack: Skinshifters Void Elf 59,
+#        Grummle 103, Fungarian 93 (Alliance; CoA Custom 1.9.9), Slime Giant 104, Faceless One 87, Mantid 106
+#        (Horde); Possessors Banshee 90 (Horde), Ethereal 109 (Alliance). A race the server does not have yet (no
+#        start position) is skipped. Must match SKINSHIFTER_RACES in client\tools\mkskinclient.py (the character creation
+#        screen). Each race gets the start position of its Rogue (or its first class).
+#        Default: "59,87,90,93,103,104,106,109"
+Skinshifter.Class.Races = "59,87,90,93,103,104,106,109"
+
+#    Skinshifter.Class.StatsFromClass
+#        The class whose level stats (health, mana, attributes) Skinshifters copy. 11 = Druid.
+#        Default: 11
+Skinshifter.Class.StatsFromClass = 11
+
+#    Skinshifter.Slots.Enforce
+#        The talent trees hold slots (square nodes): point at one in the talent window (N) to put a stolen ability
+#        in it; the upgrades under a slot improve whatever is in it. 1: a stolen ability works only from an open
+#        slot (the loadout). 0: every stolen ability works, a slotted one gets its upgrades.
+#        Default: 0
+Skinshifter.Slots.Enforce = 0
+
+#    Skinshifter.Tokens.KillsPerToken
+#        Soul Tokens (Possessor) or Skin Tokens (Skinshifter): kills that give experience for one token. The
+#        counter (the ring by the player frame) shows in each token's hole the toughest creature of those kills
+#        (a boss, then a rare elite, an elite, a rare, a normal one; then the higher level; on a tie the last).
+#        Default: 10
+Skinshifter.Tokens.KillsPerToken = 10
+
+#    Skinshifter.Tokens.GreyKills
+#        1 = kills of grey creatures (too low to give you experience) count toward tokens too. At level 60 that
+#        is everything below about level 49. Pets, totems and critters never count.
+#        Default: 0
+Skinshifter.Tokens.GreyKills = 0
+
+#    Skinshifter.Tokens.Cap
+#        The most tokens you can hold; kills stop counting while the counter is full. A multiple of 20 (the
+#        counter's 20 holes; other values are rounded up).
+#        Default: 20
+Skinshifter.Tokens.Cap = 20
+
+#    Skinshifter.Tokens.Cost.Rare, Skinshifter.Tokens.Cost.Elite, Skinshifter.Tokens.Cost.Boss
+#        What a takeover of a rare, an elite and a boss costs (normal creatures are free). The counter burns brighter
+#        and chimes at each of these counts.
+#        Default: 5, 10, 20
+Skinshifter.Tokens.Cost.Rare = 5
+Skinshifter.Tokens.Cost.Elite = 10
+Skinshifter.Tokens.Cost.Boss = 20
+
+#
+#    Skinshifter.Takeover.Enable
+#        Takeover: Turnskin / Kindred Skin (Skinshifter), Hostile Takeover / Willing Host (Possessor). Go into a
+#        creature and play it: hostile, it stays a monster players can hunt; peaceful, it fights on your side.
+#        Cancel on the possess bar (or .skin leave) to step out: the creature dies and its kill and loot are yours.
+#        Default: 1
+Skinshifter.Takeover.Enable = 1
+
+#    Skinshifter.Takeover.Level
+#        The level the two takeovers are learned at.
+#        Default: 20
+Skinshifter.Takeover.Level = 20
+
+#    Skinshifter.Takeover.Duration, Skinshifter.Takeover.BossDuration
+#        Seconds your hold lasts (0: until you step out); when it runs out you step out as with Cancel.
+#        Default: 120, 60
+Skinshifter.Takeover.Duration = 120
+Skinshifter.Takeover.BossDuration = 60
+
+#    Skinshifter.Takeover.Cooldown
+#        Seconds before the next takeover, counted from when one ends (both takeovers share it).
+#        Default: 60
+Skinshifter.Takeover.Cooldown = 60
+
+#    Skinshifter.Takeover.Range, Skinshifter.Takeover.MaxLevelAbovePlayer
+#        For Possess and Hostile Takeover: how close the creature must be (yards; also the spells' range on
+#        their tooltips), and how many levels above you it may be (CoA is level 60: 3 reaches the 63 bosses).
+#        Default: 30, 3
+Skinshifter.Takeover.Range = 30
+Skinshifter.Takeover.MaxLevelAbovePlayer = 3
+
+#    Skinshifter.Takeover.Leash, Skinshifter.Takeover.HomeRing
+#        Yards from the creature's home before it turns back on its own (control taken away, it runs home, heals
+#        to full) and how close to home you get it back. Reset on the creature's bar does the same out of combat.
+#        Default: 40, 10
+Skinshifter.Takeover.Leash = 40
+Skinshifter.Takeover.HomeRing = 10
+
+#    Skinshifter.Takeover.KillOnEnd
+#        Hostile Takeover: stepping out (or the time running out) kills the creature, with its kill and loot for you.
+#        Default: 1
+Skinshifter.Takeover.KillOnEnd = 1
+
+#    Skinshifter.Takeover.HostCollapseBelow
+#        A peaceful takeover (Willing Host, Kindred Skin): the creature wanders home when you leave, dazed and without
+#        a grudge, unless it is at or below this much health (percent): then it dies and its kill and loot are yours.
+#        Default: 25
+Skinshifter.Takeover.HostCollapseBelow = 25
+
+#    Skinshifter.Takeover.GraceSeconds
+#        After any takeover ends, nothing can attack you for this many seconds (time to get your bearings or run).
+#        From a willing host your spirit flies back to your body, where you stood as you went in.
+#        Default: 3
+Skinshifter.Takeover.GraceSeconds = 3
+
+#    Skinshifter.Takeover.MinimumStay
+#        Seconds you must be the creature before you can step out (stepping out kills it, its loot yours), so a
+#        takeover is never an instant kill. Capped at the takeover's own length. Death, logout and teleport still end
+#        it at once (they let the creature go alive).
+#        Default: 60
+Skinshifter.Takeover.MinimumStay = 60
+
+#    Skinshifter.Takeover.HostileAsMonster
+#        In a hostile takeover the creature is not marked "player controlled": every player can attack it without
+#        PvP flags and you can attack them, as a monster. 0: the game's normal rules for a possessed creature.
+#        Default: 1
+Skinshifter.Takeover.HostileAsMonster = 1
+
+#    Skinshifter.Takeover.NoHostileZones
+#        Zone ids with no hostile takeovers (besides capitals, sanctuaries and instances): the starting zones.
+#        Default: "12,1,14,85,141,215,3430,3524,4298"
+Skinshifter.Takeover.NoHostileZones = "12,1,14,85,141,215,3430,3524,4298"
+
+#    Skinshifter.Takeover.Scaling.HealthPerAttacker, Skinshifter.Takeover.Scaling.DamagePerAttacker,
+#    Skinshifter.Takeover.Scaling.MaxAttackers, Skinshifter.Takeover.Scaling.AttackerWindow
+#        Hostile: each player fighting you after the first (one who hit you or was hit in the last AttackerWindow
+#        seconds, outside your group and guild) adds this much health (keeping the percentage) and melee damage,
+#        in percent, up to MaxAttackers players.
+#        Default: 50, 10, 5, 15
+Skinshifter.Takeover.Scaling.HealthPerAttacker = 50
+Skinshifter.Takeover.Scaling.DamagePerAttacker = 10
+Skinshifter.Takeover.Scaling.MaxAttackers = 5
+Skinshifter.Takeover.Scaling.AttackerWindow = 15
+
+#    Skinshifter.Takeover.Reward.SecondsPerToken, Skinshifter.Takeover.Reward.TokenCap
+#        Hostile: a token for every this many seconds fighting players, and one for each player you kill, up to
+#        TokenCap per takeover.
+#        Default: 60, 5
+Skinshifter.Takeover.Reward.SecondsPerToken = 60
+Skinshifter.Takeover.Reward.TokenCap = 5
+
+#    Skinshifter.Unlock.LearnLimit
+#        GM .skinshifter unlock allskins: how many of the abilities are learned right away, 50 a second (the
+#        client's spellbook holds about 2,000 entries, so not all of the thousands); the rest are learned when you
+#        wear their creature's skin. 0: none until then.
+#        Default: 300
+Skinshifter.Unlock.LearnLimit = 300
+
+#    Skinshifter.Fx.BlueGlowVisual
+#        The look of a Possessor's possessed body (the first ghost effect): a client SpellVisual. 9900003 is the
+#        client patch's (Ghost Visual's pale blue tint, the body fully seen); 0 keeps "Glowy (Blue)"'s own (dark).
+#        Default: 9900003
+Skinshifter.Fx.BlueGlowVisual = 9900003
+
+#    Skinshifter.StealForm.WearAtOnce
+#        Steal Form puts the stolen skin on at once (as Possess does), besides adding it to the Skin Collection.
+#        Default: 1
+Skinshifter.StealForm.WearAtOnce = 1
+
+#    Skinshifter.Disguise.HeldItems
+#        While you wear a skin your hands show what the creature holds (its creature_equip_template); your own
+#        weapons come back when you shed.
+#        Default: 1
+Skinshifter.Disguise.HeldItems = 1
+
+#    Skinshifter.Disguise.Name
+#        Others see the creature's name above you while you wear its skin (and in their unit and party frames).
+#        Chat keeps your real name: it reaches them from a stand-in id named after you, so whispers and replies
+#        work. Players' chat bubbles over a disguised player do not show. You always see your own name.
+#        Default: 1
+Skinshifter.Disguise.Name = 1
+
+#    Skinshifter.SteedShift.Passenger
+#        Steed Shift (a mount used in a skin) and the Possessor's Possessed Steed carry one passenger: a party member
+#        right-clicks you and rides on your saddle in the riding pose, as on the Sandstone Drake. They get off when
+#        you dismount (also by casting or attacking; damage and combat do not end it). Needs the client patch
+#        (Build-Skinshifter-Client).
+#        Default: 1
+Skinshifter.SteedShift.Passenger = 1
+
+#    Skinshifter.SteedShift.SeatOffset
+#        The passenger sits where a rider sits on that mount; this moves them from there, for every mount: forward,
+#        left, up in yards ("x y z"; negative is back, right, down). Needs a worldserver restart, then
+#        Build-Skinshifter-Client.
+#        Default: "0 0 0"
+Skinshifter.SteedShift.SeatOffset = "0 0 0"
+
+#    Skinshifter.WraithGlide.Display, Skinshifter.WraithGlide.Lift
+#        Wraith Glide (ghost Possessors' travel form, the old Wraith Running): you become this creature display, a
+#        floating wraith, and hover this many yards off the ground (1 is a player's normal hover height), gliding
+#        instead of running; with the client patch skinshifter-burrow-collision.patch you pass through walls,
+#        trees and fences like Root Walk. 0: keep your own look. Other floating looks: 915 (a banshee).
+#        Default: 66620, 0.5
+Skinshifter.WraithGlide.Display = 66620
+Skinshifter.WraithGlide.Lift = 0.5
+
+#    Skinshifter.WraithGlide.AnimTier
+#        Which animations the wraith uses while gliding: 0 the ground ones (it runs, swinging its arms), 2 hover,
+#        3 fly. A look without hover or fly animations falls back to standing still while it moves.
+#        Default: 2
+Skinshifter.WraithGlide.AnimTier = 2

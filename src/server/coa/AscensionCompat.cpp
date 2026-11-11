@@ -654,8 +654,7 @@ uint8 WeaponEffectCategoryForEquipmentSlot(uint8 slot) {
 }
 
 bool IsAscensionCustomClass(Player const *player) {
-  uint8 playerClass = player->getClass();
-  return playerClass >= CLASS_BARBARIAN && playerClass <= CLASS_SPIRIT_MAGE;
+  return IsAscensionClass(player->getClass());
 }
 
 bool ReceivesClientRequests(Player const *player) {
@@ -1129,6 +1128,9 @@ public:
 
   void SynchronizeProficiencies(Player *player) {
     if (!IsAscensionCustomClass(player))
+      return;
+    if (std::none_of(AscensionLiveBaseline::Proficiencies.begin(), AscensionLiveBaseline::Proficiencies.end(),
+            [player](auto const& entry) { return entry.ClassId == player->getClass(); }))
       return;
 
     uint32 const guid = player->GetGUID().GetCounter();
@@ -8514,7 +8516,7 @@ public:
   bool OnPlayerCreateInitialItems(Player* player, bool& handled) override
   {
     if (handled || !ascensionCompatConfig.GetConfigValue<bool>(AscensionCompatConfig::ENABLED) ||
-        !IsAscensionCustomClass(player))
+        !IsAscensionCustomClass(player) || !HasLiveStarterItems(player->getClass()))
       return true;
 
     handled = true;
@@ -8523,6 +8525,12 @@ public:
 
     PlaceStartingActionButtons(player);
     return AscensionClassService::Instance().InitializeLiveStarterKit(player);
+  }
+
+  static bool HasLiveStarterItems(uint8 playerClass)
+  {
+    return std::any_of(AscensionCompatData::LiveStarterItems.begin(), AscensionCompatData::LiveStarterItems.end(),
+        [playerClass](AscensionCompatData::LiveStarterItem const& entry) { return entry.ClassId == playerClass; });
   }
 
   static void PlaceStartingActionButtons(Player* player)
@@ -9999,7 +10007,7 @@ bool SetAscensionTalentRank(Player* player, uint32 entryId, uint32 rank)
 
 bool IsAscensionCustomClassId(uint8 classId)
 {
-    return classId >= CLASS_BARBARIAN && classId <= CLASS_SPIRIT_MAGE;
+    return IsAscensionClass(classId);
 }
 
 std::vector<AscensionClassAbility> GetAscensionClassAbilities(uint8 classId)

@@ -2402,7 +2402,7 @@ InventoryResult Player::CanUseItem(ItemTemplate const* proto) const
         return EQUIP_ERR_YOU_CAN_NEVER_USE_THAT_ITEM;
     }
 
-    if ((proto->AllowableClass & getClassMask()) == 0 || (proto->AllowableRace & getRaceMask()) == 0)
+    if (!ItemClassMaskAllows(proto->AllowableClass, getClass()) || (proto->AllowableRace & getRaceMask()) == 0)
     {
         return EQUIP_ERR_YOU_CAN_NEVER_USE_THAT_ITEM;
     }
@@ -2472,7 +2472,7 @@ InventoryResult Player::CanRollForItemInLFG(ItemTemplate const* proto, WorldObje
     if (proto->HasFlag2(ITEM_FLAG2_EVERYONE_CAN_ROLL_NEED))
         return EQUIP_ERR_OK;
 
-    if ((proto->AllowableClass & getClassMask()) == 0 || (proto->AllowableRace & getRaceMask()) == 0)
+    if (!ItemClassMaskAllows(proto->AllowableClass, getClass()) || (proto->AllowableRace & getRaceMask()) == 0)
         return EQUIP_ERR_YOU_CAN_NEVER_USE_THAT_ITEM;
 
     if (proto->RequiredSpell != 0 && !HasSpell(proto->RequiredSpell))

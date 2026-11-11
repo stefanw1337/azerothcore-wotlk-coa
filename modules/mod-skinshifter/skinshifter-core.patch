@@ -1,0 +1,439 @@
+diff --git a/src/server/coa/AscensionCoATalentData.cpp b/src/server/coa/AscensionCoATalentData.cpp
+index 224abfba..c516c6a3 100644
+--- a/src/server/coa/AscensionCoATalentData.cpp
++++ b/src/server/coa/AscensionCoATalentData.cpp
+@@ -156,7 +156,7 @@ bool LoadCoATalentData()
+         ClientDBC::Record record = essence.GetRecord(row);
+         uint32 const key = record.GetUInt32(ESSENCE_KEY);
+         uint32 const level = record.GetUInt32(ESSENCE_LEVEL);
+-        if (key < 12 || key > 32 || !level || level > 255)
++        if (key < 12 || key > 33 || !level || level > 255)
+             continue;
+         if (record.GetUInt32(ESSENCE_FLAGS) || record.GetUInt32(ESSENCE_FLAGS + 1) ||
+             record.GetUInt32(ESSENCE_FLAGS + 2) || record.GetUInt32(ESSENCE_FLAGS + 3))
+@@ -211,7 +211,7 @@ bool LoadCoATalentData()
+         uint32 const entryId = record.GetUInt32(ADVANCEMENT_ID);
+         auto classType = classTypeById.find(record.GetUInt32(ADVANCEMENT_CLASS_TYPE));
+         if (classType == classTypeById.end() || !classType->second.IsCustomClass ||
+-            classType->second.ClassId < 12 || classType->second.ClassId > 32)
++            classType->second.ClassId < 12 || classType->second.ClassId > 33)
+             continue;
+ 
+         uint32 const classId = classType->second.ClassId;
+diff --git a/src/server/coa/AscensionCoATalentState.cpp b/src/server/coa/AscensionCoATalentState.cpp
+index ff3d151f..6cbd81fa 100644
+--- a/src/server/coa/AscensionCoATalentState.cpp
++++ b/src/server/coa/AscensionCoATalentState.cpp
+@@ -66,7 +66,7 @@ std::vector<std::uint32_t> SpecializationSlotRecord(SpecializationSlot const& sl
+ 
+ bool ParseSpecializationSlot(std::vector<std::uint32_t> const& record, SpecializationSlot& slot)
+ {
+-    if (record.size() < 5 || record[0] != 1 || record[1] < 12 || record[1] > 32 ||
++    if (record.size() < 5 || record[0] != 1 || record[1] < 12 || record[1] > 33 ||
+         record[3] > (record.size() - 5) / 2)
+         return false;
+ 
+diff --git a/src/server/coa/AscensionCompat.cpp b/src/server/coa/AscensionCompat.cpp
+index adcfd394..0dfaf82a 100644
+--- a/src/server/coa/AscensionCompat.cpp
++++ b/src/server/coa/AscensionCompat.cpp
+@@ -654,8 +654,7 @@ uint8 WeaponEffectCategoryForEquipmentSlot(uint8 slot) {
+ }
+ 
+ bool IsAscensionCustomClass(Player const *player) {
+-  uint8 playerClass = player->getClass();
+-  return playerClass >= CLASS_BARBARIAN && playerClass <= CLASS_SPIRIT_MAGE;
++  return IsAscensionClass(player->getClass());
+ }
+ 
+ bool ReceivesClientRequests(Player const *player) {
+@@ -1130,6 +1129,9 @@ public:
+   void SynchronizeProficiencies(Player *player) {
+     if (!IsAscensionCustomClass(player))
+       return;
++    if (std::none_of(AscensionLiveBaseline::Proficiencies.begin(), AscensionLiveBaseline::Proficiencies.end(),
++            [player](auto const& entry) { return entry.ClassId == player->getClass(); }))
++      return;
+ 
+     uint32 const guid = player->GetGUID().GetCounter();
+     {
+@@ -8514,7 +8516,7 @@ public:
+   bool OnPlayerCreateInitialItems(Player* player, bool& handled) override
+   {
+     if (handled || !ascensionCompatConfig.GetConfigValue<bool>(AscensionCompatConfig::ENABLED) ||
+-        !IsAscensionCustomClass(player))
++        !IsAscensionCustomClass(player) || !HasLiveStarterItems(player->getClass()))
+       return true;
+ 
+     handled = true;
+@@ -8525,6 +8527,12 @@ public:
+     return AscensionClassService::Instance().InitializeLiveStarterKit(player);
+   }
+ 
++  static bool HasLiveStarterItems(uint8 playerClass)
++  {
++    return std::any_of(AscensionCompatData::LiveStarterItems.begin(), AscensionCompatData::LiveStarterItems.end(),
++        [playerClass](AscensionCompatData::LiveStarterItem const& entry) { return entry.ClassId == playerClass; });
++  }
++
+   static void PlaceStartingActionButtons(Player* player)
+   {
+     PlayerInfo const* info = sObjectMgr->GetPlayerInfo(player->getRace(true), player->getClass());
+@@ -9999,7 +10007,7 @@ bool SetAscensionTalentRank(Player* player, uint32 entryId, uint32 rank)
+ 
+ bool IsAscensionCustomClassId(uint8 classId)
+ {
+-    return classId >= CLASS_BARBARIAN && classId <= CLASS_SPIRIT_MAGE;
++    return IsAscensionClass(classId);
+ }
+ 
+ std::vector<AscensionClassAbility> GetAscensionClassAbilities(uint8 classId)
+diff --git a/src/server/coa/AscensionFreshCharacterCheck.cpp b/src/server/coa/AscensionFreshCharacterCheck.cpp
+index e1bf8130..0eb3a2a9 100644
+--- a/src/server/coa/AscensionFreshCharacterCheck.cpp
++++ b/src/server/coa/AscensionFreshCharacterCheck.cpp
+@@ -248,7 +248,7 @@ Preflight CheckPassiveClosure(AscensionFreshCharacterExpectations::Case const& e
+                     continue;
+                 if (ability->RaceMask && !(ability->RaceMask & (1u << (expected.RaceId - 1))))
+                     continue;
+-                if (ability->ClassMask && !(ability->ClassMask & (1u << (expected.ClassId - 1))))
++                if (ability->ClassMask && !(ability->ClassMask & ClassMaskBit(expected.ClassId)))
+                     continue;
+                 spells.emplace_back(ability->Spell, ClosureEvent::Learn);
+             }
+diff --git a/src/server/coa/AscensionRacialAbilities.h b/src/server/coa/AscensionRacialAbilities.h
+index a59ccc5d..721bee23 100644
+--- a/src/server/coa/AscensionRacialAbilities.h
++++ b/src/server/coa/AscensionRacialAbilities.h
+@@ -104,7 +104,7 @@ inline bool CanLearn(SkillLineAbilityEntry const& ability, uint8 raceId, uint8 c
+         ability.MinSkillLineRank <= 1 && !ability.SupercededBySpell &&
+         (!ability.RaceMask || (ability.RaceMask & (uint32(1) << (raceId - 1)))) &&
+         (IsClassVariantOutsideDbcMask(ability.Spell, classId) || !ability.ClassMask ||
+-            (ability.ClassMask & (uint32(1) << (classId - 1))));
++            (ability.ClassMask & ClassMaskBit(classId)));
+ }
+ }
+ 
+diff --git a/src/server/game/Achievements/AchievementMgr.cpp b/src/server/game/Achievements/AchievementMgr.cpp
+index 19cdb5b7..9e8f1d4a 100644
+--- a/src/server/game/Achievements/AchievementMgr.cpp
++++ b/src/server/game/Achievements/AchievementMgr.cpp
+@@ -112,7 +112,7 @@ bool AchievementCriteriaData::IsValid(AchievementCriteriaEntry const* criteria)
+             }
+             return true;
+         case ACHIEVEMENT_CRITERIA_DATA_TYPE_T_PLAYER_CLASS_RACE:
+-            if (classRace.class_id && ((uint32(1) << (classRace.class_id - 1)) & CLASSMASK_ALL_PLAYABLE) == 0)
++            if (classRace.class_id && (ClassMaskBit(classRace.class_id) & CLASSMASK_ALL_PLAYABLE) == 0)
+             {
+                 LOG_ERROR("sql.sql", "Table `achievement_criteria_data` (Entry: {} Type: {}) for data type ACHIEVEMENT_CRITERIA_DATA_TYPE_T_PLAYER_CLASS_RACE ({}) has non-existing class in value1 ({}), ignored.",
+                                  criteria->ID, criteria->requiredType, dataType, classRace.class_id);
+@@ -272,7 +272,7 @@ bool AchievementCriteriaData::IsValid(AchievementCriteriaEntry const* criteria)
+                                  criteria->ID, criteria->requiredType, dataType);
+                 return false;
+             }
+-            if (classRace.class_id && ((uint32(1) << (classRace.class_id - 1)) & CLASSMASK_ALL_PLAYABLE) == 0)
++            if (classRace.class_id && (ClassMaskBit(classRace.class_id) & CLASSMASK_ALL_PLAYABLE) == 0)
+             {
+                 LOG_ERROR("sql.sql", "Table `achievement_criteria_data` (Entry: {} Type: {}) for data type ACHIEVEMENT_CRITERIA_DATA_TYPE_S_PLAYER_CLASS_RACE ({}) has non-existing class in value1 ({}), ignored.",
+                                  criteria->ID, criteria->requiredType, dataType, classRace.class_id);
+diff --git a/src/server/game/AuctionHouse/AuctionHouseSearcher.cpp b/src/server/game/AuctionHouse/AuctionHouseSearcher.cpp
+index 9fd408d2..fcde9105 100644
+--- a/src/server/game/AuctionHouse/AuctionHouseSearcher.cpp
++++ b/src/server/game/AuctionHouse/AuctionHouseSearcher.cpp
+@@ -672,7 +672,7 @@ bool AuctionHouseUsablePlayerInfo::PlayerCanUseItem(ItemTemplate const* proto) c
+             return false;
+     }
+ 
+-    if ((proto->AllowableClass & classMask) == 0 || (proto->AllowableRace & raceMask) == 0)
++    if (!ItemClassMaskAllows(proto->AllowableClass, classId) || (proto->AllowableRace & raceMask) == 0)
+         return false;
+ 
+     if (proto->RequiredSkill != 0)
+diff --git a/src/server/game/AuctionHouse/AuctionHouseSearcher.h b/src/server/game/AuctionHouse/AuctionHouseSearcher.h
+index 30b72210..d6733e4f 100644
+--- a/src/server/game/AuctionHouse/AuctionHouseSearcher.h
++++ b/src/server/game/AuctionHouse/AuctionHouseSearcher.h
+@@ -118,6 +118,7 @@ typedef std::unordered_set<uint32> AuctionPlayerSpells;
+ struct AuctionHouseUsablePlayerInfo
+ {
+     uint32 classMask;
++    uint8 classId;
+     uint32 raceMask;
+     uint8 level;
+     AuctionPlayerSkills skills; // active skills only
+diff --git a/src/server/game/DataStores/DBCStores.cpp b/src/server/game/DataStores/DBCStores.cpp
+index 4704b206..293cf6b8 100644
+--- a/src/server/game/DataStores/DBCStores.cpp
++++ b/src/server/game/DataStores/DBCStores.cpp
+@@ -218,6 +218,7 @@ typedef std::list<std::string> StoreProblemList;
+ 
+ uint32 DBCFileCount = 0;
+ static std::string sDBCPath;
++static std::string sOverlayDBCPath;
+ 
+ static bool LoadDBC_assert_print(uint32 fsize, uint32 rsize, std::string const& filename)
+ {
+@@ -286,6 +287,7 @@ void LoadDBCStores(std::string const& dataPath)
+ 
+     std::string dbcPath = dataPath + "dbc/";
+     sDBCPath = dbcPath;
++    sOverlayDBCPath = dataPath + "dbc_skinshifter/";
+ 
+     StoreProblemList bad_dbc_files;
+     uint32 availableDbcLocales = 0xFFFFFFFF;
+@@ -577,7 +579,7 @@ void LoadDBCStores(std::string const& dataPath)
+ 
+             // store class talent tab pages
+             for (uint32 cls = 1; cls < MAX_CLASSES; ++cls)
+-                if (talentTabInfo->ClassMask & (1 << (cls - 1)))
++                if (talentTabInfo->ClassMask & ClassMaskBit(cls))
+                     sTalentTabPages[cls][talentTabInfo->tabpage] = talentTabId;
+         }
+     }
+@@ -728,6 +730,11 @@ void LoadDBCStores(std::string const& dataPath)
+ 
+ std::string GetClientDBCPath(std::string_view fileName)
+ {
++    // mod-skinshifter lays its class's rows over the client tables in DataDir/dbc_skinshifter/.
++    std::string const overlay = sOverlayDBCPath + std::string(fileName);
++    std::error_code error;
++    if (!sOverlayDBCPath.empty() && std::filesystem::is_regular_file(overlay, error))
++        return overlay;
+     return sDBCPath + std::string(fileName);
+ }
+ 
+@@ -1011,7 +1018,7 @@ SkillRaceClassInfoEntry const* GetSkillRaceClassInfo(uint32 skill, uint8 race, u
+             continue;
+         }
+ 
+-        if (itr->second->ClassMask && !(itr->second->ClassMask & (uint32(1) << (class_ - 1))))
++        if (itr->second->ClassMask && !(itr->second->ClassMask & SkillClassMaskBit(class_)))
+         {
+             continue;
+         }
+diff --git a/src/server/game/Entities/Player/Player.cpp b/src/server/game/Entities/Player/Player.cpp
+index b7671e5b..c154403f 100644
+--- a/src/server/game/Entities/Player/Player.cpp
++++ b/src/server/game/Entities/Player/Player.cpp
+@@ -11392,7 +11392,7 @@ bool Player::BuyItemFromVendorSlot(ObjectGuid vendorguid, uint32 vendorslot, uin
+         return false;
+     }
+ 
+-    if (!(pProto->AllowableClass & getClassMask()) && pProto->Bonding == BIND_WHEN_PICKED_UP && !IsGameMaster())
++    if (!ItemClassMaskAllows(pProto->AllowableClass, getClass()) && pProto->Bonding == BIND_WHEN_PICKED_UP && !IsGameMaster())
+     {
+         SendBuyError(BUY_ERR_CANT_FIND_ITEM, nullptr, item, 0);
+         return false;
+diff --git a/src/server/game/Entities/Player/PlayerQuest.cpp b/src/server/game/Entities/Player/PlayerQuest.cpp
+index 24a8c817..e24132d9 100644
+--- a/src/server/game/Entities/Player/PlayerQuest.cpp
++++ b/src/server/game/Entities/Player/PlayerQuest.cpp
+@@ -1175,7 +1175,7 @@ bool Player::SatisfyQuestClass(Quest const* qInfo, bool msg) const
+     if (reqClass == 0)
+         return true;
+ 
+-    if ((reqClass & getClassMask()) == 0)
++    if (!QuestClassMaskAllows(reqClass, getClass()))
+     {
+         if (msg)
+             SendCanTakeQuestResponse(INVALIDREASON_DONT_HAVE_REQ);
+diff --git a/src/server/game/Entities/Player/PlayerStorage.cpp b/src/server/game/Entities/Player/PlayerStorage.cpp
+index 194daf36..7fc1cfef 100644
+--- a/src/server/game/Entities/Player/PlayerStorage.cpp
++++ b/src/server/game/Entities/Player/PlayerStorage.cpp
+@@ -2402,7 +2402,7 @@ InventoryResult Player::CanUseItem(ItemTemplate const* proto) const
+         return EQUIP_ERR_YOU_CAN_NEVER_USE_THAT_ITEM;
+     }
+ 
+-    if ((proto->AllowableClass & getClassMask()) == 0 || (proto->AllowableRace & getRaceMask()) == 0)
++    if (!ItemClassMaskAllows(proto->AllowableClass, getClass()) || (proto->AllowableRace & getRaceMask()) == 0)
+     {
+         return EQUIP_ERR_YOU_CAN_NEVER_USE_THAT_ITEM;
+     }
+@@ -2472,7 +2472,7 @@ InventoryResult Player::CanRollForItemInLFG(ItemTemplate const* proto, WorldObje
+     if (proto->HasFlag2(ITEM_FLAG2_EVERYONE_CAN_ROLL_NEED))
+         return EQUIP_ERR_OK;
+ 
+-    if ((proto->AllowableClass & getClassMask()) == 0 || (proto->AllowableRace & getRaceMask()) == 0)
++    if (!ItemClassMaskAllows(proto->AllowableClass, getClass()) || (proto->AllowableRace & getRaceMask()) == 0)
+         return EQUIP_ERR_YOU_CAN_NEVER_USE_THAT_ITEM;
+ 
+     if (proto->RequiredSpell != 0 && !HasSpell(proto->RequiredSpell))
+diff --git a/src/server/game/Entities/Unit/Unit.h b/src/server/game/Entities/Unit/Unit.h
+index 0eaafa4d..52c7ccf8 100644
+--- a/src/server/game/Entities/Unit/Unit.h
++++ b/src/server/game/Entities/Unit/Unit.h
+@@ -845,7 +845,7 @@ public:
+     // Class methods
+     [[nodiscard]] uint8 getClass() const { return GetByteValue(UNIT_FIELD_BYTES_0, 1); }
+     [[nodiscard]] virtual bool IsClass(Classes unitClass, [[maybe_unused]] ClassContext context = CLASS_CONTEXT_NONE) const { return (getClass() == unitClass); }
+-    [[nodiscard]] uint32 getClassMask() const { return uint32(1) << (getClass() - 1); }
++    [[nodiscard]] uint32 getClassMask() const { return ClassMaskBit(getClass()); }
+ 
+     // Gender methods
+     [[nodiscard]] uint8 getGender() const { return GetByteValue(UNIT_FIELD_BYTES_0, 2); }
+diff --git a/src/server/game/Globals/ObjectMgr.cpp b/src/server/game/Globals/ObjectMgr.cpp
+index 05aa2c41..bd9645d3 100644
+--- a/src/server/game/Globals/ObjectMgr.cpp
++++ b/src/server/game/Globals/ObjectMgr.cpp
+@@ -4630,7 +4630,7 @@ void ObjectMgr::LoadPlayerInfo()
+                     {
+                         for (uint32 classIndex = CLASS_WARRIOR; classIndex < MAX_CLASSES; ++classIndex)
+                         {
+-                            if (classMask == 0 || ((uint32(1) << (classIndex - 1)) & classMask))
++                            if (classMask == 0 || (SkillClassMaskBit(classIndex) & classMask))
+                             {
+                                 if (!GetSkillRaceClassInfo(skill.SkillId, raceIndex, classIndex))
+                                     continue;
+@@ -4691,7 +4691,7 @@ void ObjectMgr::LoadPlayerInfo()
+                     {
+                         for (uint32 classIndex = CLASS_WARRIOR; classIndex < MAX_CLASSES; ++classIndex)
+                         {
+-                            if (classMask == 0 || ((uint32(1) << (classIndex - 1)) & classMask))
++                            if (classMask == 0 || (ClassMaskBit(classIndex) & classMask))
+                             {
+                                 if (PlayerInfo* info = _playerInfo[raceIndex][classIndex])
+                                 {
+@@ -4749,7 +4749,7 @@ void ObjectMgr::LoadPlayerInfo()
+                     {
+                         for (uint32 classIndex = CLASS_WARRIOR; classIndex < MAX_CLASSES; ++classIndex)
+                         {
+-                            if (classMask == 0 || ((uint32(1) << (classIndex - 1)) & classMask))
++                            if (classMask == 0 || (ClassMaskBit(classIndex) & classMask))
+                             {
+                                 if (PlayerInfo* info = _playerInfo[raceIndex][classIndex])
+                                 {
+@@ -9826,7 +9826,7 @@ int32 ObjectMgr::GetBaseReputationOf(FactionEntry const* factionEntry, uint8 rac
+         return 0;
+ 
+     uint32 raceMask = (1 << (race - 1));
+-    uint32 classMask = (uint32(1) << (playerClass - 1));
++    uint32 classMask = ClassMaskBit(playerClass);
+ 
+     for (int i = 0; i < 4; i++)
+     {
+diff --git a/src/server/game/Handlers/AuctionHouseHandler.cpp b/src/server/game/Handlers/AuctionHouseHandler.cpp
+index bba72f7f..3ffaab31 100644
+--- a/src/server/game/Handlers/AuctionHouseHandler.cpp
++++ b/src/server/game/Handlers/AuctionHouseHandler.cpp
+@@ -827,6 +827,7 @@ void WorldSession::HandleAuctionListItems(WorldPacket& recvData)
+     {
+         AuctionHouseUsablePlayerInfo usablePlayerInfo;
+         usablePlayerInfo.classMask = GetPlayer()->getClassMask();
++        usablePlayerInfo.classId = GetPlayer()->getClass();
+         usablePlayerInfo.raceMask = GetPlayer()->getRaceMask();
+         usablePlayerInfo.level = GetPlayer()->GetLevel();
+ 
+diff --git a/src/server/game/Handlers/CharacterHandler.cpp b/src/server/game/Handlers/CharacterHandler.cpp
+index c9a250b6..6067011c 100644
+--- a/src/server/game/Handlers/CharacterHandler.cpp
++++ b/src/server/game/Handlers/CharacterHandler.cpp
+@@ -346,7 +346,7 @@ void WorldSession::HandleCharCreateOpcode(WorldPacket& recvData)
+     if (!HasPermission(rbac::RBAC_PERM_SKIP_CHECK_CHARACTER_CREATION_CLASSMASK))
+     {
+         uint32 classMaskDisabled = sWorld->getIntConfig(CONFIG_CHARACTER_CREATING_DISABLED_CLASSMASK);
+-        if ((uint32(1) << (createInfo->Class - 1)) & classMaskDisabled)
++        if (ClassMaskBit(createInfo->Class) & classMaskDisabled)
+         {
+             SendCharCreate(CHAR_CREATE_DISABLED);
+             return;
+diff --git a/src/server/game/Handlers/ItemHandler.cpp b/src/server/game/Handlers/ItemHandler.cpp
+index 8c8477d4..a39dc71e 100644
+--- a/src/server/game/Handlers/ItemHandler.cpp
++++ b/src/server/game/Handlers/ItemHandler.cpp
+@@ -914,7 +914,7 @@ void WorldSession::SendListInventory(ObjectGuid vendorGuid, uint32 vendorEntry)
+         {
+             if (ItemTemplate const* itemTemplate = sObjectMgr->GetItemTemplate(item->item))
+             {
+-                if (!(itemTemplate->AllowableClass & _player->getClassMask()) && itemTemplate->Bonding == BIND_WHEN_PICKED_UP && !_player->IsGameMaster())
++                if (!ItemClassMaskAllows(itemTemplate->AllowableClass, _player->getClass()) && itemTemplate->Bonding == BIND_WHEN_PICKED_UP && !_player->IsGameMaster())
+                 {
+                     continue;
+                 }
+diff --git a/src/server/shared/SharedDefines.h b/src/server/shared/SharedDefines.h
+index 90e5fc64..b7355e28 100644
+--- a/src/server/shared/SharedDefines.h
++++ b/src/server/shared/SharedDefines.h
+@@ -155,18 +155,22 @@ enum Classes
+     CLASS_PROPHET        = 29, // TITLE Venomancer
+     CLASS_REAPER         = 30, // TITLE Reaper
+     CLASS_WILDWALKER     = 31, // TITLE Primalist
+-    CLASS_SPIRIT_MAGE    = 32  // TITLE Runemaster
++    CLASS_SPIRIT_MAGE    = 32, // TITLE Runemaster
++    CLASS_SKINSHIFTER    = 33  // TITLE Skinshifter
+ };
+ 
+ // max+1 for player class
+-#define MAX_CLASSES       33
++#define MAX_CLASSES       34
++
++// Classes up to this id fit the 32-bit class masks of the WotLK data.
++#define MAX_MASKED_CLASS  32
+ 
+ // Every client class bit, including Ascension's classless Hero (ID 10).
+ #define CLASSMASK_ALL_PLAYABLE 0xFFFFFFFFu
+ 
+ constexpr bool IsAscensionClass(uint8 classId)
+ {
+-    return classId >= CLASS_BARBARIAN && classId <= CLASS_SPIRIT_MAGE;
++    return classId >= CLASS_BARBARIAN && classId <= CLASS_SKINSHIFTER;
+ }
+ 
+ constexpr bool UsesProjectileAmmo(uint8 classId)
+@@ -202,10 +206,43 @@ constexpr Classes GetLegacyClassForCustomClass(Classes playerClass)
+         case CLASS_REAPER:        return CLASS_ROGUE;
+         case CLASS_WILDWALKER:    return CLASS_DRUID;
+         case CLASS_SPIRIT_MAGE:   return CLASS_SHAMAN;
++        case CLASS_SKINSHIFTER:   return CLASS_ROGUE;
+         default:                  return playerClass;
+     }
+ }
+ 
++// A class beyond the 32-bit masks has no bit of its own: masks naming specific classes never include it.
++constexpr uint32 ClassMaskBit(uint32 classId)
++{
++    return classId >= 1 && classId <= MAX_MASKED_CLASS ? uint32(1) << (classId - 1) : 0;
++}
++
++// Skill availability (languages, weapons, armour, defense): a class beyond the masks counts as its legacy class.
++// Its abilities still use ClassMaskBit, so it learns none of the legacy class's spells.
++constexpr uint32 SkillClassMaskBit(uint32 classId)
++{
++    return classId <= MAX_MASKED_CLASS ? ClassMaskBit(classId) :
++        ClassMaskBit(GetLegacyClassForCustomClass(Classes(classId)));
++}
++
++// Item restrictions: a class beyond the masks may use what every class may use and what its legacy class may use.
++constexpr bool ItemClassMaskAllows(uint32 classMask, uint8 classId)
++{
++    if (classId <= MAX_MASKED_CLASS)
++        return (classMask & ClassMaskBit(classId)) != 0;
++    return classMask == CLASSMASK_ALL_PLAYABLE ||
++        (classMask & ClassMaskBit(GetLegacyClassForCustomClass(Classes(classId)))) != 0;
++}
++
++// Quest restrictions: a single-class quest stays that class's own, as for the other custom classes.
++constexpr bool QuestClassMaskAllows(uint32 classMask, uint8 classId)
++{
++    if (classId <= MAX_MASKED_CLASS)
++        return (classMask & ClassMaskBit(classId)) != 0;
++    return classMask == CLASSMASK_ALL_PLAYABLE ||
++        (std::popcount(classMask & 0x7FFu) > 1 && ItemClassMaskAllows(classMask, classId));
++}
++
+ // Expand legacy item/quest restrictions without widening explicitly authored custom-class masks.
+ constexpr uint32 ExpandLegacyClassMask(uint32 classMask)
+ {
+@@ -218,9 +255,9 @@ constexpr uint32 ExpandLegacyClassMask(uint32 classMask)
+         return CLASSMASK_ALL_PLAYABLE;
+ 
+     uint32 result = classMask;
+-    for (uint8 classId = CLASS_BARBARIAN; classId < MAX_CLASSES; ++classId)
+-        if (classMask & (uint32(1) << (GetLegacyClassForCustomClass(Classes(classId)) - 1)))
+-            result |= uint32(1) << (classId - 1);
++    for (uint8 classId = CLASS_BARBARIAN; classId <= MAX_MASKED_CLASS; ++classId)
++        if (classMask & ClassMaskBit(GetLegacyClassForCustomClass(Classes(classId))))
++            result |= ClassMaskBit(classId);
+ 
+     return result;
+ }

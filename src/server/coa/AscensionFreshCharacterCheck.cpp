@@ -248,7 +248,7 @@ Preflight CheckPassiveClosure(AscensionFreshCharacterExpectations::Case const& e
                     continue;
                 if (ability->RaceMask && !(ability->RaceMask & (1u << (expected.RaceId - 1))))
                     continue;
-                if (ability->ClassMask && !(ability->ClassMask & (1u << (expected.ClassId - 1))))
+                if (ability->ClassMask && !(ability->ClassMask & ClassMaskBit(expected.ClassId)))
                     continue;
                 spells.emplace_back(ability->Spell, ClosureEvent::Learn);
             }

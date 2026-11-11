@@ -1,0 +1,96 @@
+diff --git a/CoA/Source/Modules/Appearance.cpp b/CoA/Source/Modules/Appearance.cpp
+index 0cf66185..4e81e449 100644
+--- a/CoA/Source/Modules/Appearance.cpp
++++ b/CoA/Source/Modules/Appearance.cpp
+@@ -831,7 +831,7 @@ namespace {
+ 
+     bool CoAClass() {   // FUN_100c5f50
+         const uint32_t c = PlayerClass();
+-        return c >= 0xC && c <= 0x20;
++        return c >= 0xC && c <= 0x21;   // 0x21: Skinshifter
+     }
+ 
+     // The summon (first) / dismiss (second) spell a cosmetic pet of tier 1..5 needs.
+diff --git a/CoA/Source/Modules/CA.cpp b/CoA/Source/Modules/CA.cpp
+index 9e3e11b0..3ab1fb5c 100644
+--- a/CoA/Source/Modules/CA.cpp
++++ b/CoA/Source/Modules/CA.cpp
+@@ -855,7 +855,7 @@ bool CoA::CA::ClassTypeAdmits(Row r, uint8_t cls) {
+     }
+ 
+     if (RowU32(ct, 0x10) != 0) {
+-        return cls >= 12 && cls <= 32;
++        return cls >= 12 && cls <= 33;   // 33: Skinshifter
+     }
+ 
+     if (RowU32(ct, 0x14) != 0) {
+@@ -1028,7 +1028,7 @@ CoA::CA::Build::Build(const BuildSeed& seed, uint32_t lvl, bool full) {
+     this->qualities = ConfigBool("CONFIG_CHARACTER_ADVANCEMENT_QUALITIES_FORCED");
+     const uint8_t cls = static_cast<uint8_t>(seed.classKey);
+     this->hero = cls == 10;
+-    this->coa = cls >= 12 && cls <= 32;
++    this->coa = cls >= 12 && cls <= 33;   // 33: Skinshifter
+     this->stock = StockClass(cls);
+     this->level = lvl ? lvl : CoA::GameEvents::ServerMaxLevel();
+     this->name = seed.id;   // FUN_10089ef0
+diff --git a/CoA/Source/Modules/CAInternal.h b/CoA/Source/Modules/CAInternal.h
+index 4959aaa5..62474d38 100644
+--- a/CoA/Source/Modules/CAInternal.h
++++ b/CoA/Source/Modules/CAInternal.h
+@@ -46,7 +46,7 @@ namespace CoA::CA::detail {
+     // ---- row predicates --------------------------------------------------------------------------------------
+     bool StockClass(uint8_t c);   // FUN_100c63d0: 1..9 and 11
+     inline bool CoAClass(uint8_t c) {
+-        return c >= 12 && c <= 32;
++        return c >= 12 && c <= 33;   // 33: Skinshifter
+     }
+ 
+     bool Visible(Row r);        // FUN_101c6cc0
+diff --git a/CoA/Source/Modules/CAPackets.cpp b/CoA/Source/Modules/CAPackets.cpp
+index 7013da27..98cf9322 100644
+--- a/CoA/Source/Modules/CAPackets.cpp
++++ b/CoA/Source/Modules/CAPackets.cpp
+@@ -104,7 +104,7 @@ namespace {
+         out.specDraft = CoA::GameMode::SpecBuildDraft(spec);
+         out.qualities = (ConfigBool("CONFIG_CHARACTER_ADVANCEMENT_QUALITIES_ENABLED") && !((mode >> 3) & 1) && !((mode >> 6) & 1) && (mode & 0x400)) ? 1 : 0;
+         out.hero = cls == 10;
+-        out.coa = cls >= 12 && cls <= 32;
++        out.coa = cls >= 12 && cls <= 33;   // 33: Skinshifter
+         out.stock = StockClass(cls);
+         out.u2c = CoA::ObjectAddon::Unit(ActivePlayerGuid())[2].value;   // FUN_102d9f00
+         out.level = UnitLevel(unit);
+diff --git a/CoA/Source/Modules/MysticEnchant.cpp b/CoA/Source/Modules/MysticEnchant.cpp
+index 83175b0d..1d21d388 100644
+--- a/CoA/Source/Modules/MysticEnchant.cpp
++++ b/CoA/Source/Modules/MysticEnchant.cpp
+@@ -254,7 +254,7 @@ namespace {
+     }
+ 
+     bool IsCoAClass(uint8_t c) {
+-        return c >= 12 && c <= 32;
++        return c >= 12 && c <= 33;   // 33: Skinshifter
+     }
+ 
+     // ObjectPtr(item guid, 2): the item by its low guid.
+diff --git a/CoA/Source/Modules/TooltipScaling.cpp b/CoA/Source/Modules/TooltipScaling.cpp
+index a2a68505..9c9671c6 100644
+--- a/CoA/Source/Modules/TooltipScaling.cpp
++++ b/CoA/Source/Modules/TooltipScaling.cpp
+@@ -142,7 +142,7 @@ namespace {
+ 
+     bool CoAClass() {   // FUN_100c5f50
+         const uint32_t c = PlayerClass();
+-        return c >= 0xC && c <= 0x20;
++        return c >= 0xC && c <= 0x21;   // 0x21: Skinshifter
+     }
+ 
+     float AverageDamage(const uint8_t* rec) {   // FUN_102102c0
+@@ -389,7 +389,7 @@ namespace {
+             bool include = false;
+ 
+             if (coa) {
+-                include = cls >= 0xC && cls <= 0x20;
++                include = cls >= 0xC && cls <= 0x21;   // 0x21: Skinshifter
+             } else if (stock) {
+                 include = (cls >= 1 && cls <= 9) || cls == 0xB;
+             } else if (hero) {

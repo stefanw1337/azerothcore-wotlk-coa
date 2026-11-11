@@ -1,0 +1,6 @@
+*.blp -text -diff
+*.jpg -text -diff
+*.png -text -diff
+*.tga -text -diff
+*.bat text eol=crlf
+client/coa64/coa64-patches/*.patch -text

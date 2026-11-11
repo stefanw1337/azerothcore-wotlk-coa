@@ -1,0 +1,91 @@
+diff --git a/WoW/Source/UIUtil/Tooltip_Scripts.cpp b/WoW/Source/UIUtil/Tooltip_Scripts.cpp
+index 0684720e..fe34bbf1 100644
+--- a/WoW/Source/UIUtil/Tooltip_Scripts.cpp
++++ b/WoW/Source/UIUtil/Tooltip_Scripts.cpp
+@@ -423,7 +423,7 @@ static int32_t Script_SetSpell(lua_State* L) {
+     CGTooltip* tooltip = static_cast<CGTooltip*>(FrameScript_GetObjectThis(L, CGTooltip::GetObjectType()));
+     uint32_t slot;
+ 
+-    if (!lua_isnumber(L, 2) || !lua_isstring(L, 3) || (slot = static_cast<uint32_t>(lua_tonumber(L, 2) - 1.0), slot > 1023)) {
++    if (!lua_isnumber(L, 2) || !lua_isstring(L, 3) || (slot = static_cast<uint32_t>(lua_tonumber(L, 2) - 1.0), slot > 8191)) {   // Skinshifter: the book holds 8192
+         const char* name = tooltip->GetName();
+         luaL_error(L, "Invalid spell slot in %s:SetSpell", name ? name : "<unnamed>");
+     }
+diff --git a/WoW/Source/Ui/SpellBookFrame.cpp b/WoW/Source/Ui/SpellBookFrame.cpp
+index 79fdfe8c..b8aabf78 100644
+--- a/WoW/Source/Ui/SpellBookFrame.cpp
++++ b/WoW/Source/Ui/SpellBookFrame.cpp
+@@ -91,10 +91,10 @@ static int32_t s_skinPlayerCorpseSpell;
+ static int32_t s_pendingCompanions;
+ 
+ // STATIC: 0x00BE5D88
+-uint32_t s_displayedSpells[1024];
++uint32_t s_displayedSpells[kSpellBookCapacity];
+ 
+ // STATIC: 0x00BE6D88
+-int32_t s_spellList[1024];
++int32_t s_spellList[kSpellBookCapacity];
+ 
+ // STATIC: 0x00BE7D88
+ int32_t CGSpellBook::m_summonFriendSpell;
+@@ -645,6 +645,10 @@ void CGSpellBook::AddKnownSpell(int32_t spellId, int32_t notify, int32_t replace
+         }
+     }
+ 
++    if (s_numSpells >= kSpellBookCapacity) {
++        return;
++    }
++
+     int32_t tab = -1;
+ 
+     for (uint32_t i = 0; i < s_numSkillInfos; i++) {
+@@ -1466,9 +1470,11 @@ bool GetSlotFromLua(lua_State* L, uint32_t* slot, int32_t* petSpell, int32_t* ty
+ 
+     if (lua_isnumber(L, 1) && lua_isstring(L, 2)) {
+         *slot = static_cast<uint32_t>(lua_tonumber(L, 1) - 1.0);
++        // Skinshifter: the spell book reaches kSpellBookCapacity; the pet book stays at 1024.
++        const bool pet = !SStrCmpI("pet", lua_tolstring(L, 2, nullptr), STORM_MAX_STR);
+ 
+-        if (*slot <= 1023) {
+-            if (!SStrCmpI("pet", lua_tolstring(L, 2, nullptr), STORM_MAX_STR)) {
++        if (*slot < (pet ? 1024u : kSpellBookCapacity)) {
++            if (pet) {
+                 *petSpell = 1;
+             }
+ 
+@@ -2201,7 +2207,7 @@ void CGSpellBook::DelKnownSpell(int32_t spellId, int32_t notify) {
+ 
+     int32_t removed = 0;
+ 
+-    for (uint32_t i = 0; i < 1024; i++) {
++    for (uint32_t i = 0; i < s_numSpells; i++) {
+         if (s_spellList[i] != spellId) {
+             continue;
+         }
+diff --git a/WoW/Source/Ui/SpellBookFrame.h b/WoW/Source/Ui/SpellBookFrame.h
+index 5d191513..cd49fe10 100644
+--- a/WoW/Source/Ui/SpellBookFrame.h
++++ b/WoW/Source/Ui/SpellBookFrame.h
+@@ -106,8 +106,11 @@ void ClearPetSpellInfo();
+ extern const char* s_companionTypes[2];
+ extern TSGrowableArray<SpellUsableInfo> s_shapeshiftSpells;
+ extern uint32_t s_numSkillInfos;
+-extern uint32_t s_displayedSpells[1024];
+-extern int32_t s_spellList[1024];
++// Skinshifter: 8192, not the original 1024 -- a Skinshifter's Grimoire teaches thousands of creature abilities, and
++// the 1025th spell in the book wrote past the end (a crash).
++constexpr uint32_t kSpellBookCapacity = 8192;
++extern uint32_t s_displayedSpells[kSpellBookCapacity];
++extern int32_t s_spellList[kSpellBookCapacity];
+ extern uint32_t s_numSpells;
+ extern uint32_t s_displayedSpellCount;
+ extern TSGrowableArray<SpellBookSkillInfo*> s_skillInfos;
+@@ -125,7 +128,7 @@ int __cdecl SortCompanions(const void* a, const void* b);
+ 
+ extern TSGrowableArray<int32_t> s_trackingSpells;
+ 
+-extern int32_t s_spellList[1024];
++extern int32_t s_spellList[kSpellBookCapacity];
+ extern uint32_t s_numSpells;
+ extern uint32_t s_petSpellList[1024];
+ extern TSBitField<TSFixedArray<uint32_t> > s_knownSpellBits;

@@ -1,0 +1,15 @@
+diff --git a/WoW/Source/Ui/ScriptEvents.cpp b/WoW/Source/Ui/ScriptEvents.cpp
+index 6d113ea..44bfd9e 100644
+--- a/WoW/Source/Ui/ScriptEvents.cpp
++++ b/WoW/Source/Ui/ScriptEvents.cpp
+@@ -1098,7 +1098,9 @@ int32_t PushUnitAura(lua_State* L, ScriptAuraInfo* info) {
+ 
+             if (aura->m_duration > 0) {
+                 lua_pushnumber(L, aura->m_duration * 0.001);
+-                lua_pushnumber(L, aura->m_endTime * 0.001);
++                // Skinshifter: the end time is the client clock (ms) plus the time left, which passes 2^31 after 24.8 days
++                // of Windows uptime; read signed, every buff then showed "0 s". The clock and GetTime() are unsigned.
++                lua_pushnumber(L, static_cast<uint32_t>(aura->m_endTime) * 0.001);
+             } else {
+                 lua_pushnumber(L, 0.0);
+                 lua_pushnumber(L, 0.0);

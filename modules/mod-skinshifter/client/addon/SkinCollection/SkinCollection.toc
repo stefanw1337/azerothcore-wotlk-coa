@@ -1,0 +1,15 @@
+## Interface: 30300
+## Title: Skin Collection
+## Notes: The Skinshifter's collection of stolen skins: see, choose and wear them.
+## Author: Skinshifter
+## Version: 0.1
+## SavedVariables: SkinCollectionDB
+## SavedVariablesPerCharacter: SkinTokensDB
+SkinCollection.lua
+SkinSlots.lua
+SkinTokensArt.lua
+SkinTokens.lua
+SkinTooltips.lua
+SkinPossessor.lua
+SkinSpellbookSearch.lua
+SkinReins.lua

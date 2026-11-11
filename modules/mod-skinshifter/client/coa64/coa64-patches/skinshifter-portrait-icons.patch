@@ -1,0 +1,36 @@
+diff --git a/WoW/Source/UIUtil/PortraitButton.cpp b/WoW/Source/UIUtil/PortraitButton.cpp
+index 1793b6df..08fe9c78 100644
+--- a/WoW/Source/UIUtil/PortraitButton.cpp
++++ b/WoW/Source/UIUtil/PortraitButton.cpp
+@@ -497,14 +497,28 @@ void SetPortraitTexture(CSimpleTexture* texture, const char* fileName) {
+ 
+         uint8_t* pixels;
+         uint32_t stride;
++        // Skinshifter: the portrait is 64x64, the icon not always (HD icons are 128 or 256 wide, which came out as
++        // stripes): the mip nearest 64, sampled to 64x64.
++        const uint32_t side = 64;
++        uint32_t level = 0;
++
++        while (blp.Width(level) > side && blp.IsValidMip(level + 1)) {
++            level++;
++        }
++
++        if (blp.Lock(PIXEL_ARGB8888, level, pixels, stride) && pixels) {
++            const uint32_t width = blp.Width(level);
++            const uint32_t height = blp.Height(level);
++            stride = 4 * width;   // Lock leaves it unset for an uncompressed BLP
+ 
+-        if (blp.Lock(PIXEL_ARGB8888, 0, pixels, stride)) {
+             for (uint32_t i = 0; i < portrait->m_texels.Count(); i++) {
+-                portrait->m_texels.m_data[i] = *reinterpret_cast<CImVector*>(&pixels[4 * i]);
++                const uint32_t x = (i % side) * width / side;
++                const uint32_t y = (i / side) * height / side;
++                portrait->m_texels.m_data[i] = *reinterpret_cast<CImVector*>(&pixels[y * stride + 4 * x]);
+             }
+         }
+ 
+-        blp.Unlock(0);
++        blp.Unlock(level);
+         blp.Close();
+         // CoA: AscGlobalsJ.cpp:SetMaskTexture (Extensions.dll patch 0x6194ED, 0x619546, 0x619548) -- the texture size is the
+         // original's sign-extended push imm8.

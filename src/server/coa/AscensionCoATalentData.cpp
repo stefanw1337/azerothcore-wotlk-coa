@@ -156,7 +156,7 @@ bool LoadCoATalentData()
         ClientDBC::Record record = essence.GetRecord(row);
         uint32 const key = record.GetUInt32(ESSENCE_KEY);
         uint32 const level = record.GetUInt32(ESSENCE_LEVEL);
-        if (key < 12 || key > 32 || !level || level > 255)
+        if (key < 12 || key > 33 || !level || level > 255)
             continue;
         if (record.GetUInt32(ESSENCE_FLAGS) || record.GetUInt32(ESSENCE_FLAGS + 1) ||
             record.GetUInt32(ESSENCE_FLAGS + 2) || record.GetUInt32(ESSENCE_FLAGS + 3))
@@ -211,7 +211,7 @@ bool LoadCoATalentData()
         uint32 const entryId = record.GetUInt32(ADVANCEMENT_ID);
         auto classType = classTypeById.find(record.GetUInt32(ADVANCEMENT_CLASS_TYPE));
         if (classType == classTypeById.end() || !classType->second.IsCustomClass ||
-            classType->second.ClassId < 12 || classType->second.ClassId > 32)
+            classType->second.ClassId < 12 || classType->second.ClassId > 33)
             continue;
 
         uint32 const classId = classType->second.ClassId;

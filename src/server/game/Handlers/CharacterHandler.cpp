@@ -346,7 +346,7 @@ void WorldSession::HandleCharCreateOpcode(WorldPacket& recvData)
     if (!HasPermission(rbac::RBAC_PERM_SKIP_CHECK_CHARACTER_CREATION_CLASSMASK))
     {
         uint32 classMaskDisabled = sWorld->getIntConfig(CONFIG_CHARACTER_CREATING_DISABLED_CLASSMASK);
-        if ((uint32(1) << (createInfo->Class - 1)) & classMaskDisabled)
+        if (ClassMaskBit(createInfo->Class) & classMaskDisabled)
         {
             SendCharCreate(CHAR_CREATE_DISABLED);
             return;

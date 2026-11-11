@@ -155,18 +155,22 @@ enum Classes
     CLASS_PROPHET        = 29, // TITLE Venomancer
     CLASS_REAPER         = 30, // TITLE Reaper
     CLASS_WILDWALKER     = 31, // TITLE Primalist
-    CLASS_SPIRIT_MAGE    = 32  // TITLE Runemaster
+    CLASS_SPIRIT_MAGE    = 32, // TITLE Runemaster
+    CLASS_SKINSHIFTER    = 33  // TITLE Skinshifter
 };
 
 // max+1 for player class
-#define MAX_CLASSES       33
+#define MAX_CLASSES       34
+
+// Classes up to this id fit the 32-bit class masks of the WotLK data.
+#define MAX_MASKED_CLASS  32
 
 // Every client class bit, including Ascension's classless Hero (ID 10).
 #define CLASSMASK_ALL_PLAYABLE 0xFFFFFFFFu
 
 constexpr bool IsAscensionClass(uint8 classId)
 {
-    return classId >= CLASS_BARBARIAN && classId <= CLASS_SPIRIT_MAGE;
+    return classId >= CLASS_BARBARIAN && classId <= CLASS_SKINSHIFTER;
 }
 
 constexpr bool UsesProjectileAmmo(uint8 classId)
@@ -202,8 +206,41 @@ constexpr Classes GetLegacyClassForCustomClass(Classes playerClass)
         case CLASS_REAPER:        return CLASS_ROGUE;
         case CLASS_WILDWALKER:    return CLASS_DRUID;
         case CLASS_SPIRIT_MAGE:   return CLASS_SHAMAN;
+        case CLASS_SKINSHIFTER:   return CLASS_ROGUE;
         default:                  return playerClass;
     }
+}
+
+// A class beyond the 32-bit masks has no bit of its own: masks naming specific classes never include it.
+constexpr uint32 ClassMaskBit(uint32 classId)
+{
+    return classId >= 1 && classId <= MAX_MASKED_CLASS ? uint32(1) << (classId - 1) : 0;
+}
+
+// Skill availability (languages, weapons, armour, defense): a class beyond the masks counts as its legacy class.
+// Its abilities still use ClassMaskBit, so it learns none of the legacy class's spells.
+constexpr uint32 SkillClassMaskBit(uint32 classId)
+{
+    return classId <= MAX_MASKED_CLASS ? ClassMaskBit(classId) :
+        ClassMaskBit(GetLegacyClassForCustomClass(Classes(classId)));
+}
+
+// Item restrictions: a class beyond the masks may use what every class may use and what its legacy class may use.
+constexpr bool ItemClassMaskAllows(uint32 classMask, uint8 classId)
+{
+    if (classId <= MAX_MASKED_CLASS)
+        return (classMask & ClassMaskBit(classId)) != 0;
+    return classMask == CLASSMASK_ALL_PLAYABLE ||
+        (classMask & ClassMaskBit(GetLegacyClassForCustomClass(Classes(classId)))) != 0;
+}
+
+// Quest restrictions: a single-class quest stays that class's own, as for the other custom classes.
+constexpr bool QuestClassMaskAllows(uint32 classMask, uint8 classId)
+{
+    if (classId <= MAX_MASKED_CLASS)
+        return (classMask & ClassMaskBit(classId)) != 0;
+    return classMask == CLASSMASK_ALL_PLAYABLE ||
+        (std::popcount(classMask & 0x7FFu) > 1 && ItemClassMaskAllows(classMask, classId));
 }
 
 // Expand legacy item/quest restrictions without widening explicitly authored custom-class masks.
@@ -218,9 +255,9 @@ constexpr uint32 ExpandLegacyClassMask(uint32 classMask)
         return CLASSMASK_ALL_PLAYABLE;
 
     uint32 result = classMask;
-    for (uint8 classId = CLASS_BARBARIAN; classId < MAX_CLASSES; ++classId)
-        if (classMask & (uint32(1) << (GetLegacyClassForCustomClass(Classes(classId)) - 1)))
-            result |= uint32(1) << (classId - 1);
+    for (uint8 classId = CLASS_BARBARIAN; classId <= MAX_MASKED_CLASS; ++classId)
+        if (classMask & ClassMaskBit(GetLegacyClassForCustomClass(Classes(classId))))
+            result |= ClassMaskBit(classId);
 
     return result;
 }

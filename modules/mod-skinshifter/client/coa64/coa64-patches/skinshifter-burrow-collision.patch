@@ -1,0 +1,129 @@
+diff --git a/WoW/Source/Object/Movement.cpp b/WoW/Source/Object/Movement.cpp
+index 5f095cf..69ed992 100644
+--- a/WoW/Source/Object/Movement.cpp
++++ b/WoW/Source/Object/Movement.cpp
+@@ -52,6 +52,57 @@ static const uint8_t s_volumeEdges[32] = { 0, 1, 0, 2, 0, 3, 0, 4, 1, 2, 2, 3, 3
+ // STATIC: 0x00ADBA34
+ static World::FacetData s_moveFacets;
+ 
++// Skinshifter: what Root Walking and Wraith Glide pass through (all but terrain and water).
++static constexpr uint32_t kSkinshifterThroughFlags = 0x00F020FFu;
++static World::FacetData s_skinshifterTerrain;
++
++// Skinshifter: the facets the movement collides with. Under Wraith Glide (spell 1990015) a building, tree or fence
++// only keeps the faces you can stand on (a floor, a bridge deck, stairs: no steeper than the walkable 50 degrees), so
++// you glide through walls but not through the floor; terrain and water stay whole.
++static bool SkinshifterMoveFacets(CGUnit_C* unit, CAaBox* box, CAaBox* query, uint32_t flags) {
++    bool found = box ? World::GetFacets(box, query, &s_moveFacets, flags, nullptr) : World::GetFacets(query, &s_moveFacets, flags, nullptr);
++
++    if (!found || !unit || !unit->HasAuraBySpellId(1990015)) {
++        return found;
++    }
++
++    uint32_t terrainFlags = flags & ~kSkinshifterThroughFlags;
++    bool terrain = box ? World::GetFacets(box, query, &s_skinshifterTerrain, terrainFlags, nullptr) : World::GetFacets(query, &s_skinshifterTerrain, terrainFlags, nullptr);
++    bool ids = s_moveFacets.facetIds.m_count == s_moveFacets.facets.m_count;
++    uint32_t kept = 0;
++
++    for (uint32_t i = 0; i < s_moveFacets.facets.m_count; i++) {
++        const CFacet& facet = s_moveFacets.facets.m_data[i];
++        bool keep = facet.plane.n.z > 0.64278764f;
++
++        for (uint32_t j = 0; !keep && terrain && j < s_skinshifterTerrain.facets.m_count; j++) {
++            keep = memcmp(facet.v, s_skinshifterTerrain.facets.m_data[j].v, sizeof(facet.v)) == 0;
++        }
++
++        if (!keep) {
++            continue;
++        }
++
++        if (kept != i) {
++            s_moveFacets.facets.m_data[kept] = facet;
++
++            if (ids) {
++                s_moveFacets.facetIds.m_data[kept] = s_moveFacets.facetIds.m_data[i];
++            }
++        }
++
++        kept++;
++    }
++
++    s_moveFacets.facets.SetCount(kept);
++
++    if (ids) {
++        s_moveFacets.facetIds.m_count = kept;
++    }
++
++    return found;
++}
++
+ // STATIC: 0x00C9ECC4
+ static CVar* s_cvSplineOpt;
+ 
+@@ -1533,6 +1584,12 @@ uint32_t CMovement_C::GetFacetQueryFlags() const {
+         flags |= 0x8000;
+     }
+ 
++    // Skinshifter: Root Walking (spell 1990018) digs under the ground; only terrain and water stop it. Wraith Glide
++    // (1990015) is done in SkinshifterMoveFacets: through walls, but floors and bridges still carry it.
++    if (unit->HasAuraBySpellId(1990018)) {
++        flags &= ~kSkinshifterThroughFlags;
++    }
++
+     return flags;
+ }
+ 
+@@ -2406,7 +2463,7 @@ int32_t CMovement_C::CollisionBoxDoesntFit(const CAaBox& box) {
+     uint32_t flags = this->GetFacetQueryFlags();
+     s_queryBox = box;
+ 
+-    if (!World::GetFacets(&s_queryBox, &s_moveFacets, flags, nullptr)) {
++    if (!SkinshifterMoveFacets(this->m_unit, nullptr, &s_queryBox, flags)) {
+         return 1;
+     }
+ 
+@@ -2427,7 +2484,7 @@ int32_t CMovement_C::BoxDoesntFit(float height, float radius) {
+     s_queryBox.t.y = position.y + s_queryBox.t.y;
+     s_queryBox.t.z = position.z + s_queryBox.t.z;
+ 
+-    if (!World::GetFacets(&s_queryBox, &s_moveFacets, flags, nullptr)) {
++    if (!SkinshifterMoveFacets(this->m_unit, nullptr, &s_queryBox, flags)) {
+         return 1;
+     }
+ 
+@@ -2924,7 +2981,7 @@ int32_t CMovement_C::ValidateTestVsFacetQuery(C3Vector move) const {
+     CAaBox query(C3Vector(moved.b.x - 0.16666667f, moved.b.y - 0.16666667f, moved.b.z - 0.16666667f), C3Vector(moved.t.x + 0.16666667f, moved.t.y + 0.16666667f, moved.t.z + 0.16666667f));
+     query |= s_queryBox;
+ 
+-    if (!World::GetFacets(&box, &query, &s_moveFacets, this->GetFacetQueryFlags(), nullptr)) {
++    if (!SkinshifterMoveFacets(this->m_unit, &box, &query, this->GetFacetQueryFlags())) {
+         return 0;
+     }
+ 
+@@ -3214,7 +3271,7 @@ int32_t CMovement_C::GetMoveFacets(float distance, uint32_t elapsed, C3Vector di
+     s_queryBox.t.y = s_queryBox.t.y + 0.0013888889f;
+     s_queryBox.t.z = s_queryBox.t.z + 0.0013888889f;
+ 
+-    if (!World::GetFacets(&box, &s_queryBox, &s_moveFacets, this->GetFacetQueryFlags(), nullptr)) {
++    if (!SkinshifterMoveFacets(this->m_unit, &box, &s_queryBox, this->GetFacetQueryFlags())) {
+         return 0;
+     }
+ 
+@@ -6889,7 +6946,7 @@ void CMovement_C::SnapToGroundIfCloseEnough() {
+         this->m_position.z = hit.z;
+         this->BuildCollisionBox(this->m_position, s_queryBox);
+ 
+-        if (World::GetFacets(&s_queryBox, &s_moveFacets, flags, nullptr)) {
++        if (SkinshifterMoveFacets(this->m_unit, nullptr, &s_queryBox, flags)) {
+             this->GroundNormal();
+         }
+     }
+@@ -6952,7 +7009,7 @@ void CMovement_C::CollideWithTransport(uint32_t time, uint32_t elapsed, float di
+         flags |= 0x8000;
+     }
+ 
+-    if (!World::GetFacets(&box, &s_queryBox, &s_moveFacets, flags, nullptr)) {
++    if (!SkinshifterMoveFacets(this->m_unit, &box, &s_queryBox, flags)) {
+         return;
+     }
+ 

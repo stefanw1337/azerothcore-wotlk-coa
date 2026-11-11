@@ -1,0 +1,5 @@
+__pycache__/
+client/tools/vendor/
+client/coa64/CoA64-src/
+client/server-files/
+!*.patch

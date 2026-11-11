@@ -4630,7 +4630,7 @@ void ObjectMgr::LoadPlayerInfo()
                     {
                         for (uint32 classIndex = CLASS_WARRIOR; classIndex < MAX_CLASSES; ++classIndex)
                         {
-                            if (classMask == 0 || ((uint32(1) << (classIndex - 1)) & classMask))
+                            if (classMask == 0 || (SkillClassMaskBit(classIndex) & classMask))
                             {
                                 if (!GetSkillRaceClassInfo(skill.SkillId, raceIndex, classIndex))
                                     continue;
@@ -4691,7 +4691,7 @@ void ObjectMgr::LoadPlayerInfo()
                     {
                         for (uint32 classIndex = CLASS_WARRIOR; classIndex < MAX_CLASSES; ++classIndex)
                         {
-                            if (classMask == 0 || ((uint32(1) << (classIndex - 1)) & classMask))
+                            if (classMask == 0 || (ClassMaskBit(classIndex) & classMask))
                             {
                                 if (PlayerInfo* info = _playerInfo[raceIndex][classIndex])
                                 {
@@ -4749,7 +4749,7 @@ void ObjectMgr::LoadPlayerInfo()
                     {
                         for (uint32 classIndex = CLASS_WARRIOR; classIndex < MAX_CLASSES; ++classIndex)
                         {
-                            if (classMask == 0 || ((uint32(1) << (classIndex - 1)) & classMask))
+                            if (classMask == 0 || (ClassMaskBit(classIndex) & classMask))
                             {
                                 if (PlayerInfo* info = _playerInfo[raceIndex][classIndex])
                                 {
@@ -9826,7 +9826,7 @@ int32 ObjectMgr::GetBaseReputationOf(FactionEntry const* factionEntry, uint8 rac
         return 0;
 
     uint32 raceMask = (1 << (race - 1));
-    uint32 classMask = (uint32(1) << (playerClass - 1));
+    uint32 classMask = ClassMaskBit(playerClass);
 
     for (int i = 0; i < 4; i++)
     {
