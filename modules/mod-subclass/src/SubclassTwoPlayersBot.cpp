@@ -88,6 +88,22 @@ void TwoPlayersSteerBotBody(Player* body, bool roam)
     body->GetMotionMaster()->Clear();
 }
 
+void TwoPlayersKeepBotBodyRoaming(Player* body)
+{
+    PlayerbotAI* brain = GET_PLAYERBOT_AI(body);
+    if (!brain || brain->HasStrategy("stay", BOT_STATE_NON_COMBAT))
+        return;
+    std::string const questing = QuestingStrategy();
+    std::string change;
+    if (brain->HasStrategy("follow", BOT_STATE_NON_COMBAT))
+        change += ",-follow";
+    for (std::string const& wanted : { std::string("grind"), questing, std::string("loot"), std::string("food") })
+        if (!brain->HasStrategy(wanted, BOT_STATE_NON_COMBAT))
+            change += ",+" + wanted;
+    if (!change.empty())
+        brain->ChangeStrategy(change.substr(1), BOT_STATE_NON_COMBAT);
+}
+
 void TwoPlayersKeepBotRiderStill(Player* rider)
 {
     PlayerbotAI* brain = GET_PLAYERBOT_AI(rider);
@@ -117,6 +133,10 @@ bool TwoPlayersCallBot(Player* /*master*/, uint32 /*headGuid*/)
 }
 
 void TwoPlayersSteerBotBody(Player* /*body*/, bool /*roam*/)
+{
+}
+
+void TwoPlayersKeepBotBodyRoaming(Player* /*body*/)
 {
 }
 

@@ -85,8 +85,9 @@ void CopyOnto(Player* other, Aura const* original)
     }
     if (copy)
     {
-        copy->SetMaxDuration(original->GetMaxDuration());
-        copy->SetDuration(original->GetDuration());
+        int32 const duration = original->GetDuration();
+        copy->SetMaxDuration(duration < 0 ? -1 : std::max(original->GetMaxDuration(), duration));
+        copy->SetDuration(duration);
         if (copy->GetStackAmount() != original->GetStackAmount())
             copy->SetStackAmount(original->GetStackAmount());
         if (copy->GetCharges() != original->GetCharges())

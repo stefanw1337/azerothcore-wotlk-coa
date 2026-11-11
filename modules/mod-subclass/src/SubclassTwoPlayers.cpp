@@ -48,6 +48,8 @@ Player* TwoPlayersSeatedPartner(Player const* head);
 void TwoPlayersShareBuffs(Player* first, Player* second);
 void TwoPlayersDropSharedBuffs(Player* holder);
 void TwoPlayersSteerBotBody(Player* body, bool roam);
+void TwoPlayersKeepBotBodyRoaming(Player* body);
+void KeepTwoPlayersBrother(Player* player);
 
 namespace
 {
@@ -189,6 +191,28 @@ bool Seated(Player const* left, Player const* right)
     return left && right && right->GetVehicleBase() == left;
 }
 
+bool RidesHidden(Player const* rider)
+{
+    return Subclass::BodyVehicleFor(rider->getRace(true)) == Subclass::TwoPlayersVehicle;
+}
+
+bool LoggingOut(Player const* player)
+{
+    return player && player->GetSession() && player->GetSession()->isLogingOut();
+}
+
+void HideRiderApart(Player* rider)
+{
+    uint32 const guid = rider->GetGUID().GetCounter();
+    uint32 const partnerGuid = TwoPlayersPartnerOf(guid);
+    if (!partnerGuid || TwoPlayersIsLeftHead(guid) || !RidesHidden(rider))
+        return;
+    Player* body = ObjectAccessor::FindPlayerByLowGUID(partnerGuid);
+    bool const visible = Seated(body, rider) && !LoggingOut(rider) && !LoggingOut(body);
+    if (rider->IsVisible() != visible)
+        rider->SetVisible(visible);
+}
+
 bool LentTo(Player const* player, uint32 spellId)
 {
     std::lock_guard<std::mutex> lock(bodyMutex);
@@ -272,8 +296,14 @@ void Lend(Player* to, Player const* from, std::initializer_list<Subclass::Borrow
             to->removeSpell(spellId, SPEC_MASK_ALL, true);
     std::vector<uint32> kept;
     for (uint32 spellId : wanted)
-        if (to->HasSpell(spellId) || to->addSpell(spellId, SPEC_MASK_ALL, true, true))
-            kept.push_back(spellId);
+    {
+        bool const known = to->HasSpell(spellId);
+        if (!known && !to->addSpell(spellId, SPEC_MASK_ALL, true, true))
+            continue;
+        if (!known)
+            to->SendLearnPacket(spellId, true);
+        kept.push_back(spellId);
+    }
     TellOnce(to, toldLent, kept, "From " + from->GetName() + " you now use: ");
     if (std::unordered_set<uint32>(kept.begin(), kept.end()) != had)
         ShowLentOnBar(to, kept);
@@ -414,23 +444,26 @@ void ShowTwoAgain(Player* body)
 
 void GroupUp(Player* left, Player* right)
 {
-    Group* group = left->GetGroup();
-    if (right->GetGroup() && right->GetGroup() == group)
+    bool const playerLeads = TwoPlayersHeadIsBot(left) && !TwoPlayersHeadIsBot(right);
+    Player* leader = playerLeads ? right : left;
+    Player* joiner = playerLeads ? left : right;
+    Group* group = leader->GetGroup();
+    if (joiner->GetGroup() && joiner->GetGroup() == group)
         return;
-    if (right->GetGroup())
-        right->RemoveFromGroup();
+    if (joiner->GetGroup())
+        joiner->RemoveFromGroup();
     if (!group)
     {
         group = new Group();
-        if (!group->Create(left))
+        if (!group->Create(leader))
         {
             delete group;
             return;
         }
         sGroupMgr->AddGroup(group);
     }
-    if (GroupHasRoomFor(group, right->GetGUID()))
-        group->AddMember(right);
+    if (GroupHasRoomFor(group, joiner->GetGUID()))
+        group->AddMember(joiner);
 }
 
 bool SameMap(Player const* first, Player const* second)
@@ -474,7 +507,7 @@ void Seat(Player* left, Player* right)
         return;
     if (right->GetVehicle())
         right->ExitVehicle();
-    if (TwoPlayersHeadIsBot(right) && !right->IsVisible())
+    if ((TwoPlayersHeadIsBot(right) || RidesHidden(right)) && !right->IsVisible())
         right->SetVisible(true);
     RevealArrival(right, false);
     right->EnterVehicle(left, RightHeadSeat);
@@ -702,6 +735,8 @@ void KeepTogether(Player* player)
     }
     else if (!left && Steered(guid, TwoPlayersHeadIsBot(body)))
         TwoPlayersSteerBotBody(body, !Halted(guid));
+    else if (!left && TwoPlayersHeadIsBot(body) && !Halted(guid))
+        TwoPlayersKeepBotBodyRoaming(body);
     if (left && SameMap(body, rider) && Ready(body) && Ready(rider))
         GroupUp(body, rider);
     if (Seated(body, rider))
@@ -867,22 +902,28 @@ void RedirectThreatTo(Player* rider, Player const* body)
         rider->GetThreatMgr().UnregisterRedirectThreat(BodyThreatKey);
 }
 
+bool SharesTheBodysGear(Player const* rider)
+{
+    return RidesHidden(rider);
+}
+
 void FollowTheBody(Player* rider)
 {
     uint32 const guid = rider->GetGUID().GetCounter();
     uint32 const partnerGuid = TwoPlayersPartnerOf(guid);
     Player* body = partnerGuid && !TwoPlayersIsLeftHead(guid) ? Online(partnerGuid) : nullptr;
     bool const seated = Seated(body, rider);
-    if (seated)
+    bool const shared = seated && SharesTheBodysGear(rider);
+    if (shared)
         LeaveOwnGearBehind(rider);
     RedirectThreatTo(rider, seated ? body : nullptr);
-    WearTheBodysGear(rider, seated ? body : nullptr);
+    WearTheBodysGear(rider, shared ? body : nullptr);
 }
 
 bool WearsNoGearOfItsOwn(Player const* player)
 {
     uint32 const guid = player->GetGUID().GetCounter();
-    return TwoPlayersPartnerOf(guid) && !TwoPlayersIsLeftHead(guid);
+    return TwoPlayersPartnerOf(guid) && !TwoPlayersIsLeftHead(guid) && SharesTheBodysGear(player);
 }
 
 class mod_subclass_two_players_player : public PlayerScript
@@ -890,7 +931,7 @@ class mod_subclass_two_players_player : public PlayerScript
 public:
     mod_subclass_two_players_player() : PlayerScript("mod_subclass_two_players_player", { PLAYERHOOK_ON_UPDATE,
         PLAYERHOOK_ON_PLAYER_JUST_DIED, PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_CAN_GROUP_ACCEPT, PLAYERHOOK_CAN_EQUIP_ITEM,
-        PLAYERHOOK_CAN_UNEQUIP_ITEM, PLAYERHOOK_ON_LOAD_FROM_DB })
+        PLAYERHOOK_CAN_UNEQUIP_ITEM, PLAYERHOOK_ON_LOAD_FROM_DB, PLAYERHOOK_ON_BEFORE_LOGOUT })
     {
     }
 
@@ -916,6 +957,8 @@ public:
         KeepTogether(player);
         LetGoOfLentSpells(player);
         FollowTheBody(player);
+        KeepTwoPlayersBrother(player);
+        HideRiderApart(player);
     }
 
     bool OnPlayerCanEquipItem(Player* player, uint8 /*slot*/, uint16& /*dest*/, Item* item, bool /*swap*/,
@@ -958,12 +1001,22 @@ public:
         return false;
     }
 
-    void OnPlayerLogout(Player* player) override
+    void OnPlayerBeforeLogout(Player* player) override
+    {
+        HideSeatedHeads(player);
+    }
+
+    static void HideSeatedHeads(Player* player)
     {
         Player* seated = TwoPlayersSeatedPartner(player);
         for (Player* head : { player, seated })
-            if (head && head->GetVehicle() && TwoPlayersHeadIsBot(head))
+            if (head && head->GetVehicle() && (TwoPlayersHeadIsBot(head) || RidesHidden(head)))
                 head->SetVisible(false);
+    }
+
+    void OnPlayerLogout(Player* player) override
+    {
+        HideSeatedHeads(player);
         ShowTwoAgain(player);
         RedirectThreatTo(player, nullptr);
         WearTheBodysGear(player, nullptr);
@@ -1060,6 +1113,26 @@ public:
     }
 };
 
+uint32 LentShare(Player const* presser, Player const* owner, SpellInfo const* info)
+{
+    Powers const ownerPower = Powers(info->PowerType);
+    int32 const ownerCost = std::max(0, info->CalcPowerCost(owner, info->GetSchoolMask()));
+    return Subclass::ShareOfOwnPower(uint32(ownerCost), owner->GetMaxPower(ownerPower),
+        presser->GetMaxPower(presser->getPowerType()));
+}
+
+void PayLentShare(Unit* caster, SpellInfo const* info)
+{
+    Player* presser = caster ? caster->ToPlayer() : nullptr;
+    if (!presser || !LentTo(presser, info->Id))
+        return;
+    Player* owner = TwoPlayersSeatedPartner(presser);
+    if (!owner)
+        return;
+    if (uint32 const share = LentShare(presser, owner, info))
+        presser->ModifyPower(presser->getPowerType(), -int32(share));
+}
+
 char const* RefusalFor(Subclass::Borrow kind)
 {
     switch (kind)
@@ -1085,6 +1158,7 @@ public:
     {
         if (spell->IsTriggered() || info->IsPassive())
             return;
+        PayLentShare(caster, info);
         DismountForRider(caster, info);
         if (Player* rider = VisibleRiderOf(caster))
             rider->HandleEmoteCommand(info->IsPositive() ? EMOTE_ONESHOT_SPELL_CAST_OMNI : EMOTE_ONESHOT_SPELL_CAST);
@@ -1120,19 +1194,11 @@ public:
             spell->AddTriggeredCastFlag(TRIGGERED_IGNORE_EQUIPPED_ITEM_REQUIREMENT);
         if (!LentTo(presser, info->Id))
             return true;
-        Player* owner = other;
-        Powers const ownerPower = Powers(info->PowerType);
-        Powers const payerPower = presser->getPowerType();
-        int32 const ownerCost = std::max(0, info->CalcPowerCost(owner, info->GetSchoolMask()));
-        uint32 const share = Subclass::ShareOfOwnPower(uint32(ownerCost), owner->GetMaxPower(ownerPower),
-            presser->GetMaxPower(payerPower));
-        if (presser->GetPower(payerPower) < share)
+        if (presser->GetPower(presser->getPowerType()) < LentShare(presser, other, info))
         {
             Spell::SendCastResult(presser, info, 0, SPELL_FAILED_NO_POWER);
             return false;
         }
-        if (share)
-            presser->ModifyPower(payerPower, -int32(share));
         spell->AddTriggeredCastFlag(TriggerCastFlags(TRIGGERED_IGNORE_POWER_AND_REAGENT_COST |
             TRIGGERED_IGNORE_CASTER_MOUNTED_OR_ON_VEHICLE | TRIGGERED_COUNTS_AS_CAST |
             TRIGGERED_IGNORE_EQUIPPED_ITEM_REQUIREMENT));

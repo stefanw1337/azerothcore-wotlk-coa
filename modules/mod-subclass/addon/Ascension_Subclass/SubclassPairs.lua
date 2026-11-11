@@ -385,3 +385,66 @@ local function ReframeOnOpen(modelFrame)
 end
 
 ReframeOnOpen(CharacterModelFrame)
+
+local bodyBotButton = CreateFrame("Button", "Ascension_SubclassBodyBotButton", PlayerFrame)
+bodyBotButton:SetWidth(18)
+bodyBotButton:SetHeight(18)
+bodyBotButton:SetPoint("TOPLEFT", PlayerFrame, "TOPLEFT", 36, -6)
+bodyBotButton:SetFrameLevel(PlayerFrame:GetFrameLevel() + 5)
+bodyBotButton.icon = bodyBotButton:CreateTexture(nil, "OVERLAY")
+bodyBotButton.icon:SetAllPoints()
+bodyBotButton:Hide()
+
+local function PartnerBotMenu()
+    if not partnerName or not SquidBotsLite_IsBot or not SquidBotsLite_IsBot(partnerName) then
+        return nil
+    end
+    for index = 1, MAX_PARTY_MEMBERS or 4 do
+        local unit = "party" .. index
+        local partyFrame = _G["PartyMemberFrame" .. index]
+        if partyFrame and UnitName(unit) == partnerName then
+            for _, child in ipairs({ partyFrame:GetChildren() }) do
+                if child.unit == unit and child.icon and child:GetScript("OnClick") then
+                    return child, unit
+                end
+            end
+        end
+    end
+end
+
+local function RefreshBodyBotButton()
+    local menu, unit = PartnerBotMenu()
+    if not menu then
+        bodyBotButton:Hide()
+        return
+    end
+    bodyBotButton.menu, bodyBotButton.unit = menu, unit
+    bodyBotButton.icon:SetTexture(menu.icon:GetTexture())
+    bodyBotButton.icon:SetTexCoord(menu.icon:GetTexCoord())
+    bodyBotButton:Show()
+end
+
+bodyBotButton:SetScript("OnClick", function(self)
+    local click = self.menu and self.menu:GetScript("OnClick")
+    if click then
+        click(self)
+    end
+end)
+bodyBotButton:SetScript("OnEnter", function(self)
+    local enter = self.menu and self.menu:GetScript("OnEnter")
+    if enter then
+        enter(self)
+    end
+end)
+bodyBotButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+local bodyBotWatch = CreateFrame("Frame")
+bodyBotWatch.wait = 0
+bodyBotWatch:SetScript("OnUpdate", function(self, elapsed)
+    self.wait = self.wait - elapsed
+    if self.wait > 0 then
+        return
+    end
+    self.wait = 1
+    RefreshBodyBotButton()
+end)

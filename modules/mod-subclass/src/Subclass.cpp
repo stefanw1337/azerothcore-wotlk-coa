@@ -2124,7 +2124,8 @@ std::string Describe(Subclass::Choice const& choice)
 
 bool OffersQuest(Player const* player)
 {
-    if (!MainMaySubclass(player->getClass()) || LonelyTwin(player))
+    if (!MainMaySubclass(player->getClass()) || LonelyTwin(player) ||
+        Subclass::IsTwoPlayersBody(player->getRace(true), StoryGenderOf(player)))
         return false;
     Record const record = RecordOf(player);
     Subclass::Settings const current = SettingsOf(player);

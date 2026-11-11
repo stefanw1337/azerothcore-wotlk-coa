@@ -585,6 +585,9 @@ placements:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
 placements:SetScript("OnEvent", function(_, event, slot)
     if event == "ACTIONBAR_SLOT_CHANGED" then
         NoteAutoPlacement(slot)
+        if Ascension_Subclass.RememberLentSlot then
+            Ascension_Subclass.RememberLentSlot(slot)
+        end
     else
         learnedUntil = GetTime() + AUTO_PLACEMENT_AFTER_LEARNING
     end
@@ -622,26 +625,85 @@ end
 
 local lentSpells = {}
 local pendingLent = {}
+local LENT_PLACEMENT_DELAY = 3
+local OWN_SLOT_ORDER = { 1, 61, 49, 25, 37, 13 }
 
-local function PlaceLent(fresh)
-    local saved = Saved()
-    local slot = 1
-    for _, spellId in ipairs(fresh) do
-        local placed = false
-        for index = 1, BUTTONS do
-            placed = placed or saved[index] == spellId
+local function OnOwnBars(spellId)
+    for slot = 1, OWN_ACTION_SLOTS do
+        local kind, _, _, actionSpell = GetActionInfo(slot)
+        if kind == "spell" and actionSpell == spellId then
+            return true
         end
-        if not placed then
-            while saved[slot] and slot <= BUTTONS do
-                slot = slot + 1
+    end
+    return false
+end
+
+local function FreeOwnSlot()
+    for _, first in ipairs(OWN_SLOT_ORDER) do
+        for slot = first, first + 11 do
+            if not HasAction(slot) then
+                return slot
             end
-            if slot > BUTTONS then
-                return
-            end
-            saved[slot] = spellId
         end
     end
 end
+
+local lentWaiting = {}
+
+local function LentSlots()
+    local saved = Saved()
+    saved.lentSlots = saved.lentSlots or {}
+    return saved.lentSlots
+end
+
+local function RememberLentSlot(slot)
+    if not slot or slot < 1 or slot > OWN_ACTION_SLOTS then
+        return
+    end
+    local kind, _, _, spellId = GetActionInfo(slot)
+    if kind == "spell" and spellId and lentSpells[spellId] then
+        LentSlots()[spellId] = slot
+    end
+end
+
+local function SlotForLent(spellId)
+    local remembered = LentSlots()[spellId]
+    if remembered and not HasAction(remembered) then
+        return remembered
+    end
+    return FreeOwnSlot()
+end
+
+local function PlaceLentOnOwnBars()
+    if GetCursorInfo() then
+        return false
+    end
+    for spellId in pairs(lentWaiting) do
+        lentWaiting[spellId] = nil
+        local index = lentSpells[spellId] and not OnOwnBars(spellId) and SpellbookIndex(spellId)
+        local slot = index and SlotForLent(spellId)
+        if slot then
+            PickupSpell(index, BOOKTYPE_SPELL)
+            PlaceAction(slot)
+            ClearCursor()
+        end
+    end
+    return true
+end
+
+Ascension_Subclass.RememberLentSlot = RememberLentSlot
+
+local lentPlacer = CreateFrame("Frame")
+lentPlacer:Hide()
+lentPlacer:SetScript("OnUpdate", function(self, elapsed)
+    self.wait = self.wait - elapsed
+    if self.wait > 0 or InCombatLockdown() then
+        return
+    end
+    if PlaceLentOnOwnBars() then
+        self:Hide()
+    end
+end)
 
 local function ApplyLent()
     local now = pendingLent
@@ -649,26 +711,20 @@ local function ApplyLent()
     local saved = Saved()
     for index = 1, BUTTONS do
         local spellId = saved[index]
-        if spellId and lentSpells[spellId] and not now[spellId] then
+        if spellId and (lentSpells[spellId] or now[spellId]) then
             saved[index] = nil
         end
     end
-    local fresh = {}
-    for spellId in pairs(lentSpells) do
-        if not now[spellId] then
-            knownSpells[spellId] = nil
-        end
-    end
     for spellId in pairs(now) do
-        knownSpells[spellId] = true
         if not lentSpells[spellId] then
-            fresh[#fresh + 1] = spellId
+            lentWaiting[spellId] = true
         end
     end
     lentSpells = now
-    table.sort(fresh)
-    PlaceLent(fresh)
-    TakeBackBorrowedAutoPlacements()
+    if next(lentWaiting) then
+        lentPlacer.wait = LENT_PLACEMENT_DELAY
+        lentPlacer:Show()
+    end
     if bar then
         RefreshAll()
         UpdateShown()
@@ -691,13 +747,6 @@ local function Forget(saved)
     end
     saved.filled = nil
     knownSpells = {}
-    local kept = {}
-    for spellId in pairs(lentSpells) do
-        knownSpells[spellId] = true
-        kept[#kept + 1] = spellId
-    end
-    table.sort(kept)
-    PlaceLent(kept)
 end
 
 local function HoldsOnlyKnownSpells(saved)
