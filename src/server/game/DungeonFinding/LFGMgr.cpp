@@ -26,6 +26,7 @@
 #include "GameTime.h"
 #include "Group.h"
 #include "GroupMgr.h"
+#include "GroupSharedSlots.h"
 #include "InstanceSaveMgr.h"
 #include "LocalLevelScaling.h"
 #include "LFGGroupData.h"
@@ -2286,6 +2287,10 @@ namespace lfg
             player->GetSession()->SendLfgTeleportError(uint8(LFG_TELEPORTERROR_INVALID_LOCATION));
             return;
         }
+
+        // A Two-Players rider has no movement of its own: it goes wherever its body is taken
+        if (Unit const* body = player->GetVehicleBase(); body && BodyOfRider(player->GetGUID()) == body->GetGUID())
+            return;
 
         LfgTeleportError error = LFG_TELEPORTERROR_OK;
 
