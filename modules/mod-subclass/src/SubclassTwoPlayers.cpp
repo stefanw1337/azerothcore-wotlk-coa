@@ -765,6 +765,7 @@ void DropCopy(Player* rider, uint8 slot, WornCopy& worn)
 {
     if (!worn.Copy)
         return;
+    rider->ApplyEnchantment(worn.Copy, false);
     rider->_ApplyItemBonuses(worn.Copy->GetTemplate(), slot, false);
     if (!rider->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
         rider->SetGuidValue(PLAYER_FIELD_INV_SLOT_HEAD + (slot * 2), ObjectGuid::Empty);
@@ -834,6 +835,8 @@ void WearTheBodysGear(Player* rider, Player const* body)
         ShowCopy(rider, made);
         rider->SetGuidValue(PLAYER_FIELD_INV_SLOT_HEAD + (slot * 2), made->GetGUID());
         rider->_ApplyItemBonuses(made->GetTemplate(), slot, true);
+        made->SetSlot(slot);
+        rider->ApplyEnchantment(made, true);
     }
 }
 

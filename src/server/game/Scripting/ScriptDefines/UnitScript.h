@@ -56,6 +56,7 @@ enum UnitHook
     UNITHOOK_RESOLVE_SPELL_CAST,
     UNITHOOK_ON_HEALTH_CHANGED,
     UNITHOOK_MODIFY_MELEE_DAMAGE_RANGE,
+    UNITHOOK_MODIFY_SPELL_MISS_CHANCE,
     UNITHOOK_END
 };
 
@@ -121,6 +122,9 @@ public:
                               std::optional<uint32>* /*scriptHealthLeechDamage*/) { return damage; }
 
     virtual void OnBeforeRollMeleeOutcomeAgainst(Unit const* /*attacker*/, Unit const* /*victim*/, WeaponAttackType /*attType*/, int32& /*attackerMaxSkillValueForLevel*/, int32& /*victimMaxSkillValueForLevel*/, int32& /*attackerWeaponSkill*/, int32& /*victimDefenseSkill*/, int32& /*crit_chance*/, int32& /*miss_chance*/, int32& /*dodge_chance*/, int32& /*parry_chance*/, int32& /*block_chance*/ ) {   };
+
+    // Called before a spell's miss roll; missChance is in hundredths of a percent.
+    virtual void ModifySpellMissChance(Unit const* /*caster*/, Unit const* /*victim*/, SpellInfo const* /*spellInfo*/, int32& /*missChance*/) { }
 
     virtual void OnAuraApply(Unit* /*unit*/, Aura* /*aura*/) { }
 

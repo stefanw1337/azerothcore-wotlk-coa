@@ -109,6 +109,11 @@ void ScriptMgr::OnBeforeRollMeleeOutcomeAgainst(Unit const* attacker, Unit const
     CALL_ENABLED_HOOKS(UnitScript, UNITHOOK_ON_BEFORE_ROLL_MELEE_OUTCOME_AGAINST, script->OnBeforeRollMeleeOutcomeAgainst(attacker, victim, attType, attackerMaxSkillValueForLevel, victimMaxSkillValueForLevel, attackerWeaponSkill, victimDefenseSkill, crit_chance, miss_chance, dodge_chance, parry_chance, block_chance));
 }
 
+void ScriptMgr::ModifySpellMissChance(Unit const* caster, Unit const* victim, SpellInfo const* spellInfo, int32& missChance)
+{
+    CALL_ENABLED_HOOKS(UnitScript, UNITHOOK_MODIFY_SPELL_MISS_CHANCE, script->ModifySpellMissChance(caster, victim, spellInfo, missChance));
+}
+
 void ScriptMgr::OnAuraApply(Unit* unit, Aura* aura)
 {
     CALL_ENABLED_HOOKS(UnitScript, UNITHOOK_ON_AURA_APPLY, script->OnAuraApply(unit, aura));

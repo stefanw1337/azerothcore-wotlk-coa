@@ -474,7 +474,7 @@ class mod_subclass_two_players_racials_unit : public UnitScript
 {
 public:
     mod_subclass_two_players_racials_unit() : UnitScript("mod_subclass_two_players_racials_unit", true,
-        { UNITHOOK_ON_DAMAGE, UNITHOOK_ON_BEFORE_ROLL_MELEE_OUTCOME_AGAINST })
+        { UNITHOOK_ON_DAMAGE, UNITHOOK_ON_BEFORE_ROLL_MELEE_OUTCOME_AGAINST, UNITHOOK_MODIFY_SPELL_MISS_CHANCE })
     {
     }
 
@@ -504,6 +504,17 @@ public:
                 int32(accord.Stacks * PerStack("Subclass.TwoPlayers.Agree.HitPerStack") * 100.0f));
         else if (accord.Mode == Subclass::AccordMode::Disagree && target == OwnTarget(accord, head))
             critChance += int32(accord.Stacks * PerStack("Subclass.TwoPlayers.Disagree.CritPerStack") * 100.0f);
+    }
+
+    void ModifySpellMissChance(Unit const* caster, Unit const* victim, SpellInfo const* /*spellInfo*/,
+        int32& missChance) override
+    {
+        Player const* head = caster ? caster->ToPlayer() : nullptr;
+        if (!head || !victim || !TwoPlayersPartnerOf(head->GetGUID().GetCounter()))
+            return;
+        Subclass::Accord const accord = AccordOf(head);
+        if (accord.Mode == Subclass::AccordMode::Agree && victim->GetGUID().GetRawValue() == accord.MeleeTarget)
+            missChance -= int32(accord.Stacks * PerStack("Subclass.TwoPlayers.Agree.HitPerStack") * 100.0f);
     }
 };
 
