@@ -1,52 +1,84 @@
 <#
-  Completes the subclass test package on the build PC and zips it.
-  Inputs in -Work (default: this folder): CoA-Subclass-source.zip and the patch-ZZZZS.MPQ.part* files.
-  Adds the worldserver.exe of the local build, the SpellActivationOverlay addon, our client patches and the
-  Esteria geometry with the Thin Twins' cape fit from the game folder.
+  Builds the subclass package on the build PC and zips it.
+  -Build    the subclass build tree (source in src, build in build). Its worldserver has no Skinshifter in it.
+  -Server   the repack the server tables, the display table and LiveMon.exe are taken from.
+  -Client   the game folder the client patch, the geometry file and the SpellActivationOverlay addon come from.
+  -ClientSource  the CoA64 source tree whose bin\Win\CoA64.exe is the Two-Players client.
+  -Work     where CoA-Subclass and the zip are written.
 #>
 param(
-    [string]$Work = $PSScriptRoot,
     [string]$Build = 'L:\coa-build',
-    [string]$Client = 'L:\CoA Client'
+    [string]$Server = 'L:\CoA Server-Ogre-edits',
+    [string]$Client = 'L:\CoA Client',
+    [string]$ClientSource = 'L:\CoA64-races',
+    [string]$Work = $PSScriptRoot,
+    [string]$DatabaseRelease = '0cd699377',
+    [string[]]$LocalOnly = @('Creature\TwoHeadedOgre\TwoHeadedOgreMale')
 )
 $ErrorActionPreference = 'Stop'
 function Step($text) { Write-Host "`n=== $text ===" -ForegroundColor Cyan }
+function Run($exe) { & $exe @args; if ($LASTEXITCODE) { throw "$exe $args failed" } }
 
-$package = Join-Path $Work 'CoA-Subclass'
-Step 'Source side'
-if (Test-Path $package) { Remove-Item $package -Recurse -Force }
-Expand-Archive -Path (Join-Path $Work 'CoA-Subclass-source.zip') -DestinationPath $Work -Force
-$files = Join-Path $package 'files'
-$info = Get-Content (Join-Path $package 'package.json') -Raw | ConvertFrom-Json
+$src = Join-Path $Build 'src'
+$python = Join-Path $Server 'Runtime\python\python.exe'
+$tools = Join-Path $src 'modules\mod-subclass\tools'
 
-Step 'worldserver.exe from the local build'
+Step '[1/7] The source is the pushed subclass branch'
+Run git -C $src fetch --quiet origin
+$dirty = git -C $src status --porcelain --untracked-files=no
+if ($dirty) { throw "$src has local changes; commit or undo them first." }
+$head = (git -C $src rev-parse HEAD).Trim()
+$pushed = (git -C $src rev-parse origin/stefanw1337-subclassing-test).Trim()
+if ($head -ne $pushed) { throw "$src is not at origin/stefanw1337-subclassing-test. Run the update bat first." }
+if (Test-Path (Join-Path $src 'modules\mod-skinshifter')) { throw "mod-skinshifter is in $src; it must not be." }
+Write-Host ('  ' + (git -C $src log --oneline -1))
+
+Step '[2/7] worldserver.exe of that source'
 $exe = Get-ChildItem (Join-Path $Build 'build') -Recurse -Filter worldserver.exe |
     Sort-Object LastWriteTime -Descending | Select-Object -First 1
-if (-not $exe) { throw "No worldserver.exe under $Build\build: run Build local build.bat first." }
-$src = Join-Path $Build 'src'
-git -C $src fetch --quiet origin
-$notServer = 'package', 'tools', 'addon', 'client' | ForEach-Object { ":(exclude)modules/mod-subclass/$_" }
-git -C $src diff --quiet HEAD $info.core -- src data modules @notServer ':(exclude)modules/mod-livemon/gui' `
-    ':(exclude,glob)**/*.md'
-if ($LASTEXITCODE) {
-    throw "The local build differs from the package's server code ($($info.core)). Build again first."
+if (-not $exe) { throw "No worldserver.exe under $Build\build." }
+$sources = Get-ChildItem (Join-Path $src 'src'), (Join-Path $src 'modules') -Recurse -File -Include *.cpp, *.h |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if ($sources.LastWriteTime -gt $exe.LastWriteTime) {
+    throw "$($exe.FullName) is older than $($sources.FullName). Build $Build again first."
 }
+Write-Host "  $($exe.FullName) ($($exe.LastWriteTime))"
+
+Step '[3/7] Installer, configs, SQL, server tables and LiveMon'
+$package = Join-Path $Work 'CoA-Subclass'
+Run $python -B (Join-Path $tools 'mkpackage.py') $src (Join-Path $Server 'Data\dbc_races') $DatabaseRelease $Work `
+    (Join-Path $Server 'LiveMon\LiveMon.exe') (Join-Path $Server 'Data\dbc_clientset\CreatureDisplayInfo.dbc')
+$files = Join-Path $package 'files'
 Copy-Item $exe.FullName (Join-Path $files 'worldserver.exe')
 
-Step 'Client patches and addons'
+Step '[4/7] Client patch, without the files that stay local'
 $clientFiles = New-Item -ItemType Directory -Force -Path (Join-Path $files 'client')
-$parts = Get-ChildItem $Work -Filter 'patch-ZZZZS.MPQ.part*' | Sort-Object Name
-if (-not $parts) { throw "patch-ZZZZS.MPQ.part* are missing in $Work." }
-$target = [IO.File]::Create((Join-Path $clientFiles 'patch-ZZZZS.MPQ'))
-foreach ($part in $parts) { $bytes = [IO.File]::ReadAllBytes($part.FullName); $target.Write($bytes, 0, $bytes.Length) }
-$target.Close()
-foreach ($name in 'patch-ZZZZT.MPQ', 'patch-ZZZZW.MPQ') { Copy-Item (Join-Path $Client "Data\$name") $clientFiles }
-Copy-Item (Join-Path $Client 'EsteriaAppearanceGeometry.bin') $clientFiles
-$sao = Join-Path $Client 'Interface\AddOns\SpellActivationOverlay-for-CoA'
-Copy-Item $sao (Join-Path $files 'addons') -Recurse -Force
+Run $python -B (Join-Path $tools 'mkreleasepatch.py') (Join-Path $Client 'Data\patch-ZZZZZY.MPQ') `
+    (Join-Path $clientFiles 'patch-ZZZZZY.MPQ') @LocalOnly
+$root = New-Item -ItemType Directory -Force -Path (Join-Path $files 'client_root')
+Copy-Item (Join-Path $Client 'EsteriaAppearanceGeometry.bin') $root
 
-Step 'Zip'
-$zip = Join-Path $Work ("CoA-Subclass-{0}-{1}.zip" -f $info.built, $info.core)
+Step '[5/7] Addons and the Two-Players client'
+Copy-Item (Join-Path $Client 'Interface\AddOns\SpellActivationOverlay-for-CoA') (Join-Path $files 'addons') -Recurse
+$coa64 = Join-Path $ClientSource 'bin\Win\CoA64.exe'
+if (-not (Test-Path $coa64)) { throw "$coa64 is missing. Build the Two-Players client first." }
+$exeFolder = New-Item -ItemType Directory -Force -Path (Join-Path $files 'client_exe')
+Copy-Item $coa64 $exeFolder
+
+Step '[6/7] Nothing personal or local in the package'
+$patterns = '[A-Z]:\\(coa-build|CoA Client|CoA Server|WoW-Skinshifter|Users\\)', 'HotS', 'Skinshifter'
+$leaks = Get-ChildItem $package -Recurse -File -Include *.txt, *.json, *.ini, *.dist, *.py, *.bat, *.lua, *.toc |
+    Where-Object { $_.FullName -notlike '*SpellActivationOverlay*' } |
+    Select-String -CaseSensitive -Pattern $patterns
+if ($leaks) {
+    $leaks | ForEach-Object { Write-Host "  $_" }
+    throw 'The package names a local path, HotS or Skinshifter.'
+}
+Write-Host '  clean'
+
+Step '[7/7] Zip'
+$info = Get-Content (Join-Path $package 'package.json') -Raw | ConvertFrom-Json
+$zip = Join-Path $Work ("CoA-Subclass-{0}-{1}.zip" -f $info.version, $info.built)
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path $package -DestinationPath $zip -CompressionLevel Optimal
 Write-Host ("Package ready: {0} ({1:N0} MB)" -f $zip, ((Get-Item $zip).Length / 1MB)) -ForegroundColor Green

@@ -12,6 +12,8 @@ from datetime import date
 from pathlib import Path
 
 TEXT_FOR_WINDOWS = ("Install-Subclass.bat", "README.txt")
+VERSION = "0.2"
+COA_CUSTOM = "1.9.9"
 
 
 def windows_text(source, target):
@@ -50,15 +52,17 @@ def main(repo, tables, base, out, livemon, client_displays):
     shutil.copytree(tables, files / "dbc_races")
     (files / "dbc_clientset").mkdir()
     shutil.copy2(client_displays, files / "dbc_clientset" / "CreatureDisplayInfo.dbc")
-    shutil.copytree(module / "addon" / "Ascension_Subclass", files / "addons" / "Ascension_Subclass",
-                    ignore=shutil.ignore_patterns("__pycache__"))
+    for addon in ("Ascension_Subclass", "CoAC_BotPlan"):
+        shutil.copytree(module / "addon" / addon, files / "addons" / addon,
+                        ignore=shutil.ignore_patterns("__pycache__"))
     (files / "LiveMon").mkdir()
     shutil.copy2(livemon, files / "LiveMon" / "LiveMon.exe")
     (files / "LiveMon" / "livemon.ini").write_bytes(b"# LiveMon window settings\r\nServer = http://127.0.0.1:8089\r\n")
     head = subprocess.run(["git", "-C", str(repo), "log", "-1", "--format=%h"], capture_output=True, text=True,
                           check=True).stdout.strip()
-    (package / "package.json").write_text(json.dumps({"built": date.today().isoformat(), "core": head,
-                                                      "databaseRelease": base, "coaCustom": "1.9.2"}, indent=1),
+    (package / "package.json").write_text(json.dumps({"version": VERSION, "built": date.today().isoformat(),
+                                                      "core": head, "databaseRelease": base,
+                                                      "coaCustom": COA_CUSTOM}, indent=1),
                                           encoding="utf-8")
     print(f"Assembled {package}")
 
