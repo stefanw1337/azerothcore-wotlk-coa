@@ -4286,6 +4286,28 @@ public:
                onDemand.Rows, onDemand.SpellRows, onDemand.Bytes, player->GetName());
   }
 
+    void SendNewSpellRowsBeforeMap(Player* player)
+    {
+        if (!ReceivesPatchRows(player))
+            return;
+
+        PreparedPatchRows const& rows = GetPreparedPatchRows();
+        if (std::none_of(rows.NewSpellIds.begin(), rows.NewSpellIds.end(),
+                         [player](uint32 spellId) { return player->HasSpell(spellId); }))
+            return;
+
+        for (SkillLineAbilityPatchRow const& row : rows.SkillLineAbilities)
+            SendSkillLineAbilityRow(player, row);
+        for (SpellPatchRow const& row : rows.Spells)
+            if (rows.NewSpellIds.contains(row.Values[0]))
+            {
+                SpellPatchRow active = row;
+                ApplyServerSpellSelectors(active);
+                SendSpellRow(player, active);
+            }
+        player->SendInitialSpells();
+    }
+
     void SendItemRowOnDemand(Player* player, uint32 itemId)
     {
         if (!ReceivesPatchRows(player))
@@ -4634,6 +4656,7 @@ private:
     std::unordered_set<uint32> SqlItemIds;
     std::unordered_map<uint32, std::size_t> ItemRowIndexById;
     std::vector<SpellPatchRow> Spells;
+    std::unordered_set<uint32> NewSpellIds;
     std::unordered_map<uint32, std::size_t> SpellRowIndexById;
     std::vector<SuperTrackPatchRow> SuperTracks;
     std::vector<QuestSuperTrackPatchRow> QuestSuperTracks;
@@ -5317,7 +5340,7 @@ private:
       }
       std::sort(_rows.ItemCapacityOrder.begin(), _rows.ItemCapacityOrder.end(),
           [this](std::size_t left, std::size_t right) { return _rows.Items[left][0] > _rows.Items[right][0]; });
-      _rows.Spells = BuildSpellPatchRows();
+      _rows.Spells = BuildSpellPatchRows(_rows.NewSpellIds);
       for (std::size_t index = 0; index < _rows.Spells.size(); ++index)
         _rows.SpellRowIndexById.emplace(_rows.Spells[index].Values[0], index);
       _rows.SuperTracks = LoadSuperTrackPatchRows();
@@ -5679,7 +5702,7 @@ private:
     return rows;
   }
 
-  static std::vector<SpellPatchRow> BuildSpellPatchRows() {
+  static std::vector<SpellPatchRow> BuildSpellPatchRows(std::unordered_set<uint32> &newSpellIds) {
     std::unordered_map<uint32, char const*> const blacksmithingTiers = {
         {2018, "Apprentice"}, {3100, "Journeyman"}, {3538, "Expert"},
         {9785, "Artisan"}, {29844, "Master"}, {51300, "Grand Master"}};
@@ -5703,7 +5726,6 @@ private:
       requested.insert(id);
       descriptionIds.insert(id);
     }
-    std::unordered_set<uint32> newSpellIds;
     if (QueryResult sqlSpells = WorldDatabase.Query(
             "SELECT DISTINCT `spell`.`ID` FROM `spell_dbc` AS `spell` "
             "JOIN `skilllineability_dbc` AS `ability` ON `ability`.`Spell` = `spell`.`ID` "
@@ -9499,6 +9521,7 @@ public:
             AscensionCollectionService::Instance().PrepareOwnedCompanionsBeforeMap(player);
             AscensionCollectionService::Instance().PrepareOwnedBankSpellsBeforeMap(player);
             AscensionClassService::Instance().PrepareTaughtAbilitiesBeforeMap(player);
+            AscensionDisplayPatchService::Instance().SendNewSpellRowsBeforeMap(player);
             AscensionClassService::Instance().QueueCharacterAdvancementState(player);
         }
     }
