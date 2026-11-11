@@ -180,8 +180,10 @@ frame:SetScript("OnEvent", function(_, _, prefix, message, _, sender)
         if head == "NONE" then
             ownHead = fits ~= "" and fits or "ANY"
         end
-        Ascension_Subclass.SetPartner(head ~= "NONE" and head ~= "ECHO" and message:match("^PAIRSTATE %u+ (.+)$")
-            or nil)
+        local partner, hex, className = message:match("^PAIRSTATE %u+ (%S+) (%S+) (.+)$")
+        partner = partner or message:match("^PAIRSTATE %u+ (.+)$")
+        Ascension_Subclass.SetPartner(head ~= "NONE" and head ~= "ECHO" and partner or nil, className,
+            hex ~= "-" and hex or nil)
         FreezeGear()
     end
 end)
@@ -258,25 +260,42 @@ function Ascension_Subclass.SetOneBody(body, rider)
     end
 end
 
+local partnerClassName, partnerClassHex
+
 local function PartnerClassText()
     if not partnerName then
         return nil
     end
-    local className, classFile = UnitClass(partnerName)
+    local className, hex = partnerClassName, partnerClassHex
+    if not className then
+        local classFile
+        className, classFile = UnitClass(partnerName)
+        local color = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+        hex = color and string.format("%02x%02x%02x", color.r * 255, color.g * 255, color.b * 255)
+    end
     if not className then
         return nil
     end
-    local color = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
-    local hex = color and string.format("%02x%02x%02x", color.r * 255, color.g * 255, color.b * 255) or "ffffff"
-    return "|cff" .. hex .. className .. "|r"
+    return "|cff" .. (hex or "ffffff") .. className .. "|r"
 end
 
+local addingPartnerClass = false
+
 local function AddPartnerClass()
+    if addingPartnerClass then
+        return
+    end
     local partnerClass = CharacterLevelText and PartnerClassText()
     local line = partnerClass and CharacterLevelText:GetText()
     if line and not string.find(line, " & ", 1, true) then
+        addingPartnerClass = true
         CharacterLevelText:SetText(line .. " & " .. partnerClass)
+        addingPartnerClass = false
     end
+end
+
+if CharacterLevelText then
+    hooksecurefunc(CharacterLevelText, "SetText", AddPartnerClass)
 end
 
 local function RefreshLevelLine()
@@ -289,8 +308,10 @@ if PaperDollFrame_SetLevel then
     hooksecurefunc("PaperDollFrame_SetLevel", AddPartnerClass)
 end
 
-function Ascension_Subclass.SetPartner(name)
+function Ascension_Subclass.SetPartner(name, className, classHex)
+    partnerClassName, partnerClassHex = name and className, name and classHex
     if name == partnerName then
+        RefreshLevelLine()
         return
     end
     partnerName = name

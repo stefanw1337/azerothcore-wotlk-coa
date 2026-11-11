@@ -31,6 +31,7 @@ using namespace Acore::ChatCommands;
 
 Subclass::SpecializationRoles RolesOfSpecialization(uint16 specialization);
 Subclass::SpecializationRoles RolesOfClass(uint8 classId);
+std::string PairClassLabel(uint8 classId);
 void TwoPlayersSeparate(uint32 first, uint32 second);
 std::string TwoPlayersHalt(Player* rider, bool halt);
 
@@ -148,7 +149,10 @@ std::string StateOf(Player const* player)
         return std::string("PAIRSTATE NONE ") + (Subclass::FitsLeftHead(roles) ? "LEFT"
             : Subclass::FitsRightHead(roles) ? "RIGHT" : "ANY");
     }
-    return std::string("PAIRSTATE ") + (IsLeftHead(guid) ? "LEFT " : "RIGHT ") + NameOf(partner);
+    CharacterCacheEntry const* other =
+        sCharacterCache->GetCharacterCacheByGuid(ObjectGuid::Create<HighGuid::Player>(partner));
+    return std::string("PAIRSTATE ") + (IsLeftHead(guid) ? "LEFT " : "RIGHT ") + NameOf(partner) +
+        (other ? " " + PairClassLabel(other->Class) : "");
 }
 
 void Invite(Player* left, Player* right)

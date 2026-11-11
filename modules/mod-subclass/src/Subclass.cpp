@@ -3971,3 +3971,8 @@ Subclass::SpecializationRoles RolesOfClass(uint8 classId)
     auto const found = classRoles.find(classId);
     return found == classRoles.end() ? Subclass::SpecializationRoles{} : found->second;
 }
+
+std::string PairClassLabel(uint8 classId)
+{
+    return ClassColorHex(classId) + " " + PlainClassName(classId);
+}
