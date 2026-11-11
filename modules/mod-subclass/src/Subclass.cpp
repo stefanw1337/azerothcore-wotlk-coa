@@ -74,6 +74,8 @@ void EchoCyclopsHelmet(Player* player);
 std::string RelicState(Player* player);
 std::string HandleRelicMessage(Player* player, std::vector<std::string_view> const& words);
 void HandlePairMessage(Player* player, std::vector<std::string_view> const& words);
+void SendBotPlans(Player* player);
+void BotPlanDoNow(Player* player, std::string_view botName, uint32 questId);
 std::string TwinState(Player const* player);
 std::string CyclopsModelState(Player const* player);
 std::string CyclopsPreview(uint32 itemId);
@@ -1449,6 +1451,10 @@ void HandleAddonMessage(Player* player, std::string_view message)
     }
     else if (!words.empty() && words[0].starts_with("PAIR"))
         HandlePairMessage(player, words);
+    else if (words.size() == 1 && words[0] == "BOTPLAN")
+        SendBotPlans(player);
+    else if (words.size() == 3 && words[0] == "BOTPLANNOW")
+        BotPlanDoNow(player, words[1], Acore::StringTo<uint32>(words[2]).value_or(0));
     else if (words.size() == 1 && words[0] == "CYCLOPSECHO")
     {
         EchoCyclopsHelmet(player);

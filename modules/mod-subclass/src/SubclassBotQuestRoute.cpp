@@ -2,13 +2,17 @@
  * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU AGPL v3 license.
  */
 
+#include "Chat.h"
 #include "Config.h"
+#include "Group.h"
+#include "ObjectAccessor.h"
 #include "Map.h"
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "PlayerScript.h"
 #include "QuestDef.h"
 #include "SubclassQuestRoute.h"
+#include "WorldPacket.h"
 #include "WorldScript.h"
 #include "WorldSession.h"
 #include <algorithm>
@@ -46,6 +50,7 @@ struct BotRoute
     uint32 Head = 0;
     uint32 Steers = 0;
     uint64 Progress = 0;
+    uint32 Pinned = 0;
     std::unordered_map<uint32, uint32> SkippedAt;
 };
 
@@ -151,6 +156,13 @@ void Replan(Player* bot, PlayerbotAI* brain, BotRoute& route)
     }
     route.Quests = Subclass::PlanQuestRoute(bot->GetPositionX(), bot->GetPositionY(), stops);
     route.Log = LogOf(bot);
+    if (route.Pinned && bot->GetQuestStatus(route.Pinned) == QUEST_STATUS_NONE)
+        route.Pinned = 0;
+    if (route.Pinned)
+    {
+        route.Quests.erase(std::remove(route.Quests.begin(), route.Quests.end(), route.Pinned), route.Quests.end());
+        route.Quests.insert(route.Quests.begin(), route.Pinned);
+    }
 }
 
 bool Steerable(Player* bot, PlayerbotAI* brain)
@@ -192,6 +204,8 @@ void FollowRoute(Player* bot, PlayerbotAI* brain, BotRoute& route)
     }
     if (route.Steers > StuckSteers)
     {
+        if (route.Pinned == head)
+            route.Pinned = 0;
         route.SkippedAt[head] = getMSTime();
         route.Quests.erase(route.Quests.begin());
         route.Steers = 0;
@@ -200,6 +214,101 @@ void FollowRoute(Player* bot, PlayerbotAI* brain, BotRoute& route)
     if (Quest const* quest = sObjectMgr->GetQuestTemplate(head))
         info.ChangeToDoQuest(head, quest);
 }
+}
+
+namespace
+{
+std::string_view StatusWords(NewRpgStatus status)
+{
+    switch (status)
+    {
+        case RPG_IDLE: return "idle";
+        case RPG_GO_GRIND: return "going to grind";
+        case RPG_GO_CAMP: return "going to camp";
+        case RPG_WANDER_RANDOM: return "looking around";
+        case RPG_WANDER_NPC: return "visiting someone";
+        case RPG_DO_QUEST: return "questing";
+        case RPG_TRAVEL_FLIGHT: return "flying";
+        case RPG_REST: return "resting";
+        default: return "busy";
+    }
+}
+
+std::string Plain(std::string text)
+{
+    std::replace_if(text.begin(), text.end(), [](char c) { return c == '|' || c == ';' || c == '\t'; }, ' ');
+    return text;
+}
+
+std::string PlanOf(Player* bot, PlayerbotAI* brain)
+{
+    NewRpgInfo& info = brain->rpgInfo;
+    auto const* doing = std::get_if<NewRpgInfo::DoQuest>(&info.data);
+    std::string plan = std::string(StatusWords(info.GetStatus())) + "|" + std::to_string(doing ? doing->questId : 0) + "|";
+    BotRoute& route = routes[bot->GetGUID().GetCounter()];
+    bool first = true;
+    for (uint32 questId : route.Quests)
+        if (Quest const* quest = sObjectMgr->GetQuestTemplate(questId))
+        {
+            plan += (first ? "" : ";") + std::to_string(questId) + ":" + Plain(quest->GetTitle());
+            first = false;
+        }
+    return plan;
+}
+
+void SendPlanLine(Player* player, std::string const& line)
+{
+    WorldPacket packet;
+    ChatHandler::BuildChatPacket(packet, CHAT_MSG_WHISPER, LANG_ADDON, player, player, "SUBCLASS\t" + line);
+    player->SendDirectMessage(&packet);
+}
+
+std::vector<Player*> GroupBots(Player* player)
+{
+    std::vector<Player*> bots;
+    Group* group = player->GetGroup();
+    if (!group)
+        return bots;
+    for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+        if (Player* member = ref->GetSource())
+            if (member != player && member->GetSession() && member->GetSession()->IsBot() && GET_PLAYERBOT_AI(member))
+                bots.push_back(member);
+    return bots;
+}
+}
+
+void SendBotPlans(Player* player)
+{
+    std::vector<Player*> const bots = GroupBots(player);
+    std::vector<std::string> lines;
+    {
+        std::lock_guard<std::mutex> lock(routeMutex);
+        for (Player* bot : bots)
+            lines.push_back("BOTPLAN " + bot->GetName() + " " + PlanOf(bot, GET_PLAYERBOT_AI(bot)));
+    }
+    for (std::string const& line : lines)
+        SendPlanLine(player, line);
+    SendPlanLine(player, "BOTPLANEND");
+}
+
+void BotPlanDoNow(Player* player, std::string_view botName, uint32 questId)
+{
+    for (Player* bot : GroupBots(player))
+    {
+        if (bot->GetName() != botName || bot->GetQuestStatus(questId) == QUEST_STATUS_NONE)
+            continue;
+        PlayerbotAI* brain = GET_PLAYERBOT_AI(bot);
+        std::lock_guard<std::mutex> lock(routeMutex);
+        BotRoute& route = routes[bot->GetGUID().GetCounter()];
+        route.Pinned = questId;
+        route.SkippedAt.erase(questId);
+        route.Steers = 0;
+        route.Quests.erase(std::remove(route.Quests.begin(), route.Quests.end(), questId), route.Quests.end());
+        route.Quests.insert(route.Quests.begin(), questId);
+        if (Quest const* quest = sObjectMgr->GetQuestTemplate(questId))
+            brain->rpgInfo.ChangeToDoQuest(questId, quest);
+    }
+    SendBotPlans(player);
 }
 
 class mod_subclass_bot_quest_route : public PlayerScript
@@ -256,6 +365,18 @@ void AddSC_mod_subclass_bot_quest_route()
 }
 
 #else
+
+void SendBotPlans(Player* player)
+{
+    WorldPacket packet;
+    ChatHandler::BuildChatPacket(packet, CHAT_MSG_WHISPER, LANG_ADDON, player, player, "SUBCLASS\tBOTPLANEND");
+    player->SendDirectMessage(&packet);
+}
+
+void BotPlanDoNow(Player* player, std::string_view /*botName*/, uint32 /*questId*/)
+{
+    SendBotPlans(player);
+}
 
 void AddSC_mod_subclass_bot_quest_route()
 {

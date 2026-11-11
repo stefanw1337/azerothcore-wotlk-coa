@@ -3,3 +3,4 @@
 ## Notes: Works alongside SquidBots Lite without changing it.
 ## OptionalDeps: SquidBotsLite
 BotChat.lua
+BotPlan.lua
