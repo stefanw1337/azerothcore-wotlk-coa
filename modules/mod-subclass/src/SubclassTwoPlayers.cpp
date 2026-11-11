@@ -1013,6 +1013,16 @@ Player* BodyOfSeatedRider(Unit* unit)
     return Seated(body, rider) ? body : nullptr;
 }
 
+void DismountForRider(Unit* rider, SpellInfo const* info)
+{
+    Player* body = BodyOfSeatedRider(rider);
+    if (!body || !body->IsMounted() || info->HasAttribute(SPELL_ATTR0_ALLOW_WHILE_MOUNTED) ||
+        (info->IsPositive() && !rider->IsInCombat()))
+        return;
+    body->Dismount();
+    body->RemoveAurasByType(SPELL_AURA_MOUNTED);
+}
+
 class mod_subclass_two_players_unit : public UnitScript
 {
 public:
@@ -1072,6 +1082,7 @@ public:
     {
         if (spell->IsTriggered() || info->IsPassive())
             return;
+        DismountForRider(caster, info);
         if (Player* rider = VisibleRiderOf(caster))
             rider->HandleEmoteCommand(info->IsPositive() ? EMOTE_ONESHOT_SPELL_CAST_OMNI : EMOTE_ONESHOT_SPELL_CAST);
     }

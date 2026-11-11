@@ -258,12 +258,44 @@ function Ascension_Subclass.SetOneBody(body, rider)
     end
 end
 
+local function PartnerClassText()
+    if not partnerName then
+        return nil
+    end
+    local className, classFile = UnitClass(partnerName)
+    if not className then
+        return nil
+    end
+    local color = classFile and RAID_CLASS_COLORS and RAID_CLASS_COLORS[classFile]
+    local hex = color and string.format("%02x%02x%02x", color.r * 255, color.g * 255, color.b * 255) or "ffffff"
+    return "|cff" .. hex .. className .. "|r"
+end
+
+local function AddPartnerClass()
+    local partnerClass = CharacterLevelText and PartnerClassText()
+    local line = partnerClass and CharacterLevelText:GetText()
+    if line and not string.find(line, " & ", 1, true) then
+        CharacterLevelText:SetText(line .. " & " .. partnerClass)
+    end
+end
+
+local function RefreshLevelLine()
+    if PaperDollFrame_SetLevel and CharacterFrame and CharacterFrame:IsShown() then
+        PaperDollFrame_SetLevel()
+    end
+end
+
+if PaperDollFrame_SetLevel then
+    hooksecurefunc("PaperDollFrame_SetLevel", AddPartnerClass)
+end
+
 function Ascension_Subclass.SetPartner(name)
     if name == partnerName then
         return
     end
     partnerName = name
     RefreshPartyFrames()
+    RefreshLevelLine()
 end
 
 if PartyMemberFrame_UpdateMember then
@@ -288,6 +320,7 @@ partyFrames:SetScript("OnEvent", function(self, event, addon)
         self:UnregisterEvent("PLAYER_REGEN_ENABLED")
     end
     RefreshPartyFrames()
+    RefreshLevelLine()
 end)
 if IsAddOnLoaded and IsAddOnLoaded("Blizzard_RaidUI") and RaidGroupFrame_Update then
     hooksecurefunc("RaidGroupFrame_Update", JoinRaidNames)
