@@ -3,7 +3,8 @@
   -Build    the subclass build tree (source in src, build in build). Its worldserver has no Skinshifter in it.
   -Server   the repack the server tables, the display table and LiveMon.exe are taken from.
   -Client   the game folder the client patch, the geometry file and the SpellActivationOverlay addon come from.
-  -Work     where CoA-Subclass and the zip are written.
+  -Work     where CoA-Subclass and the zip are written; it also holds ogre-kit-*.zip (the male ogre builder, its
+            Python packages and CascExtractor), which goes into files\ogre.
 #>
 param(
     [string]$Build = 'L:\coa-build',
@@ -11,7 +12,7 @@ param(
     [string]$Client = 'L:\CoA Client',
     [string]$Work = $PSScriptRoot,
     [string]$DatabaseRelease = '0cd699377',
-    [string[]]$LocalOnly = @('Creature\TwoHeadedOgre\TwoHeadedOgreMale')
+    [string[]]$LocalOnly = @('Creature\TwoHeadedOgre\TwoHeadedOgreMale', 'Creature\ChoGall\')
 )
 $ErrorActionPreference = 'Stop'
 function Step($text) { Write-Host "`n=== $text ===" -ForegroundColor Cyan }
@@ -56,13 +57,17 @@ Run $python -B (Join-Path $tools 'mkreleasepatch.py') (Join-Path $Client 'Data\p
 $root = New-Item -ItemType Directory -Force -Path (Join-Path $files 'client_root')
 Copy-Item (Join-Path $Client 'EsteriaAppearanceGeometry.bin') $root
 
-Step '[5/7] Addons'
+Step '[5/7] Addons and the male ogre builder'
 Copy-Item (Join-Path $Client 'Interface\AddOns\SpellActivationOverlay-for-CoA') (Join-Path $files 'addons') -Recurse
+$kit = Get-ChildItem $Work -Filter 'ogre-kit-*.zip' | Sort-Object Name -Descending | Select-Object -First 1
+if (-not $kit) { throw "ogre-kit-*.zip is missing in $Work." }
+Expand-Archive -Path $kit.FullName -DestinationPath (Join-Path $files 'ogre') -Force
+Write-Host "  $($kit.Name)"
 
 Step '[6/7] Nothing personal or local in the package'
 $patterns = '[A-Z]:\\(coa-build|CoA Client|CoA Server|WoW-Skinshifter|Users\\)', 'HotS', 'Skinshifter'
 $leaks = Get-ChildItem $package -Recurse -File -Include *.txt, *.json, *.ini, *.dist, *.py, *.bat, *.lua, *.toc |
-    Where-Object { $_.FullName -notlike '*SpellActivationOverlay*' } |
+    Where-Object { $_.FullName -notlike '*SpellActivationOverlay*' -and $_.FullName -notlike '*\ogre\toolkit\*' } |
     Select-String -CaseSensitive -Pattern $patterns
 if ($leaks) {
     $leaks | ForEach-Object { Write-Host "  $_" }

@@ -34,7 +34,11 @@ def main(repo, tables, base, out, livemon, client_displays):
             windows_text(source, package / name)
         else:
             shutil.copy2(source, package / name)
-    shutil.copy2(module / "tools" / "apply_coa_sql.py", files / "tools" / "apply_coa_sql.py")
+    for tool in ("apply_coa_sql.py", "mkmergepatch.py", "mpqpull.py"):
+        shutil.copy2(module / "tools" / tool, files / "tools" / tool)
+    (files / "ogre").mkdir()
+    shutil.copy2(module / "package" / "ogre" / "build_ogre.py", files / "ogre" / "build_ogre.py")
+    windows_text(module / "package" / "ogre" / "Build-Ogre.bat", files / "ogre" / "Build-Ogre.bat")
     (files / "configs").mkdir()
     for dist in (module / "conf" / "mod_subclass.conf.dist", repo / "modules" / "mod-livemon" / "conf" /
                  "mod_livemon.conf.dist"):

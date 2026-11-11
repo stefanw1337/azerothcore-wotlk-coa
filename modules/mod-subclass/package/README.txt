@@ -29,10 +29,19 @@ Install
 2. Extract this zip into the repack folder, so that CoA-Subclass sits next to CoA-Custom and Scripts.
 3. Run CoA-Subclass\Install-Subclass.bat. It finds the game folder CoA Custom was installed to and asks to confirm.
    It backs up your databases and every file it replaces into CoA-Subclass\backups first.
-4. Start the servers as usual and fully restart the game.
+4. It offers to build the Two-Players male Two-Headed Ogre (see below). Then start the servers as usual and fully
+   restart the game.
 
 Run Install-Subclass.bat again after reinstalling CoA Custom: that replaces the worldserver and the world tables
 this package changes.
+
+The male Two-Headed Ogre
+-----------------------
+His body is the Heroes of the Storm Cho'Gall, so it cannot ship in this package. The installer builds him on your
+PC from your own Heroes of the Storm install and World of Warcraft's Cho'Gall, which it downloads from Blizzard
+(about 2 MB), into Data\patch-ZZZZZY-Ogre.MPQ. It needs Heroes of the Storm installed and takes a few minutes.
+Without it everything else works, but a male Two-Players Ogre has no body. Build him later with
+CoA-Subclass\files\ogre\Build-Ogre.bat.
 
 LiveMon: start LiveMon\LiveMon.exe in the repack folder while the server runs.
 

@@ -1,5 +1,5 @@
 """Installs the subclass package on a repack that already runs CoA Custom.
-    install.py [--client <Ascension folder>] [--no-client] [--no-backup] [--check] [--any-races-version]
+    install.py [--client <Ascension folder>] [--no-client] [--no-backup] [--check] [--any-races-version] [--no-ogre]
 Run through Install-Subclass.bat, which uses the repack's own Python. The CoA-Subclass folder belongs in the repack
 folder, next to CoA-Custom and Scripts."""
 import json
@@ -124,6 +124,19 @@ def back_up_files(targets, folder, root, client):
             shutil.copy2(target, copy)
 
 
+def build_ogre(client):
+    builder = FILES / "ogre" / "build_ogre.py"
+    if not client or "--no-ogre" in sys.argv or not builder.exists():
+        return
+    say()
+    say("The Two-Players male Two-Headed Ogre is built on this PC from your own Heroes of the Storm install and")
+    say("World of Warcraft's Cho'Gall (downloaded from Blizzard). Without it, his body stays invisible.")
+    if not (ask("Build him now? (y/n)", "y") or "y").lower().startswith("y"):
+        say("Skipped. Run Install-Subclass.bat again, or files\\ogre\\Build-Ogre.bat, any time.")
+        return
+    subprocess.run([sys.executable, "-B", str(builder), "--client", str(client)])
+
+
 def enable_custom_races(core):
     conf = core / "configs" / "modules" / "coa_custom_races.conf"
     text = conf.read_text(encoding="utf-8") if conf.exists() else ""
@@ -201,6 +214,7 @@ def install():
         if target.name.endswith(".conf.dist") and not target.with_suffix("").exists():
             shutil.copy2(source, target.with_suffix(""))
     enable_custom_races(core)
+    build_ogre(client)
     state.update({"client": str(client) if client else state.get("client"),
                   "installed": time.strftime("%Y-%m-%d %H:%M"),
                   "package": PACKAGE})
