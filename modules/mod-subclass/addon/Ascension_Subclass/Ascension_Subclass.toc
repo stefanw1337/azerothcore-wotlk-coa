@@ -3,7 +3,7 @@
 ## Notes: The Two-Head / Two-Thins tab: your subclass's talent trees.
 ## Version: 0.1.0
 ## SavedVariables: Ascension_SubclassDump
-## OptionalDeps: Bartender4, SpellActivationOverlay-for-CoA
+## OptionalDeps: Bartender4, SpellActivationOverlay-for-CoA, CompanionJournal
 SubclassRaceBackground.lua
 Ascension_Subclass.lua
 SubclassBar.lua
@@ -15,3 +15,4 @@ SubclassChoices.lua
 SubclassGlow.lua
 SubclassPetBar.lua
 SubclassPairs.lua
+SubclassCarry.lua

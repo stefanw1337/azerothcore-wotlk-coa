@@ -79,6 +79,8 @@ while carrying; each change is saved per mount display in CarriedMounts.txt next
   /console coaCarryAs <display id>    show another mount model in its place
   /console coaCarryPose <animation id>   /console coaCarryFrame <n>   hold one pose (still mounts)
   Example, D.R.I.V.E. cars on their side (the default): coaCarryScale 0.8, coaCarryZ 1.3, coaCarryRoll 90.
+  /carry   the same in a window (also beside the mount journal): size, turn and position buttons, Profiles (fits
+           made for many mounts), Reset (back to the built-in fit) and a share code to copy or paste
 
 Game masters (.subclass):
   .subclass info | specs <class> | set <subclass> <spec> [second spec] | clear | spec <spec> | learn <entry> <rank>
