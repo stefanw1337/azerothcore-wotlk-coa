@@ -79,5 +79,5 @@ Step '[7/7] Zip'
 $info = Get-Content (Join-Path $package 'package.json') -Raw | ConvertFrom-Json
 $zip = Join-Path $Work ("CoA-Subclass-{0}-{1}.zip" -f $info.version, $info.built)
 if (Test-Path $zip) { Remove-Item $zip -Force }
-Compress-Archive -Path $package -DestinationPath $zip -CompressionLevel Optimal
+Run $python -B (Join-Path $tools 'mkzip.py') $package $zip
 Write-Host ("Package ready: {0} ({1:N0} MB)" -f $zip, ((Get-Item $zip).Length / 1MB)) -ForegroundColor Green
