@@ -46,14 +46,22 @@ def common_prefix(a, b):
     return n
 
 
-def swapped(base, swaps):
-    best, length = base, 0
+def swapped(base, swaps, bases=()):
+    candidates = [b for b in (bases or [base]) if kind(b) == kind(base)]
     for s in swaps:
-        if kind(s) and kind(s) == kind(base):
-            n = common_prefix(s, base)
-            if n > length:
-                best, length = s, n
-    return best if length >= 10 else base
+        if not kind(s) or kind(s) != kind(base):
+            continue
+        stem = s[:-len(kind(s))]
+        owners = [b for b in candidates if stem.startswith(b[:-len(kind(b))])]
+        if owners:
+            owner = max(owners, key=len)
+        else:
+            owner = max(candidates, key=lambda b: common_prefix(s, b))
+            if common_prefix(s, owner) < 10:
+                continue
+        if owner == base:
+            return s
+    return base
 
 
 def pick_animations(names):
@@ -243,7 +251,7 @@ def build_model(group, models_folder, textures_folder, out, previews):
     base_names = sorted({n for d, e, _, _ in mats.values() for n in (d, e) if n})
     baked = {d: b for d, _, _, b in mats.values() if b}
     for mount in group['mounts']:
-        chosen = {n: swapped(n, mount['swaps']) for n in base_names}
+        chosen = {n: swapped(n, mount['swaps'], base_names) for n in base_names}
         chosen = {n: (c if (textures_folder / c).exists() or n in baked else n) for n, c in chosen.items()}
         chosen.update({n: n for n in baked})
         variants.append(chosen)
