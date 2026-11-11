@@ -33,6 +33,7 @@ Subclass::SpecializationRoles RolesOfSpecialization(uint16 specialization);
 Subclass::SpecializationRoles RolesOfClass(uint8 classId);
 std::string PairClassLabel(uint8 classId);
 void TwoPlayersSeparate(uint32 first, uint32 second);
+bool TwoPlayersEnabled();
 std::string TwoPlayersHalt(Player* rider, bool halt);
 
 namespace
@@ -67,6 +68,8 @@ void Tell(Player* player, std::string const& text)
 
 uint32 PartnerOf(uint32 guid)
 {
+    if (!TwoPlayersEnabled())
+        return 0;
     std::lock_guard<std::mutex> lock(pairMutex);
     auto const found = partners.find(guid);
     return found == partners.end() ? 0 : found->second;
@@ -615,6 +618,11 @@ bool TwoPlayersIsLeftHead(uint32 guid)
 
 void HandlePairMessage(Player* player, std::vector<std::string_view> const& words)
 {
+    if (!TwoPlayersEnabled())
+    {
+        Tell(player, "Two-Players is switched off on this server.");
+        return;
+    }
     if (words.size() == 2 && words[0] == "PAIR")
     {
         std::string name(words[1]);

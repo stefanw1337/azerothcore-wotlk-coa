@@ -413,6 +413,7 @@ std::mutex& subclassMutex = *new std::mutex;
 Subclass::Settings settings;
 std::atomic<bool> thinHumanEnabled{ true };
 std::atomic<bool> twoHeadedOgreEnabled{ true };
+std::atomic<bool> twoPlayersEnabled{ true };
 std::atomic<bool> forceBots{ false };
 std::atomic<bool> travelFormsWholeBody{ true };
 std::atomic<uint32> brotherMirrorDisplay{ 977602 };
@@ -2369,6 +2370,7 @@ public:
             sConfigMgr->GetOption<uint32>("Subclass.HeroRaces.RequiredLevel", 60), STRONG_MAX_LEVEL));
         thinHumanEnabled = loaded.ThinHuman;
         twoHeadedOgreEnabled = loaded.TwoHeadedOgre;
+        twoPlayersEnabled = sConfigMgr->GetOption<bool>("Subclass.TwoPlayers.Enable", true);
         forceBots = loaded.ForceBots;
         travelFormsWholeBody = loaded.TravelFormsWholeBody;
         brotherMirrorDisplay = loaded.BrotherMirrorDisplay;
@@ -3712,6 +3714,11 @@ uint32 BrotherMirrorDisplay()
     return brotherMirrorDisplay;
 }
 
+bool TwoPlayersEnabled()
+{
+    return twoPlayersEnabled;
+}
+
 bool SubclassRaceEnabled(uint8 race)
 {
     if (race == Subclass::ThinHumanRace)
@@ -3841,8 +3848,11 @@ bool AllowsCreation(WorldSession* session, WorldPacket const& packet)
     reader.rpos(0);
     std::string name;
     uint8 race = 0;
-    reader >> name >> race;
-    ResponseCodes refusal = SubclassRaceEnabled(race) ? CHAR_CREATE_SUCCESS : CHAR_CREATE_DISABLED;
+    uint8 classId = 0;
+    uint8 gender = 0;
+    reader >> name >> race >> classId >> gender;
+    bool const raceAllowed = SubclassRaceEnabled(race) && (twoPlayersEnabled || !Subclass::IsTwoPlayersBody(race, gender));
+    ResponseCodes refusal = raceAllowed ? CHAR_CREATE_SUCCESS : CHAR_CREATE_DISABLED;
     if (refusal == CHAR_CREATE_SUCCESS && (race == Subclass::ThinHumanRace || race == Subclass::TwoHeadedOgreRace))
     {
         Subclass::Settings const current = CurrentSettings();

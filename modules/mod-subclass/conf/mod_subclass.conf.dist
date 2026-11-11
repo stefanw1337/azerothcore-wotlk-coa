@@ -166,6 +166,13 @@ Subclass.Bots.Force = 0
 
 Subclass.Bots.RebuildHours = 4
 
+#    Subclass.TwoPlayers.Enable
+#        Two-Players: two players share one Two-Headed Ogre (the male) or one pair of Twins. 0 switches it
+#        off: no new Two-Players characters, no pairing, and existing pairs play as single characters.
+#        Default: 1
+
+Subclass.TwoPlayers.Enable = 1
+
 #    Subclass.TwoPlayers.Bots
 #        When one head of a Two-Players pair is offline, the head still playing gets a bot for the missing
 #        one through SQUID Playerbots (mod-playerbots for Conquest of Azeroth, by Zyth45). A bot Melee Head
