@@ -4442,8 +4442,7 @@ public:
     std::vector<ItemPatchRow> itemRows;
     std::unordered_set<uint32> itemIds = CollectOwnedItemIds(player);
     itemIds.merge(CollectKnownRecipeItemIds(player));
-    for (VanityCollectionPatchRow const &vanity : rows.VanityCollections)
-        itemIds.insert(vanity.Values[1]);
+    itemIds.insert(rows.VanityItemIds.begin(), rows.VanityItemIds.end());
     for (uint32 itemId : itemIds)
         if (std::optional<ItemPatchRow> const row = FindItemRow(rows, itemId))
             itemRows.push_back(*row);
@@ -4642,6 +4641,7 @@ private:
     std::vector<ShapeshiftFormPatchRow> ShapeshiftForms;
     std::vector<CreatureModelPatchRow> CreatureModels;
     std::vector<VanityCollectionPatchRow> VanityCollections;
+    std::unordered_set<uint32> VanityItemIds;
   };
 
   static constexpr uint32 SPELL_ATTRIBUTES_FIELD = 4;
@@ -4910,7 +4910,8 @@ private:
 
     static std::optional<ItemPatchRow> FindItemRow(PreparedPatchRows const& rows, uint32 itemId)
     {
-        if (rows.SqlItemIds.contains(itemId) && !Ascension::ClientItemPatches::Instance().Contains(itemId))
+        if (rows.SqlItemIds.contains(itemId) && !Ascension::ClientItemPatches::Instance().Contains(itemId) &&
+            !rows.VanityItemIds.contains(itemId))
             return std::nullopt;
         if (auto const row = rows.ItemRowIndexById.find(itemId); row != rows.ItemRowIndexById.end())
             return rows.Items[row->second];
@@ -5324,6 +5325,8 @@ private:
       _rows.SkillLineAbilities = LoadSkillLineAbilityPatchRows();
       _rows.ShapeshiftForms = LoadShapeshiftFormPatchRows();
       _rows.VanityCollections = LoadVanityCollectionPatchRows();
+      for (AddedVanityRow const &added : LoadAddedVanityRows())
+        _rows.VanityItemIds.insert(added.ItemId);
       _rows.CreatureModels = BuildCreatureModelPatchRows();
       _rowsPrepared = true;
     }
