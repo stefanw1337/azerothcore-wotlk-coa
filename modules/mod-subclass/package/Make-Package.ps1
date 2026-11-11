@@ -3,14 +3,12 @@
   -Build    the subclass build tree (source in src, build in build). Its worldserver has no Skinshifter in it.
   -Server   the repack the server tables, the display table and LiveMon.exe are taken from.
   -Client   the game folder the client patch, the geometry file and the SpellActivationOverlay addon come from.
-  -ClientSource  the CoA64 source tree whose bin\Win\CoA64.exe is the Two-Players client.
   -Work     where CoA-Subclass and the zip are written.
 #>
 param(
     [string]$Build = 'L:\coa-build',
     [string]$Server = 'L:\CoA Server-Ogre-edits',
     [string]$Client = 'L:\CoA Client',
-    [string]$ClientSource = 'L:\CoA64-races',
     [string]$Work = $PSScriptRoot,
     [string]$DatabaseRelease = '0cd699377',
     [string[]]$LocalOnly = @('Creature\TwoHeadedOgre\TwoHeadedOgreMale')
@@ -58,12 +56,8 @@ Run $python -B (Join-Path $tools 'mkreleasepatch.py') (Join-Path $Client 'Data\p
 $root = New-Item -ItemType Directory -Force -Path (Join-Path $files 'client_root')
 Copy-Item (Join-Path $Client 'EsteriaAppearanceGeometry.bin') $root
 
-Step '[5/7] Addons and the Two-Players client'
+Step '[5/7] Addons'
 Copy-Item (Join-Path $Client 'Interface\AddOns\SpellActivationOverlay-for-CoA') (Join-Path $files 'addons') -Recurse
-$coa64 = Join-Path $ClientSource 'bin\Win\CoA64.exe'
-if (-not (Test-Path $coa64)) { throw "$coa64 is missing. Build the Two-Players client first." }
-$exeFolder = New-Item -ItemType Directory -Force -Path (Join-Path $files 'client_exe')
-Copy-Item $coa64 $exeFolder
 
 Step '[6/7] Nothing personal or local in the package'
 $patterns = '[A-Z]:\\(coa-build|CoA Client|CoA Server|WoW-Skinshifter|Users\\)', 'HotS', 'Skinshifter'

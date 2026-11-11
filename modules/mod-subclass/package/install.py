@@ -1,6 +1,5 @@
 """Installs the subclass package on a repack that already runs CoA Custom.
-    install.py [--client <Ascension folder>] [--no-client] [--two-players-client | --no-two-players-client]
-               [--no-backup] [--check] [--any-races-version]
+    install.py [--client <Ascension folder>] [--no-client] [--no-backup] [--check] [--any-races-version]
 Run through Install-Subclass.bat, which uses the repack's own Python. The CoA-Subclass folder belongs in the repack
 folder, next to CoA-Custom and Scripts."""
 import json
@@ -89,19 +88,6 @@ def find_client(previous):
         say("  Ascension.exe and its Data folder are not in that folder.")
 
 
-def wants_two_players_client():
-    if not (FILES / "client_exe").is_dir():
-        return False
-    if "--two-players-client" in sys.argv:
-        return True
-    if "--no-two-players-client" in sys.argv:
-        return False
-    say()
-    say("The Two-Players client is a CoA64.exe with the Two-Players looks (carried mounts, the joined name).")
-    say(f"It replaces the CoA64.exe of CoA Custom {PACKAGE['coaCustom']}; the original is backed up first.")
-    return (ask("Install the Two-Players client? (y/n)", "n") or "n").lower().startswith("y")
-
-
 def game_running():
     output = subprocess.run(["tasklist"], capture_output=True, text=True).stdout.lower()
     return any(game.lower() in output for game in GAMES)
@@ -111,7 +97,7 @@ def tree(source, target):
     return {item: target / item.relative_to(source) for item in sorted(source.rglob("*")) if item.is_file()}
 
 
-def file_targets(root, core, client, two_players_client):
+def file_targets(root, core, client):
     targets = {FILES / "worldserver.exe": core / "worldserver.exe"}
     for dist in sorted((FILES / "configs").glob("*.conf.dist")):
         targets[dist] = core / "configs" / "modules" / dist.name
@@ -124,8 +110,6 @@ def file_targets(root, core, client, two_players_client):
         targets.update(tree(FILES / "client_root", client))
         for addon in ADDONS:
             targets.update(tree(FILES / "addons" / addon, client / "Interface" / "AddOns" / addon))
-        if two_players_client:
-            targets.update(tree(FILES / "client_exe", client))
     return {source: target for source, target in targets.items() if source.exists()}
 
 
@@ -191,8 +175,7 @@ def install():
     client = find_client(state.get("client") or races.get("client"))
     if client and game_running():
         fail("The game is running. Close it first.")
-    two_players_client = bool(client) and wants_two_players_client()
-    targets = file_targets(root, core, client, two_players_client)
+    targets = file_targets(root, core, client)
     if "--check" in sys.argv:
         for source, target in targets.items():
             say(f"{source.relative_to(HERE)} -> {target}")
@@ -219,7 +202,6 @@ def install():
             shutil.copy2(source, target.with_suffix(""))
     enable_custom_races(core)
     state.update({"client": str(client) if client else state.get("client"),
-                  "twoPlayersClient": two_players_client,
                   "installed": time.strftime("%Y-%m-%d %H:%M"),
                   "package": PACKAGE})
     state_file.write_text(json.dumps(state, indent=1), encoding="utf-8")

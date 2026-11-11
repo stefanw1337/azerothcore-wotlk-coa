@@ -9,7 +9,8 @@ What it adds
 - Subclasses: choose one subclass for your character from level 20 (quest "Book of Origins").
 - Two races of its own: Two-Headed Ogre (race 85) and The Twins (race 96).
 - Two-Players (new, not tested properly yet): two players share one body. Switch it off on the server with
-  Subclass.TwoPlayers.Enable = 0 in mod_subclass.conf.
+  Subclass.TwoPlayers.Enable = 0 in mod_subclass.conf. Carried mounts and the joined name over a shared body need
+  the CoA64 client of a CoA Custom release that includes them.
 - A bot can be the other head (playerbots): it keeps grinding, questing, looting and resting unless told to stay,
   and its bot menu is on your player frame. The bot quest route is new and untested.
 - CoAC Bot Plan addon: /botplan shows what your group's bots plan to do.
@@ -28,10 +29,7 @@ Install
 2. Extract this zip into the repack folder, so that CoA-Subclass sits next to CoA-Custom and Scripts.
 3. Run CoA-Subclass\Install-Subclass.bat. It finds the game folder CoA Custom was installed to and asks to confirm.
    It backs up your databases and every file it replaces into CoA-Subclass\backups first.
-4. It asks whether to install the Two-Players client (a CoA64.exe with the Two-Players looks). Without it,
-   everything works, but a Two-Players body does not show its carried mount or the joined name. The original
-   CoA64.exe is in the backup.
-5. Start the servers as usual and fully restart the game.
+4. Start the servers as usual and fully restart the game.
 
 Run Install-Subclass.bat again after reinstalling CoA Custom: that replaces the worldserver and the world tables
 this package changes.
