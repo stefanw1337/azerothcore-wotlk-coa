@@ -1,0 +1,4 @@
+tools/m3studio/
+tools/__pycache__/
+work/
+CascLib.dll

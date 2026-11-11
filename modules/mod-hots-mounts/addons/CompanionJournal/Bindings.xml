@@ -1,0 +1,11 @@
+<Bindings>
+	<Binding name="COMPANIONJOURNAL_TOGGLE" header="COMPANIONJOURNAL">
+		CompanionJournal:Toggle()
+	</Binding>
+	<Binding name="COMPANIONJOURNAL_RANDOMMOUNT">
+		CompanionJournal:SummonRandomFavorite("MOUNT")
+	</Binding>
+	<Binding name="COMPANIONJOURNAL_RANDOMPET">
+		CompanionJournal:SummonRandomFavorite("CRITTER")
+	</Binding>
+</Bindings>
