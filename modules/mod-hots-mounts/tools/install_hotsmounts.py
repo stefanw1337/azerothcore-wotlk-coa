@@ -468,9 +468,39 @@ def client(data, patch_name, client_rows=None, locale="enUS"):
     log(f"client: {patch_name} installed, {len(entries)} files read back intact")
 
 
+PATCH_LETTERS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+
+def holds_our_models(path):
+    try:
+        archive = Archive(str(path))
+    except (OSError, struct.error, ValueError):
+        return False
+    try:
+        listing = archive.extract(LISTFILE) or b""
+    finally:
+        archive.close()
+    return b"creature\\hotsmounts\\" in listing.lower()
+
+
+def patch_name_for(data):
+    patches = [p for p in data.iterdir() if p.suffix.lower() == ".mpq" and p.stem.lower().startswith("patch")]
+    ours = next((p.name for p in patches if holds_our_models(p)), None)
+    if ours:
+        return ours
+    if any(len(p.stem) > len("patch-x") for p in patches):
+        last = max((p.stem for p in patches), key=str.upper)
+        return PATCH if PATCH[:-4].upper() >= last.upper() else f"{last}-HOTS.MPQ"
+    used = [p.stem[-1].upper() for p in patches if len(p.stem) == len("patch-x") and p.stem[-1].upper() in PATCH_LETTERS]
+    top = max((PATCH_LETTERS.index(c) for c in used), default=PATCH_LETTERS.index("9"))
+    if top + 1 >= len(PATCH_LETTERS):
+        raise SystemExit("patch-Z.MPQ is taken; choose a name that loads after your other patches with --patch-name")
+    return f"patch-{PATCH_LETTERS[top + 1]}.MPQ"
+
+
 def main():
     parser = argparse.ArgumentParser(description="Install the HotS mounts on a WoW 3.3.5a client and an AzerothCore server")
-    parser.add_argument("--target", choices=("coa", "335"), required=True)
+    parser.add_argument("--mode", choices=("tables", "stream"), default="tables")
     parser.add_argument("--client", type=Path, required=True)
     parser.add_argument("--world-conf", type=Path, required=True)
     parser.add_argument("--server-dbc", type=Path, required=True)
@@ -478,7 +508,8 @@ def main():
     parser.add_argument("--patch-name")
     parser.add_argument("--locale", default="enUS")
     args = parser.parse_args()
-    patch_name = args.patch_name or (PATCH if args.target == "coa" else "patch-H.MPQ")
+    patch_name = args.patch_name or (PATCH if args.mode == "stream" else patch_name_for(args.client))
+    log(f"client patch: {patch_name}")
     target = args.client / patch_name
     if target.exists():
         try:
@@ -492,14 +523,13 @@ def main():
     log(f"{sum(len(m['displays']) for m in mounts)} mounts on {len(mounts)} models")
     log("=== server: checking our id ranges ===")
     check_free(server)
-    coa_stream = has_coa_stream(server)
-    if args.target == "coa" and not coa_stream:
-        raise SystemExit("--target coa needs the CoA patch stream tables (coa_client_skill_line_ability); "
-                         "use --target 335 for a server without them")
+    stream = args.mode == "stream"
+    if stream and not has_coa_stream(server):
+        raise SystemExit("--mode stream needs a CoA server that streams new rows to the client; use --mode tables")
     client_rows = {}
-    sql = world_sql(mounts, *templates(args.server_dbc), coa_stream, client_rows)
+    sql = world_sql(mounts, *templates(args.server_dbc), stream, client_rows)
     log("=== client ===")
-    client(args.client, patch_name, client_rows if args.target == "335" else None, args.locale)
+    client(args.client, patch_name, None if stream else client_rows, args.locale)
     install_addons(args.client.parent / "Interface" / "AddOns")
     log("=== server ===")
     (HERE / "hotsmounts-world.sql").write_text(sql, "utf-8")

@@ -133,7 +133,9 @@ def build(args):
 
 def install(args):
     package = args.work.resolve() / "package"
-    command = [package / "install_hotsmounts.py", "--target", args.target, "--client", args.client,
+    for name in PACKAGE_FILES:
+        shutil.copy2(HERE / name, package / name)
+    command = [package / "install_hotsmounts.py", "--mode", args.mode, "--client", args.client,
                "--world-conf", args.world_conf, "--server-dbc", args.server_dbc, "--locale", args.locale]
     if args.mysql:
         command += ["--mysql", args.mysql]
@@ -153,7 +155,7 @@ def main():
     two.add_argument("--work", type=Path, required=True)
     three = sub.add_parser("install")
     three.add_argument("--work", type=Path, required=True)
-    three.add_argument("--target", choices=("coa", "335"), required=True)
+    three.add_argument("--mode", choices=("tables", "stream"), default="tables")
     three.add_argument("--client", type=Path, required=True)
     three.add_argument("--world-conf", type=Path, required=True)
     three.add_argument("--server-dbc", type=Path, required=True)

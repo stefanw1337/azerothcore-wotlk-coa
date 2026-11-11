@@ -7,30 +7,28 @@ addon with search, filters and sorting.
 **No Blizzard files are in this repository.** The tools read the models, textures and names from *your own*
 Heroes of the Storm install and convert them on your PC. Do not share the results publicly.
 
-The server side of this module (its own C++ module for CoA's patch stream) is not in this branch yet; see
-[Status](#status).
+## Works with
+
+Any one of these servers, with its matching 3.3.5a client:
+
+- [azerothcore-wotlk-coa](https://github.com/stefanw1337/azerothcore-wotlk-coa) as it is (the CoA base), or any fork
+  of it, with the CoA client;
+- plain [AzerothCore](https://github.com/azerothcore/azerothcore-wotlk) 3.3.5a, with a stock 3.3.5a client.
+
+Nothing has to be built into the server: the mounts are world-database rows plus a client patch. No other module,
+race or class is needed.
 
 ## What it makes
 
 | Part | Where | What |
 | --- | --- | --- |
-| Client patch | `<client>\Data\patch-ZZZZZZ-HOTS.MPQ` (CoA) or `patch-H.MPQ` (3.3.5a) | Converted models (`Creature\HotSMounts\...`) and textures; for 3.3.5a also the client tables below |
-| Client tables (3.3.5a only) | inside that patch, `DBFilesClient\` | Your client's own `Spell`, `CreatureModelData`, `CreatureDisplayInfo`, `SkillLineAbility` and `Item` tables with the mount rows added |
-| Server rows | world database | `creaturemodeldata_dbc`, `creaturedisplayinfo_dbc`, `creature_template` (+ `_model`), `creature_model_info`, `spell_dbc`, `skilllineability_dbc`, `item_template`, `item_dbc`; on CoA also `coa_client_skill_line_ability` and `coa_client_vanity_collection_added` |
-| Addons | `<client>\Interface\AddOns` | **CompanionJournal** (works on any 3.3.5a client) and **CompanionJournal_HotS** (the HotS mounts as a source, GM learn tools) |
+| Client patch | `<client>\Data\patch-?.MPQ` (see [Patch name](#patch-name)) | Converted models (`Creature\HotSMounts\...`) and textures, plus your client's own `Spell`, `CreatureModelData`, `CreatureDisplayInfo`, `SkillLineAbility` and `Item` tables with the mount rows added |
+| Server rows | world database | `creaturemodeldata_dbc`, `creaturedisplayinfo_dbc`, `creature_template` (+ `_model`), `creature_model_info`, `spell_dbc`, `skilllineability_dbc`, `item_template`, `item_dbc` |
+| Addons | `<client>\Interface\AddOns` | **CompanionJournal** (any 3.3.5a client) and **CompanionJournal_HotS** (the HotS mounts as a source, GM learn tools) |
 
 Ids: models, displays, creatures, items and Mounts-tab rows use 986001-986999; spells 9860001-9860999. Before
 writing, the installer checks that no row in those ranges belongs to anything else and stops if one does. Running
 it again replaces its own rows.
-
-## One tool, two kinds of server
-
-| | `--target coa` | `--target 335` |
-| --- | --- | --- |
-| Server | CoA (azerothcore-wotlk-coa) with the HotS patch-stream code | Any AzerothCore 3.3.5a server |
-| How the client learns the new rows | The server streams them at login | They are written into the client patch |
-| Client patch name | `patch-ZZZZZZ-HOTS.MPQ` (CoA loads any name) | `patch-H.MPQ` (a stock client loads only one-letter names; change it with `--patch-name`) |
-| Client tables in the patch | none, so it never covers another patch | the five tables above, merged from your client |
 
 ## Requirements
 
@@ -47,8 +45,7 @@ it again replaces its own rows.
 ## Use
 
 1. Open `Make-HotS-Mounts.bat` in a text editor and set the folders at the top: your HotS folder, CascLib.dll,
-   the work folder, `TARGET` (`coa` or `335`), the client's `Data` folder, the server's `worldserver.conf` and
-   `dbc` folder.
+   the work folder, the client's `Data` folder, the server's `worldserver.conf` and its `dbc` folder.
 2. Close the game and run the bat. It shows its four steps:
    1. Python packages.
    2. Extract from your HotS install: mount models, animations, mount data, names, then only the textures those
@@ -62,15 +59,32 @@ The steps can also run one by one:
 ```
 python tools\hots_mounts.py extract --hots "<HotS folder>" --casclib CascLib.dll --work work
 python tools\hots_mounts.py build --work work
-python tools\hots_mounts.py install --work work --target 335 --client "<client>\Data" ^
-    --world-conf "<server>\worldserver.conf" --server-dbc "<server>\data\dbc" [--mysql mysql.exe] [--patch-name patch-H.MPQ]
+python tools\hots_mounts.py install --work work --client "<client>\Data" ^
+    --world-conf "<server>\worldserver.conf" --server-dbc "<server>\data\dbc" [--mysql mysql.exe] [--patch-name patch-X.MPQ]
 ```
+
+### Patch name
+
+The client tables in the patch must load after every other patch that has them. The installer picks the name:
+
+- a patch it made before keeps its name;
+- a client that loads long patch names (the CoA client) gets `patch-ZZZZZZ-HOTS.MPQ`, or `<your last patch>-HOTS.MPQ`
+  when a patch already sorts after that;
+- a stock client (it loads only one-character names) gets the next letter after your highest `patch-?.MPQ`.
+
+Choose another with `--patch-name` if you need to.
+
+### Stream mode
+
+`--mode stream` (or `MODE=stream` in the bat) leaves the client tables out of the patch and adds the CoA
+collection-window rows. Use it only on a CoA server whose build streams new spell, model and collection rows to the
+client by itself; every other server uses the default `--mode tables`.
 
 ## In game
 
 - `/cj` (also `/mounts`, `/pets`) opens the Companion Journal: search; filters for collected, not collected,
   favourites, ground, flying, source and the HotS collection, rarity and style; sorting; favourites; random
-  favourite; a 3D preview; drag to the action bar. On CoA a Journal button also sits on the Mounts tab.
+  favourite; a 3D preview; drag to the action bar. On the CoA client a Journal button also sits on the Mounts tab.
 - GM character, no target: `/hotsmounts learn [name]` teaches every HotS mount (or those whose name contains the
   text), `/hotsmounts unlearn [name]` takes them away, `/hotsmounts stop` stops a running list.
 - `work\package\hotsmounts-ids.txt` lists every spell id with its mount.
@@ -103,16 +117,9 @@ python tools\hots_mounts.py install --work work --target 335 --client "<client>\
 | `tools/m2_model_writer.py`, `tools/m2_writer.py`, `tools/blp.py` | WotLK M2 / skin / BLP2 writers |
 | `tools/scene_preview.py`, `tools/m2_texture_preview.py` | Preview images (mesh, textures and particles) |
 | `tools/make_package.py` | Packs the patch MPQ, `mounts.json` and the addons |
-| `tools/install_hotsmounts.py` | Installs on the client and the server (`--target coa` or `335`) |
+| `tools/install_hotsmounts.py` | Installs on the client and the server |
 | `tools/mpqpull.py`, `tools/mkmergepatch.py` | Plain-Python MPQ reader and writer |
 | `addons/` | CompanionJournal and CompanionJournal_HotS (its `Data.lua` is written by the build) |
-
-## Status
-
-- `--target 335`: complete on the tools side.
-- `--target coa`: the client and SQL side are complete. The server needs the HotS patch-stream code, which today
-  lives in the `stefanw1337-subclassing-test` branch. It moves into this module (`src/`, its own AzerothCore
-  module that can be disabled) next; until then use a server built from that branch.
 
 ## Credits
 

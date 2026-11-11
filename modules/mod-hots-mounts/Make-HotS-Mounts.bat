@@ -10,9 +10,10 @@ rem CascLib.dll (64-bit) from https://github.com/ladislav-zezula/CascLib (see RE
 set "CASCLIB=%~dp0CascLib.dll"
 rem Work folder: extracted HotS files and the converted mounts end up here (about 2 GB).
 set "WORK=%~dp0work"
-rem coa = a CoA server with the patch stream; 335 = any other AzerothCore 3.3.5a server.
-set "TARGET=335"
-rem Your WoW 3.3.5a client's Data folder.
+rem tables = the mount rows go into the client patch: works with azerothcore-wotlk-coa, its forks and plain
+rem AzerothCore 3.3.5a. stream = only for a CoA server that streams new rows to the client itself.
+set "MODE=tables"
+rem Your WoW 3.3.5a client's Data folder (CoA client or a plain 3.3.5a client).
 set "CLIENT=C:\WoW 3.3.5a\Data"
 rem The worldserver.conf your server uses (the installer reads WorldDatabaseInfo from it).
 set "WORLDCONF=C:\AzerothCore\configs\worldserver.conf"
@@ -46,9 +47,11 @@ echo === [3/4] Converting every mount and packing the patch ===
 %PY% -B "%~dp0tools\hots_mounts.py" build --work "%WORK%"
 if errorlevel 1 goto failed
 echo.
-echo === [4/4] Installing: client patch, addons and server rows (target %TARGET%) ===
-tasklist /fi "imagename eq Wow.exe" | find /i "Wow.exe" >nul && (echo Close the game first. & pause & exit /b 1)
-%PY% -B "%~dp0tools\hots_mounts.py" install --work "%WORK%" --target %TARGET% --client "%CLIENT%" --world-conf "%WORLDCONF%" --server-dbc "%SERVERDBC%" %MYSQLARG%
+echo === [4/4] Installing: client patch, addons and server rows (mode %MODE%) ===
+for %%E in (Wow.exe Ascension.exe Ascension64.exe CoA64.exe) do (
+    tasklist /fi "imagename eq %%E" | find /i "%%E" >nul && (echo Close the game first. & pause & exit /b 1)
+)
+%PY% -B "%~dp0tools\hots_mounts.py" install --work "%WORK%" --mode %MODE% --client "%CLIENT%" --world-conf "%WORLDCONF%" --server-dbc "%SERVERDBC%" %MYSQLARG%
 if errorlevel 1 goto failed
 echo.
 echo All done. Restart the worldserver, then start the game. /cj opens the mount journal.

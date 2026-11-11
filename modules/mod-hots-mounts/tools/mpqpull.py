@@ -159,11 +159,14 @@ class Archive:
 
     def find_header(self):
         position = 0
-        while True:
+        self.file.seek(0, 2)
+        end = self.file.tell()
+        while position + 32 <= end:
             self.file.seek(position)
             if self.file.read(4) == b"MPQ\x1a":
                 return position
             position += 512
+        raise ValueError("no MPQ header")
 
     def read(self, offset, size):
         self.file.seek(offset)
