@@ -135,6 +135,10 @@ def material_passes(m3, used, textures_folder, report):
             if not have(diffuse) and blend in ('opaque', 'cutout'):
                 material['blend'] = 'add_alpha' if bake['alpha'] else 'additive'
                 material['unlit'] = True
+            elif not have(diffuse) and not bake['alpha'] and have(emissive) and blend == 'alpha':
+                material.update(blend='opaque', unlit=True, two_sided=True)
+                bake['opaque'] = True
+                report['notes'].append(f'{index} {mat["name"]}: emissive-only body drawn as an opaque, unlit base')
             name = f'{m3["name_key"]}_m{index}_baked.dds'
             out[index] = (name, emissive if have(diffuse) and have(emissive) else '', material, bake)
             continue
@@ -153,6 +157,8 @@ def bake_texture(recipe, textures_folder, target_png):
         mask = (mask.getchannel('A') if mask.mode == 'RGBA' and mask.getextrema()[3][0] < 255
                 else mask.convert('L')).resize(image.size)
         image.putalpha(mask)
+    if recipe.get('opaque'):
+        image.putalpha(255)
     if recipe.get('normalize') or recipe.get('fade'):
         import numpy as np
         pixels = np.asarray(image).astype(np.float32)
