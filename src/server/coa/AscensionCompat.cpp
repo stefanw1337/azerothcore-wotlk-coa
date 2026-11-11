@@ -596,6 +596,34 @@ std::map<uint32, VanityPrice> LoadVanityPrices()
   return prices;
 }
 
+struct AddedVanityRow
+{
+  uint32 Id = 0;
+  uint32 ItemId = 0;
+  uint32 TemplateItemId = 0;
+  uint32 CreatureId = 0;
+  uint32 LearnedSpell = 0;
+  std::string Description;
+  std::string AdditionalText;
+};
+
+std::vector<AddedVanityRow> LoadAddedVanityRows()
+{
+  std::vector<AddedVanityRow> rows;
+  QueryResult result = WorldDatabase.Query(
+      "SELECT `ID`, `ItemID`, `TemplateItemID`, `CreatureID`, `LearnedSpell`, `Description`, `AdditionalText` "
+      "FROM `coa_client_vanity_collection_added` ORDER BY `ID`");
+  if (!result)
+    return rows;
+
+  do {
+    Field const *fields = result->Fetch();
+    rows.push_back({fields[0].Get<uint32>(), fields[1].Get<uint32>(), fields[2].Get<uint32>(), fields[3].Get<uint32>(),
+                    fields[4].Get<uint32>(), fields[5].Get<std::string>(), fields[6].Get<std::string>()});
+  } while (result->NextRow());
+  return rows;
+}
+
 struct AppearanceInfo {
   uint32 SourceItem = 0;
   uint32 PrimaryCategory = 0;
@@ -4521,6 +4549,7 @@ private:
   static constexpr uint32 VANITY_COLLECTION_DESCRIPTION_FIELD = 42;
   static constexpr uint32 VANITY_COLLECTION_ADDITIONAL_TEXT_FIELD = 59;
   static constexpr uint32 VANITY_COLLECTION_LEARNED_SPELL_FIELD = 76;
+  static constexpr uint32 VANITY_COLLECTION_CREATURE_FIELD = 16;
 
   struct VanityCollectionPatchRow {
     std::array<uint32, VANITY_COLLECTION_DBC_FIELD_COUNT> Values{};
@@ -5099,7 +5128,8 @@ private:
   static std::vector<VanityCollectionPatchRow> LoadVanityCollectionPatchRows() {
     std::vector<VanityCollectionPatchRow> rows;
     std::map<uint32, VanityPrice> prices = LoadVanityPrices();
-    if (prices.empty())
+    std::vector<AddedVanityRow> const added = LoadAddedVanityRows();
+    if (prices.empty() && added.empty())
       return rows;
 
     ClientDBC vanity;
@@ -5109,9 +5139,11 @@ private:
       return rows;
     }
 
+    std::unordered_map<uint32, uint32> recordByItem;
     for (uint32 index = 0; index < vanity.GetRecordCount(); ++index)
     {
       ClientDBC::Record const record = vanity.GetRecord(index);
+      recordByItem.emplace(record.GetUInt32(1), index);
       auto const price = prices.find(record.GetUInt32(1));
       if (price == prices.end())
         continue;
@@ -5130,6 +5162,30 @@ private:
 
     for (auto const &[itemId, price] : prices)
       LOG_ERROR("coa", "coa_client_vanity_collection {} has no VanityCollection.dbc row", itemId);
+
+    for (AddedVanityRow const &entry : added)
+    {
+      auto const templateRecord = recordByItem.find(entry.TemplateItemId);
+      if (recordByItem.contains(entry.ItemId) || templateRecord == recordByItem.end())
+      {
+        LOG_ERROR("coa", "coa_client_vanity_collection_added {}: item {} already has a VanityCollection.dbc row or "
+                  "template item {} has none", entry.Id, entry.ItemId, entry.TemplateItemId);
+        continue;
+      }
+
+      ClientDBC::Record const record = vanity.GetRecord(templateRecord->second);
+      VanityCollectionPatchRow &row = rows.emplace_back();
+      for (uint32 field = 0; field < VANITY_COLLECTION_DBC_FIELD_COUNT; ++field)
+        row.Values[field] = record.GetUInt32(field);
+      row.Values[0] = entry.Id;
+      row.Values[1] = entry.ItemId;
+      row.Values[4] = row.Values[5] = row.Values[6] = 0;
+      row.Values[VANITY_COLLECTION_CREATURE_FIELD] = entry.CreatureId;
+      row.Values[VANITY_COLLECTION_LEARNED_SPELL_FIELD] = entry.LearnedSpell;
+      row.Artwork = std::string(record.GetString(3));
+      row.Description = entry.Description;
+      row.AdditionalText = entry.AdditionalText;
+    }
     return rows;
   }
 
@@ -6119,11 +6175,13 @@ public:
     bool vanityLoaded =
         vanity.Load(GetClientDBCPath("VanityCollection.dbc"), 77);
     std::map<uint32, VanityPrice> const prices = LoadVanityPrices();
+    std::unordered_map<uint32, uint32> vanityRecordByItem;
     for (uint32 row = 0; row < vanity.GetRecordCount(); ++row) {
       ClientDBC::Record record = vanity.GetRecord(row);
       uint32 itemId = record.GetUInt32(1);
       if (!itemId)
         continue;
+      vanityRecordByItem.emplace(itemId, row);
 
       VanityInfo info{
           record.GetUInt32(76), record.GetUInt32(12), record.GetUInt32(2)};
@@ -6138,6 +6196,18 @@ public:
 
       _vanityItems[itemId] = info;
       _allVanityItemIds.push_back(itemId);
+    }
+
+    for (AddedVanityRow const &added : LoadAddedVanityRows()) {
+      auto const templateItem = _vanityItems.find(added.TemplateItemId);
+      if (vanityRecordByItem.contains(added.ItemId) || templateItem == _vanityItems.end())
+        continue;
+
+      VanityInfo info = templateItem->second;
+      info.LearnedSpell = added.LearnedSpell;
+      info.BazaarTokenCost = 0;
+      _vanityItems[added.ItemId] = info;
+      _allVanityItemIds.push_back(added.ItemId);
     }
 
     std::sort(_allAppearanceIds.begin(), _allAppearanceIds.end());
