@@ -4593,8 +4593,6 @@ private:
     bool RequiresRegistration = false;
   };
 
-  /// Texture variation and portrait names of a streamed display (CreatureDisplayInfo fields 6-9). The core's store
-  /// keeps none of them, so they are read from the world table and the server's own DBC file.
   using DisplayTextureNames = std::array<std::string, 4>;
 
   struct PreparedPatchRows {
@@ -4961,8 +4959,6 @@ private:
     displayRow[0x14] = 255;
 
     packet.append(displayRow, sizeof(displayRow));
-    // Texture variations 1-3 and the portrait texture. Without them a display whose model takes its skin from the
-    // display (texture type 11-13, most creatures and mounts) arrives untextured.
     for (uint8 stringIndex = 0; stringIndex < 4; ++stringIndex)
       AppendSizedString(packet, names ? (*names)[stringIndex] : std::string());
 
@@ -5350,7 +5346,6 @@ private:
     return rows;
   }
 
-  /// The server-side copy of a table, as LoadDBCStores chooses it: the dbc_races overlay when it has the file.
   static std::filesystem::path ServerDbcFile(std::string const &file) {
     std::filesystem::path const data(sWorld->GetDataPath());
     std::filesystem::path const overlay = data / "dbc_races" / file;
@@ -5365,7 +5360,6 @@ private:
     if (wanted.empty())
       return names;
 
-    // creaturedisplayinfo_dbc rows replace the file's rows in the store, so they win here too.
     if (QueryResult result = WorldDatabase.Query(
             "SELECT `ID`, `TextureVariation_1`, `TextureVariation_2`, `TextureVariation_3`, "
             "`PortraitTextureName` FROM `creaturedisplayinfo_dbc`"))
@@ -5397,7 +5391,6 @@ private:
     return names;
   }
 
-  /// creaturemodeldata_dbc rows for models the client's copy does not have at all (a new model file), sent whole.
   static void AddNewCreatureModelRows(std::vector<CreatureModelPatchRow> &rows,
                                       ClientDBC const &clientModels) {
     std::unordered_set<uint32> clientIds;
@@ -5415,7 +5408,6 @@ private:
     if (!result)
       return;
 
-    // Float columns of CreatureModelData (the rest are integers, field 2 is the model name).
     constexpr std::array<uint32, 18> FLOAT_FIELDS = {4, 7, 8, 9, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
                                                      26, 27};
     uint32 added = 0;
