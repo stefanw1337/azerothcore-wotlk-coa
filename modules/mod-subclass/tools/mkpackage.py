@@ -6,6 +6,7 @@ module's own), server tables, the patched client's display table for the server'
 Make-Package.ps1 on the build PC adds worldserver.exe, the client patches and the SpellActivationOverlay addon."""
 import json
 import shutil
+import struct
 import subprocess
 import sys
 from datetime import date
@@ -14,6 +15,22 @@ from pathlib import Path
 TEXT_FOR_WINDOWS = ("Install-Subclass.bat", "README.txt")
 VERSION = "0.2"
 COA_CUSTOM = "1.9.9"
+
+
+LOCAL_ONLY_IDS = range(986001, 987000)
+
+
+def local_only_rows(tables):
+    found = []
+    for name in ("CreatureModelData.dbc", "CreatureDisplayInfo.dbc"):
+        path = tables / name
+        if not path.exists():
+            continue
+        data = path.read_bytes()
+        count, _, size, _ = struct.unpack_from("<4I", data, 4)
+        ids = [struct.unpack_from("<I", data, 20 + i * size)[0] for i in range(count)]
+        found += [f"{name} {row}" for row in ids if row in LOCAL_ONLY_IDS]
+    return found
 
 
 def windows_text(source, target):
@@ -53,6 +70,9 @@ def main(repo, tables, base, out, livemon, client_displays):
         for folder in folders:
             for sql in sorted(folder.glob("*.sql")):
                 shutil.copy2(sql, target / sql.name)
+    leaks = local_only_rows(tables)
+    if leaks:
+        raise SystemExit(f"{tables} holds rows of the separate mount patch (986001-986999): {', '.join(leaks[:5])}")
     shutil.copytree(tables, files / "dbc_races")
     (files / "dbc_clientset").mkdir()
     shutil.copy2(client_displays, files / "dbc_clientset" / "CreatureDisplayInfo.dbc")
