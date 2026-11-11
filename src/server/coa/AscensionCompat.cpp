@@ -4429,7 +4429,9 @@ public:
     for (uint32 displayId : rows.CreatureDisplayIds) {
       if (CreatureDisplayInfoEntry const *entry =
               sCreatureDisplayInfoStore.LookupEntry(displayId)) {
-        bytes += SendDisplayInfoRow(player, *entry);
+        auto const names = rows.CreatureDisplayTextures.find(displayId);
+        bytes += SendDisplayInfoRow(player, *entry,
+                                    names != rows.CreatureDisplayTextures.end() ? &names->second : nullptr);
         ++sent;
       }
     }
@@ -4591,8 +4593,13 @@ private:
     bool RequiresRegistration = false;
   };
 
+  /// Texture variation and portrait names of a streamed display (CreatureDisplayInfo fields 6-9). The core's store
+  /// keeps none of them, so they are read from the world table and the server's own DBC file.
+  using DisplayTextureNames = std::array<std::string, 4>;
+
   struct PreparedPatchRows {
     std::vector<uint32> CreatureDisplayIds;
+    std::unordered_map<uint32, DisplayTextureNames> CreatureDisplayTextures;
     std::vector<ItemDisplayInfoPatchRow> ItemDisplayInfos;
     std::vector<ItemPatchRow> Items;
     std::vector<std::size_t> ItemCapacityOrder;
@@ -4940,7 +4947,8 @@ private:
   }
 
   std::size_t SendDisplayInfoRow(Player *player,
-                                 CreatureDisplayInfoEntry const &entry) const {
+                                 CreatureDisplayInfoEntry const &entry,
+                                 DisplayTextureNames const *names) const {
     WorldPacket packet(SMSG_PATCH_CREATURE_DISPLAY_INFO, 80);
 
     uint32 const soundId = 0;
@@ -4953,8 +4961,10 @@ private:
     displayRow[0x14] = 255;
 
     packet.append(displayRow, sizeof(displayRow));
+    // Texture variations 1-3 and the portrait texture. Without them a display whose model takes its skin from the
+    // display (texture type 11-13, most creatures and mounts) arrives untextured.
     for (uint8 stringIndex = 0; stringIndex < 4; ++stringIndex)
-      packet << uint32(0);
+      AppendSizedString(packet, names ? (*names)[stringIndex] : std::string());
 
     return SendRowPacket(player, packet);
   }
@@ -5241,6 +5251,7 @@ private:
       std::filesystem::path const clientDbcDirectory =
           ResolveClientDbcDirectory();
       _rows.CreatureDisplayIds = BuildDisplayPatchRows(clientDbcDirectory);
+      _rows.CreatureDisplayTextures = LoadDisplayTextureNames(_rows.CreatureDisplayIds);
       _rows.ItemDisplayInfos =
           BuildItemDisplayInfoPatchRows(clientDbcDirectory);
       _rows.Items = BuildItemPatchRows(clientDbcDirectory, _rows.SqlItemIds);
@@ -5339,6 +5350,96 @@ private:
     return rows;
   }
 
+  /// The server-side copy of a table, as LoadDBCStores chooses it: the dbc_races overlay when it has the file.
+  static std::filesystem::path ServerDbcFile(std::string const &file) {
+    std::filesystem::path const data(sWorld->GetDataPath());
+    std::filesystem::path const overlay = data / "dbc_races" / file;
+    return std::filesystem::exists(overlay) ? overlay : data / "dbc" / file;
+  }
+
+  static std::unordered_map<uint32, DisplayTextureNames>
+  LoadDisplayTextureNames(std::vector<uint32> const &displayIds) {
+    constexpr uint32 FIRST_TEXTURE_FIELD = 6;
+    std::unordered_map<uint32, DisplayTextureNames> names;
+    std::unordered_set<uint32> const wanted(displayIds.begin(), displayIds.end());
+    if (wanted.empty())
+      return names;
+
+    // creaturedisplayinfo_dbc rows replace the file's rows in the store, so they win here too.
+    if (QueryResult result = WorldDatabase.Query(
+            "SELECT `ID`, `TextureVariation_1`, `TextureVariation_2`, `TextureVariation_3`, "
+            "`PortraitTextureName` FROM `creaturedisplayinfo_dbc`"))
+    {
+      do {
+        Field const *fields = result->Fetch();
+        uint32 const id = fields[0].Get<uint32>();
+        if (!wanted.contains(id))
+          continue;
+        DisplayTextureNames &row = names[id];
+        for (uint8 index = 0; index < row.size(); ++index)
+          row[index] = fields[1 + index].Get<std::string>();
+      } while (result->NextRow());
+    }
+
+    ClientDBC file;
+    if (file.Load(ServerDbcFile("CreatureDisplayInfo.dbc").string(), 16))
+    {
+      for (uint32 index = 0; index < file.GetRecordCount(); ++index) {
+        ClientDBC::Record const record = file.GetRecord(index);
+        uint32 const id = record.GetUInt32(0);
+        if (!wanted.contains(id) || names.contains(id))
+          continue;
+        DisplayTextureNames &row = names[id];
+        for (uint8 index2 = 0; index2 < row.size(); ++index2)
+          row[index2] = std::string(record.GetString(FIRST_TEXTURE_FIELD + index2));
+      }
+    }
+    return names;
+  }
+
+  /// creaturemodeldata_dbc rows for models the client's copy does not have at all (a new model file), sent whole.
+  static void AddNewCreatureModelRows(std::vector<CreatureModelPatchRow> &rows,
+                                      ClientDBC const &clientModels) {
+    std::unordered_set<uint32> clientIds;
+    clientIds.reserve(clientModels.GetRecordCount());
+    for (uint32 index = 0; index < clientModels.GetRecordCount(); ++index)
+      clientIds.insert(clientModels.GetRecord(index).GetUInt32(0));
+
+    QueryResult result = WorldDatabase.Query(
+        "SELECT `ID`, `Flags`, `ModelName`, `SizeClass`, `ModelScale`, `BloodID`, `FootprintTextureID`, "
+        "`FootprintTextureLength`, `FootprintTextureWidth`, `FootprintParticleScale`, `FoleyMaterialID`, "
+        "`FootstepShakeSize`, `DeathThudShakeSize`, `SoundID`, `CollisionWidth`, `CollisionHeight`, `MountHeight`, "
+        "`GeoBoxMinX`, `GeoBoxMinY`, `GeoBoxMinZ`, `GeoBoxMaxX`, `GeoBoxMaxY`, `GeoBoxMaxZ`, `WorldEffectScale`, "
+        "`AttachedEffectScale`, `MissileCollisionRadius`, `MissileCollisionPush`, `MissileCollisionRaise` "
+        "FROM `creaturemodeldata_dbc` ORDER BY `ID`");
+    if (!result)
+      return;
+
+    // Float columns of CreatureModelData (the rest are integers, field 2 is the model name).
+    constexpr std::array<uint32, 18> FLOAT_FIELDS = {4, 7, 8, 9, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+                                                     26, 27};
+    uint32 added = 0;
+    do {
+      Field const *fields = result->Fetch();
+      uint32 const id = fields[0].Get<uint32>();
+      if (clientIds.contains(id))
+        continue;
+      CreatureModelPatchRow &row = rows.emplace_back();
+      for (uint32 field = 0; field < CREATURE_MODEL_DATA_FIELD_COUNT; ++field) {
+        if (field == CREATURE_MODEL_DATA_NAME_FIELD)
+          row.ModelName = fields[field].Get<std::string>();
+        else if (std::ranges::find(FLOAT_FIELDS, field) != FLOAT_FIELDS.end())
+          row.Values[field] = std::bit_cast<uint32>(fields[field].Get<float>());
+        else
+          row.Values[field] = static_cast<uint32>(fields[field].Get<int32>());
+      }
+      ++added;
+    } while (result->NextRow());
+
+    if (added)
+      LOG_INFO("coa", "Streaming {} new creature model(s) from creaturemodeldata_dbc", added);
+  }
+
   static std::vector<CreatureModelPatchRow> BuildCreatureModelPatchRows() {
     constexpr uint32 CORRUPTED_GRINNING_REAVER_MODEL = 100161;
     constexpr uint32 GRINNING_REAVER_SOUND = 2112;
@@ -5380,6 +5481,7 @@ private:
       row.ModelName = std::string(record.GetString(CREATURE_MODEL_DATA_NAME_FIELD));
     }
 
+    AddNewCreatureModelRows(rows, clientModels);
     return rows;
   }
 
