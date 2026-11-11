@@ -4286,26 +4286,51 @@ public:
                onDemand.Rows, onDemand.SpellRows, onDemand.Bytes, player->GetName());
   }
 
-    void SendNewSpellRowsBeforeMap(Player* player)
+    void SendLoginRowsBeforeMap(Player* player)
     {
         if (!ReceivesPatchRows(player))
             return;
 
         PreparedPatchRows const& rows = GetPreparedPatchRows();
-        if (std::none_of(rows.NewSpellIds.begin(), rows.NewSpellIds.end(),
-                         [player](uint32 spellId) { return player->HasSpell(spellId); }))
+        for (uint16 field : { UNIT_FIELD_DISPLAYID, UNIT_FIELD_NATIVEDISPLAYID, UNIT_FIELD_MOUNTDISPLAYID })
+        {
+            uint32 const displayId = player->GetUInt32Value(field);
+            if (!displayId || std::find(rows.CreatureDisplayIds.begin(), rows.CreatureDisplayIds.end(), displayId) ==
+                                  rows.CreatureDisplayIds.end())
+                continue;
+            CreatureDisplayInfoEntry const* entry = sCreatureDisplayInfoStore.LookupEntry(displayId);
+            if (!entry)
+                continue;
+            for (CreatureModelPatchRow const& row : rows.CreatureModels)
+                if (row.Values[0] == entry->ModelId)
+                    SendCreatureModelRow(player, row);
+            auto const names = rows.CreatureDisplayTextures.find(displayId);
+            SendDisplayInfoRow(player, *entry, names != rows.CreatureDisplayTextures.end() ? &names->second : nullptr);
+        }
+
+        bool known = false;
+        bool active = false;
+        for (uint32 spellId : rows.NewSpellIds)
+        {
+            known = known || player->HasSpell(spellId);
+            active = active || player->HasAura(spellId);
+        }
+        if (!known && !active)
             return;
 
-        for (SkillLineAbilityPatchRow const& row : rows.SkillLineAbilities)
-            SendSkillLineAbilityRow(player, row);
+        if (known)
+            for (SkillLineAbilityPatchRow const& row : rows.SkillLineAbilities)
+                SendSkillLineAbilityRow(player, row);
         for (SpellPatchRow const& row : rows.Spells)
-            if (rows.NewSpellIds.contains(row.Values[0]))
+            if (rows.NewSpellIds.contains(row.Values[0]) &&
+                (player->HasSpell(row.Values[0]) || player->HasAura(row.Values[0])))
             {
-                SpellPatchRow active = row;
-                ApplyServerSpellSelectors(active);
-                SendSpellRow(player, active);
+                SpellPatchRow sent = row;
+                ApplyServerSpellSelectors(sent);
+                SendSpellRow(player, sent);
             }
-        player->SendInitialSpells();
+        if (known)
+            player->SendInitialSpells();
     }
 
     void SendItemRowOnDemand(Player* player, uint32 itemId)
@@ -9521,7 +9546,7 @@ public:
             AscensionCollectionService::Instance().PrepareOwnedCompanionsBeforeMap(player);
             AscensionCollectionService::Instance().PrepareOwnedBankSpellsBeforeMap(player);
             AscensionClassService::Instance().PrepareTaughtAbilitiesBeforeMap(player);
-            AscensionDisplayPatchService::Instance().SendNewSpellRowsBeforeMap(player);
+            AscensionDisplayPatchService::Instance().SendLoginRowsBeforeMap(player);
             AscensionClassService::Instance().QueueCharacterAdvancementState(player);
         }
     }
