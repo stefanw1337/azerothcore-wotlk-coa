@@ -51,4 +51,39 @@ Server settings (mod_subclass.conf)
 - Subclass.TwoPlayers.Enable: Two-Players. 0 means no new Two-Players characters and no pairing; existing pairs
   play as single characters.
 
+Commands
+--------
+Two-Players (any player, in chat; the addon's /pair sends the same):
+  .pair invite [Name]     ask a player (or your target) to share your body; /pair with a player targeted does it too
+  .pair accept | decline  answer an invitation
+  .pair status            who you are paired with and who sits where
+  .pair stop | go         as Ranged Head on a bot-steered body: the body stops and waits / roams, fights and quests
+  .pair echo              list the echo gear: what the body wore when your former Melee Head left
+
+Addon (Ascension_Subclass):
+  /subclassbar            help; reset (position), clear (refill with your subclass spells), castbar (unlock the
+                          subclass cast bar to Alt-drag it, again to lock), hide | show (Subclass Bar 1; borrowed
+                          spells then go on your own bars)
+  /subclass state         what the addon sees (subclass, relic, character window); also: aim, casts, art, icons,
+                          stancebar reset, sheet reset
+  Key Bindings > Subclass Bar 1   keys for the subclass bar
+
+Bot plan addon (CoAC_BotPlan, for SquidBots Lite bots):
+  /botplan  or  /bp       show or hide what your group's bots plan to do, with "Do now"
+  The bot body's own bot menu is the small button on your player frame (SquidBots Lite's menu).
+
+Carried mounts (the Two-Players Ogre carries his mount; needs a CoA Custom client with carried mounts). Type them
+while carrying; each change is saved per mount display in CarriedMounts.txt next to the game:
+  /console coaCarryScale <n>   size            /console coaCarryX | coaCarryY | coaCarryZ <n>   position
+  /console coaCarryYaw | coaCarryPitch | coaCarryRoll <degrees>                                   turn
+  /console coaCarryAs <display id>    show another mount model in its place
+  /console coaCarryPose <animation id>   /console coaCarryFrame <n>   hold one pose (still mounts)
+  Example, D.R.I.V.E. cars on their side (the default): coaCarryScale 0.8, coaCarryZ 1.3, coaCarryRoll 90.
+
+Game masters (.subclass):
+  .subclass info | specs <class> | set <subclass> <spec> [second spec] | clear | spec <spec> | learn <entry> <rank>
+  .subclass quest | insight <count> | bots [all] | reload (administrator)
+  .subclass twin [wear <slot> <item> | strip [slot] | copy | info]   the Twins brother's look
+  .subclass brain | audit | gun   diagnostics of the other head
+
 Feedback: tell Stefan (stefanw1337) what you tried, what happened and when.
