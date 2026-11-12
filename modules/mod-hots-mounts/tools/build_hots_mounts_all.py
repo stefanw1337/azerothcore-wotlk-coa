@@ -232,26 +232,29 @@ def ribbon_regions(m3, scale_unused=None):
             continue
         w = rest[rb['bone']]
         axes = w[:3, :3] / np.where(np.linalg.norm(w[:3, :3], axis=0) == 0, 1, np.linalg.norm(w[:3, :3], axis=0))
-        origin, forward, side = w[:3, 3], axes[:, 2], axes[:, 1]
+        origin, forward, side, normal = w[:3, 3], axes[:, 2], axes[:, 0], axes[:, 1]
         life = max(rb['life'], 0.05)
         reach = min(rb['speed'] * life, rb['length']) if rb['length'] > 0 else rb['speed'] * life
         widths = [max(x, 0.0) for x in rb['scale']] if isinstance(rb['scale'], tuple) else [rb['scale']] * 3
-        steps = 10
+        steps = 12
+        sway = 0.12 * reach
         verts, tris = [], []
         for i in range(steps + 1):
             f = i / steps
             t = f * life
             centre = origin + forward * reach * f + np.array([0, 0, -0.1 * rb['gravity'] * t * t])
+            centre[2] = max(centre[2], 0.05 + sway * f * abs(normal[2]))
             mid = min(max(rb['scale_mid'], 0.01), 0.99)
             width = np.interp(f, [0, mid, 1], widths) * 0.5
             for side_sign, v in ((-1, 0.0), (1, 1.0)):
                 pos = centre + side * width * side_sign
-                verts.append(dict(pos=tuple(float(x) for x in pos), normal=tuple(float(x) for x in axes[:, 0]),
-                                  uv=(f, v), infl=[(rb['bone'], 1.0)]))
+                verts.append(dict(pos=tuple(float(x) for x in pos), normal=tuple(float(x) for x in normal),
+                                  uv=(f, v), infl=[(rb['bone'], 1.0)], wave=(i, int(v))))
             if i:
                 a = 2 * (i - 1)
                 tris += [[a, a + 1, a + 2], [a + 1, a + 3, a + 2]]
-        region = dict(index=1000 + k, vertices=verts, triangles=tris, materials=[rb['material']])
+        region = dict(index=1000 + k, vertices=verts, triangles=tris, materials=[rb['material']],
+                      wave=dict(bone=rb['bone'], rows=steps + 1, normal=tuple(normal), side=tuple(side), sway=sway))
         out.append((region, rb))
     return out
 
@@ -394,6 +397,7 @@ def build_model(group, models_folder, textures_folder, out, previews):
     cfg = dict(name=model_id, scale=SCALE, rotation_z_degrees=90, attachments=attachments, level_attachments=[0],
                animations=anims,
                textures=tex_entries, passes=passes, skip_regions=skip, particles=effect_particles,
+               waves={r['index']: r['wave'] for r in m3['regions'] if r.get('wave') and r['index'] in regions_used},
                **TUNING.get(model_id, {}))
     scene, info = hots_m3.to_scene(m3, cfg)
     if info['worst_rotation_error'] > 0.002:

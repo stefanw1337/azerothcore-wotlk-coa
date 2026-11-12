@@ -330,7 +330,7 @@ def flat_mesh(m3, keep_region=None):
                 rows, cols, frame = cell
                 frame %= rows * cols
                 uv = ((min(max(uv[0], 0.0), 1.0) + frame % cols) / cols, (min(max(uv[1], 0.0), 1.0) + frame // cols) / rows)
-            vertices.append(dict(pos=v['pos'], normal=v['normal'], uv=uv,
+            vertices.append(dict(pos=v['pos'], normal=v['normal'], uv=uv, region=reg['index'], wave=v.get('wave'),
                                  bones=[b for b, _ in infl] + [0] * (4 - len(infl)),
                                  weights=weights + [0] * (4 - len(infl))))
         groups.append(dict(region=reg['index'], material=reg['materials'][0],
@@ -362,6 +362,17 @@ def _track(local, p):
     return dict(translation=tuple(translation), rotation=mat_to_quat(rot), scale=tuple(scale)), err
 
 
+def ripple(normal, side, sway, f, edge):
+    def correction(t, duration):
+        cycles = max(1, round(duration / 1400.0))
+        phase = 2 * math.pi * (cycles * t / max(duration, 1) - 1.2 * f) + (0.7 if edge else 0.0)
+        reach = sway * f ** 1.4
+        out = np.eye(4)
+        out[:3, 3] = normal * reach * math.sin(phase) + side * 0.4 * reach * math.cos(phase)
+        return out
+    return correction
+
+
 def bake_sequence(m3, seq, conv, pivots, fps=30, extra=()):
     duration = seq['duration'] if seq else 1000
     step = 1000.0 / fps
@@ -373,6 +384,9 @@ def bake_sequence(m3, seq, conv, pivots, fps=30, extra=()):
     all_skins = [[conv @ s @ inv_conv for s in skin_matrices(m3, seq, t)] for t in times]
     corrections = []
     for source, p, turn in extra:
+        if callable(turn):
+            corrections.append(turn)
+            continue
         if turn is not None:
             correction = np.eye(4)
             correction[:3, :3] = turn
@@ -399,6 +413,8 @@ def bake_sequence(m3, seq, conv, pivots, fps=30, extra=()):
             worst = max(worst, err)
             tracks.append(track)
         for (source, p, _), correction in zip(extra, corrections):
+            if callable(correction):
+                correction = correction(t, duration)
             track, _ = _track(skins[source] @ correction, p)
             tracks.append(track)
         frames.append((t, tracks, skins))
@@ -583,6 +599,18 @@ def to_scene(m3, cfg):
             aim = aim @ rx @ ry
         emitters.append((len(m3['bones']) + len(extra), ps))
         extra.append((ps['bone'], np.array(pivots[ps['bone']]), aim))
+    wave_bone = {}
+    for region_index, w in cfg.get('waves', {}).items():
+        normal, side = rot3n @ np.array(w['normal']), rot3n @ np.array(w['side'])
+        for row in range(w['rows']):
+            for edge in (0, 1):
+                at = [conv @ np.array(v['pos'] + (1.0,)) for v in vertices
+                      if v['region'] == region_index and v['wave'] == (row, edge)]
+                if not at:
+                    continue
+                wave_bone[(region_index, row, edge)] = len(m3['bones']) + len(extra)
+                extra.append((w['bone'], np.mean(at, axis=0)[:3],
+                              ripple(normal, side, w['sway'] * cfg.get('scale', 1.0), row / (w['rows'] - 1), edge)))
     bone_count = len(m3['bones']) + len(extra)
     sequences, per_bone, worst = [], [dict(translation=[], rotation=[], scale=[]) for _ in range(bone_count)], 0.0
     report = []
@@ -635,11 +663,16 @@ def to_scene(m3, cfg):
                                         scale=channel(per_bone[bi]['scale'], '3f'))))
     for k, (source, p, turn) in enumerate(extra):
         bi = len(m3['bones']) + k
-        bones.append(dict(name=m3['bones'][source]['name'] + ('_Level' if turn is None else f'_Emitter{k}'), parent=-1, pivot=list(p), flags=0x200, key=-1,
+        kind = '_Level' if turn is None else f'_Wave{k}' if callable(turn) else f'_Emitter{k}'
+        bones.append(dict(name=m3['bones'][source]['name'] + kind, parent=-1, pivot=list(p), flags=0x200, key=-1,
                           channels=dict(translation=channel(per_bone[bi]['translation'], '3f'),
                                         rotation=channel(per_bone[bi]['rotation'], '4h', encode_quaternion),
                                         scale=channel(per_bone[bi]['scale'], '3f'))))
 
+    for v in vertices:
+        bone = wave_bone.get((v['region'], *v['wave'])) if v.get('wave') else None
+        if bone is not None:
+            v['bones'], v['weights'] = [bone, 0, 0, 0], [255, 0, 0, 0]
     out_vertices = []
     for v in vertices:
         p = conv @ np.array(v['pos'] + (1.0,))
