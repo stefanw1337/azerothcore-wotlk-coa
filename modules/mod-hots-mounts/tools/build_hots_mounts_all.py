@@ -19,6 +19,8 @@ REPLACEABLE = (11, 12, 13)
 VISIBLE = 0x80000000
 TWO_SIDED, UNSHADED = 0x8, 0x10
 MAX_TEXTURE = 1024
+WATER_TEXTURES = ('_wave_diff',)
+WATER_OPACITY = 0.6
 TUNING = {}
 
 
@@ -125,7 +127,8 @@ def material_passes(m3, used, textures_folder, report):
                 report['notes'].append(f'{index} {mat["name"]}: effect material drawn additive with {effect}')
                 out[index] = (effect, '', material, None)
                 continue
-        if have(alpha) or not have(diffuse):
+        water = any(part in diffuse for part in WATER_TEXTURES)
+        if have(alpha) or not have(diffuse) or water:
             colour = None
             if not have(diffuse) and not have(emissive):
                 for key in ('diffuse_color', 'emissive_color'):
@@ -147,6 +150,10 @@ def material_passes(m3, used, textures_folder, report):
                 material.update(blend='opaque', unlit=True, two_sided=True)
                 bake['opaque'] = True
                 report['notes'].append(f'{index} {mat["name"]}: emissive-only body drawn as an opaque, unlit base')
+            if water:
+                material.update(blend='alpha', two_sided=True)
+                bake['opacity'] = WATER_OPACITY
+                report['notes'].append(f'{index} {mat["name"]}: water sheet drawn see-through')
             name = f'{m3["name_key"]}_m{index}_baked.dds'
             out[index] = (name, emissive if have(diffuse) and have(emissive) else '', material, bake)
             continue
@@ -158,6 +165,13 @@ def bake_texture(recipe, textures_folder, target_png):
     from PIL import Image
     if recipe['source']:
         image = Image.open(textures_folder / recipe['source']).convert('RGBA')
+    elif recipe.get('sprite'):
+        import numpy as np
+        r = np.hypot(*np.meshgrid(np.linspace(-1, 1, 64), np.linspace(-1, 1, 64)))
+        pixels = np.zeros((64, 64, 4), np.uint8)
+        pixels[..., :3] = recipe['colour'][:3]
+        pixels[..., 3] = (np.clip(1.0 - r, 0.0, 1.0) ** 1.5 * 255).astype(np.uint8)
+        image = Image.fromarray(pixels, 'RGBA')
     else:
         image = Image.new('RGBA', (256, 256), tuple(recipe['colour'][:3]) + (255,))
     if recipe['alpha']:
@@ -167,6 +181,8 @@ def bake_texture(recipe, textures_folder, target_png):
         image.putalpha(mask)
     if recipe.get('opaque'):
         image.putalpha(255)
+    if recipe.get('opacity'):
+        image.putalpha(image.getchannel('A').point(lambda a: int(a * recipe['opacity'])))
     if recipe.get('normalize') or recipe.get('fade'):
         import numpy as np
         pixels = np.asarray(image).astype(np.float32)
@@ -199,7 +215,8 @@ def effect_recipe(mat, textures_folder):
                         if have(k) and not k.endswith(('_norm.dds', '_spec.dds'))), '')
     source = diffuse if have(diffuse) else (emissive if have(emissive) else '')
     if not source and not have(alpha):
-        return None
+        colour = next((c for c in (mat.get('emissive_color'), mat.get('diffuse_color')) if c and any(c[:3])), None)
+        return dict(source='', colour=tuple(colour[:3]) + (255,), alpha='', sprite=True) if colour else None
     return dict(source=source, colour=(255, 255, 255, 255), alpha=alpha if have(alpha) else '', normalize=True)
 
 
@@ -337,7 +354,8 @@ def build_model(group, models_folder, textures_folder, out, previews):
         texture = effect_texture(ps['material'])
         if texture is None:
             continue
-        effect_particles.append(dict(ps, texture=texture,
+        sprite = effect_recipe(m3['materials'][ps['material']], textures_folder).get('sprite')
+        effect_particles.append(dict(ps, texture=texture, **(dict(rows=1, cols=1) if sprite else {}),
                                      blend=EFFECT_BLENDS.get(m3['materials'][ps['material']]['blend'], 'alpha')))
     if m3['particles'] or m3['ribbons']:
         report['notes'].append(f'effects: {len(effect_particles)}/{len(m3["particles"])} particle systems, '
