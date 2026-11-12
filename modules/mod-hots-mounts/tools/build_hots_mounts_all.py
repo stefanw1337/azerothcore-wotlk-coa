@@ -236,11 +236,31 @@ def ribbon_regions(m3, scale_unused=None):
     return out
 
 
+PRINTED_BOTH_SIDES = {'MountDollarBill'}
+
+
+def print_both_sides(m3):
+    import numpy as np
+    for region in m3['regions']:
+        top = [v for v in region['vertices'] if v['normal'][2] > 0.5]
+        under = [v for v in region['vertices'] if v['normal'][2] < -0.5]
+        if len(top) < 3 or not under:
+            continue
+        where = np.array([[v['pos'][0], v['pos'][1], 1.0] for v in top])
+        fit, *_ = np.linalg.lstsq(where, np.array([v['uv'] for v in top]), rcond=None)
+        middle = (min(v['pos'][1] for v in top) + max(v['pos'][1] for v in top)) / 2
+        for v in under:
+            u, w = np.array([v['pos'][0], 2 * middle - v['pos'][1], 1.0]) @ fit
+            v['uv'] = (float(u), float(w))
+
+
 def build_model(group, models_folder, textures_folder, out, previews):
     started = time.time()
     model_id = group['model_id']
     report = dict(model_id=model_id, model=group['model'], skipped_materials=[], missing_textures=[], notes=[])
     m3 = hots_m3.read(models_folder / group['model'], [models_folder / a for a in group['anims']])
+    if model_id in PRINTED_BOTH_SIDES:
+        print_both_sides(m3)
     m3['name_key'] = model_id.lower()
     used = sorted({mi for r in m3['regions'] for mi in r['materials']})
     mats = material_passes(m3, used, textures_folder, report)
