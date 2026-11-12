@@ -19,6 +19,7 @@ local PROFILES = {
     { name = "Seeker", scale = 0.8, yaw = 15, pitch = 0, roll = 0, x = 0, y = 0, z = -0.2 },
     { name = "Crimson Hare", scale = 0.8, yaw = 15, pitch = 0, roll = 0, x = 0, y = 0, z = -0.5 },
     { name = "Phoenix", scale = 0.8, yaw = 15, pitch = 0, roll = 0, x = -0.2, y = -0.1, z = -0.9 },
+    { name = "Charger", scale = 0.8, yaw = 15, pitch = 0, roll = 0, x = -0.2, y = -0.1, z = -0.4 },
     { name = "Surfboard", scale = 1, yaw = 10, pitch = 0, roll = -90, x = 0, y = -0.6, z = 0.5 },
     { name = "Turtle", scale = 0.5, yaw = 10, pitch = 0, roll = -90, x = 0, y = -0.5, z = 0.5 },
     { name = "Reaver", scale = 0.7, yaw = 15, pitch = 0, roll = 0, x = -0.4, y = -0.2, z = -0.2 },
