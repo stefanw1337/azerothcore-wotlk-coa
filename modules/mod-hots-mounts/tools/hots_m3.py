@@ -156,6 +156,10 @@ def _material_bitmaps(sl, model):
                         entry[key + '_color'] = (int(c.r), int(c.g), int(c.b), int(c.a))
                     except AttributeError:
                         pass
+                    try:
+                        entry[key + '_multiply'] = float(layers[0].color_multiply.default)
+                    except AttributeError:
+                        pass
         elif ref.type == 12:
             mat = sl[model.materials_buffer][ref.material_index]
             entry['name'] = _string(sl, mat.name)

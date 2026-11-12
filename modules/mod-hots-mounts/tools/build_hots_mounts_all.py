@@ -150,6 +150,9 @@ def material_passes(m3, used, textures_folder, report):
                 material.update(blend='opaque', unlit=True, two_sided=True)
                 bake['opaque'] = True
                 report['notes'].append(f'{index} {mat["name"]}: emissive-only body drawn as an opaque, unlit base')
+            fade = mat.get('alpha_multiply', 1.0) if bake['alpha'] else 1.0
+            if 0.0 < fade < 1.0:
+                bake['opacity'] = fade
             if water:
                 material.update(blend='alpha', two_sided=True)
                 bake['opacity'] = WATER_OPACITY
