@@ -12,6 +12,10 @@
 # Make the script module list available in the current scope
 GetApplicationsList(APPLICATIONS_BUILD_LIST)
 
+if (MSVC AND CMAKE_GENERATOR MATCHES "Ninja")
+  set(CMAKE_NINJA_FORCE_RESPONSE_FILE ON)
+endif()
+
 if (APPS_BUILD STREQUAL "none")
   set(APPS_DEFAULT_BUILD "disabled")
 else()

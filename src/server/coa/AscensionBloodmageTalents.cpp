@@ -103,7 +103,8 @@ enum BloodmageTalentSpells : uint32
     SPELL_INFUSE_UNLEASH = 681404,
     SPELL_DARK_FRENZY = 704644,
     SPELL_DARK_FRENZY_GCD = 804845,
-    SPELL_CRIMSON_SCION_INSTANT = 806425
+    SPELL_CRIMSON_SCION_INSTANT = 806425,
+    SPELL_SATURATING_SUTURES_COST = 504137
 };
 
 constexpr uint32 NPC_BLOOD_ORB = 315303;
@@ -225,11 +226,18 @@ bool HasCursedForm(Player const* player, Aura const* ignored)
     return false;
 }
 
-bool CursedFormHidesWeapons(Player const* player)
+bool IsMortalAbilityForm(uint32 form)
+{
+    return std::find(std::begin(MortalAbilityForms), std::end(MortalAbilityForms), form) !=
+        std::end(MortalAbilityForms);
+}
+
+bool HasWeaponHidingForm(Player const* player, Aura const* ignored = nullptr)
 {
     for (uint32 form : CursedForms)
-        if (player->HasAura(form, player->GetGUID()) && !sScriptMgr->OnPlayerKeepsOwnLook(player, form))
-            return true;
+        if (!IsMortalAbilityForm(form) && !sScriptMgr->OnPlayerKeepsOwnLook(player, form))
+            if (Aura const* aura = player->GetAura(form, player->GetGUID()); aura && aura != ignored)
+                return true;
     return false;
 }
 
@@ -463,7 +471,8 @@ public:
             SyncCursedFormRequirement(player);
             SyncDarkFrenzy(player);
         }
-        if (IsCursedForm(aura->GetId()) && !sScriptMgr->OnPlayerKeepsOwnLook(player, aura->GetId()))
+        if (IsCursedForm(aura->GetId()) && !IsMortalAbilityForm(aura->GetId()) &&
+            !sScriptMgr->OnPlayerKeepsOwnLook(player, aura->GetId()))
             UpdateCursedFormWeapons(player, true);
         if (aura->GetId() == SPELL_ETERNAL_CURSE)
         {
@@ -503,7 +512,7 @@ public:
             SyncCursedFormRequirement(player);
             SyncDarkFrenzy(player);
         }
-        if (IsCursedForm(aura->GetId()) && !HasCursedForm(player, aura))
+        if (IsCursedForm(aura->GetId()) && !HasWeaponHidingForm(player, aura))
             UpdateCursedFormWeapons(player, false);
         if (aura->GetId() == SPELL_ETERNAL_CURSE)
         {
@@ -571,7 +580,7 @@ public:
         if (!player || !UsesAscensionClassMechanics(player, CLASS_SON_OF_ARUGAL))
             return;
         if (std::find(std::begin(CursedFormWeaponSlots), std::end(CursedFormWeaponSlots), slot) ==
-            std::end(CursedFormWeaponSlots) || !CursedFormHidesWeapons(player))
+            std::end(CursedFormWeaponSlots) || !HasWeaponHidingForm(player))
             return;
         ClearVisibleWeapon(player, slot);
     }
@@ -810,7 +819,7 @@ class aura_ascension_bloodmage_animated_blood_leech : public AuraScript
         Unit* actor = event.GetActor();
         Unit* victim = event.GetActionTarget();
         Player* owner = actor ? ObjectAccessor::GetPlayer(*actor, actor->GetOwnerGUID()) : nullptr;
-        return owner && owner->getClass() == CLASS_SON_OF_ARUGAL && owner->IsAlive() &&
+        return owner && UsesAscensionClassMechanics(owner, CLASS_SON_OF_ARUGAL) && owner->IsAlive() &&
             victim && victim != owner && !owner->IsFriendlyTo(victim) && damage && damage->GetDamage();
     }
 
@@ -1610,6 +1619,20 @@ public:
 
         ApplyBloodmageConditionalContracts(info);
 
+        if (info->Id == AscensionBloodmage::EmpoweredIndicator && info->Effects[EFFECT_1].IsAura(SPELL_AURA_DUMMY))
+            if (SpellInfo const* mend = sSpellMgr->GetSpellInfo(AscensionBloodmage::EmpoweredMend))
+                if (SpellEffectInfo const& instant = mend->Effects[EFFECT_1];
+                    instant.IsAura(SPELL_AURA_ADD_PCT_MODIFIER) && instant.MiscValue == SPELLMOD_CASTING_TIME)
+                {
+                    SpellEffectInfo& effect = info->Effects[EFFECT_1];
+                    effect.ApplyAuraName = instant.ApplyAuraName;
+                    effect.MiscValue = instant.MiscValue;
+                    effect.BasePoints = instant.BasePoints;
+                    effect.DieSides = instant.DieSides;
+                    effect.RealPointsPerLevel = instant.RealPointsPerLevel;
+                    effect.SpellClassMask = instant.SpellClassMask;
+                }
+
         if (info->Id == SPELL_BLOOD_SCENT &&
             info->Effects[EFFECT_0].ApplyAuraName == SPELL_AURA_ADD_FLAT_MODIFIER &&
             info->Effects[EFFECT_0].MiscValue == SPELLMOD_EFFECT2)
@@ -1683,18 +1706,18 @@ class spell_ascension_bloodmage_sanguine_mend : public SpellScript
 
     bool Validate(SpellInfo const*) override
     {
-        return ValidateSpellInfo({SPELL_CRIMSON_SCION_INSTANT});
+        return ValidateSpellInfo({SPELL_CRIMSON_SCION_INSTANT, SPELL_SATURATING_SUTURES_COST});
     }
 
-    void ConsumeCrimsonScion()
+    void ConsumeMendBuffs()
     {
-        if (GetCaster()->HasAura(SPELL_CRIMSON_SCION_INSTANT))
-            GetCaster()->RemoveAurasDueToSpell(SPELL_CRIMSON_SCION_INSTANT);
+        GetCaster()->RemoveAurasDueToSpell(SPELL_CRIMSON_SCION_INSTANT);
+        GetCaster()->RemoveAurasDueToSpell(SPELL_SATURATING_SUTURES_COST);
     }
 
     void Register() override
     {
-        AfterCast += SpellCastFn(spell_ascension_bloodmage_sanguine_mend::ConsumeCrimsonScion);
+        AfterCast += SpellCastFn(spell_ascension_bloodmage_sanguine_mend::ConsumeMendBuffs);
     }
 };
 }

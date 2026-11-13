@@ -15,6 +15,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "AscensionBazaarTokenReserve.h"
 #include "Guild.h"
 #include "Bag.h"
 #include "CalendarMgr.h"
@@ -776,6 +777,14 @@ bool Guild::PlayerMoveItemData::InitItem()
             m_pPlayer->SendEquipError(EQUIP_ERR_ITEMS_CANT_BE_SWAPPED, m_pItem);
             m_pItem = nullptr;
         }
+        // Elite Warchest Bazaar Tokens are Realm Bound: the account must keep its reserve.
+        else if (m_pItem->GetEntry() == AscensionBazaarTokenReserve::TOKEN_ITEM
+            && !AscensionBazaarTokenReserve::CanGiveAway(m_pPlayer, m_pItem->GetCount()))
+        {
+            AscensionBazaarTokenReserve::SendRefusal(m_pPlayer);
+            m_pPlayer->SendEquipError(EQUIP_ERR_ITEMS_CANT_BE_SWAPPED, m_pItem);
+            m_pItem = nullptr;
+        }
     }
     return (m_pItem != nullptr);
 }
@@ -1462,9 +1471,18 @@ void Guild::HandleBuyBankTab(WorldSession* session, uint8 tabId)
 
     player->ModifyMoney(-int32(tabCost));
 
+    HandleUnlockBankTab(session);
+}
+
+bool Guild::HandleUnlockBankTab(WorldSession* session)
+{
+    if (_GetPurchasedTabsSize() >= GUILD_BANK_MAX_TABS)
+        return false;
+
     _CreateNewBankTab();
     _BroadcastEvent(GE_BANK_TAB_PURCHASED);
     SendPermissions(session); /// Hack to force client to update permissions
+    return true;
 }
 
 void Guild::HandleInviteMember(WorldSession* session, std::string const& name)
@@ -2441,6 +2459,63 @@ void Guild::SetBankTabText(uint8 tabId, std::string_view text)
 }
 
 // Private methods
+bool Guild::EnsureFirstBankTab()
+{
+    if (_GetPurchasedTabsSize() != 0)
+        return false;
+
+    _CreateNewBankTab();
+    return true;
+}
+
+Item const* Guild::GetBankItem(uint8 tabId, uint8 slotId) const
+{
+    if (tabId >= m_bankTabs.size() || slotId >= GUILD_BANK_MAX_SLOTS)
+        return nullptr;
+    return m_bankTabs[tabId].GetItem(slotId);
+}
+
+void Guild::EnsureRankBankRights(uint8 rankId, uint8 minRights, uint32 minSlotsPerDay, uint32 minMoneyPerDay)
+{
+    if (rankId >= _GetRanksSize())
+        return;
+
+    RankInfo* rankInfo = GetRankInfo(rankId);
+    if (!rankInfo)
+        return;
+
+    for (uint8 tabId = 0; tabId < _GetPurchasedTabsSize(); ++tabId)
+    {
+        int8 currentRights = rankInfo->GetBankTabRights(tabId);
+        int32 currentSlots = rankInfo->GetBankTabSlotsPerDay(tabId);
+
+        bool needsUpdate = false;
+        uint8 newRights = currentRights;
+        uint32 newSlots = currentSlots > 0 ? uint32(currentSlots) : minSlotsPerDay;
+
+        if ((currentRights & minRights) != minRights)
+        {
+            newRights |= minRights;
+            needsUpdate = true;
+        }
+
+        if (currentSlots == 0)
+        {
+            newSlots = minSlotsPerDay;
+            needsUpdate = true;
+        }
+
+        if (needsUpdate)
+        {
+            GuildBankRightsAndSlots rightsAndSlots(tabId, newRights, newSlots);
+            rankInfo->SetBankTabSlotsAndRights(rightsAndSlots, true);
+        }
+    }
+
+    if (minMoneyPerDay > 0 && rankInfo->GetBankMoneyPerDay() == 0)
+        rankInfo->SetBankMoneyPerDay(minMoneyPerDay);
+}
+
 void Guild::_CreateNewBankTab()
 {
     uint8 tabId = _GetPurchasedTabsSize();                      // Next free id

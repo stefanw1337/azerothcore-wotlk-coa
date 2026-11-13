@@ -105,6 +105,7 @@ bool RunCase(int stage)
                 wire = wire && world.Pending();
                 if (stage == 4)
                 {
+                    std::this_thread::sleep_for(2s);
                     world.Complete();
                     wire = wire && ReadPrompt(client, "done\r\nAC>");
                 }

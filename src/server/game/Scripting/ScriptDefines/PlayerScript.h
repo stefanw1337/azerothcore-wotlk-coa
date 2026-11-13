@@ -268,6 +268,9 @@ enum PlayerHook
     PLAYERHOOK_ON_GET_SHAPESHIFT_MODEL,
     PLAYERHOOK_ON_LOAD_FOREIGN_SKILL,
     PLAYERHOOK_ON_GET_NAME_QUERY_RACE,
+    PLAYERHOOK_CAN_LFG_TELEPORT,
+    PLAYERHOOK_ON_HOLDS_TANK_OR_HEALER_ROLE,
+    PLAYERHOOK_ON_SAVE_INVENTORY,
     PLAYERHOOK_END
 };
 
@@ -390,6 +393,10 @@ public:
     // returns true.
     virtual bool OnPlayerHasNoBonusExperience(Player* /*player*/) { return false; }
 
+    // Whether the player's active specialization tanks or heals. Vanilla 5-player dungeon bosses never use
+    // sleep, charm or possession on such a player (BossControlTargeting.h).
+    virtual bool OnPlayerHoldsTankOrHealerRole(Player const* /*player*/) { return false; }
+
     // Called when a player, or a unit they control, lands the killing blow on a player that counted as an honorable kill
     virtual void OnPlayerHonorableKillingBlow(Player* /*killer*/, Player* /*victim*/) { }
 
@@ -456,6 +463,7 @@ public:
 
     // Called when a player is about to be saved.
     virtual void OnPlayerSave(Player* /*player*/) { }
+    virtual void OnPlayerSaveInventory(Player* /*player*/, CharacterDatabaseTransaction /*trans*/) { }
 
     virtual void OnPlayerNormalizeActionButtonSpell(Player* /*player*/, uint32& /*action*/, bool /*loading*/) { }
 
@@ -776,6 +784,8 @@ public:
     [[nodiscard]] virtual bool OnPlayerNotSetArenaTeamInfoField(Player* /*player*/, uint8 /*slot*/, ArenaTeamInfoType /*type*/, uint32 /*value*/) { return true; } // Whats that?
 
     [[nodiscard]] virtual bool OnPlayerCanJoinLfg(Player* /*player*/, uint8 /*roles*/, std::set<uint32>& /*dungeons*/, std::string const& /*comment*/) { return true; }
+
+    [[nodiscard]] virtual bool OnPlayerCanLfgTeleport(Player* /*player*/) { return true; }
 
     [[nodiscard]] virtual bool OnPlayerCanEnterMap(Player* /*player*/, MapEntry const* /*entry*/, InstanceTemplate const* /*instance*/, MapDifficulty const* /*mapDiff*/, bool /*loginCheck*/) { return true; }
     virtual void OnResolveDungeonAccessLevels(Player const* /*player*/, uint32 /*mapId*/, Difficulty /*difficulty*/, uint8& /*minLevel*/, uint8& /*maxLevel*/) { }

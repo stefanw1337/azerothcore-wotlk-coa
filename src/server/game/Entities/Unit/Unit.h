@@ -1619,6 +1619,8 @@ public:
     // we can skip channeled or delayed checks using flags
     [[nodiscard]] bool IsNonMeleeSpellCast(bool withDelayed, bool skipChanneled = false, bool skipAutorepeat = false, bool isAutoshoot = false, bool skipInstant = true, bool skipGeneric = false) const;
     [[nodiscard]] bool HasManastormMovementGrace() const;
+    void GrantFormLandingGrace(Milliseconds duration);
+    [[nodiscard]] bool HasFormLandingGrace() const;
 
     // set withDelayed to true to interrupt delayed spells too
     // delayed+channeled spells are always interrupted
@@ -1755,8 +1757,8 @@ public:
     [[nodiscard]] bool CanCastSpellWhileMoving(SpellInfo const* info) const;
     [[nodiscard]] bool IsActionPreventedByCasting() const;
     [[nodiscard]] bool CanCastDuringChannel(SpellInfo const* info) const;
-    [[nodiscard]] bool CanDefendDuringChannel() const;
-    [[nodiscard]] bool CanDefendDuringCast() const;
+    [[nodiscard]] bool CanDefendDuringChannel(Unit const* attacker = nullptr) const;
+    [[nodiscard]] bool CanDefendDuringCast(Unit const* attacker = nullptr) const;
 
     [[nodiscard]] virtual bool CanEnterWater() const = 0;
     [[nodiscard]] virtual bool CanSwim() const;
@@ -1922,6 +1924,7 @@ public:
     // Mount methods
     [[nodiscard]] bool IsMounted() const { return HasUnitFlag(UNIT_FLAG_MOUNT); }
     [[nodiscard]] uint32 GetMountID() const { return GetUInt32Value(UNIT_FIELD_MOUNTDISPLAYID); }
+    [[nodiscard]] bool IsOnDivineSteed() const;
     void Mount(uint32 mount, uint32 vehicleId = 0, uint32 creatureEntry = 0);
     void Dismount();
     [[nodiscard]] bool IsInDisallowedMountForm() const;
@@ -2288,6 +2291,7 @@ private:
     uint32 _oldFactionId;           ///< faction before charm
     bool _isWalkingBeforeCharm;     ///< Are we walking before we were charmed?
     bool _isCombatDisallowed;
+    Milliseconds _formLandingGraceEnd{0};
 
     uint32 _lastExtraAttackSpell;
     std::unordered_map<ObjectGuid /*guid*/, uint32 /*count*/> extraAttacksTargets;

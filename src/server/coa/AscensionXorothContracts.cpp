@@ -16,7 +16,9 @@ namespace
 enum FleshHook : uint32
 {
     SPELL_FLESH_HOOK_PULL = 800605,
-    SPELL_RANGE_THIRTY_YARDS = 4
+    SPELL_RANGE_THIRTY_YARDS = 4,
+    SPELL_DRAG_THROUGH_HELL = 804773,
+    SPELL_RANGE_ANYWHERE = 13
 };
 }
 
@@ -32,6 +34,8 @@ void ApplyContracts(SpellInfo* info)
         info->DmgClass = SPELL_DAMAGE_CLASS_NONE;
         info->RangeEntry = sSpellRangeStore.LookupEntry(SPELL_RANGE_THIRTY_YARDS);
     }
+    if (id == SPELL_DRAG_THROUGH_HELL)
+        info->RangeEntry = sSpellRangeStore.LookupEntry(SPELL_RANGE_ANYWHERE);
     if (id == 520440 || id == 520441)
         for (auto& effect : info->Effects)
             effect.Effect = 0;
@@ -442,25 +446,13 @@ void ApplyContracts(SpellInfo* info)
         hit.TargetA = SpellImplicitTargetInfo(TARGET_UNIT_CASTER);
         hit.TargetB = SpellImplicitTargetInfo();
     }
-    if (id == 707232)
-        info->Effects[EFFECT_0].ApplyAuraName = SPELL_AURA_DUMMY;
-    if (id == 801063)
-    {
-        SpellEffectInfo& e = info->Effects[EFFECT_2];
-        e.Effect = SPELL_EFFECT_APPLY_AURA;
-        e.ApplyAuraName = SPELL_AURA_MOD_INCREASE_SPEED;
-        e.BasePoints = 0;
-        e.DieSides = 0;
-        e.TargetA = SpellImplicitTargetInfo(TARGET_UNIT_CASTER);
-        e.TargetB = SpellImplicitTargetInfo();
-    }
     if (id == 704954)
     {
         info->Effects[EFFECT_0].ApplyAuraName = SPELL_AURA_DUMMY;
         info->Effects[EFFECT_1].Effect = 0;
     }
     if (id == 704956)
-        info->Effects[EFFECT_0].SpellClassMask = flag96(0, 16, 0);
+        info->Effects[EFFECT_0].SpellClassMask = flag96(0, 0, 16);
     if (id == 520290)
         info->Effects[EFFECT_0].ApplyAuraName = SPELL_AURA_DUMMY;
     if (id == 680900)
@@ -563,7 +555,7 @@ class xoroth_scaling : public UnitScript
             }
         if (Named(info, 801016) && index == 1 && player->HasAura(92100))
             value *= 2;
-        if (info->Id == 804353 && index == 1)
+        if (Named(info, 804353) && index == 1)
             value += player->GetShieldBlockValue();
         if (info->Id == 801064 && index == 0)
             value += player->GetUInt32Value(PLAYER_FIELD_COMBAT_RATING_1 + CR_DEFENSE_SKILL) * .20f;

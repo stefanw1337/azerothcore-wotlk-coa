@@ -162,6 +162,7 @@ bool Player::UpdateStats(Stats stat)
     {
         case STAT_STRENGTH:
             UpdateShieldBlockValue();
+            UpdateArmor();                                  //SPELL_AURA_MOD_RESISTANCE_OF_STAT_PERCENT, strength term
             break;
         case STAT_AGILITY:
             UpdateArmor();
@@ -244,6 +245,11 @@ bool Player::UpdateStats(Stats stat)
     }
 
     return true;
+}
+
+float Player::GetExactStatValue(Stats stat) const
+{
+    return GetTotalStatValue(stat, GetAscensionStatFromStatBonus(*this, stat));
 }
 
 void Player::ApplySpellPowerBonus(int32 amount, bool apply)
@@ -831,6 +837,7 @@ void Player::UpdateCritPercentage(WeaponAttackType attType)
     float value = GetBaseModValue(modGroup, FLAT_MOD) + GetBaseModValue(modGroup, PCT_MOD) + GetRatingBonusValue(cr);
     // Modify crit from weapon skill and maximized defense skill of same level victim difference
     value += (int32(GetWeaponSkillValue(attType)) - int32(GetMaxSkillValueForLevel())) * 0.04f;
+    value += GetTotalAuraModifierByMiscMask(SPELL_AURA_ASCENSION_MOD_CRIT_CHANCE, SPELL_SCHOOL_MASK_NORMAL);
 
     if (sConfigMgr->GetOption<bool>("Stats.Limits.Enable", false))
     {
@@ -1380,8 +1387,9 @@ bool Guardian::UpdateAllStats()
 
 void Guardian::UpdateArmor()
 {
-    if (GetOwner() && ((HasAura(805015) && GetOwner()->getClass() == CLASS_NECROMANCER) ||
-        (HasAura(707698) && GetOwner()->getClass() == CLASS_TINKER)))
+    if ((GetOwner() && ((HasAura(805015) && GetOwner()->getClass() == CLASS_NECROMANCER) ||
+        (HasAura(707698) && GetOwner()->getClass() == CLASS_TINKER))) ||
+        GetUInt32Value(UNIT_CREATED_BY_SPELL) == 290444)
         return Creature::UpdateArmor();
     float value = GetFlatModifierValue(UNIT_MOD_ARMOR, BASE_VALUE);
     value *= GetPctModifierValue(UNIT_MOD_ARMOR, BASE_PCT);
@@ -1393,8 +1401,9 @@ void Guardian::UpdateArmor()
 
 void Guardian::UpdateMaxHealth()
 {
-    if (GetOwner() && ((HasAura(805015) && GetOwner()->getClass() == CLASS_NECROMANCER) ||
-        (HasAura(707698) && GetOwner()->getClass() == CLASS_TINKER)))
+    if ((GetOwner() && ((HasAura(805015) && GetOwner()->getClass() == CLASS_NECROMANCER) ||
+        (HasAura(707698) && GetOwner()->getClass() == CLASS_TINKER))) ||
+        GetUInt32Value(UNIT_CREATED_BY_SPELL) == 290444)
         return Creature::UpdateMaxHealth();
     UnitMods unitMod = UNIT_MOD_HEALTH;
     float stamina = std::max<float>(GetStat(STAT_STAMINA) - GetCreateStat(STAT_STAMINA), 0.0f);
@@ -1441,8 +1450,9 @@ void Guardian::UpdateMaxHealth()
 
 void Guardian::UpdateMaxPower(Powers power)
 {
-    if (GetOwner() && ((HasAura(805015) && GetOwner()->getClass() == CLASS_NECROMANCER) ||
-        (HasAura(707698) && GetOwner()->getClass() == CLASS_TINKER)))
+    if ((GetOwner() && ((HasAura(805015) && GetOwner()->getClass() == CLASS_NECROMANCER) ||
+        (HasAura(707698) && GetOwner()->getClass() == CLASS_TINKER))) ||
+        GetUInt32Value(UNIT_CREATED_BY_SPELL) == 290444)
         return Creature::UpdateMaxPower(power);
     UnitMods unitMod = UnitMods(static_cast<uint16>(UNIT_MOD_POWER_START) + power);
 
@@ -1479,8 +1489,9 @@ void Guardian::UpdateMaxPower(Powers power)
 void Guardian::UpdateAttackPowerAndDamage(bool ranged)
 {
     // Necromancy supplies weighted owner AP. Native guardian Strength must not overwrite that base on aura updates.
-    if (GetOwner() && ((HasAura(805015) && GetOwner()->getClass() == CLASS_NECROMANCER) ||
-        (HasAura(707698) && GetOwner()->getClass() == CLASS_TINKER)))
+    if ((GetOwner() && ((HasAura(805015) && GetOwner()->getClass() == CLASS_NECROMANCER) ||
+        (HasAura(707698) && GetOwner()->getClass() == CLASS_TINKER))) ||
+        GetUInt32Value(UNIT_CREATED_BY_SPELL) == 290444)
         return Creature::UpdateAttackPowerAndDamage(ranged);
     if (ranged)
         return;
@@ -1502,6 +1513,12 @@ void Guardian::UpdateAttackPowerAndDamage(bool ranged)
     float attPowerMod = GetFlatModifierValue(unitMod, TOTAL_VALUE);
     float attPowerMultiplier = GetPctModifierValue(unitMod, TOTAL_PCT) - 1.0f;
 
+    // Glyph of Felguard: the Felguard's total attack power +20%
+    if (GetStockPetEntry(GetEntry()) == NPC_FELGUARD)
+        if (Unit* owner = GetOwner())
+            if (AuraEffect const* glyph = owner->GetAuraEffectOfRankedSpellOrTwin(SPELL_GLYPH_OF_FELGUARD, EFFECT_0))
+                attPowerMultiplier += glyph->GetAmount() / 100.0f;
+
     //UNIT_FIELD_(RANGED)_ATTACK_POWER field
     SetInt32Value(UNIT_FIELD_ATTACK_POWER, (int32)base_attPower);
     //UNIT_FIELD_(RANGED)_ATTACK_POWER_MODS field
@@ -1515,8 +1532,9 @@ void Guardian::UpdateAttackPowerAndDamage(bool ranged)
 
 void Guardian::UpdateDamagePhysical(WeaponAttackType attType)
 {
-    if (GetOwner() && ((HasAura(805015) && GetOwner()->getClass() == CLASS_NECROMANCER) ||
-        (HasAura(707698) && GetOwner()->getClass() == CLASS_TINKER)))
+    if ((GetOwner() && ((HasAura(805015) && GetOwner()->getClass() == CLASS_NECROMANCER) ||
+        (HasAura(707698) && GetOwner()->getClass() == CLASS_TINKER))) ||
+        GetUInt32Value(UNIT_CREATED_BY_SPELL) == 290444)
         return Creature::UpdateDamagePhysical(attType);
     if (attType > BASE_ATTACK)
         return;

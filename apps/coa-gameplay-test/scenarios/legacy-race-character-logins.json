@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "name": "Legacy Thin Human and Leper Troll character starts survive updates",
+  "contract": [
+    "Custom races are enabled and the matching shipped DBC overlay is loaded; disabling their creation intentionally rejects these new-character probes.",
+    "Race 33/class 12 and race 45/class 30 are retained in the shipped ChrRaces DBC and can create native player objects after the corrective migration.",
+    "Both characters remain alive through world updates without rewriting an existing character row."
+  ],
+  "timeout_ms": 30000,
+  "location": {
+    "map": 0,
+    "x": -9168.72,
+    "y": -210.0,
+    "z": 88.0,
+    "o": 0
+  },
+  "players": [
+    {
+      "id": "thin",
+      "race": 33,
+      "class": 12,
+      "level": 60
+    },
+    {
+      "id": "leper",
+      "race": 45,
+      "class": 30,
+      "level": 60
+    }
+  ],
+  "creatures": [],
+  "steps": [
+    {
+      "action": "assert",
+      "label": "thin is a native level 60 character",
+      "actor": "thin",
+      "metric": "level",
+      "equals": 60
+    },
+    {
+      "action": "assert",
+      "label": "thin starts alive",
+      "actor": "thin",
+      "metric": "health",
+      "min": 1
+    },
+    {
+      "action": "assert",
+      "label": "leper is a native level 60 character",
+      "actor": "leper",
+      "metric": "level",
+      "equals": 60
+    },
+    {
+      "action": "assert",
+      "label": "leper starts alive",
+      "actor": "leper",
+      "metric": "health",
+      "min": 1
+    },
+    {
+      "action": "wait",
+      "ms": 3000
+    },
+    {
+      "action": "assert",
+      "label": "thin remains alive through later updates",
+      "actor": "thin",
+      "metric": "health",
+      "min": 1
+    },
+    {
+      "action": "assert",
+      "label": "leper remains alive through later updates",
+      "actor": "leper",
+      "metric": "health",
+      "min": 1
+    }
+  ]
+}

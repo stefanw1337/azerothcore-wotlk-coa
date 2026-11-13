@@ -122,6 +122,7 @@ class Context:
     allow_historical_sql: bool = False
 
     gameplay_copy_workers: int | None = None
+    gameplay_external_db_migrations: bool = False
 
 
 def absolute(value, base):
@@ -507,14 +508,23 @@ def configure_arguments(context):
     prefix = (context.root / 'env/dist').as_posix()
     return [*generator, '-DCMAKE_BUILD_TYPE=RelWithDebInfo', '-DAPPS_BUILD=world-only', '-DSCRIPTS=static',
             '-DMODULES=static', '-DBUILD_TESTING=ON', f'-DCMAKE_INSTALL_PREFIX={prefix}', *readline_arguments(),
-            *line_table_debug_arguments()]
+            *line_table_debug_arguments(), *linux_development_arguments(context.environment)]
 
 
 def line_table_debug_arguments(platform=sys.platform):
-    if platform != 'darwin':
+    if platform not in ('darwin', 'linux'):
         return []
     flags = '-O2 -g1 -DNDEBUG'
     return [f'-DCMAKE_C_FLAGS_RELWITHDEBINFO={flags}', f'-DCMAKE_CXX_FLAGS_RELWITHDEBINFO={flags}']
+
+
+def linux_development_arguments(environment, platform=sys.platform):
+    if platform != 'linux':
+        return []
+    thin_archives = [f'-DCMAKE_{language}_ARCHIVE_{step}=<CMAKE_AR> {flags} <TARGET> <LINK_FLAGS> <OBJECTS>'
+                     for language in ('C', 'CXX') for step, flags in (('CREATE', 'qcT'), ('APPEND', 'qT'))]
+    linker = ['-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold'] if find_program('mold', environment) else []
+    return ['-DWITH_GAME_UNITY_BUILD=ON', *thin_archives, *linker]
 
 
 def readline_arguments(platform=sys.platform, candidates=HOMEBREW_READLINE_DIRECTORIES):
@@ -800,6 +810,7 @@ def classify_harness(name, settings, environment, root):
 
 def harness_environment(context):
     environment = child_environment(context.environment)
+    environment['COA_TEST_BUILD_DIR'] = str(context.settings['build_directory'])
     if context.settings.get('dbc_directory'):
         environment['COA_DBC_DIR'] = str(context.settings['dbc_directory'])
     return environment
@@ -860,7 +871,7 @@ def resolve_scenarios(args):
         if value in known:
             selected.append(value)
         elif Path(value).is_file():
-            selected.append(scenario_file(value, rows))
+            selected.append(scenario_file(value, rows, args.gameplay_clock))
         else:
             raise ValueError(f'Unknown scenario (neither a catalog id nor a file): {value}')
     if filtered:
@@ -872,14 +883,14 @@ def resolve_scenarios(args):
     return [] if set(selected) == known else selected
 
 
-def scenario_file(value, rows):
+def scenario_file(value, rows, clock=REAL_CLOCK):
     resolved = Path(value).resolve()
     catalog_id = next((row['id'] for row in rows if (ROOT / row['path']).resolve() == resolved), None)
     if catalog_id:
         return catalog_id
     runner = gameplay_module('run')
     try:
-        runner.validate(runner.read_json(resolved))
+        runner.validate(runner.read_json(resolved), clock)
     except (OSError, ValueError, KeyError, TypeError) as error:
         raise ValueError(f'Invalid scenario file {value}: {error}') from None
     return str(resolved)
@@ -992,6 +1003,8 @@ def gameplay_command(context):
         command += ['--copy-workers', context.gameplay_copy_workers]
     if context.gameplay_real_pace_rerun:
         command.append('--real-pace-rerun')
+    if context.gameplay_external_db_migrations:
+        command.append('--external-db-migrations')
     if context.world_databases:
         command.append(WORLD_DATABASE_FLAGS[context.world_databases])
     if context.scenarios:
@@ -1296,6 +1309,8 @@ def parser():
                        help='Gameplay: disposable database copies instead of the world-cache slots')
     world.add_argument('--refresh-world', dest='world_databases', action='store_const', const='refresh',
                        help='Gameplay: replace each world-cache slot on first use')
+    result.add_argument('--gameplay-external-db-migrations', action='store_true',
+                        help='Gameplay: use externally migrated packaged databases; require native updates disabled')
     result.add_argument('--plan', action='store_true', help='Print the resolved plan as JSON and execute nothing')
     return result
 
@@ -1381,7 +1396,7 @@ def prepare(args, root, environment):
     scenarios = resolve_scenarios(args) if 'gameplay' in stages else []
     context = Context(root, raw, settings, output, stages, jobs, gameplay_jobs, args.gameplay_clock, gameplay_lanes,
                       args.base, scenarios, harness, environment, args.world_databases,
-                      gameplay_db_workers(args, raw), args.gameplay_real_pace_rerun, args.allow_historical_sql, raw.get('gameplay_copy_workers'))
+                      gameplay_db_workers(args, raw), args.gameplay_real_pace_rerun, args.allow_historical_sql, raw.get('gameplay_copy_workers'), args.gameplay_external_db_migrations)
     check_command_length(context)
     if not args.plan:
         context.output = claim_output(requested, root)

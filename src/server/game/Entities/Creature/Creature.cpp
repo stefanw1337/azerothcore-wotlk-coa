@@ -25,6 +25,7 @@
 #include "CreatureGroups.h"
 #include "MoveSpline.h"
 #include "DatabaseEnv.h"
+#include "FleeingMovementGenerator.h"
 #include "Formulas.h"
 #include "GameEventMgr.h"
 #include "GameTime.h"
@@ -41,6 +42,7 @@
 #include "PoolMgr.h"
 #include "ScriptMgr.h"
 #include "ScriptedGossip.h"
+#include "SmartAI.h"
 #include "SpellAuraDefines.h"
 #include "SpellAuraEffects.h"
 #include "SpellMgr.h"
@@ -1135,12 +1137,19 @@ void Creature::DoFleeToGetAssistance()
         SetNoSearchAssistance(true);
         UpdateSpeed(MOVE_RUN, false);
 
+        bool const walk = sWorld->getBoolConfig(CONFIG_CREATURE_FAMILY_FLEE_WALK);
         if (!creature)
+        {
             //SetFeared(true, GetVictim()->GetGUID(), 0, sWorld->getIntConfig(CONFIG_CREATURE_FAMILY_FLEE_DELAY));
             //TODO: use 31365
             SetControlled(true, UNIT_STATE_FLEEING, GetVictim());
+            MovementGenerator* controlled = GetMotionMaster()->GetMotionSlot(MOTION_SLOT_CONTROLLED);
+            if (auto* flee = dynamic_cast<FleeingMovementGenerator<Creature>*>(controlled); flee && walk)
+                flee->SetWalk(true);
+        }
         else
-            GetMotionMaster()->MoveSeekAssistance(creature->GetPositionX(), creature->GetPositionY(), creature->GetPositionZ());
+            GetMotionMaster()->MoveSeekAssistance(creature->GetPositionX(), creature->GetPositionY(), creature->GetPositionZ(),
+                walk ? FORCED_MOVEMENT_WALK : FORCED_MOVEMENT_NONE);
     }
 }
 
@@ -1413,10 +1422,30 @@ void Creature::SetLootRecipient(Unit* unit, bool withGroup)
 
 bool Creature::IsSharedQuestTarget() const
 {
-    CreatureTemplate const* creatureTemplate = GetCreatureTemplate();
     Map const* map = FindMap();
-    return creatureTemplate && (creatureTemplate->type_flags & CREATURE_TYPE_FLAG_QUEST_BOSS)
-        && map && map->IsWorldMap() && !IsControlledByPlayer();
+    return map && map->IsWorldMap() && !IsControlledByPlayer()
+        && sObjectMgr->GetQuestTargetRespawn(GetEntry()) == QuestTargetRespawn::Named;
+}
+
+uint32 Creature::GetQuestTargetRespawnCap() const
+{
+    Map const* map = FindMap();
+    if (!map || !map->IsWorldMap() || IsControlledByPlayer() || isWorldBoss())
+        return 0;
+
+    uint32 const longRespawn = sWorld->getIntConfig(CONFIG_RESPAWN_QUEST_TARGET_LONG_RESPAWN);
+    if (longRespawn && m_respawnDelay > longRespawn)
+        return 0;
+
+    switch (sObjectMgr->GetQuestTargetRespawn(GetEntry()))
+    {
+        case QuestTargetRespawn::Named:
+            return sWorld->getIntConfig(CONFIG_RESPAWN_QUEST_TARGET_NAMED);
+        case QuestTargetRespawn::General:
+            return sWorld->getIntConfig(CONFIG_RESPAWN_QUEST_TARGET_GENERAL);
+        default:
+            return 0;
+    }
 }
 
 void Creature::RegisterSharedQuestContributor(Unit* attacker)
@@ -2118,6 +2147,8 @@ bool Creature::CanStartAttack(Unit const* who, bool force) const
  */
 void Creature::setDeathState(DeathState state, bool despawn)
 {
+    bool const wasParabolic = state == DeathState::JustDied && movespline->Initialized() && !movespline->Finalized() &&
+        movespline->isParabolic();
     Unit::setDeathState(state, despawn);
 
     if (state == DeathState::JustDied)
@@ -2126,8 +2157,8 @@ void Creature::setDeathState(DeathState state, bool despawn)
         bool const respawnTimerFromDeath = IsRespawnTimerFromDeath();
         uint32 dynamicRespawnDelay = GetMap()->ApplyDynamicModeRespawnScaling(this,
             CreatureRespawnClock::DelayAtDeath(m_respawnDelay, respawnTimerFromDeath));
-        if (IsSharedQuestTarget() && !isWorldBoss())
-            dynamicRespawnDelay = std::min<uint32>(dynamicRespawnDelay, 30);
+        if (uint32 const questTargetCap = GetQuestTargetRespawnCap())
+            dynamicRespawnDelay = std::min<uint32>(dynamicRespawnDelay, questTargetCap);
         m_respawnTime = CreatureRespawnClock::RespawnTimeAtDeath(GameTime::GetGameTime().count(), dynamicRespawnDelay,
             m_corpseDelay, respawnTimerFromDeath);
 
@@ -2149,7 +2180,7 @@ void Creature::setDeathState(DeathState state, bool despawn)
         if (m_formation && m_formation->GetLeader() == this)
             m_formation->FormationReset(true, false);
 
-        bool needsFalling = !despawn && (IsFlying() || IsHovering()) && !IsUnderWater();
+        bool needsFalling = !despawn && (IsFlying() || IsHovering() || wasParabolic) && !IsUnderWater();
         SetHover(false);
         SetDisableGravity(false);
 
@@ -2870,7 +2901,7 @@ void Creature::SaveRespawnTime()
 bool Creature::IsRespawnTimerFromDeath() const
 {
     return m_spawnId && !IsSummon() && (!m_creatureData || m_creatureData->dbData)
-        && ((IsSharedQuestTarget() && !isWorldBoss()) || sWorld->getBoolConfig(CONFIG_RESPAWN_TIMER_STARTS_AT_DEATH));
+        && (GetQuestTargetRespawnCap() || sWorld->getBoolConfig(CONFIG_RESPAWN_TIMER_STARTS_AT_DEATH));
 }
 
 bool Creature::CanCreatureAttack(Unit const* victim, bool skipDistCheck) const
@@ -3365,6 +3396,19 @@ void Creature::PauseMovementForInteraction()
 {
     if (uint32 pause = GetMovementTemplate().GetInteractionPauseTimer())
     {
+        if (SmartAI* smartAI = dynamic_cast<SmartAI*>(AI()); smartAI && smartAI->IsEscorted())
+        {
+            // Only ambient paths: CMSG_QUESTGIVER_HELLO needs no npcflag, so any player could otherwise
+            // hold another player's escort.
+            ObjectVector const* escorters = smartAI->GetScript()->GetStoredTargetVector(SMART_ESCORT_TARGETS, *this);
+            if (!escorters || escorters->empty())
+            {
+                if (!smartAI->HasEscortState(SMART_ESCORT_PAUSED | SMART_ESCORT_RETURNING) && !IsInCombat())
+                    smartAI->PausePath(pause, true);
+                return;
+            }
+        }
+
         uint8 pauseSlot = MOTION_SLOT_IDLE;
 
         if (GetMotionMaster()->GetMotionSlotType(MOTION_SLOT_ACTIVE) == POINT_MOTION_TYPE)
@@ -3418,6 +3462,13 @@ uint8 Creature::GetLootSkillLevelFor(Player const* looter) const
 
 uint8 Creature::getLevelForTarget(WorldObject const* target) const
 {
+    if (target)
+        if (Unit const* opponent = target->ToUnit())
+            if (Player const* viewer = opponent->GetCharmerOrOwnerPlayerOrPlayerItself())
+                if (LocalLevelScaling::PersonalInstanceScalingFor(FindMap(), viewer))
+                    if (uint8 const view = LocalLevelScaling::ViewLevelFor(viewer, this))
+                        return view;
+
     if (!isWorldBoss() || !target || !target->ToUnit())
     {
         // A character with open-world scaling on fights *their* version of this creature, and the
@@ -4156,6 +4207,7 @@ void Creature::ResetPlayerDamageReq()
     _playerDamageReq = GetHealth() / 2;
     _damagedByPlayer = false;
     _highestPlayerAttackerLevel = 0;
+    _directPlayerAttackers.clear();
 }
 
 uint32 Creature::GetPlayerDamageReq() const

@@ -318,7 +318,7 @@ std::vector<TrainerSpell> TrainerSpells(Data const& data, Realm const& realm, st
     {
         maxLevel = std::max(maxLevel, spell.ReqLevel);
         std::uint32_t const spellId = TrainerRank(spell.SpellId, exists);
-        if (spellId != spell.SpellId)
+        if (spellId != spell.SpellId && data.SkillLines.contains(spellId))
         {
             TrainerSpell const retuned = reborn(spellId);
             spell.SpellId = spellId;
@@ -375,9 +375,13 @@ std::vector<std::pair<std::uint32_t, std::uint32_t>> SpellTwins(std::uint32_t sp
         std::optional<SpellLayout> const stock = layout(spellId);
         if (stock && stock == layout(spellId + REBORN_SPELL_OFFSET))
             twins.emplace_back(spellId, spellId + REBORN_SPELL_OFFSET);
-        if (stock && spellId < BLIZZARD_SPELL_END && spellId + CROSSOVER_SPELL_OFFSET < spellCount &&
-            stock == layout(spellId + CROSSOVER_SPELL_OFFSET))
+        if (spellId >= BLIZZARD_SPELL_END || spellId + CROSSOVER_SPELL_OFFSET >= spellCount)
+            continue;
+        std::optional<SpellLayout> const crossover = layout(spellId + CROSSOVER_SPELL_OFFSET);
+        if (stock && stock == crossover)
             twins.emplace_back(spellId, spellId + CROSSOVER_SPELL_OFFSET);
+        else if (crossover && crossover == layout(spellId + REBORN_SPELL_OFFSET))
+            twins.emplace_back(spellId + REBORN_SPELL_OFFSET, spellId + CROSSOVER_SPELL_OFFSET);
     }
     return twins;
 }

@@ -21,6 +21,7 @@
 #include "SpellMgr.h"
 #include "SpellScript.h"
 #include "UnitScript.h"
+#include <algorithm>
 #include <array>
 #include <list>
 #include <unordered_map>
@@ -48,6 +49,15 @@ enum MysticEnchantScriptSpells : uint32
     SPELL_VAMPIRIC_DEATH_HERO_CRIT         = 278086,
     SPELL_VAMPIRIC_DEATH_DAMAGE            = 1180081,
     SPELL_SHADOW_WORD_DEATH_BACKLASH_STOCK = 32409,
+    SPELL_GLYPH_OF_SHADOW_WORD_DEATH       = 55682,
+    SPELL_GLYPH_OF_FELGUARD                = 56246,
+    SPELL_OMEN_OF_DOOM                     = 1988300,
+    SPELL_OUTRAGE                          = 1584484,
+    SPELL_OMEN_OF_DOOM_BUFF                = 1988301,
+    SPELL_CLEARCASTING_DRUID               = 16870,
+    SPELL_CLEARCASTING_DRUID_REBORN        = 1116870,
+    SPELL_GLYPH_OF_VOIDWALKER              = 56247,
+    SPELL_VOIDWALKER_PASSIVE               = 18735,
     SPELL_CORRUPTION_R1                    = 172,
     SPELL_CORRUPTED_SHIV                   = 285943,
     SPELL_NIGHTMARE_MAULING                = 271401,
@@ -88,6 +98,8 @@ enum MysticEnchantScriptSpells : uint32
     SPELL_HEAVY_THUNDER_EMPOWERED          = 1181082,
 };
 
+constexpr std::array<uint32, 10> ENRAGE_TALENT_BUFFS = { 12880, 14201, 14202, 14203, 14204, 1112880, 1114201, 1114202,
+    1114203, 1114204 };
 constexpr uint32 PRIEST_RENEW_FLAG0 = 0x40;
 constexpr uint32 PRIEST_PENANCE_FLAG1 = 0x8000;
 constexpr uint32 PRIEST_SHIELD_FLAG0 = 0x1;
@@ -160,10 +172,34 @@ public:
             reduction = target->GetAuraEffect(SPELL_VAMPIRIC_DEATH_HERO, EFFECT_1);
         if (reduction)
             damage = uint32(uint64(damage) * uint32(std::max(0, 100 + reduction->GetAmount())) / 100);
+        if (AuraEffect const* glyph = target->GetAuraEffectOfRankedSpellOrTwin(SPELL_GLYPH_OF_SHADOW_WORD_DEATH, EFFECT_2))
+            damage = uint32(uint64(damage) * uint32(std::max(0, 100 - glyph->GetAmount())) / 100);
+    }
+
+    static void RefreshDemonGlyph(Unit* unit, Aura const* aura)
+    {
+        uint32 const glyph = sSpellMgr->GetSpellTwinSource(aura->GetId());
+        if (glyph != SPELL_GLYPH_OF_FELGUARD && glyph != SPELL_GLYPH_OF_VOIDWALKER)
+            return;
+        Pet* pet = unit->IsPlayer() ? unit->ToPlayer()->GetPet() : nullptr;
+        if (!pet)
+            return;
+        if (glyph == SPELL_GLYPH_OF_FELGUARD)
+            pet->UpdateAttackPowerAndDamage();
+        else if (AuraEffect* passive = pet->GetAuraEffectOfRankedSpellOrTwin(SPELL_VOIDWALKER_PASSIVE, EFFECT_0))
+            passive->RecalculateAmount();
     }
 
     void OnAuraApply(Unit* unit, Aura* aura) override
     {
+        RefreshDemonGlyph(unit, aura);
+        if ((aura->GetId() == SPELL_CLEARCASTING_DRUID || aura->GetId() == SPELL_CLEARCASTING_DRUID_REBORN) &&
+            unit->HasAura(SPELL_OMEN_OF_DOOM))
+            unit->CastSpell(unit, SPELL_OMEN_OF_DOOM_BUFF, true);
+        if (std::find(ENRAGE_TALENT_BUFFS.begin(), ENRAGE_TALENT_BUFFS.end(), aura->GetId()) != ENRAGE_TALENT_BUFFS.end())
+            if (AuraEffect const* outrage = unit->GetAuraEffect(SPELL_OUTRAGE, EFFECT_0))
+                if (AuraEffect* damage = aura->GetEffect(EFFECT_0))
+                    damage->ChangeAmount(damage->GetAmount() + outrage->GetAmount());
         if (aura->GetId() == SPELL_SURGE_OF_LIGHT && unit->HasAura(SPELL_PURITY_OF_LIGHT))
         {
             ApplyPureSurge(unit);
@@ -181,6 +217,7 @@ public:
     void OnAuraRemove(Unit* unit, AuraApplication* application, AuraRemoveMode mode) override
     {
         Aura const* aura = application->GetBase();
+        RefreshDemonGlyph(unit, aura);
         if (aura->GetId() == SPELL_FEEDING_THE_ABYSS_STORED && mode == AURA_REMOVE_BY_EXPIRE &&
             AbyssStored.contains(unit->GetGUID()))
         {
@@ -328,6 +365,73 @@ public:
     }
 };
 
+class spell_ascension_mystic_mana_state : public AuraScript
+{
+    PrepareAuraScript(spell_ascension_mystic_mana_state);
+
+    struct ManaStateBuffs
+    {
+        uint32 Enchant;
+        uint32 High;
+        uint32 Low;
+    };
+
+    static constexpr std::array<ManaStateBuffs, 4> BUFFS = {{
+        { 1580989, 81325, 81326 },
+        { 81324, 81325, 81326 },
+        { 281794, 81325, 81326 },
+        { 1581566, 1581567, 1581568 },
+    }};
+
+    ManaStateBuffs const* Buffs() const
+    {
+        auto const itr = std::find_if(BUFFS.begin(), BUFFS.end(),
+            [this](ManaStateBuffs const& buffs) { return buffs.Enchant == GetId(); });
+        return itr == BUFFS.end() ? nullptr : &*itr;
+    }
+
+    bool Validate(SpellInfo const*) override
+    {
+        return ValidateSpellInfo({ 81325, 81326, 1581567, 1581568 });
+    }
+
+    void Tick(AuraEffect const* aurEff)
+    {
+        Unit* target = GetTarget();
+        ManaStateBuffs const* buffs = Buffs();
+        uint32 const maximum = target->GetMaxPower(POWER_MANA);
+        if (!buffs || !maximum)
+            return;
+        bool const high = uint64(target->GetPower(POWER_MANA)) * 2 >= maximum;
+        target->RemoveAurasDueToSpell(high ? buffs->Low : buffs->High);
+        if (!target->HasAura(high ? buffs->High : buffs->Low))
+            target->CastSpell(target, high ? buffs->High : buffs->Low, true, nullptr, aurEff);
+    }
+
+    void HandleApply(AuraEffect const* aurEff, AuraEffectHandleModes)
+    {
+        Tick(aurEff);
+    }
+
+    void HandleRemove(AuraEffect const*, AuraEffectHandleModes)
+    {
+        if (ManaStateBuffs const* buffs = Buffs())
+        {
+            GetTarget()->RemoveAurasDueToSpell(buffs->High);
+            GetTarget()->RemoveAurasDueToSpell(buffs->Low);
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectPeriodic += AuraEffectPeriodicFn(spell_ascension_mystic_mana_state::Tick, EFFECT_0, SPELL_AURA_PERIODIC_DUMMY);
+        AfterEffectApply += AuraEffectApplyFn(spell_ascension_mystic_mana_state::HandleApply, EFFECT_0,
+            SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL);
+        AfterEffectRemove += AuraEffectRemoveFn(spell_ascension_mystic_mana_state::HandleRemove, EFFECT_0,
+            SPELL_AURA_PERIODIC_DUMMY, AURA_EFFECT_HANDLE_REAL);
+    }
+};
+
 class spell_ascension_mystic_water_nova : public AuraScript
 {
     PrepareAuraScript(spell_ascension_mystic_water_nova);
@@ -364,7 +468,7 @@ class spell_ascension_mystic_renewed_through_absolution : public AuraScript
 {
     PrepareAuraScript(spell_ascension_mystic_renewed_through_absolution);
 
-    void HandleProc(AuraEffect const*, ProcEventInfo& eventInfo)
+    void HandleProc(AuraEffect const* effect, ProcEventInfo& eventInfo)
     {
         PreventDefaultAction();
         Unit* caster = GetTarget();
@@ -376,6 +480,11 @@ class spell_ascension_mystic_renewed_through_absolution : public AuraScript
         if (!renew)
             return;
         renew->GetBase()->Remove();
+        if (GetId() == 272989)
+        {
+            caster->CastSpell(target, 272993, true, nullptr, effect);
+            return;
+        }
         caster->CastSpell(target, SPELL_RENEWED_THROUGH_ABSOLUTION_HEAL, true);
         if (Aura* weakenedSoul = target->GetAura(SPELL_WEAKENED_SOUL))
         {
@@ -458,6 +567,8 @@ class spell_ascension_mystic_atonement_heal : public SpellScript
 
     void Register() override
     {
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_ascension_mystic_atonement_heal::SelectLowest,
+            EFFECT_ALL, TARGET_UNIT_SRC_AREA_ALLY);
         OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_ascension_mystic_atonement_heal::SelectLowest,
             EFFECT_ALL, TARGET_UNIT_DEST_AREA_ALLY);
         OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_ascension_mystic_atonement_heal::SelectLowest,
@@ -641,6 +752,116 @@ class spell_ascension_mystic_apply_corruption : public AuraScript
     }
 };
 
+constexpr uint32 SPELL_MURDER_RUSH_BUFF = 1180881;
+constexpr int32 MURDER_RUSH_SPRINT_MS = 5000;
+constexpr std::array<uint32, 3> REBORN_SPRINT_RANKS = { 1111305, 1108696, 1102983 };
+
+Aura* FindRebornSprint(Unit* unit)
+{
+    for (uint32 rank : REBORN_SPRINT_RANKS)
+        if (Aura* sprint = unit->GetAura(rank))
+            return sprint;
+    return nullptr;
+}
+
+class spell_ascension_mystic_murder_rush : public AuraScript
+{
+    PrepareAuraScript(spell_ascension_mystic_murder_rush);
+
+    void HandleProc(AuraEffect const* effect, ProcEventInfo&)
+    {
+        PreventDefaultAction();
+        Unit* target = GetTarget();
+        if (FindRebornSprint(target))
+        {
+            target->CastSpell(target, SPELL_MURDER_RUSH_BUFF, true, nullptr, effect);
+            return;
+        }
+        Player* player = target->ToPlayer();
+        uint32 rank = REBORN_SPRINT_RANKS.back();
+        for (uint32 known : REBORN_SPRINT_RANKS)
+            if (player && player->HasSpell(known))
+            {
+                rank = known;
+                break;
+            }
+        target->CastSpell(target, rank, true, nullptr, effect);
+        if (Aura* sprint = FindRebornSprint(target))
+        {
+            sprint->SetMaxDuration(MURDER_RUSH_SPRINT_MS);
+            sprint->SetDuration(MURDER_RUSH_SPRINT_MS);
+        }
+    }
+
+    void Register() override
+    {
+        OnEffectProc += AuraEffectProcFn(spell_ascension_mystic_murder_rush::HandleProc, EFFECT_0,
+            SPELL_AURA_PROC_TRIGGER_SPELL);
+    }
+};
+
+class spell_ascension_mystic_murder_rush_refresh : public SpellScript
+{
+    PrepareSpellScript(spell_ascension_mystic_murder_rush_refresh);
+
+    void RefreshSprint()
+    {
+        if (Unit* target = GetHitUnit())
+            if (Aura* sprint = FindRebornSprint(target))
+                sprint->RefreshDuration();
+    }
+
+    void Register() override
+    {
+        AfterHit += SpellHitFn(spell_ascension_mystic_murder_rush_refresh::RefreshSprint);
+    }
+};
+
+constexpr uint32 SPELL_RUSH_OF_BLOOD_AMBUSH = 1587051;
+constexpr uint32 SPELL_RUSH_OF_BLOOD_ENERGY = 1587057;
+
+class spell_ascension_mystic_rush_of_blood : public AuraScript
+{
+    PrepareAuraScript(spell_ascension_mystic_rush_of_blood);
+
+    uint32 _hemorrhages = 0;
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        Spell const* spell = eventInfo.GetProcSpell();
+        return spell && eventInfo.GetSpellInfo() && !spell->IsTriggered() && eventInfo.GetActor() == GetTarget();
+    }
+
+    void HandleProc(AuraEffect const* effect, ProcEventInfo& eventInfo)
+    {
+        PreventDefaultAction();
+        Unit* target = GetTarget();
+        SpellInfo const* spell = eventInfo.GetSpellInfo();
+        if (effect->IsAffectedOnSpell(spell))
+        {
+            if (++_hemorrhages == 2)
+                target->CastSpell(target, SPELL_RUSH_OF_BLOOD_AMBUSH, true, nullptr, effect);
+            else if (_hemorrhages >= 3)
+            {
+                target->CastSpell(target, SPELL_RUSH_OF_BLOOD_ENERGY, true, nullptr, effect);
+                _hemorrhages = 0;
+            }
+            return;
+        }
+        _hemorrhages = 0;
+        if (Aura* ambush = target->GetAura(SPELL_RUSH_OF_BLOOD_AMBUSH))
+            if (AuraEffect const* free = ambush->GetEffect(EFFECT_0); free && free->IsAffectedOnSpell(spell))
+                ambush->Remove();
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_ascension_mystic_rush_of_blood::CheckProc);
+        OnEffectProc += AuraEffectProcFn(spell_ascension_mystic_rush_of_blood::HandleProc, EFFECT_0,
+            SPELL_AURA_PROC_TRIGGER_SPELL);
+    }
+};
+
 class spell_ascension_mystic_widowmaker : public AuraScript
 {
     PrepareAuraScript(spell_ascension_mystic_widowmaker);
@@ -678,6 +899,9 @@ class spell_ascension_mystic_cryotherapist : public AuraScript
         if (!spell)
             return;
         uint32 heal = SPELL_CRYOTHERAPIST_BOLT;
+        uint32 const source = sSpellMgr->GetSpellTwinSource(spell->Id);
+        if (source == 116 || source == 205 || source == 837)
+            heal = 271305;
         if (spell->SpellFamilyName == SPELLFAMILY_MAGE && (spell->SpellFamilyFlags[1] & MAGE_DEEP_FREEZE_FLAG1))
             heal = SPELL_CRYOTHERAPIST_DEEP_FREEZE;
         else if (spell->SpellFamilyName == SPELLFAMILY_PRIEST && (spell->SpellFamilyFlags[1] & PRIEST_ICY_PENANCE_FLAG1))
@@ -900,4 +1124,8 @@ void AddSC_AscensionMysticEnchantScripts()
     RegisterSpellScript(spell_ascension_mystic_apply_corruption);
     RegisterSpellScript(spell_ascension_mystic_widowmaker);
     RegisterSpellScript(spell_ascension_mystic_cryotherapist);
+    RegisterSpellScript(spell_ascension_mystic_mana_state);
+    RegisterSpellScript(spell_ascension_mystic_murder_rush);
+    RegisterSpellScript(spell_ascension_mystic_murder_rush_refresh);
+    RegisterSpellScript(spell_ascension_mystic_rush_of_blood);
 }

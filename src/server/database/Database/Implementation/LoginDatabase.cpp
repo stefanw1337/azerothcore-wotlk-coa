@@ -32,7 +32,7 @@ void LoginDatabaseConnection::DoPrepareStatements()
     PrepareStatement(LOGIN_SEL_RAF_RECRUITS, "SELECT a.id, r.validated_at, COALESCE(MAX(p.qualified_seconds), 0) FROM account a LEFT JOIN raf_accounts r ON r.account_id = a.id LEFT JOIN raf_progress p ON p.account_id = a.id WHERE a.recruiter = ? GROUP BY a.id, r.validated_at ORDER BY a.id", CONNECTION_SYNCH);
     PrepareStatement(LOGIN_SEL_RAF_VALID_COUNT, "SELECT COUNT(*) FROM account a JOIN raf_accounts r ON r.account_id = a.id WHERE a.recruiter = ? AND r.validated_at IS NOT NULL", CONNECTION_SYNCH);
     PrepareStatement(LOGIN_INS_RAF_CLAIM, "INSERT IGNORE INTO raf_claims (account_id, reward_id, realm_id, guid, item_id, quantity, created_at) SELECT ?, ?, ?, ?, ?, ?, UNIX_TIMESTAMP() WHERE (SELECT COUNT(*) FROM account a JOIN raf_accounts r ON r.account_id = a.id WHERE a.recruiter = ? AND r.validated_at IS NOT NULL) >= ?", CONNECTION_SYNCH);
-    PrepareStatement(LOGIN_SEL_RAF_CLAIMS, "SELECT claim_id, reward_id, realm_id, guid, item_id, quantity, delivered_at FROM raf_claims WHERE account_id = ? ORDER BY claim_id", CONNECTION_SYNCH);
+    PrepareStatement(LOGIN_SEL_RAF_CLAIMS, "SELECT claim_id, reward_id, realm_id, guid, item_id, quantity, delivered_at FROM raf_claims WHERE account_id = ? ORDER BY claim_id", CONNECTION_BOTH);
     PrepareStatement(LOGIN_UPD_RAF_CLAIM_DELIVERED, "UPDATE raf_claims SET delivered_at = UNIX_TIMESTAMP() WHERE claim_id = ? AND delivered_at IS NULL", CONNECTION_SYNCH);
 
     PrepareStatement(LOGIN_INS_RAF_RECRUIT_CLAIM,
@@ -42,7 +42,7 @@ void LoginDatabaseConnection::DoPrepareStatements()
         CONNECTION_SYNCH);
     PrepareStatement(LOGIN_SEL_RAF_RECRUIT_CLAIMS,
         "SELECT claim_id, reward_id, realm_id, guid, item_id, quantity, delivered_at "
-        "FROM raf_recruit_claims WHERE account_id = ? ORDER BY claim_id", CONNECTION_SYNCH);
+        "FROM raf_recruit_claims WHERE account_id = ? ORDER BY claim_id", CONNECTION_BOTH);
     PrepareStatement(LOGIN_UPD_RAF_RECRUIT_CLAIM_DELIVERED,
         "UPDATE raf_recruit_claims SET delivered_at = UNIX_TIMESTAMP() "
         "WHERE claim_id = ? AND delivered_at IS NULL", CONNECTION_SYNCH);
@@ -142,8 +142,17 @@ void LoginDatabaseConnection::DoPrepareStatements()
         "WITH RECURSIVE ancestors AS (SELECT id, recruiter FROM account WHERE id = ? "
         "UNION DISTINCT SELECT a.id, a.recruiter FROM account a JOIN ancestors p ON a.id = p.recruiter) "
         "UPDATE account recruit JOIN (SELECT COUNT(*) AS blocked FROM ancestors WHERE id = ?) ancestry "
-        "SET recruit.recruiter = ? WHERE recruit.id = ? AND recruit.recruiter = 0 AND ancestry.blocked = 0",
+        "JOIN (SELECT COUNT(*) AS used FROM raf_accounts r JOIN account a ON a.id = r.account_id "
+        "WHERE a.recruiter <> 0 AND r.shared_address = ?) shared "
+        "SET recruit.recruiter = ? WHERE recruit.id = ? AND recruit.recruiter = 0 AND ancestry.blocked = 0 "
+        "AND (? IS NULL OR shared.used < ?)",
         CONNECTION_ASYNC);
+    PrepareStatement(LOGIN_INS_RAF_LINKED_ACCOUNT,
+        "INSERT IGNORE INTO raf_accounts (account_id, started_at, shared_address) "
+        "SELECT id, UNIX_TIMESTAMP(), ? FROM account WHERE id = ? AND recruiter = ?", CONNECTION_ASYNC);
+    PrepareStatement(LOGIN_SEL_RAF_SHARED_ADDRESS_LINKS,
+        "SELECT COUNT(*) FROM raf_accounts r JOIN account a ON a.id = r.account_id "
+        "WHERE a.recruiter <> 0 AND r.shared_address = ?", CONNECTION_SYNCH);
     PrepareStatement(LOGIN_SEL_RAF_STATUS, "SELECT recruiter FROM account WHERE id = ?", CONNECTION_ASYNC);
     PrepareStatement(LOGIN_SEL_ACCOUNT_RECRUITER, "SELECT 1 FROM account WHERE recruiter = ?", CONNECTION_SYNCH);
     PrepareStatement(LOGIN_SEL_BANS, "SELECT 1 FROM account_banned WHERE id = ? AND active = 1 UNION SELECT 1 FROM ip_banned WHERE ip = ?", CONNECTION_SYNCH);

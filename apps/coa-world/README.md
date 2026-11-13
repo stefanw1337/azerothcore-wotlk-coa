@@ -5,8 +5,14 @@ The package contains world templates, reference data, and migration metadata.
 
 ## Install
 
-Use Python 3.11 or newer and a MySQL 8 client/server. Create an empty world schema,
-then import the package **before the first worldserver startup**:
+The worldserver and `dbimport` install the package automatically. When `Updates.AutoSetup` finds the
+world database empty, they verify `baseline.json`, the archive and every table checksum, then import
+the tables with the migration ledger last instead of `data/sql/base/db_world/`. The normal updater then
+applies the migrations the package does not cover. A failed import leaves a partial schema; drop it
+before restarting.
+
+To import the package without the server, use Python 3.11 or newer and a MySQL 8 client/server.
+Create an empty world schema, then import the package **before the first worldserver startup**:
 
 ```sh
 python apps/coa-world/world_data.py verify
@@ -15,6 +21,8 @@ python apps/coa-world/world_data.py bootstrap --defaults-file /path/to/world-cli
 
 The client option file supplies the connection settings. Use `--mysql /path/to/mysql`
 if the client is not on PATH, and `--database` to select the world schema.
+A client without the `--no-login-paths` option (MySQL 8.0 and 8.1) still reads saved login paths from
+`.mylogin.cnf`, so one of them can affect the connection.
 Set worldserver's `SourceDirectory` to this checkout.
 
 Bootstrap verifies the package and imported content, and requires an empty schema.

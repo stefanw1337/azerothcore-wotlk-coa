@@ -146,6 +146,6 @@ int main()
                          [](Entry const& e) { return e.name == "Ascension_HelpUI"; }) == 1,
            "an addon the client already reported is not listed twice");
 
-    std::cout << "PASS: SMSG 0x94E echoes " << entries.size() << " addons, Blizzard and 11 Ascension addons secure\n";
+    std::cout << "PASS: SMSG 0x94E echoes " << entries.size() << " addons, Blizzard and 14 Ascension addons secure\n";
     return 0;
 }

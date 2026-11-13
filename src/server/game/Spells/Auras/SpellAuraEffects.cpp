@@ -17,6 +17,8 @@
 
 #include "SpellAuraEffects.h"
 #include "AscensionIncarnation.h"
+#include <limits>
+#include <string_view>
 #include "AreaDefines.h"
 #include "BattlefieldMgr.h"
 #include "Battleground.h"
@@ -42,6 +44,7 @@
 #include "Util.h"
 #include "Vehicle.h"
 #include "VenthyrRacials.h"
+#include "World.h"
 #include "WorldPacket.h"
 
 /// @todo: this import is not necessary for compilation and marked as unused by the IDE
@@ -280,7 +283,7 @@ pAuraEffectHandler AuraEffectHandler[TOTAL_AURAS] =
     &AuraEffect::HandleAuraModIncreaseFlightSpeed,                //211 SPELL_AURA_MOD_FLIGHT_SPEED_NOT_STACK
     &AuraEffect::HandleAuraModRangedAttackPowerOfStatPercent,     //212 SPELL_AURA_MOD_RANGED_ATTACK_POWER_OF_STAT_PERCENT
     &AuraEffect::HandleNoImmediateEffect,                         //213 SPELL_AURA_MOD_RAGE_FROM_DAMAGE_DEALT implemented in Player::RewardRage
-    &AuraEffect::HandleNULL,                                      //214 Tamed Pet Passive
+    &AuraEffect::HandleNoImmediateEffect,                         //214 caster periodic damage taken: Unit::SpellDamageBonusTaken
     &AuraEffect::HandleArenaPreparation,                          //215 SPELL_AURA_ARENA_PREPARATION
     &AuraEffect::HandleModCastingSpeed,                           //216 SPELL_AURA_HASTE_SPELLS
     &AuraEffect::HandleNULL,                                      //217 69106 - killing spree helper - unknown use
@@ -392,7 +395,7 @@ pAuraEffectHandler AuraEffectHandler[TOTAL_AURAS] =
     nullptr,                                                      //323 unknown Ascension aura
     nullptr,                                                      //324 unknown Ascension aura
     nullptr,                                                      //325 unknown Ascension aura
-    nullptr,                                                      //326 unknown Ascension aura
+    &AuraEffect::HandleNoImmediateEffect,                         //326 SPELL_AURA_ASCENSION_SUPPRESS_AVOIDANCE
     &AuraEffect::HandleAscensionModStatFromStat,                  //327 SPELL_AURA_ASCENSION_MOD_STAT_FROM_STAT
     &AuraEffect::HandleAscensionModMaxManaFromStat,               //328 SPELL_AURA_ASCENSION_MOD_MAX_MANA_FROM_STAT
     nullptr,                                                      //329 unknown Ascension aura
@@ -400,10 +403,10 @@ pAuraEffectHandler AuraEffectHandler[TOTAL_AURAS] =
     nullptr,                                                      //331 unknown Ascension aura
     nullptr,                                                      //332 unknown Ascension aura
     &AuraEffect::HandleAscensionModHitChanceAll,                  //333 SPELL_AURA_ASCENSION_MOD_HIT_CHANCE_ALL_PCT
-    nullptr,                                                      //334 unknown Ascension aura
+    nullptr,                                                      //334 SPELL_AURA_ASCENSION_IGNORE_POSITIONAL in Spell::CheckCast
     nullptr,                                                      //335 unknown Ascension aura
     nullptr,                                                      //336 unknown Ascension aura
-    nullptr,                                                      //337 unknown Ascension aura
+    &AuraEffect::HandleNoImmediateEffect,                         //337 SPELL_AURA_ASCENSION_OVERRIDE_SPELL
     &AuraEffect::HandleNoImmediateEffect,                         //338 SPELL_AURA_ASCENSION_MOD_IGNORE_ARMOR_PCT
     nullptr,                                                      //339 unknown Ascension aura
     nullptr,                                                      //340 unknown Ascension aura
@@ -414,15 +417,15 @@ pAuraEffectHandler AuraEffectHandler[TOTAL_AURAS] =
     &AuraEffect::HandleModHealingDone,                            //345 SPELL_AURA_ASCENSION_MOD_SPELL_POWER_FLAT
     nullptr,                                                      //346 unknown Ascension aura
     nullptr,                                                      //347 unknown Ascension aura
-    nullptr,                                                      //348 unknown Ascension aura
+    &AuraEffect::HandleNoImmediateEffect,                         //348 SPELL_AURA_ASCENSION_DEFEND_DURING_CAST
     nullptr,                                                      //349 unknown Ascension aura
-    &AuraEffect::HandleNoImmediateEffect,                         //350 SPELL_AURA_ASCENSION_MOD_CRIT_CHANCE
+    &AuraEffect::HandleAscensionModCritChance,                    //350 SPELL_AURA_ASCENSION_MOD_CRIT_CHANCE
     nullptr,                                                      //351 unknown Ascension aura
     nullptr,                                                      //352 unknown Ascension aura
     nullptr,                                                      //353 unknown Ascension aura
     nullptr,                                                      //354 unknown Ascension aura
     nullptr,                                                      //355 unknown Ascension aura
-    nullptr,                                                      //356 unknown Ascension aura
+    &AuraEffect::HandleNoImmediateEffect,                         //356 SPELL_AURA_ASCENSION_MOD_OFFHAND_HIT_CHANCE implemented in Unit::MeleeSpellMissChance
     &AuraEffect::HandleNoImmediateEffect,                         //357 SPELL_AURA_ASCENSION_MOD_INSTANT_MANA_COST_PCT
     nullptr,                                                      //358 unknown Ascension aura
     nullptr,                                                      //359 unknown Ascension aura
@@ -431,7 +434,7 @@ pAuraEffectHandler AuraEffectHandler[TOTAL_AURAS] =
     nullptr,                                                      //362 unknown Ascension aura
     nullptr,                                                      //363 unknown Ascension aura
     nullptr,                                                      //364 unknown Ascension aura
-    nullptr,                                                      //365 unknown Ascension aura
+    &AuraEffect::HandleNoImmediateEffect,                         //365 SPELL_AURA_ASCENSION_MOD_POWER_COST_PCT
     nullptr,                                                      //366 unknown Ascension aura
 };
 
@@ -1312,6 +1315,45 @@ bool AuraEffect::CheckEffectProc(AuraApplication* aurApp, ProcEventInfo& eventIn
     SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
     switch (GetAuraType())
     {
+        case SPELL_AURA_ASCENSION_PROC_PERCENT_EVENT:
+            if (GetId() == 277785 || GetId() == 280375 || GetId() == 277082 || GetId() == 280220 ||
+                GetId() == 280225 || GetId() == 280365 || GetId() == 281050 || GetId() == 289261)
+            {
+                Unit* owner = aurApp->GetTarget();
+                Unit* actor = eventInfo.GetActor();
+                Unit* target = eventInfo.GetActionTarget();
+                DamageInfo const* damage = eventInfo.GetDamageInfo();
+                bool const incoming = GetId() == 280225 || GetId() == 281050;
+                if (!owner || !owner->IsPlayer() || !target || !damage || !damage->GetDamage() || GetAmount() <= 0 ||
+                    (incoming ? target != owner : actor != owner))
+                    return false;
+                if (GetId() == 280225)
+                    return true;
+                if (GetId() == 281050)
+                    return actor && actor != owner && owner->isInFront(actor) &&
+                        (eventInfo.GetTypeMask() & (PROC_FLAG_TAKEN_MELEE_AUTO_ATTACK |
+                            PROC_FLAG_TAKEN_SPELL_MELEE_DMG_CLASS));
+                if (GetId() == 280365)
+                    return target != owner;
+                if (GetId() == 289261)
+                    return target != owner && (damage->GetSchoolMask() & SPELL_SCHOOL_MASK_NORMAL);
+                if (GetId() == 280375)
+                    return (eventInfo.GetTypeMask() & PROC_FLAG_DONE_MELEE_AUTO_ATTACK) != 0;
+                if (GetId() == 280220)
+                    return (eventInfo.GetTypeMask() & PROC_FLAG_DONE_PERIODIC) != 0;
+                SpellInfo const* info = eventInfo.GetSpellInfo();
+                if (GetId() == 277082)
+                    return info && info->SpellFamilyName == SPELLFAMILY_DRUID &&
+                        info->SpellName[LOCALE_enUS] &&
+                        std::string_view(info->SpellName[LOCALE_enUS]) == "Mangle (Bear)";
+                if (!owner->ToPlayer()->GetWeaponForAttack(OFF_ATTACK, true) || !info ||
+                    info->SpellFamilyName != SPELLFAMILY_HUNTER)
+                    return false;
+                std::string_view const name = info->SpellName[LOCALE_enUS] ? info->SpellName[LOCALE_enUS] : "";
+                return name == "Raptor Strike" || name == "Mongoose Bite" || name == "Counterattack";
+            }
+            break;
+
         case SPELL_AURA_MOD_CONFUSE:
         case SPELL_AURA_MOD_FEAR:
         case SPELL_AURA_MOD_STUN:
@@ -1339,6 +1381,10 @@ bool AuraEffect::CheckEffectProc(AuraApplication* aurApp, ProcEventInfo& eventIn
                 return false;
             break;
         case SPELL_AURA_MOD_CASTING_SPEED_NOT_STACK:
+            if (aurApp->GetTarget()->HasAura(270532) && GetSpellInfo()->SpellFamilyName == SPELLFAMILY_PRIEST &&
+                GetSpellInfo()->SpellName[LOCALE_enUS] &&
+                std::string_view(GetSpellInfo()->SpellName[LOCALE_enUS]) == "Borrowed Time")
+                return false;
             // skip melee hits and instant cast spells
             if (!eventInfo.GetProcSpell() || !eventInfo.GetProcSpell()->GetCastTime())
                 return false;
@@ -1356,6 +1402,18 @@ bool AuraEffect::CheckEffectProc(AuraApplication* aurApp, ProcEventInfo& eventIn
             // Skip melee hits and spells with wrong school
             if (!spellInfo || !(spellInfo->GetSchoolMask() & GetMiscValue()))
                 return false;
+            break;
+        case SPELL_AURA_214:
+            if (GetMiscValueB() == 1)
+            {
+                Unit* actor = eventInfo.GetActor();
+                DamageInfo* damage = eventInfo.GetDamageInfo();
+                if (!actor || GetCasterGUID() != actor->GetGUID() || !damage || !damage->GetDamage() ||
+                    eventInfo.GetActionTarget() != aurApp->GetTarget() ||
+                    !(eventInfo.GetTypeMask() & PROC_FLAG_TAKEN_PERIODIC) ||
+                    !(GetMiscValue() & eventInfo.GetSchoolMask()))
+                    return false;
+            }
             break;
         case SPELL_AURA_MOD_DAMAGE_FROM_CASTER:
             // Compare casters
@@ -1413,6 +1471,9 @@ void AuraEffect::HandleProc(AuraApplication* aurApp, ProcEventInfo& eventInfo)
             break;
         case SPELL_AURA_PROC_TRIGGER_SPELL_WITH_VALUE:
             HandleProcTriggerSpellWithValueAuraProc(aurApp, eventInfo);
+            break;
+        case SPELL_AURA_ASCENSION_PROC_PERCENT_EVENT:
+            HandleAscensionPercentEventProc(aurApp, eventInfo);
             break;
         case SPELL_AURA_PROC_TRIGGER_DAMAGE:
             HandleProcTriggerDamageAuraProc(aurApp, eventInfo);
@@ -1610,7 +1671,7 @@ void AuraEffect::HandleShapeshiftBoosts(Unit* target, bool apply) const
             // Leader of the Pack
             std::vector<uint32> const leaderOfThePack = sSpellMgr->GetSpellAndRelatives(17007);
             if (std::any_of(leaderOfThePack.begin(), leaderOfThePack.end(),
-                [player](uint32 spellId) { return player->HasTalent(spellId, player->GetActiveSpec()); }))
+                [player](uint32 spellId) { return player->HasTalent(spellId, player->GetActiveSpec()) || player->HasSpell(spellId); }))
             {
                 SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(24932);
                 if (spellInfo && spellInfo->Stances & (uint64(1) << (GetMiscValue() - 1)))
@@ -2172,6 +2233,7 @@ void AuraEffect::HandleAuraModShapeshift(AuraApplication const* aurApp, uint8 mo
         {
             case FORM_CAT:
             case FORM_TREE:
+            case ShapeshiftForm(48):
             case FORM_TRAVEL:
             case FORM_AQUA:
             case FORM_BEAR:
@@ -2228,8 +2290,12 @@ void AuraEffect::HandleAuraModShapeshift(AuraApplication const* aurApp, uint8 mo
                     {
                         // get furor proc chance
                         uint32 FurorChance = 0;
+                        uint32 furorId = 0;
                         if (AuraEffect const* dummy = target->GetDummyAuraEffect(SPELLFAMILY_DRUID, 238, 0))
+                        {
                             FurorChance = std::max(dummy->GetAmount(), 0);
+                            furorId = dummy->GetId();
+                        }
 
                         switch (GetMiscValue())
                         {
@@ -2239,13 +2305,14 @@ void AuraEffect::HandleAuraModShapeshift(AuraApplication const* aurApp, uint8 mo
                                         break;
                                     int32 basePoints = int32(std::min(oldPower, FurorChance));
                                     target->SetPower(POWER_ENERGY, 0);
-                                    target->CastCustomSpell(target, 17099, &basePoints, nullptr, nullptr, true, nullptr, this);
+                                    target->CastCustomSpell(target, sSpellMgr->GetSpellTwinFor(17099, furorId), &basePoints, nullptr,
+                                        nullptr, true, nullptr, this);
                                     break;
                                 }
                             case FORM_BEAR:
                             case FORM_DIREBEAR:
                                 if (urand(0, 99) < FurorChance)
-                                    target->CastSpell(target, 17057, true);
+                                    target->CastSpell(target, sSpellMgr->GetSpellTwinFor(17057, furorId), true);
                                 break;
                             default:
                                 {
@@ -4898,6 +4965,22 @@ void AuraEffect::HandleAscensionModHitChanceAll(AuraApplication const* aurApp, u
     HandleModSpellHitChance(aurApp, mode, apply);
 }
 
+// Ascension's unconditional crit-chance aura (e.g. Skirmish, #10401) is read live at melee/ranged/spell
+// crit-roll time, but carried HandleNoImmediateEffect, so the displayed crit percentage never moved.
+void AuraEffect::HandleAscensionModCritChance(AuraApplication const* aurApp, uint8 mode, bool /*apply*/) const
+{
+    if (!(mode & (AURA_EFFECT_HANDLE_CHANGE_AMOUNT_MASK | AURA_EFFECT_HANDLE_STAT)))
+        return;
+
+    Player* target = aurApp->GetTarget()->ToPlayer();
+    if (!target)
+        return;
+
+    target->UpdateCritPercentage(BASE_ATTACK);
+    target->UpdateCritPercentage(OFF_ATTACK);
+    target->UpdateCritPercentage(RANGED_ATTACK);
+}
+
 void AuraEffect::HandleModSpellHitChance(AuraApplication const* aurApp, uint8 mode, bool apply) const
 {
     if (!(mode & (AURA_EFFECT_HANDLE_CHANGE_AMOUNT_MASK | AURA_EFFECT_HANDLE_STAT)))
@@ -5394,7 +5477,8 @@ void AuraEffect::HandleAuraDummy(AuraApplication const* aurApp, uint8 mode, bool
     if (target->IsPlayer() && GetSpellInfo()->Effects[GetEffIndex()].GetItemArmorSubclassMask())
         target->UpdateArmor();
 
-    if (GetId() == 84866 && target->IsPlayer() && (mode & AURA_EFFECT_HANDLE_REAL))
+    if ((GetId() == 84866 || GetId() == 820054) && target->IsPlayer() &&
+        (mode & AURA_EFFECT_HANDLE_REAL))
         target->ToPlayer()->UpdateSpellDamageAndHealingBonus();
 
     Unit* caster = GetCaster();
@@ -5416,7 +5500,8 @@ void AuraEffect::HandleAuraDummy(AuraApplication const* aurApp, uint8 mode, bool
         // AT APPLY
         if (apply)
         {
-            switch (GetId())
+            uint32 const killCommand = sSpellMgr->GetSpellTwinSource(GetId());
+            switch (killCommand == 34026 ? killCommand : GetId())
             {
                 case 1515:                                      // Tame beast
                     // FIX_ME: this is 2.0.12 threat effect replaced in 2.1.x by dummy aura, must be checked for correctness
@@ -5429,11 +5514,12 @@ void AuraEffect::HandleAuraDummy(AuraApplication const* aurApp, uint8 mode, bool
                         if (!pet)
                             break;
 
-                        target->CastSpell(target, 34027, true, nullptr, this);
+                        uint32 const ownerBuff = sSpellMgr->GetSpellTwinFor(34027, GetId());
+                        target->CastSpell(target, ownerBuff, true, nullptr, this);
 
                         // set 3 stacks and 3 charges (to make all auras not disappear at once)
-                        Aura* owner_aura = target->GetAura(34027, GetCasterGUID());
-                        Aura* pet_aura  = pet->GetAura(58914, GetCasterGUID());
+                        Aura* owner_aura = target->GetAura(ownerBuff, GetCasterGUID());
+                        Aura* pet_aura  = pet->GetAura(sSpellMgr->GetSpellTwinFor(58914, GetId()), GetCasterGUID());
                         if (owner_aura)
                         {
                             owner_aura->SetCharges(0);
@@ -6563,7 +6649,7 @@ void AuraEffect::HandlePeriodicDamageAurasTick(Unit* target, Unit* caster) const
     if (GetAuraType() == SPELL_AURA_PERIODIC_DAMAGE_PERCENT)
     {
         // xinef: ceil obtained value, it may happen that 10 ticks for 10% damage may not kill owner
-        damage = uint32(std::ceil(CalculatePct<float, float>(target->GetMaxHealth(), damage)));
+        damage = uint32(std::ceil(CalculatePct<float, float>(LocalLevelScaling::PersonalDamageHealthFor(caster, target), damage)));
     }
 
     // Script Hook For HandlePeriodicDamageAurasTick -- Allow scripts to change the Damage pre class mitigation calculations
@@ -6907,7 +6993,7 @@ void AuraEffect::HandlePeriodicHealAurasTick(Unit* target, Unit* caster) const
     LOG_DEBUG("spells.aura.effect", "PeriodicTick: {} heal of {} for {} health inflicted by {}",
                     GetCasterGUID().ToString(), target->GetGUID().ToString(), damage, GetId());
 
-    uint32 heal = uint32(damage);
+    uint32 heal = LocalLevelScaling::HealReceivedFor(caster, target, GetSpellInfo(), uint32(damage));
 
     // Script Hook For HandlePeriodicDamageAurasTick -- Allow scripts to change the Damage pre class mitigation calculations
     sScriptMgr->ModifyPeriodicDamageAurasTick(target, caster, heal, GetSpellInfo());
@@ -6928,7 +7014,7 @@ void AuraEffect::HandlePeriodicHealAurasTick(Unit* target, Unit* caster) const
 
     if (caster)
     {
-        float threat = float(gain) * 0.5f;
+        float threat = float(gain) * sWorld->getRate(RATE_THREAT_HEALING);
         if (caster->IsClass(CLASS_PALADIN))
             threat *= 0.5f;
         target->GetThreatMgr().ForwardThreatForAssistingMe(caster, threat, GetSpellInfo());
@@ -7069,6 +7155,9 @@ void AuraEffect::HandleObsModPowerAuraTick(Unit* target, Unit* caster) const
         target->SendPeriodicAuraLog(&pInfo);
         return;
     }
+
+    if (Player* player = target->ToPlayer(); player && !sScriptMgr->OnPlayerCanRegenerate(player, int32(PowerType)))
+        return;
 
     // don't regen when permanent aura target has full power
     if (GetBase()->IsPermanent() && target->GetPower(PowerType) == target->GetMaxPower(PowerType))
@@ -7216,6 +7305,25 @@ void AuraEffect::HandleProcTriggerSpellWithValueAuraProc(AuraApplication* aurApp
     {
         LOG_DEBUG("spells.aura", "AuraEffect::HandleProcTriggerSpellWithValueAuraProc: Could not trigger spell {} from aura {} proc, because the spell does not have an entry in Spell.dbc.", triggerSpellId, GetId());
     }
+}
+
+void AuraEffect::HandleAscensionPercentEventProc(AuraApplication* aurApp, ProcEventInfo& eventInfo)
+{
+    if (GetId() != 277785 && GetId() != 280375 && GetId() != 277082 && GetId() != 280220 &&
+        GetId() != 280225 && GetId() != 280365 && GetId() != 281050 && GetId() != 289261)
+        return;
+    Unit* owner = aurApp->GetTarget();
+    Unit* target = (GetId() == 280225 || GetId() == 280365 || GetId() == 289261) ? owner :
+        (GetId() == 281050 ? eventInfo.GetActor() : eventInfo.GetActionTarget());
+    DamageInfo const* damage = eventInfo.GetDamageInfo();
+    uint32 const trigger = GetSpellInfo()->Effects[GetEffIndex()].TriggerSpell;
+    if (!owner || !target || !damage || !damage->GetDamage() || GetAmount() <= 0 ||
+        !sSpellMgr->GetSpellInfo(trigger))
+        return;
+    int32 const amount = int32(std::min<uint64>(std::numeric_limits<int32>::max(),
+        uint64(damage->GetDamage()) * uint32(GetAmount()) / 100));
+    if (amount)
+        owner->CastCustomSpell(target, trigger, &amount, nullptr, nullptr, true, nullptr, this);
 }
 
 void AuraEffect::HandleProcTriggerDamageAuraProc(AuraApplication* aurApp, ProcEventInfo& eventInfo)

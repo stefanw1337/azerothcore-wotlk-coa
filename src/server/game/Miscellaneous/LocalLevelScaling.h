@@ -17,9 +17,11 @@
 
 class Creature;
 class CreatureTemplate;
+class Map;
 class Item;
 class Player;
 class Quest;
+class SpellInfo;
 class Unit;
 struct ItemTemplate;
 
@@ -54,6 +56,8 @@ float GetEffectiveQuestRewardRate(Player const* player, Quest const* quest, floa
 
 using CreatureBaseLevelResolver = std::uint8_t (*)(CreatureTemplate const*, Creature const*);
 inline std::atomic<CreatureBaseLevelResolver> CreatureBaseLevelOwner{nullptr};
+using CreatureReferenceLevelResolver = std::uint8_t (*)(Creature const*, std::uint8_t);
+inline std::atomic<CreatureReferenceLevelResolver> CreatureReferenceLevelOwner{nullptr};
 
 std::uint8_t GetEffectiveCreatureBaseLevel(CreatureTemplate const* cinfo, Creature const* creature = nullptr);
 
@@ -81,6 +85,18 @@ inline std::uint32_t RewardKeepPercent(std::uint32_t floorPercent, std::int32_t 
     std::uint32_t const sharePercent = std::uint32_t(questLevel) * 100 / effectiveLevel;
     return floorPercent + (100 - floorPercent) * sharePercent / 100;
 }
+using PersonalInstanceScalingResolver = bool (*)(Map const*, Player const*);
+inline std::atomic<PersonalInstanceScalingResolver> PersonalInstanceScalingOwner{nullptr};
+
+inline bool PersonalInstanceScalingFor(Map const* map, Player const* viewer = nullptr)
+{
+    PersonalInstanceScalingResolver const owner = PersonalInstanceScalingOwner.load(std::memory_order_relaxed);
+    return owner && map && owner(map, viewer);
+}
+
+using CreatureViewDamageResolver = double (*)(Player const*, Creature const*);
+inline std::atomic<CreatureViewDamageResolver> CreatureViewDamageOwner{nullptr};
+AC_GAME_API uint32 PersonalDamageHealthFor(Unit const* source, Unit const* target);
 
 inline std::atomic<bool> QuestEnabled{false};
 inline std::atomic<bool> ContentScalingActive{false};
@@ -135,22 +151,55 @@ inline std::uint8_t ScalingBlocksFor(Player const* player)
     return ChallengeBlocksFor(player);
 }
 
-/// Whether the character stands in a dungeon that scales for everyone inside it, whatever their own or
-/// their leader's choice. The module that owns the dungeon list installs the resolver.
-using ScaledDungeonResolver = bool (*)(Player const*);
+/// Where the character stands for dungeon scaling: outside any scaled dungeon, in one they walked into,
+/// whose creatures and loot keep their authored levels whatever their own or their leader's choice, or in
+/// the one their Dungeon Finder group was assigned, which scales for them whatever that choice. The module
+/// that owns the dungeon list installs the resolver.
+enum class DungeonScaling : std::uint8_t
+{
+    None,
+    WalkedIn,
+    Finder,
+};
+using ScaledDungeonResolver = DungeonScaling (*)(Player const*);
 inline std::atomic<ScaledDungeonResolver> ScaledDungeonOwner{nullptr};
+
+inline DungeonScaling DungeonScalingFor(Player const* player)
+{
+    ScaledDungeonResolver const owner = ScaledDungeonOwner.load(std::memory_order_relaxed);
+    return owner && player ? owner(player) : DungeonScaling::None;
+}
 
 inline bool InScaledDungeon(Player const* player)
 {
-    ScaledDungeonResolver const owner = ScaledDungeonOwner.load(std::memory_order_relaxed);
-    return owner && player && owner(player);
+    return DungeonScalingFor(player) == DungeonScaling::Finder;
 }
 
-/// Whether the loot this character takes is scaled to them: only inside a scaled dungeon, and never
-/// while a challenge holds them to the authored world. Open-world loot keeps its authored stats.
+/// Whether the loot this character takes is scaled to them by the dungeon: only inside the scaled dungeon
+/// their Dungeon Finder group was assigned, and never while a challenge holds them to the authored world.
 inline bool DungeonLootScales(Player const* player)
 {
     return InScaledDungeon(player) && !(ScalingBlocksFor(player) & ChallengeBlocksCreatureScaling);
+}
+
+/// What one character's heal is worth to another inside a scaled dungeon, as a factor on the amount: each
+/// of them fights their own version of the creatures, so a heal sized for the blows of the healer's version
+/// is carried over to the blows of the receiver's. The module that owns the creature view installs the
+/// resolver; 1 means the heal lands as cast.
+using HealReceivedResolver = double (*)(Unit const* healer, Unit const* receiver, SpellInfo const* spell);
+inline std::atomic<HealReceivedResolver> HealReceivedOwner{nullptr};
+
+inline std::uint32_t HealReceivedFor(Unit const* healer, Unit const* receiver, SpellInfo const* spell,
+    std::uint32_t heal)
+{
+    HealReceivedResolver const owner = HealReceivedOwner.load(std::memory_order_relaxed);
+    if (!owner || !heal)
+        return heal;
+
+    double const factor = owner(healer, receiver, spell);
+    if (factor == 1.0)
+        return heal;
+    return std::max<std::uint32_t>(1, static_cast<std::uint32_t>(double(heal) * factor + 0.5));
 }
 
 /// Something other than the character's own choice changed whether they see scaled content: a
@@ -360,6 +409,14 @@ inline LevelBand MergeBands(LevelBand a, LevelBand b)
 inline std::uint8_t ScaleDungeonCreatureLevelForViewer(std::uint8_t playerLevel, LevelBand band)
 {
     return std::clamp(playerLevel, band.Low, band.High);
+}
+
+inline std::uint8_t ScaleDungeonCreatureLevelForViewer(std::uint8_t creatureLevel, std::uint8_t playerLevel,
+    LevelBand band, std::uint8_t referenceLevel)
+{
+    int const viewerLevel = std::clamp(playerLevel, band.Low, std::max(band.High, referenceLevel));
+    int const shift = std::min(0, viewerLevel - int(referenceLevel));
+    return static_cast<std::uint8_t>(std::clamp(int(creatureLevel) + shift, 1, 255));
 }
 
 /// Item templates that are not in the world database: lifted copies of authored items, made when

@@ -9,6 +9,10 @@
 # WITHOUT ANY WARRANTY, to the extent permitted by law; without even the
 # implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 #
+if (MSVC AND CMAKE_GENERATOR MATCHES "Ninja")
+    set(CMAKE_NINJA_FORCE_RESPONSE_FILE ON)
+endif()
+
 CollectSourceFiles(
         ${CMAKE_CURRENT_SOURCE_DIR}
         PRIVATE_SOURCES

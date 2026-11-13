@@ -1705,7 +1705,9 @@ void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, b
                                 multiplier += 0.5f;
 
                             int32 basepoints0 = int32(CalculatePct(caster->GetMaxPower(POWER_MANA), multiplier));
-                            caster->CastCustomSpell(caster, 47755, &basepoints0, nullptr, nullptr, true);
+                            if (caster->HasAura(270563))
+                                basepoints0 *= 2;
+                            caster->CastCustomSpell(caster, sSpellMgr->GetSpellTwinFor(47755, aura->GetId()), &basepoints0, nullptr, nullptr, true);
                         }
                         // effect on aura target
                         if (AuraEffect const* aurEff = aura->GetEffect(1))
@@ -1719,7 +1721,7 @@ void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, b
                                 case POWER_MANA:
                                     {
                                         int32 basepoints0 = int32(CalculatePct(target->GetMaxPower(POWER_MANA), 2));
-                                        caster->CastCustomSpell(target, 63654, &basepoints0, nullptr, nullptr, true);
+                                        caster->CastCustomSpell(target, sSpellMgr->GetSpellTwinFor(63654, aura->GetId()), &basepoints0, nullptr, nullptr, true);
                                         break;
                                     }
                                 case POWER_RAGE:
@@ -1735,7 +1737,7 @@ void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, b
                                     break;
                             }
                             if (triggeredSpellId)
-                                caster->CastSpell(target, triggeredSpellId, true);
+                                caster->CastSpell(target, sSpellMgr->GetSpellTwinFor(triggeredSpellId, aura->GetId()), true);
                         }
                     }
                 }
@@ -1840,27 +1842,46 @@ void Aura::HandleAuraSpecificMods(AuraApplication const* aurApp, Unit* caster, b
                 if (AuraEffect const* aurEff = target->GetAuraEffectOfRankedSpellOrTwin(31221, 0))
                 {
                     if (!apply)
-                        target->CastSpell(target, 31666, true);
+                    {
+                        SpellInfo const* trackerInfo = sSpellMgr->GetSpellInfo(sSpellMgr->GetSpellTwinFor(31666, aurEff->GetId()));
+                        if (trackerInfo && !trackerInfo->HasAura(SPELL_AURA_PERIODIC_DUMMY))
+                        {
+                            target->RemoveAurasDueToSpell(sSpellMgr->GetSpellTwinFor(31665, aurEff->GetId()));
+                            int32 amount = aurEff->GetAmount();
+                            target->CastCustomSpell(target, 31666, &amount, nullptr, nullptr, true, nullptr, aurEff);
+                        }
+                        else
+                            target->CastSpell(target, 31666, true, nullptr, aurEff);
+                    }
                     else
                     {
                         // Remove counter aura
-                        target->RemoveAurasDueToSpell(31666);
+                        target->RemoveAurasDueToSpell(sSpellMgr->GetSpellTwinFor(31666, aurEff->GetId()));
 
                         int32 amount = aurEff->GetAmount();
-                        target->CastCustomSpell(target, 31665, &amount, nullptr, nullptr, true);
+                        target->CastCustomSpell(target, 31665, &amount, nullptr, nullptr, true, nullptr, aurEff);
                     }
                 }
                 // Overkill
-                if (target->HasAuraOrTwin(58426))
+                if (AuraEffect const* aurEff = target->GetAuraEffectOfRankedSpellOrTwin(58426, 0))
                 {
+                    // Reborn Overkill's tracker 1158428 is built differently from 58428 (no twin): find it by offset
+                    uint32 const offset = aurEff->GetId() - sSpellMgr->GetSpellTwinSource(aurEff->GetId());
+                    SpellInfo const* trackerInfo = sSpellMgr->GetSpellInfo(58428 + offset);
+                    if (!trackerInfo || std::string_view(trackerInfo->SpellName[0]) != aurEff->GetSpellInfo()->SpellName[0])
+                        trackerInfo = sSpellMgr->AssertSpellInfo(58428);
                     if (!apply)
-                        target->CastSpell(target, 58428, true);
+                    {
+                        if (!trackerInfo->HasAura(SPELL_AURA_PERIODIC_DUMMY))
+                            target->RemoveAurasDueToSpell(sSpellMgr->GetSpellTwinFor(58427, aurEff->GetId()));
+                        target->CastSpell(target, trackerInfo->Id, true, nullptr, aurEff);
+                    }
                     else
                     {
                         // Remove counter aura
-                        target->RemoveAurasDueToSpell(58428);
+                        target->RemoveAurasDueToSpell(trackerInfo->Id);
 
-                        target->CastSpell(target, 58427, true);
+                        target->CastSpell(target, 58427, true, nullptr, aurEff);
                     }
                 }
             }
@@ -1963,6 +1984,41 @@ bool Aura::IsAuraStronger(Aura const* newAura) const
     return false;
 }
 
+// Ascension Warcraft Reborn Mystic Enchants that loosen a per-caster spell specific: Sting Specialist ("You can apply an
+// additional sting to the same target") and Curseweaver ("Your Curse of Agony and Curse of Doom no longer occupy a Curse
+// slot")
+bool Aura::AscensionSharesSpecificSlot(Aura const* existingAura) const
+{
+    constexpr uint32 StingSpecialist = 1590490;
+    constexpr uint32 Curseweaver = 1590493;
+    constexpr uint32 CurseOfAgonyFlag0 = 0x400;
+    constexpr uint32 CurseOfDoomFlag1 = 0x2;
+    Unit const* caster = GetCaster();
+    Unit const* owner = GetOwner()->ToUnit();
+    if (!caster || !owner)
+        return false;
+    SpellSpecificType const specific = m_spellInfo->GetSpellSpecific();
+    if (specific == SPELL_SPECIFIC_STING && caster->HasAura(StingSpecialist) && m_spellInfo->Id != existingAura->GetId())
+    {
+        uint32 stings = 0;
+        for (auto const& [id, application] : owner->GetAppliedAuras())
+            if (application->GetBase() != this && application->GetBase()->GetCasterGUID() == GetCasterGUID() &&
+                application->GetBase()->GetSpellInfo()->GetSpellSpecific() == SPELL_SPECIFIC_STING)
+                ++stings;
+        return stings < 2;
+    }
+    if (specific == SPELL_SPECIFIC_CURSE && caster->HasAura(Curseweaver))
+    {
+        auto const slotless = [](SpellInfo const* info)
+        {
+            return info->SpellFamilyName == SPELLFAMILY_WARLOCK &&
+                ((info->SpellFamilyFlags[0] & CurseOfAgonyFlag0) || (info->SpellFamilyFlags[1] & CurseOfDoomFlag1));
+        };
+        return slotless(m_spellInfo) || slotless(existingAura->GetSpellInfo());
+    }
+    return false;
+}
+
 bool Aura::CanStackWith(Aura const* existingAura) const
 {
     // Can stack with self
@@ -2002,7 +2058,8 @@ bool Aura::CanStackWith(Aura const* existingAura) const
 
     // check spell specific stack rules
     if (m_spellInfo->IsAuraExclusiveBySpecificWith(existingSpellInfo)
-            || (sameCaster && m_spellInfo->IsAuraExclusiveBySpecificPerCasterWith(existingSpellInfo)))
+            || (sameCaster && m_spellInfo->IsAuraExclusiveBySpecificPerCasterWith(existingSpellInfo) &&
+                !AscensionSharesSpecificSlot(existingAura)))
         return false;
 
     // check spell group stack rules
@@ -2958,13 +3015,14 @@ void DynObjAura::FillTargetMap(std::map<Unit*, uint8>& targets, Unit* /*caster*/
         SpellInfo const* spellInfo = GetSpellInfo();
         SpellEffectInfo const& effect = spellInfo->Effects[effIndex];
         UnitList targetList;
-        // CoA: Eldritch Obelisk (560322), Harvesting Grounds (707591), and Deathwind's Spirit Realm
-        // trigger (effect 1, 582526) encode their ally selectors in EffectImplicitTargetA with TargetB unset.
+        // CoA: Eldritch Obelisk (560322), Harvesting Grounds (707591), Shadra's Lair (804978, effect 2) and
+        // Deathwind's Spirit Realm trigger (effect 1, 582526) encode their ally selectors in EffectImplicitTargetA
+        // with TargetB unset.
         // Other spells also use this selector, so keep the exception scoped to these effects.
         bool const deathwindRank = spellInfo->Id == 800174 || (spellInfo->Id >= 502989 && spellInfo->Id <= 503000);
         bool const deathwindSpiritRealm = deathwindRank && effIndex == 1 && effect.TriggerSpell == 582526;
-        bool const coaTargetAAlly = (spellInfo->Id == 560322 || spellInfo->Id == 707591 || deathwindSpiritRealm) &&
-            effect.TargetA.GetTarget() == TARGET_UNIT_DEST_AREA_ALLY;
+        bool const coaTargetAAlly = (spellInfo->Id == 560322 || spellInfo->Id == 707591 || spellInfo->Id == 804978 ||
+            deathwindSpiritRealm) && effect.TargetA.GetTarget() == TARGET_UNIT_DEST_AREA_ALLY;
         bool const targetBAlly = effect.TargetB.GetTarget() == TARGET_DEST_DYNOBJ_ALLY ||
             effect.TargetB.GetTarget() == TARGET_UNIT_DEST_AREA_ALLY;
         if (targetBAlly || coaTargetAAlly)

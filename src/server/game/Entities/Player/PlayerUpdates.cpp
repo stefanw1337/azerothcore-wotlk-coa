@@ -140,6 +140,9 @@ void Player::Update(uint32 p_time)
         LoginDatabase.Execute(stmt);
     }
 
+    if (m_questLogPromotionPending && IsInWorld())
+        PromoteOverflowQuests();
+
     if (!m_timedquests.empty())
     {
         QuestSet::iterator iter = m_timedquests.begin();
@@ -829,6 +832,8 @@ void Player::RewardProfessionXP(uint32 skillId, uint32 current, uint32 gray, uin
         case SKILL_TAILORING: profession = RATE_XP_PROFESSION_TAILORING; break;
         case SKILL_LOCKPICKING: profession = RATE_XP_PROFESSION_LOCKPICKING; break;
         case SKILL_INSCRIPTION: profession = RATE_XP_PROFESSION_INSCRIPTION; break;
+        case SKILL_WOODCUTTING: profession = RATE_XP_PROFESSION_WOODCUTTING; break;
+        case SKILL_WOODWORKING: profession = RATE_XP_PROFESSION_WOODWORKING; break;
         case SKILL_ENCHANTING:
             profession = disenchanting ? RATE_XP_PROFESSION_DISENCHANTING : RATE_XP_PROFESSION_ENCHANTING;
             break;
@@ -1917,6 +1922,9 @@ void Player::UpdateTriggerVisibility()
 
 void Player::UpdateForQuestWorldObjects()
 {
+    if (!GetSession() || GetSession()->IsHeadlessBot())
+        return;
+
     if (GetObjectVisibilityContainer().GetVisibleWorldObjectsMap()->empty())
         return;
 
@@ -1995,7 +2003,7 @@ void Player::UpdateTitansGrip()
         RemoveAurasDueToSpell(TitansGripStaffPenalty);
 
     // 10% damage reduce if 2x2h weapons are used
-    if (HasBurningCommander() || !CanTitanGrip())
+    if (HasBurningCommander() || HasValkyrGrip() || !CanTitanGrip())
         RemoveAurasDueToSpell(49152);
     else if (Aura* aur = GetAura(49152))
         aur->RecalculateAmountOfEffects();

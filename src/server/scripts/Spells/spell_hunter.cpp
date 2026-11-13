@@ -143,7 +143,7 @@ class spell_hun_wyvern_sting : public AuraScript
     void HandleEffectRemove(AuraEffect const*  /*aurEff*/, AuraEffectHandleModes /*mode*/)
     {
         if (Unit* caster = GetCaster())
-            caster->CastSpell(GetTarget(), sSpellMgr->GetSpellWithRank(SPELL_HUNTER_WYVERN_STING_DOT, GetSpellInfo()->GetRank()), true);
+            caster->CastSpell(GetTarget(), sSpellMgr->GetSpellWithRankFor(SPELL_HUNTER_WYVERN_STING_DOT, GetId()), true);
     }
 
     void Register() override
@@ -573,7 +573,7 @@ class spell_hun_invigoration : public SpellScript
         if (Unit* unitTarget = GetHitUnit())
             if (AuraEffect* aurEff = unitTarget->GetDummyAuraEffect(SPELLFAMILY_HUNTER, 3487, 0))
                 if (roll_chance_i(aurEff->GetAmount()))
-                    unitTarget->CastSpell(unitTarget, SPELL_HUNTER_INVIGORATION_TRIGGERED, true);
+                    unitTarget->CastSpell(unitTarget, sSpellMgr->GetSpellTwinFor(SPELL_HUNTER_INVIGORATION_TRIGGERED, aurEff->GetId()), true);
     }
 
     void Register() override
@@ -693,8 +693,8 @@ class spell_hun_readiness : public SpellScript
             SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellId);
             if (spellInfo
             && spellInfo->SpellFamilyName == SPELLFAMILY_HUNTER
-            && spellInfo->Id != SPELL_HUNTER_READINESS
-            && spellInfo->Id != SPELL_HUNTER_BESTIAL_WRATH
+            && sSpellMgr->GetSpellTwinSource(spellInfo->Id) != SPELL_HUNTER_READINESS
+            && sSpellMgr->GetSpellTwinSource(spellInfo->Id) != SPELL_HUNTER_BESTIAL_WRATH
             && spellInfo->Id != SPELL_DRAENEI_GIFT_OF_THE_NAARU)
             {
                 if (spellInfo->RecoveryTime > 0)
@@ -1267,7 +1267,9 @@ class spell_hun_lock_and_load : public AuraScript
         PreventDefaultAction();
 
         Unit* caster = eventInfo.GetActor();
-        caster->CastSpell(caster, SPELL_LOCK_AND_LOAD_TRIGGER, true);
+        // the rank's own trigger: Warcraft Reborn's (1156453) is a short window whose payload resets the shots
+        uint32 const trigger = GetSpellInfo()->Effects[EFFECT_0].TriggerSpell;
+        caster->CastSpell(caster, trigger ? trigger : uint32(SPELL_LOCK_AND_LOAD_TRIGGER), true);
         caster->CastSpell(caster, SPELL_LOCK_AND_LOAD_MARKER, true);
     }
 

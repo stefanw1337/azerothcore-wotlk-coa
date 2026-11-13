@@ -29,8 +29,6 @@ uint32 BestBallad(Player* player, std::array<uint32, 9> const& ranks)
     return best;
 }
 
-/// What the full pass below last looked at, kept on the character. The pass walks the whole spellbook and builds
-/// several containers; run on every world tick for every Guardian it was a measurable part of the map update.
 struct SynchronizeState : public DataMap::Base
 {
     uint32 level = 0;
@@ -43,8 +41,6 @@ void Synchronize(Player* player)
     if (!player || !UsesAscensionClassMechanics(player, CLASS_GUARDIAN) || !player->IsInWorld())
         return;
 
-    // The inputs that can change a result at once are the level and three auras; the one time-based input (Advance
-    // swapping after half a second) is covered by running the pass at least every 100 ms.
     static std::string const stateKey = "ascension_guardian_talents_sync";
     SynchronizeState* last = player->CustomData.GetDefault<SynchronizeState>(stateKey);
     uint8 const auras = uint8((player->HasAura(505344) ? 1 : 0) | (player->HasAura(706514) ? 2 : 0) | (player->HasAura(707138) ? 4 : 0));

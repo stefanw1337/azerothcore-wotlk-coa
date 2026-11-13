@@ -19,6 +19,7 @@
 #include "Config.h"
 #include "CryptoRandom.h"
 #include "DatabaseEnv.h"
+#include "IpAddress.h"
 #include "Item.h"
 #include "Mail.h"
 #include "Realm.h"
@@ -48,6 +49,9 @@ namespace
     constexpr uint32 AcceptRecruitment = 1;
     constexpr uint32 DeclineRecruitment = 2;
     constexpr time_t ProposalLifetime = 60;
+    constexpr time_t LinkedRewardInterval = 60;
+    constexpr time_t UnlinkedRecoveryInterval = 15 * 60;
+    constexpr uint32 RewardSpread = 17;
 
     uint8 GrantLevelError(Player* donor, Player* target)
     {
@@ -62,8 +66,6 @@ namespace
             (donor->GetSession()->GetRecruiterId() != target->GetSession()->GetAccountId() &&
                 target->GetSession()->GetRecruiterId() != donor->GetSession()->GetAccountId()))
             return ERR_REFER_A_FRIEND_NOT_REFERRED_BY;
-        if (donor->GetTeamId() != target->GetTeamId())
-            return ERR_REFER_A_FRIEND_DIFFERENT_FACTION;
         if (target->GetLevel() >= donor->GetLevel())
             return ERR_REFER_A_FRIEND_TARGET_TOO_HIGH;
         if (target->GetLevel() >= sWorld->getIntConfig(CONFIG_MAX_RECRUIT_A_FRIEND_BONUS_PLAYER_LEVEL) ||
@@ -164,7 +166,6 @@ void WorldSession::ClearRecruitAFriendRequests()
     _rafGrantExpiry = 0;
     _rafInviter.Clear();
     _rafInviteExpiry = 0;
-    _rafRewardsNextUpdate = 0;
     _rafSummoner.Clear();
 }
 
@@ -177,6 +178,65 @@ void WorldSession::RefreshRecruitAFriendFlags()
     _player->SetRestBonus(_player->GetRestBonus());
     _player->SetGrantableLevels(_player->GetGrantableLevels());
     _player->GetSocial()->SendSocialList(_player, SOCIAL_FLAG_FRIEND);
+}
+
+namespace
+{
+    std::optional<std::string> RecruitmentAddress(WorldSession& session)
+    {
+        boost::system::error_code error;
+        auto const address = Acore::Net::make_address(session.GetRemoteAddress(), error);
+        if (error || address.is_unspecified())
+            return std::nullopt;
+        auto const normalized = address.is_v4()
+            ? boost::asio::ip::make_address_v6(boost::asio::ip::v4_mapped, address.to_v4())
+            : address.to_v6();
+        if (normalized.is_v4_mapped() &&
+            boost::asio::ip::make_address_v4(boost::asio::ip::v4_mapped, normalized).is_unspecified())
+            return std::nullopt;
+        return normalized.to_string();
+    }
+
+    struct RecruitmentAddresses
+    {
+        bool valid = false;
+        std::optional<std::string> shared;
+    };
+
+    RecruitmentAddresses LinkRecruitmentAddresses(WorldSession& inviter, WorldSession& recipient)
+    {
+        auto const inviterAddress = RecruitmentAddress(inviter);
+        auto const recipientAddress = RecruitmentAddress(recipient);
+        if (!inviterAddress || !recipientAddress)
+            return {};
+        if (*inviterAddress == *recipientAddress)
+            return { true, inviterAddress };
+        return { true, std::nullopt };
+    }
+
+    uint32 SharedAddressLinkLimit()
+    {
+        return sWorld->getIntConfig(CONFIG_RECRUIT_A_FRIEND_SHARED_ADDRESS_LINKS);
+    }
+
+    bool SharedAddressHasFreeLink(std::string const& address)
+    {
+        auto* links = LoginDatabase.GetPreparedStatement(LOGIN_SEL_RAF_SHARED_ADDRESS_LINKS);
+        links->SetData(0, address);
+        PreparedQueryResult const result = LoginDatabase.Query(links);
+        return result && result->Fetch()[0].Get<uint64>() < SharedAddressLinkLimit();
+    }
+
+    void SetSharedAddress(LoginDatabasePreparedStatement* stmt, uint8 index, std::optional<std::string> const& address)
+    {
+        if (address)
+            stmt->SetData(index, *address);
+        else
+            stmt->SetData(index, nullptr);
+    }
+
+    constexpr char const* InvalidAddressRefusal = "Recruit-A-Friend requires two valid IP addresses.";
+    constexpr char const* SharedAddressRefusal = "Recruit-A-Friend requires two different IP addresses.";
 }
 
 bool WorldSession::InviteRecruitAFriend(Player* target)
@@ -196,14 +256,17 @@ bool WorldSession::InviteRecruitAFriend(Player* target)
         return reject("You cannot recruit yourself or another character on your own account.");
 
     WorldSession* recipient = target->GetSession();
+    RecruitmentAddresses const addresses = LinkRecruitmentAddresses(*this, *recipient);
+    if (!addresses.valid)
+        return reject(InvalidAddressRefusal);
+    if (addresses.shared && !SharedAddressLinkLimit())
+        return reject(SharedAddressRefusal);
     if (recipient->recruiterId == GetAccountId())
         return reject("That account is already recruited by you. The link is permanent; use .raf status to view your recruits.");
     if (recipient->recruiterId)
         return reject("That account already has another recruiter. Existing recruitment links cannot be changed.");
     if (recruiterId == recipient->GetAccountId())
         return reject("That account is your recruiter. Recruiting them would create a recruitment cycle.");
-    if (target->GetTeamId() != _player->GetTeamId())
-        return reject("You can only recruit a character of the same faction.");
     if (!_player->IsAlive() || !target->IsAlive())
         return reject("Both characters must be alive before you can send a recruitment invitation.");
     if (_player->IsInCombat() || target->IsInCombat())
@@ -223,6 +286,12 @@ bool WorldSession::InviteRecruitAFriend(Player* target)
         return false;
     }
     _rafInviteCooldown = now + 10;
+    if (addresses.shared && !SharedAddressHasFreeLink(*addresses.shared))
+    {
+        chat.PSendSysMessage("Only {} Recruit-A-Friend links may join accounts that share an IP address, "
+            "and this IP address has reached that limit.", SharedAddressLinkLimit());
+        return false;
+    }
     recipient->_rafInviter = _player->GetGUID();
     recipient->_rafInviteExpiry = now + ProposalLifetime;
     target->PlayerTalkClass->ClearMenus();
@@ -258,24 +327,38 @@ bool WorldSession::HandleRecruitAFriendInviteResponse(uint32 menuId, uint32 acti
     }
     if (action != AcceptRecruitment || recruiterId ||
         GetAccountId() == inviter->GetSession()->GetAccountId() ||
-        inviter->GetTeamId() != _player->GetTeamId() || !_player->IsAlive() || !inviter->IsAlive() ||
+        !_player->IsAlive() || !inviter->IsAlive() ||
         _player->IsInCombat() || inviter->IsInCombat())
         return true;
+
+    RecruitmentAddresses const addresses = LinkRecruitmentAddresses(*inviter->GetSession(), *this);
+    if (!addresses.valid || (addresses.shared && !SharedAddressLinkLimit()))
+    {
+        ChatHandler(this).SendSysMessage(addresses.valid ? SharedAddressRefusal : InvalidAddressRefusal);
+        return true;
+    }
 
     uint32 const inviterAccount = inviter->GetSession()->GetAccountId();
     auto* stmt = LoginDatabase.GetPreparedStatement(LOGIN_UPD_RAF_RECRUITER);
     stmt->SetData(0, inviterAccount);
     stmt->SetData(1, GetAccountId());
-    stmt->SetData(2, inviterAccount);
-    stmt->SetData(3, GetAccountId());
+    SetSharedAddress(stmt, 2, addresses.shared);
+    stmt->SetData(3, inviterAccount);
+    stmt->SetData(4, GetAccountId());
+    SetSharedAddress(stmt, 5, addresses.shared);
+    stmt->SetData(6, SharedAddressLinkLimit());
     LoginDatabaseTransaction trans = LoginDatabase.BeginTransaction();
     trans->Append(LoginDatabase.GetPreparedStatement(LOGIN_INS_RAF_LINK_LOCK));
     trans->Append(LoginDatabase.GetPreparedStatement(LOGIN_UPD_RAF_LINK_LOCK));
     trans->Append(stmt);
-    auto* registration = LoginDatabase.GetPreparedStatement(LOGIN_INS_RAF_ACCOUNT);
-    registration->SetData(0, GetAccountId());
+    auto* registration = LoginDatabase.GetPreparedStatement(LOGIN_INS_RAF_LINKED_ACCOUNT);
+    SetSharedAddress(registration, 0, addresses.shared);
+    registration->SetData(1, GetAccountId());
+    registration->SetData(2, inviterAccount);
     trans->Append(registration);
-    AddTransactionCallback(LoginDatabase.AsyncCommitTransaction(trans)).AfterComplete([this, inviterAccount](bool success)
+    bool const sharesAddress = addresses.shared.has_value();
+    AddTransactionCallback(LoginDatabase.AsyncCommitTransaction(trans)).AfterComplete(
+        [this, inviterAccount, sharesAddress](bool success)
     {
         if (!success)
         {
@@ -287,13 +370,18 @@ bool WorldSession::HandleRecruitAFriendInviteResponse(uint32 menuId, uint32 acti
         auto* status = LoginDatabase.GetPreparedStatement(LOGIN_SEL_RAF_STATUS);
         status->SetData(0, GetAccountId());
         GetQueryProcessor().AddCallback(LoginDatabase.AsyncQuery(status).WithPreparedCallback(
-            [this, inviterAccount](PreparedQueryResult result)
+            [this, inviterAccount, sharesAddress](PreparedQueryResult result)
             {
                 if (!result || result->Fetch()[0].Get<uint32>() != inviterAccount)
                 {
-                    ChatHandler(this).SendSysMessage("Recruitment was not accepted because an account is already linked or would create a recruitment cycle.");
+                    char const* refusal = sharesAddress
+                        ? "Recruitment was not accepted because an account is already linked, it would create a "
+                          "recruitment cycle, or your shared IP address has reached its Recruit-A-Friend link limit."
+                        : "Recruitment was not accepted because an account is already linked or would create a "
+                          "recruitment cycle.";
+                    ChatHandler(this).SendSysMessage(refusal);
                     if (WorldSession* recruiter = sWorldSessionMgr->FindSession(inviterAccount))
-                        ChatHandler(recruiter).SendSysMessage("Recruitment was not accepted because an account is already linked or would create a recruitment cycle.");
+                        ChatHandler(recruiter).SendSysMessage(refusal);
                     return;
                 }
                 recruiterId = inviterAccount;
@@ -388,12 +476,14 @@ namespace
 
 void WorldSession::UpdateRecruitAFriendRewards(bool force)
 {
-    if (!_player || !_player->IsInWorld())
+    if (IsBot() || !_player || !_player->IsInWorld())
         return;
     time_t const now = GameTime::GetGameTime().count();
-    if (!force && now < _rafRewardsNextUpdate)
+    bool const linked = recruiterId || isRecruiter;
+    if ((!force || !linked) && now < _rafRewardsNextUpdate)
         return;
-    _rafRewardsNextUpdate = now + 60;
+    _rafRewardsNextUpdate = now + (linked ? LinkedRewardInterval : UnlinkedRecoveryInterval) +
+        GetAccountId() % RewardSpread;
     if (recruiterId)
     {
         if (!_rafRewardSession)
@@ -452,7 +542,7 @@ void WorldSession::UpdateRecruitMilestoneRewards()
     {
         Field* fields = rewards->Fetch();
         uint32 const rewardId = fields[0].Get<uint32>();
-        uint32 const requiredLevel = fields[1].Get<uint32>();
+        uint32 const requiredLevel = fields[1].Get<uint8>();
         uint8 const mask = fields[2].Get<uint8>();
         uint32 const itemId = fields[3].Get<uint32>();
         uint32 const quantity = fields[4].Get<uint32>();
@@ -477,7 +567,15 @@ void WorldSession::RecoverRecruitAFriendRewards(bool recruit)
     auto* claims = LoginDatabase.GetPreparedStatement(
         recruit ? LOGIN_SEL_RAF_RECRUIT_CLAIMS : LOGIN_SEL_RAF_CLAIMS);
     claims->SetData(0, GetAccountId());
-    PreparedQueryResult rows = LoginDatabase.Query(claims);
+    GetQueryProcessor().AddCallback(LoginDatabase.AsyncQuery(claims).WithPreparedCallback(
+        [this, recruit](PreparedQueryResult rows)
+        {
+            DeliverRecruitAFriendRewards(std::move(rows), recruit);
+        }));
+}
+
+void WorldSession::DeliverRecruitAFriendRewards(PreparedQueryResult rows, bool recruit)
+{
     if (!rows)
         return;
     do
@@ -514,7 +612,7 @@ void WorldSession::RecoverRecruitAFriendRewards(bool recruit)
             bool valid = true;
             while (remaining && valid)
             {
-                auto draft = std::make_unique<MailDraft>("Recruit-A-Friend reward",
+                auto draft = std::make_unique<MailDraft>(RECRUIT_A_FRIEND_REWARD_MAIL_SUBJECT,
                     recruit ? "Welcome! Your recruit milestone reward is enclosed. Each milestone is rewarded once per account on this realm." :
                     "Thank you for recruiting your friends! Your account-wide reward is enclosed.");
                 for (uint32 slot = 0; remaining && slot < MAX_MAIL_ITEMS; ++slot)
@@ -577,6 +675,44 @@ bool WorldSession::HandleRecruitAFriendRewardsCommand(std::string const& command
     if (!_player || !_player->IsInWorld())
         return false;
     ChatHandler chat(this);
+    if (command == "levels")
+    {
+        chat.PSendSysMessage("{} has {} stored RAF level credits. Each credit grants one level to another character.",
+            _player->GetName(), uint32(_player->GetGrantableLevels()));
+        chat.SendSysMessage("Credits belong to this character. They can be used on your recruiter or your direct recruits, never your own account or another recruit of the same recruiter.");
+        chat.PSendSysMessage("The recipient must be in your group, nearby on the same map, below your level and below the RAF level limit of {} and their own level cap.",
+            sWorld->getIntConfig(CONFIG_MAX_RECRUIT_A_FRIEND_BONUS_PLAYER_LEVEL));
+        chat.SendSysMessage("Both characters must be alive, out of combat, not flying or teleporting. Active Prestige and other server progression restrictions can prevent a grant.");
+        Player* target = _player->GetSelectedPlayer();
+        if (!target || target == _player)
+        {
+            chat.SendSysMessage("Select the intended recipient and use .raf levels again to check their current eligibility. Use the character portrait's Grant A Level action to make the grant.");
+            return true;
+        }
+        char const* reason = nullptr;
+        switch (GrantLevelError(_player, target))
+        {
+            case ERR_REFER_A_FRIEND_NONE: break;
+            case ERR_REFER_A_FRIEND_NO_TARGET: reason = "select another player"; break;
+            case ERR_REFER_A_FRIEND_INSUFFICIENT_GRANTABLE_LEVELS: reason = "you have no stored credits"; break;
+            case ERR_REFER_A_FRIEND_NOT_REFERRED_BY:
+                reason = "the accounts are not directly linked recruiter/recruit accounts";
+                break;
+            case ERR_REFER_A_FRIEND_TARGET_TOO_HIGH: reason = "the recipient must be below your level"; break;
+            case ERR_REFER_A_FRIEND_GRANT_LEVEL_MAX_I: reason = "the recipient has reached a grant level cap"; break;
+            case ERR_REFER_A_FRIEND_NOT_IN_GROUP: reason = "you must be in the same group"; break;
+            case ERR_REFER_A_FRIEND_TOO_FAR: reason = "you must be nearby on the same map"; break;
+            default: reason = "a current character state or server progression restriction prevents granting"; break;
+        }
+        if (!reason && target->GetSession()->_rafGrantExpiry > GameTime::GetGameTime().count())
+            reason = "the recipient already has a pending level-grant request";
+        if (reason)
+            chat.PSendSysMessage("{} cannot receive a level right now: {}.", target->GetName(), reason);
+        else
+            chat.PSendSysMessage("{} currently meets the RAF grant requirements. The recipient must accept; eligibility is checked again on acceptance.",
+                target->GetName());
+        return true;
+    }
     UpdateRecruitAFriendRewards(true);
     if (command == "status")
     {
@@ -601,8 +737,20 @@ bool WorldSession::HandleRecruitAFriendRewardsCommand(std::string const& command
             total, validated, total - validated);
         return true;
     }
-    if (recruiterId && command == "rewards")
+    if (recruiterId && (command == "rewards" || command == "claim"))
     {
+        std::unordered_map<uint32, bool> recruitClaims;
+        auto* recruitQuery = LoginDatabase.GetPreparedStatement(LOGIN_SEL_RAF_RECRUIT_CLAIMS);
+        recruitQuery->SetData(0, GetAccountId());
+        if (PreparedQueryResult claims = LoginDatabase.Query(recruitQuery))
+        {
+            do
+            {
+                Field* fields = claims->Fetch();
+                if (fields[2].Get<uint32>() == realm.Id.Realm)
+                    recruitClaims.emplace(fields[1].Get<uint32>(), !fields[6].IsNull());
+            } while (claims->NextRow());
+        }
         auto* milestonesQuery = WorldDatabase.GetPreparedStatement(WORLD_SEL_RAF_RECRUIT_MILESTONES);
         if (PreparedQueryResult milestones = WorldDatabase.Query(milestonesQuery))
         {
@@ -617,8 +765,16 @@ bool WorldSession::HandleRecruitAFriendRewardsCommand(std::string const& command
                     continue;
                 ItemTemplate const* item = sObjectMgr->GetItemTemplate(itemId);
                 if (item)
-                    chat.PSendSysMessage("Recruit bonus at level {}: {} x{}. Mailed automatically once per account on this realm.",
-                        fields[1].Get<uint32>(), item->Name1, quantity);
+                {
+                    uint32 const id = fields[0].Get<uint32>();
+                    uint32 const requiredLevel = fields[1].Get<uint8>();
+                    auto const claim = recruitClaims.find(id);
+                    char const* state = claim != recruitClaims.end() ?
+                        (claim->second ? "mailed" : "delivery pending on the original character") :
+                        _player->GetLevel() >= requiredLevel ? "not delivered; retry with .raf claim" : "locked";
+                    chat.PSendSysMessage("Recruit milestone {} at level {}: {} x{} - {}. Automatic once per account on this realm.",
+                        id, requiredLevel, item->Name1, quantity, state);
+                }
             } while (milestones->NextRow());
         }
     }
@@ -630,7 +786,7 @@ bool WorldSession::HandleRecruitAFriendRewardsCommand(std::string const& command
         chat.SendSysMessage("Recruitment eligibility could not be checked. Please try again.");
         return true;
     }
-    uint32 const count = countResult->Fetch()[0].Get<uint32>();
+    uint64 const count = countResult->Fetch()[0].Get<uint64>();
     auto* claimQuery = LoginDatabase.GetPreparedStatement(LOGIN_SEL_RAF_CLAIMS);
     claimQuery->SetData(0, GetAccountId());
     PreparedQueryResult claims = LoginDatabase.Query(claimQuery);
@@ -644,7 +800,7 @@ bool WorldSession::HandleRecruitAFriendRewardsCommand(std::string const& command
         } while (claims->NextRow());
     }
     uint32 requested = 0;
-    if (command != "rewards")
+    if (command != "rewards" && command != "claim")
     {
         auto id = command.rfind("claim ", 0) == 0 ? Acore::StringTo<uint32>(command.substr(6)) : std::nullopt;
         if (!id || !*id)
@@ -682,8 +838,9 @@ bool WorldSession::HandleRecruitAFriendRewardsCommand(std::string const& command
                 auto existing = claimed.find(id);
                 char const* state = existing != claimed.end() ? (existing->second ? "claimed" : "delivery pending") :
                     !valid ? "invalid configuration" : count >= needed ? "available" : "locked";
-                chat.PSendSysMessage("Reward {}: item {} x{}, needs {} direct recruits - {}.",
-                    id, itemId, quantity, needed, state);
+                ItemTemplate const* item = sObjectMgr->GetItemTemplate(itemId);
+                chat.PSendSysMessage("Reward {}: {} (item {}) x{}, needs {} validated direct recruits - {}. Claim: .raf claim {}",
+                    id, item ? item->Name1 : std::to_string(itemId), itemId, quantity, needed, state, id);
                 listed = true;
                 continue;
             }

@@ -53,8 +53,8 @@ class Workspace:
         self.build = self.root / 'build'
         self.client = self.base / 'mysql-client'
         self.tools = self.base / 'bin'
-        self.conf = (self.build / 'src/server/apps/configs' if verify_all.WINDOWS
-                     else self.base / 'dist' / 'etc')
+        self.prefix = self.base / 'dist'
+        self.conf = self.build / 'src/server/apps/configs' if verify_all.WINDOWS else self.prefix / 'etc'
         self.dbc = self.base / 'data' / 'dbc'
         self.worldserver = program(self.build / 'src/server/apps', 'worldserver')
         for name in ('mysql', 'mysqldump', 'mysql_config'):
@@ -70,7 +70,7 @@ class Workspace:
         self.environment = {'PATH': str(self.tools)}
 
     def configure(self, testing='ON'):
-        write(self.build / 'CMakeCache.txt', f'CMAKE_INSTALL_PREFIX:PATH={self.conf.parent.as_posix()}\n'
+        write(self.build / 'CMakeCache.txt', f'CMAKE_INSTALL_PREFIX:PATH={self.prefix.as_posix()}\n'
               f'CONF_DIR:PATH={self.conf.as_posix()}\n'
               f'BUILD_TESTING:BOOL={testing}\nMYSQL_CONFIG:FILEPATH={(self.client / "mysql_config").as_posix()}\n'
               'CMAKE_GENERATOR:INTERNAL=Ninja\n')
@@ -260,14 +260,29 @@ class BuildTests(WorkspaceTest):
         self.assertEqual(verify_all.readline_arguments('linux', (prefix,)), [])
         self.assertEqual(verify_all.readline_arguments('darwin', (workspace.base / 'absent',)), [])
 
-    def test_macos_configure_keeps_line_tables_with_a_level_every_compiler_accepts(self):
+    def test_macos_and_linux_configure_keep_line_tables_with_a_level_every_compiler_accepts(self):
         flags = '-O2 -g1 -DNDEBUG'
-        arguments = verify_all.line_table_debug_arguments('darwin')
-        self.assertEqual(arguments, [f'-DCMAKE_C_FLAGS_RELWITHDEBINFO={flags}',
-                                     f'-DCMAKE_CXX_FLAGS_RELWITHDEBINFO={flags}'])
-        self.assertFalse(any('-gline-tables-only' in argument for argument in arguments))
-        self.assertEqual(verify_all.line_table_debug_arguments('linux'), [])
+        for platform in ('darwin', 'linux'):
+            with self.subTest(platform=platform):
+                arguments = verify_all.line_table_debug_arguments(platform)
+                self.assertEqual(arguments, [f'-DCMAKE_C_FLAGS_RELWITHDEBINFO={flags}',
+                                             f'-DCMAKE_CXX_FLAGS_RELWITHDEBINFO={flags}'])
+                self.assertFalse(any('-gline-tables-only' in argument for argument in arguments))
         self.assertEqual(verify_all.line_table_debug_arguments('win32'), [])
+
+    def test_linux_configure_uses_game_unity_thin_archives_and_mold_when_present(self):
+        workspace = self.workspace()
+        thin = ['-DCMAKE_C_ARCHIVE_CREATE=<CMAKE_AR> qcT <TARGET> <LINK_FLAGS> <OBJECTS>',
+                '-DCMAKE_C_ARCHIVE_APPEND=<CMAKE_AR> qT <TARGET> <LINK_FLAGS> <OBJECTS>',
+                '-DCMAKE_CXX_ARCHIVE_CREATE=<CMAKE_AR> qcT <TARGET> <LINK_FLAGS> <OBJECTS>',
+                '-DCMAKE_CXX_ARCHIVE_APPEND=<CMAKE_AR> qT <TARGET> <LINK_FLAGS> <OBJECTS>']
+        without_mold = verify_all.linux_development_arguments(workspace.environment, 'linux')
+        self.assertEqual(without_mold, ['-DWITH_GAME_UNITY_BUILD=ON', *thin])
+        program(workspace.tools, 'mold')
+        self.assertEqual(verify_all.linux_development_arguments(workspace.environment, 'linux'),
+                         ['-DWITH_GAME_UNITY_BUILD=ON', *thin, '-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=mold'])
+        for platform in ('darwin', 'win32'):
+            self.assertEqual(verify_all.linux_development_arguments(workspace.environment, platform), [])
 
     def test_custom_cmake_arguments_replace_the_defaults(self):
         workspace = self.workspace(configured=False)
@@ -828,6 +843,17 @@ class GameplayTests(WorkspaceTest):
         args = verify_all.parser().parse_args(['--scenario', str(SCENARIO)])
         self.assertEqual(verify_all.resolve_scenarios(args), ['frostbolt'])
 
+    def test_exploratory_files_beyond_the_real_clock_cap_need_the_simulated_clock(self):
+        workspace = self.workspace()
+        long = json.loads(SCENARIO.read_text(encoding='utf-8')) | {'contract': 'Long probe', 'timeout_ms': 1900000}
+        probe = write(workspace.base / 'long.json', json.dumps(long))
+        with patch.object(verify_all, 'load_catalog', return_value=fake_catalog()):
+            simulated = verify_all.parser().parse_args(['--scenario', str(probe)])
+            self.assertEqual(verify_all.resolve_scenarios(simulated), [str(probe.resolve())])
+            real = verify_all.parser().parse_args(['--gameplay-clock', 'real', '--scenario', str(probe)])
+            with self.assertRaisesRegex(ValueError, 'too large'):
+                verify_all.resolve_scenarios(real)
+
     def test_invalid_exploratory_scenario_files_are_rejected_before_any_stage(self):
         workspace = self.workspace()
         broken = write(workspace.base / 'broken.json', '{"name": "broken", ')
@@ -857,11 +883,10 @@ class GameplayTests(WorkspaceTest):
     def test_module_configs_already_in_the_server_modules_directory_make_gameplay_unavailable(self):
         with patch.object(verify_all, 'WINDOWS', False):
             workspace = self.workspace()
-        write(workspace.conf / 'modules' / 'mod_ascension_compat.conf', 'Enabled = 1\n')
-        write(workspace.conf / 'modules' / 'spellbook.conf.dist')
-        separate = workspace.base / 'module-configs'
-        separate.mkdir()
-        with patch.object(verify_all, 'WINDOWS', False):
+            write(workspace.conf / 'modules' / 'mod_ascension_compat.conf', 'Enabled = 1\n')
+            write(workspace.conf / 'modules' / 'spellbook.conf.dist')
+            separate = workspace.base / 'module-configs'
+            separate.mkdir()
             shared = workspace.context()
             _, problems = verify_all.gameplay_prerequisites(shared.settings, shared.environment)
             self.assertEqual(problems, [

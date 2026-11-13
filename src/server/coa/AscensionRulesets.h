@@ -14,8 +14,14 @@ enum class Ruleset
     PvE
 };
 
-void Apply(Player* player, Ruleset ruleset);
+using Guard = bool (*)(Player*, Ruleset);
+
+void RegisterGuard(Guard guard);
+bool CanApply(Player* player, Ruleset ruleset, bool forChallenge = false);
+void Apply(Player* player, Ruleset ruleset, bool forChallenge = false);
 bool Has(Player* player, Ruleset ruleset);
+bool InTeamBattle(Player const* player);
+bool HighRiskSuspended(Player const* player);
 }
 
 #endif

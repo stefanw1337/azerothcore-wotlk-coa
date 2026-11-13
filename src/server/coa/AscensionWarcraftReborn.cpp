@@ -84,7 +84,7 @@ std::vector<std::pair<uint32, uint32>> EnchantTwins()
     for (AscensionMysticEnchant::Enchant const& enchant : catalog.Rows)
     {
         if (!enchant.Realms[SEASONAL] || !AscensionMysticEnchant::ClassAllowed(enchant, AscensionMysticEnchant::HERO_CLASS) ||
-            enchant.Taught || enchant.Spell < BLIZZARD_SPELL_END)
+            !enchant.Taught.empty() || enchant.Spell < BLIZZARD_SPELL_END)
             continue;
         SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(enchant.Spell);
         std::optional<SpellLayout> const layout = LayoutOf(enchant.Spell);
@@ -511,8 +511,31 @@ class spell_ascension_reborn_proc_trigger_spell : public AuraScript
     }
 };
 
+class AscensionWarcraftRebornScriptTwinCasts : public UnitScript
+{
+public:
+    AscensionWarcraftRebornScriptTwinCasts() : UnitScript("AscensionWarcraftRebornScriptTwinCasts", true,
+        { UNITHOOK_RESOLVE_SPELL_CAST }) { }
+
+    void ResolveSpellCast(Unit*, SpellInfo const*& spellInfo, AuraEffect const* triggeredByAura) override
+    {
+        if (!spellInfo)
+            return;
+        uint32 twin = triggeredByAura ? 0 : sSpellMgr->GetRunningScriptTwin();
+        if (triggeredByAura && sSpellMgr->GetSpellTwinSource(triggeredByAura->GetId()) != triggeredByAura->GetId())
+            twin = triggeredByAura->GetId();
+        if (!twin)
+            return;
+        uint32 const resolved = sSpellMgr->GetSpellTwinFor(spellInfo->Id, twin);
+        if (resolved != spellInfo->Id)
+            if (SpellInfo const* info = sSpellMgr->GetSpellInfo(resolved))
+                spellInfo = info;
+    }
+};
+
 void AddAscensionWarcraftRebornScripts()
 {
+    new AscensionWarcraftRebornScriptTwinCasts();
     RegisterSpellScript(spell_ascension_reborn_proc_trigger_spell);
     new AscensionWarcraftReborn::AscensionWarcraftRebornPlayer();
     new AscensionWarcraftReborn::AscensionWarcraftRebornWorld();

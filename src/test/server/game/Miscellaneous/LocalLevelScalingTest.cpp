@@ -51,6 +51,28 @@ TEST(LocalLevelScalingTest, DungeonCreatureStandsAtTheViewerLevelInsideTheBand)
     EXPECT_EQ(ScaleDungeonCreatureLevelForViewer(60, cathedral), 59);
 }
 
+TEST(LocalLevelScalingTest, ClassicDungeonAtReferenceLevelRetainsAuthoredLevels)
+{
+    LevelBand const scholomance{ 45, 59 };
+    EXPECT_EQ(ScaleDungeonCreatureLevelForViewer(58, 60, scholomance, 60), 58);
+    EXPECT_EQ(ScaleDungeonCreatureLevelForViewer(61, 60, scholomance, 60), 61);
+    EXPECT_EQ(ScaleDungeonCreatureLevelForViewer(63, 60, scholomance, 60), 63);
+    EXPECT_EQ(ScaleDungeonCreatureLevelForViewer(20, 60, { 15, 59 }, 20), 20);
+}
+
+TEST(LocalLevelScalingTest, ClassicDungeonMixedLevelsRetainCreatureDifferences)
+{
+    LevelBand const scholomance{ 20, 59 };
+    EXPECT_EQ(ScaleDungeonCreatureLevelForViewer(58, 40, scholomance, 60), 38);
+    EXPECT_EQ(ScaleDungeonCreatureLevelForViewer(61, 40, scholomance, 60), 41);
+    EXPECT_EQ(ScaleDungeonCreatureLevelForViewer(63, 40, scholomance, 60), 43);
+    EXPECT_EQ(ScaleDungeonCreatureLevelForViewer(58, 50, scholomance, 60), 48);
+    EXPECT_EQ(ScaleDungeonCreatureLevelForViewer(1, 20, scholomance, 60), 1);
+    EXPECT_EQ(ScaleDungeonCreatureLevelForViewer(61, 1, scholomance, 60), 21);
+    EXPECT_EQ(ScaleDungeonCreatureLevelForViewer(46, 45, { 20, 59 }, 45), 46);
+    EXPECT_EQ(ScaleDungeonCreatureLevelForViewer(46, 35, { 20, 59 }, 45), 36);
+}
+
 TEST(LocalLevelScalingTest, FinderPlaceholderLevelsFallBackToTheClassicRange)
 {
     LevelBand const wailing = DungeonBandFromFinder(100, 100);

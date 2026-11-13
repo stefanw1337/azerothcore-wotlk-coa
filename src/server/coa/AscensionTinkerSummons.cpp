@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 #include "AscensionTinker.h"
+#include "AscensionTinkerData.h"
 #include "Creature.h"
 #include "DBCStores.h"
 #include "GameObject.h"
@@ -13,6 +14,7 @@
 #include "ScriptedGossip.h"
 #include "SpellAuraEffects.h"
 #include "SpellAuras.h"
+#include "SpellInfo.h"
 #include "SpellMgr.h"
 #include "TemporarySummon.h"
 #include "Vehicle.h"
@@ -21,7 +23,9 @@ namespace AscensionTinker
 {
 enum TinkerSummonSpell : uint32
 {
-    DestructoBot = 804673
+    DestructoBot = 804673,
+    BuildNoiseBox = 280310,
+    BuildNoiseBoxDevice = 52036
 };
 
 bool Permanent(uint32 entry)
@@ -179,8 +183,11 @@ void Summon(Player* player, Unit* target, uint32 spell, Position const* destinat
             position.Relocate(position.GetPositionX(),position.GetPositionY(),position.GetPositionZ() + 5,position.GetOrientation());
         if (spell == 500236)
             player->MovePositionToFirstCollision(position,1 + n * 1.5f,0);
+        if (spell == 500535 && n)
+            player->MovePositionToFirstCollision(position,1.5f,n * 2 * float(M_PI) / count);
         if (TempSummon* device = player->SummonCreature(entry,position,TEMPSUMMON_TIMED_DESPAWN,duration,0,properties))
         {
+            device->SetOwnerGUID(player->GetGUID());
             device->AI()->SetData(1,spell);
             if (target)
                 device->AI()->SetGUID(target->GetGUID(),1);
@@ -304,7 +311,7 @@ struct npc_ascension_tinker_device : ScriptedAI
         me->SetOwnerGUID(owner);
         player->m_Controlled.insert(me);
         me->SetFaction(player->GetFaction());
-        if (Turret(me->GetEntry()) || Explosive())
+        if (Turret(me->GetEntry()) || Explosive() || Beacon(me->GetEntry()))
         {
             me->m_ControlledByPlayer = true;
             me->SetUnitFlag(UNIT_FLAG_PLAYER_CONTROLLED);
@@ -316,6 +323,7 @@ struct npc_ascension_tinker_device : ScriptedAI
         Scale(player,me,true);
         if (Turret(me->GetEntry()))
         {
+            Cast(me, me, 750001);
             Cast(player, player, 807293);
             if (!player->HasSpell(500470))
                 player->learnSpell(500470, true);
@@ -392,6 +400,15 @@ struct npc_ascension_tinker_device : ScriptedAI
             Cast(me,enemy,id);
             if (id == 802477)
                 Cast(me,enemy,802779);
+        }
+        if (id == 802336)
+        {
+            auto allies = Allies(player,me,Radius(id));
+            allies.remove_if([](Unit* ally) { return !ally->IsPlayer(); });
+            if (info->MaxAffectedTargets && allies.size() > info->MaxAffectedTargets)
+                allies.resize(info->MaxAffectedTargets);
+            for (Unit* ally : allies)
+                Cast(me,ally,804306);
         }
         if (id == 500601)
             player->CastSpell(me->GetPositionX(),me->GetPositionY(),me->GetPositionZ(),500753,true);
@@ -530,6 +547,9 @@ struct npc_ascension_tinker_device : ScriptedAI
                                 if (ally->GetMaxPower(power))
                                     player->EnergizeBySpell(ally,560751,power == POWER_RAGE || power == POWER_RUNIC_POWER ?
                                         Amount(560751) : Amount(560751)/10,power);
+                            if (ally->IsPlayer())
+                                if (Aura* field = player->AddAura(TinkerReplenishmentFieldAura,ally))
+                                    field->SetDuration(2400);
                             next = 2500;
                         }
                         else if (entry == 500361)
@@ -622,10 +642,23 @@ public:
         return true;
     }
 };
+class tinker_noise_box_metadata : public GlobalScript
+{
+public:
+    tinker_noise_box_metadata() : GlobalScript("tinker_noise_box_metadata",
+        {GLOBALHOOK_ON_LOAD_SPELL_CUSTOM_ATTR}) { }
+
+    void OnLoadSpellCustomAttr(SpellInfo* info) override
+    {
+        if (info->Id == BuildNoiseBox && info->Effects[EFFECT_0].Effect == SPELL_EFFECT_SUMMON)
+            info->Effects[EFFECT_0].MiscValue = BuildNoiseBoxDevice;
+    }
+};
 }
 void AddSC_AscensionTinkerSummons()
 {
     new go_ascension_tinker_battery();
+    new tinker_noise_box_metadata();
     RegisterCreatureAI(npc_ascension_tinker_pet);
     RegisterCreatureAI(npc_ascension_tinker_device);
 }

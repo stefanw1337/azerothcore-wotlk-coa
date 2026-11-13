@@ -11,6 +11,7 @@
 #include "SpellMgr.h"
 #include "SpellScript.h"
 #include <algorithm>
+#include <cmath>
 
 namespace
 {
@@ -38,6 +39,14 @@ bool Select(SpellInfo const* info, uint32 aura)
         return false;
     }
 }
+void StackInnerDemonRecast(Aura* aura, int32 remaining, int32 fury)
+{
+    constexpr int32 msPerFury = 5000;
+    constexpr int32 maxFury = 6;
+    int32 duration = std::max(remaining, std::min(remaining + msPerFury * std::max(1, fury), msPerFury * maxFury));
+    aura->SetMaxDuration(std::max(aura->GetMaxDuration(), duration));
+    aura->SetDuration(duration);
+}
 class felsworn_casts : public AllSpellScript
 {
   public:
@@ -57,9 +66,16 @@ class felsworn_casts : public AllSpellScript
     void OnSpellCheckCast(Spell* spell, bool, SpellCastResult& result) override
     {
         Player* player = Owner(spell->GetCaster());
-        if (!player || Triggered(spell) || result != SPELL_CAST_OK)
+        if (!player || result != SPELL_CAST_OK)
             return;
         uint32 id = spell->GetSpellInfo()->Id;
+        if (id == 804349 && !Inner(player))
+        {
+            result = SPELL_FAILED_CASTER_AURASTATE;
+            return;
+        }
+        if (Triggered(spell))
+            return;
         if (id == 804216 && !Fury(player))
             result = SPELL_FAILED_NO_POWER;
         if (id == 561216)
@@ -136,7 +152,11 @@ class felsworn_casts : public AllSpellScript
         if (Triggered(spell))
             return;
         if (info->Id == 804216)
+        {
             spell->SetScriptValue(800058, Fury(player));
+            if (Aura const* current = player->GetAura(804216))
+                spell->SetScriptValue(807649, uint64(std::max(0, current->GetDuration())));
+        }
         for (uint32 sid : selected)
             if (Select(info, sid))
                 if (Aura* aura = player->GetAura(sid))
@@ -223,6 +243,9 @@ class felsworn_casts : public AllSpellScript
         }
         if (info->Id == 804216)
         {
+            if (uint64 remaining = spell->GetScriptValue(807649))
+                if (Aura* aura = player->GetAura(804216))
+                    StackInnerDemonRecast(aura, int32(remaining), int32(spell->GetScriptValue(800058)));
             player->RemoveAurasDueToSpell(800058);
             player->RemoveAurasDueToSpell(803468);
             player->RemoveAurasDueToSpell(803465);
@@ -308,8 +331,11 @@ class felsworn_casts : public AllSpellScript
         }
         if (Named(info, 802060))
             Cast(player, player, 521213);
-        if (Named(info, 802060) && spell->GetScriptValue(804216))
+        if (Named(info, 802060) && spell->GetScriptValue(804216) && target->IsAlive())
+        {
             Copy(player, target, 803467, damage);
+            Cast(player, player, 521213);
+        }
         if (Named(info, 801895) && spell->GetScriptValue(804216))
             CopyDot(player, target, 805748, uint64(damage) * 30 / 100);
         if (info->Id == 712399 && spell->GetScriptValue(804216))
@@ -452,9 +478,39 @@ class spell_ascension_felsworn_ability : public SpellScript
                                                SPELL_EFFECT_ASCENSION_MODIFY_AURA_DURATION);
     }
 };
+class spell_ascension_felsworn_chaos_rush : public SpellScript
+{
+    PrepareSpellScript(spell_ascension_felsworn_chaos_rush);
+
+    void Advance(SpellDestination& destination)
+    {
+        Player* player = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!player)
+            return;
+        player->RemoveAurasWithMechanic(1ULL << MECHANIC_ROOT);
+        float forward = player->HasUnitMovementFlag(MOVEMENTFLAG_BACKWARD) ? -1.0f
+                        : player->HasUnitMovementFlag(MOVEMENTFLAG_FORWARD) ? 1.0f : 0.0f;
+        float strafe = player->HasUnitMovementFlag(MOVEMENTFLAG_STRAFE_LEFT) ? 1.0f
+                       : player->HasUnitMovementFlag(MOVEMENTFLAG_STRAFE_RIGHT) ? -1.0f : 0.0f;
+        if (!forward && !strafe)
+            return;
+        float distance = GetSpellInfo()->Effects[EFFECT_0].CalcRadius(player);
+        if (distance <= 0.0f)
+            return;
+        Position position = player->GetPosition();
+        player->MovePositionToFirstCollision(position, distance, std::atan2(strafe, forward));
+        destination.Relocate(position);
+    }
+    void Register() override
+    {
+        OnDestinationTargetSelect += SpellDestinationTargetSelectFn(
+            spell_ascension_felsworn_chaos_rush::Advance, EFFECT_0, TARGET_DEST_CASTER_FRONT);
+    }
+};
 }
 void AddSC_AscensionFelswornAbilities()
 {
     new felsworn_casts();
     RegisterSpellScript(spell_ascension_felsworn_ability);
+    RegisterSpellScript(spell_ascension_felsworn_chaos_rush);
 }

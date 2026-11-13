@@ -22,3 +22,18 @@ CoACustomRaces.Enable = 0
 #                 1 - enabled
 ###################################################################################################
 CoACustomRaces.BotsEnable = 0
+
+###################################################################################################
+#  CoACustomRaces.DisabledRaceIds
+#        Custom RaceIDs forbidden for NEW characters, including newly generated bots.
+#        Empty preserves the global switch behavior. Stock races cannot be listed.
+#        Example: "82,83,97". Invalid, duplicate or unknown IDs reject the entire new policy.
+#        Existing characters and Portable Characters imports are unaffected.
+#        Default: "" - no additional restrictions
+###################################################################################################
+CoACustomRaces.DisabledRaceIds = ""
+
+# CSM binds its saved race list to the original server overlay catalog.
+# A changed catalog rejects that policy until the owner reviews and saves the list again.
+# Empty keeps compatibility with manually authored restrictions.
+CoACustomRaces.DisabledRaceCatalogSha256 = ""

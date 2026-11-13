@@ -16,6 +16,7 @@
  */
 
 #include "Trainer.h"
+#include "TrainerProficiencyFilter.h"
 #include "Creature.h"
 #include "DBCStores.h"
 #include "NPCPackets.h"
@@ -54,26 +55,13 @@ namespace
         return RankTrainerHeroOf ? RankTrainerHeroOf(player) : IsWildcardHero(player);
     }
 
-    uint8 ProfessionExpansion(uint32 skill)
-    {
-        switch (skill)
-        {
-            case SKILL_JEWELCRAFTING:
-                return EXPANSION_THE_BURNING_CRUSADE;
-            case SKILL_INSCRIPTION:
-                return EXPANSION_WRATH_OF_THE_LICH_KING;
-            default:
-                return EXPANSION_CLASSIC;
-        }
-    }
-
     bool TeachesProfessionBeyondExpansion(SpellInfo const* spellInfo, uint8 expansion)
     {
         for (SpellEffectInfo const& spellEffectInfo : spellInfo->GetEffects())
             if ((spellEffectInfo.IsEffect(SPELL_EFFECT_SKILL_STEP) || spellEffectInfo.IsEffect(SPELL_EFFECT_SKILL))
                 && IsProfessionSkill(spellEffectInfo.MiscValue)
                 && (spellEffectInfo.CalcValue() > GetMaxProfessionSkillStep(expansion)
-                    || ProfessionExpansion(spellEffectInfo.MiscValue) > expansion))
+                    || GetProfessionExpansion(spellEffectInfo.MiscValue) > expansion))
                 return true;
 
         return false;
@@ -158,6 +146,9 @@ namespace Trainer
             if (_trainerId != WILDCARD_RANK_TRAINER_ID && !player->IsSpellFitByClassAndRace(trainerSpell.SpellId))
                 continue;
 
+            if (TrainerProficiencyFilter::Refuses(player, trainerSpell.SpellId))
+                continue;
+
             // The state is asked once and then decides both whether the row is written at all and what
             // the row reads: the same call that gates the purchase gates the window, so a trainer can
             // never leave out a spell it would have sold, or offer a row it would have refused.
@@ -171,7 +162,7 @@ namespace Trainer
 
             SpellInfo const* trainerSpellInfo = sSpellMgr->AssertSpellInfo(trainerSpell.SpellId);
 
-            bool primaryProfessionFirstRank = false;
+            bool spendsPrimaryProfessionSlot = false;
             bool knownOnlyBySkillMaximum = false;
             bool teachesLearnedSpell = false;
             for (SpellEffectInfo const& spellEffectInfo : trainerSpellInfo->GetEffects())
@@ -184,8 +175,8 @@ namespace Trainer
                     knownOnlyBySkillMaximum = true;
 
                 SpellInfo const* learnedSpellInfo = sSpellMgr->GetSpellInfo(spellEffectInfo.TriggerSpell);
-                if (learnedSpellInfo && learnedSpellInfo->IsPrimaryProfessionFirstRank())
-                    primaryProfessionFirstRank = true;
+                if (learnedSpellInfo && player->SpendsPrimaryProfessionSlot(learnedSpellInfo))
+                    spendsPrimaryProfessionSlot = true;
             }
 
             if (knownOnlyBySkillMaximum || (onlyTrainable && spellState == SpellState::Known && teachesLearnedSpell))
@@ -197,7 +188,7 @@ namespace Trainer
             trainerListSpell.Usable = AsUnderlyingType(spellState);
             trainerListSpell.MoneyCost = int32(trainerSpell.MoneyCost * reputationDiscount);
             trainerListSpell.PointCost[0] = 0; // spells don't cost talent points
-            trainerListSpell.PointCost[1] = (primaryProfessionFirstRank ? 1 : 0);
+            trainerListSpell.PointCost[1] = (spendsPrimaryProfessionSlot ? 1 : 0);
             trainerListSpell.ReqLevel = trainerSpell.ReqLevel;
             trainerListSpell.ReqSkillLine = trainerSpell.ReqSkillLine;
             trainerListSpell.ReqSkillRank = trainerSpell.ReqSkillRank;
@@ -282,6 +273,9 @@ namespace Trainer
         if (!wildcardRanks && !player->IsSpellFitByClassAndRace(trainerSpell->SpellId))
             return SpellState::Unavailable;
 
+        if (TrainerProficiencyFilter::Refuses(player, trainerSpell->SpellId))
+            return SpellState::Unavailable;
+
         // check skill requirement
         if (trainerSpell->ReqSkillLine && player->GetBaseSkillValue(trainerSpell->ReqSkillLine) < trainerSpell->ReqSkillRank)
             return SpellState::Unavailable;
@@ -296,7 +290,7 @@ namespace Trainer
 
         // check expansion requirement of professions, their ranks and their recipes
         uint8 const expansion = player->GetSession()->Expansion();
-        if (ProfessionExpansion(trainerSpell->ReqSkillLine) > expansion
+        if (GetProfessionExpansion(trainerSpell->ReqSkillLine) > expansion
             || RecipeExpansion(trainerSpell->SpellId) > expansion)
             return SpellState::Unavailable;
 
@@ -326,7 +320,7 @@ namespace Trainer
                 knowsAllLearnedSpells = false;
 
                 SpellInfo const* learnedSpellInfo = sSpellMgr->GetSpellInfo(spellEffectInfo.TriggerSpell);
-                if (learnedSpellInfo && learnedSpellInfo->IsPrimaryProfessionFirstRank() && !player->GetFreePrimaryProfessionPoints())
+                if (learnedSpellInfo && player->SpendsPrimaryProfessionSlot(learnedSpellInfo) && !player->GetFreePrimaryProfessionPoints())
                     return SpellState::Unavailable;
             }
 

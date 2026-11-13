@@ -1,0 +1,429 @@
+{
+  "schema": 1,
+  "name": "Skinpeeler quest markers: independent player state across two maps",
+  "contract": [
+    "Eight native characters, including class 30, enter two continents and receive the custom Apex Hunt marker packet (opcode 0x65c).",
+    "Available state 2 changes to completed state 10 for each character after completing the corresponding quest. Player state remains valid through later updates.",
+    "The gameplay runner uses its standard map-thread policy; cross-thread notifications are separately stressed by the skinpeeler_tracking harness."
+  ],
+  "timeout_ms": 120000,
+  "location": {
+    "map": 0,
+    "x": -9168.72,
+    "y": 768.735,
+    "z": 154.275,
+    "o": 0
+  },
+  "players": [
+    {
+      "id": "p0",
+      "race": 1,
+      "class": 1,
+      "level": 60
+    },
+    {
+      "id": "p1",
+      "race": 1,
+      "class": 30,
+      "level": 60
+    },
+    {
+      "id": "p2",
+      "race": 1,
+      "class": 1,
+      "level": 60
+    },
+    {
+      "id": "p3",
+      "race": 1,
+      "class": 30,
+      "level": 60
+    },
+    {
+      "id": "p4",
+      "race": 2,
+      "class": 1,
+      "level": 60
+    },
+    {
+      "id": "p5",
+      "race": 2,
+      "class": 30,
+      "level": 60
+    },
+    {
+      "id": "p6",
+      "race": 2,
+      "class": 1,
+      "level": 60
+    },
+    {
+      "id": "p7",
+      "race": 2,
+      "class": 30,
+      "level": 60
+    }
+  ],
+  "steps": [
+    {
+      "action": "teleport",
+      "actor": "p4",
+      "map": 1,
+      "x": 2003.64,
+      "y": -4645.85,
+      "z": 25.9132
+    },
+    {
+      "action": "teleport",
+      "actor": "p5",
+      "map": 1,
+      "x": 2003.64,
+      "y": -4645.85,
+      "z": 25.9132
+    },
+    {
+      "action": "teleport",
+      "actor": "p6",
+      "map": 1,
+      "x": 2003.64,
+      "y": -4645.85,
+      "z": 25.9132
+    },
+    {
+      "action": "teleport",
+      "actor": "p7",
+      "map": 1,
+      "x": 2003.64,
+      "y": -4645.85,
+      "z": 25.9132
+    },
+    {
+      "action": "wait",
+      "ms": 3000
+    },
+    {
+      "action": "summon",
+      "actor": "p0",
+      "as": "npc0",
+      "entry": 9916113,
+      "distance": 3
+    },
+    {
+      "action": "summon",
+      "actor": "p1",
+      "as": "npc1",
+      "entry": 9916113,
+      "distance": 3
+    },
+    {
+      "action": "summon",
+      "actor": "p2",
+      "as": "npc2",
+      "entry": 9916113,
+      "distance": 3
+    },
+    {
+      "action": "summon",
+      "actor": "p3",
+      "as": "npc3",
+      "entry": 9916113,
+      "distance": 3
+    },
+    {
+      "action": "summon",
+      "actor": "p4",
+      "as": "npc4",
+      "entry": 9916114,
+      "distance": 3
+    },
+    {
+      "action": "summon",
+      "actor": "p5",
+      "as": "npc5",
+      "entry": 9916114,
+      "distance": 3
+    },
+    {
+      "action": "summon",
+      "actor": "p6",
+      "as": "npc6",
+      "entry": 9916114,
+      "distance": 3
+    },
+    {
+      "action": "summon",
+      "actor": "p7",
+      "as": "npc7",
+      "entry": 9916114,
+      "distance": 3
+    },
+    {
+      "action": "assert",
+      "label": "Player 0 receives an available Apex Hunt marker",
+      "actor": "p0",
+      "metric": "server_packet_u32",
+      "opcode": 1628,
+      "index": 3,
+      "equals": 2,
+      "within_ms": 10000
+    },
+    {
+      "action": "assert",
+      "label": "Player 1 receives an available Apex Hunt marker",
+      "actor": "p1",
+      "metric": "server_packet_u32",
+      "opcode": 1628,
+      "index": 3,
+      "equals": 2,
+      "within_ms": 10000
+    },
+    {
+      "action": "assert",
+      "label": "Player 2 receives an available Apex Hunt marker",
+      "actor": "p2",
+      "metric": "server_packet_u32",
+      "opcode": 1628,
+      "index": 3,
+      "equals": 2,
+      "within_ms": 10000
+    },
+    {
+      "action": "assert",
+      "label": "Player 3 receives an available Apex Hunt marker",
+      "actor": "p3",
+      "metric": "server_packet_u32",
+      "opcode": 1628,
+      "index": 3,
+      "equals": 2,
+      "within_ms": 10000
+    },
+    {
+      "action": "assert",
+      "label": "Player 4 receives an available Apex Hunt marker",
+      "actor": "p4",
+      "metric": "server_packet_u32",
+      "opcode": 1628,
+      "index": 3,
+      "equals": 2,
+      "within_ms": 10000
+    },
+    {
+      "action": "assert",
+      "label": "Player 5 receives an available Apex Hunt marker",
+      "actor": "p5",
+      "metric": "server_packet_u32",
+      "opcode": 1628,
+      "index": 3,
+      "equals": 2,
+      "within_ms": 10000
+    },
+    {
+      "action": "assert",
+      "label": "Player 6 receives an available Apex Hunt marker",
+      "actor": "p6",
+      "metric": "server_packet_u32",
+      "opcode": 1628,
+      "index": 3,
+      "equals": 2,
+      "within_ms": 10000
+    },
+    {
+      "action": "assert",
+      "label": "Player 7 receives an available Apex Hunt marker",
+      "actor": "p7",
+      "metric": "server_packet_u32",
+      "opcode": 1628,
+      "index": 3,
+      "equals": 2,
+      "within_ms": 10000
+    },
+    {
+      "action": "prepare_quest",
+      "actor": "p0",
+      "quest": 17839,
+      "complete": true
+    },
+    {
+      "action": "prepare_quest",
+      "actor": "p1",
+      "quest": 17839,
+      "complete": true
+    },
+    {
+      "action": "prepare_quest",
+      "actor": "p2",
+      "quest": 17839,
+      "complete": true
+    },
+    {
+      "action": "prepare_quest",
+      "actor": "p3",
+      "quest": 17839,
+      "complete": true
+    },
+    {
+      "action": "prepare_quest",
+      "actor": "p4",
+      "quest": 17844,
+      "complete": true
+    },
+    {
+      "action": "prepare_quest",
+      "actor": "p5",
+      "quest": 17844,
+      "complete": true
+    },
+    {
+      "action": "prepare_quest",
+      "actor": "p6",
+      "quest": 17844,
+      "complete": true
+    },
+    {
+      "action": "prepare_quest",
+      "actor": "p7",
+      "quest": 17844,
+      "complete": true
+    },
+    {
+      "action": "assert",
+      "label": "Player 0 receives their completed marker",
+      "actor": "p0",
+      "metric": "server_packet_u32",
+      "opcode": 1628,
+      "index": 3,
+      "equals": 10,
+      "within_ms": 10000
+    },
+    {
+      "action": "assert",
+      "label": "Player 1 receives their completed marker",
+      "actor": "p1",
+      "metric": "server_packet_u32",
+      "opcode": 1628,
+      "index": 3,
+      "equals": 10,
+      "within_ms": 10000
+    },
+    {
+      "action": "assert",
+      "label": "Player 2 receives their completed marker",
+      "actor": "p2",
+      "metric": "server_packet_u32",
+      "opcode": 1628,
+      "index": 3,
+      "equals": 10,
+      "within_ms": 10000
+    },
+    {
+      "action": "assert",
+      "label": "Player 3 receives their completed marker",
+      "actor": "p3",
+      "metric": "server_packet_u32",
+      "opcode": 1628,
+      "index": 3,
+      "equals": 10,
+      "within_ms": 10000
+    },
+    {
+      "action": "assert",
+      "label": "Player 4 receives their completed marker",
+      "actor": "p4",
+      "metric": "server_packet_u32",
+      "opcode": 1628,
+      "index": 3,
+      "equals": 10,
+      "within_ms": 10000
+    },
+    {
+      "action": "assert",
+      "label": "Player 5 receives their completed marker",
+      "actor": "p5",
+      "metric": "server_packet_u32",
+      "opcode": 1628,
+      "index": 3,
+      "equals": 10,
+      "within_ms": 10000
+    },
+    {
+      "action": "assert",
+      "label": "Player 6 receives their completed marker",
+      "actor": "p6",
+      "metric": "server_packet_u32",
+      "opcode": 1628,
+      "index": 3,
+      "equals": 10,
+      "within_ms": 10000
+    },
+    {
+      "action": "assert",
+      "label": "Player 7 receives their completed marker",
+      "actor": "p7",
+      "metric": "server_packet_u32",
+      "opcode": 1628,
+      "index": 3,
+      "equals": 10,
+      "within_ms": 10000
+    },
+    {
+      "action": "wait",
+      "ms": 3000
+    },
+    {
+      "action": "assert",
+      "label": "Player 0 remains in world after tracker updates",
+      "actor": "p0",
+      "metric": "health",
+      "min": 1
+    },
+    {
+      "action": "assert",
+      "label": "Player 1 remains in world after tracker updates",
+      "actor": "p1",
+      "metric": "health",
+      "min": 1
+    },
+    {
+      "action": "assert",
+      "label": "Player 2 remains in world after tracker updates",
+      "actor": "p2",
+      "metric": "health",
+      "min": 1
+    },
+    {
+      "action": "assert",
+      "label": "Player 3 remains in world after tracker updates",
+      "actor": "p3",
+      "metric": "health",
+      "min": 1
+    },
+    {
+      "action": "assert",
+      "label": "Player 4 remains in world after tracker updates",
+      "actor": "p4",
+      "metric": "health",
+      "min": 1
+    },
+    {
+      "action": "assert",
+      "label": "Player 5 remains in world after tracker updates",
+      "actor": "p5",
+      "metric": "health",
+      "min": 1
+    },
+    {
+      "action": "assert",
+      "label": "Player 6 remains in world after tracker updates",
+      "actor": "p6",
+      "metric": "health",
+      "min": 1
+    },
+    {
+      "action": "assert",
+      "label": "Player 7 remains in world after tracker updates",
+      "actor": "p7",
+      "metric": "health",
+      "min": 1
+    }
+  ]
+}

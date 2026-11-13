@@ -7,8 +7,10 @@
 #include "DBCStores.h"
 #include "MotionMaster.h"
 #include "ObjectAccessor.h"
+#include "ObjectMgr.h"
 #include "Opcodes.h"
 #include "Player.h"
+#include "RaceMgr.h"
 #include "ScriptMgr.h"
 #include "ScriptedCreature.h"
 #include "Spell.h"
@@ -42,6 +44,14 @@ bool InReach(Creature const* minion, Unit const* target)
 bool Follows(uint32 entry)
 {
     return !Stationary(entry) && entry != 523032 && entry != 542065;
+}
+bool PlayerInCloud(Creature* minion, uint32 spell)
+{
+    SpellInfo const* info = sSpellMgr->GetSpellInfo(spell);
+    for (Unit* unit : Nearby(minion, info->Effects[EFFECT_0].CalcRadius(minion)))
+        if (unit->GetCharmerOrOwnerPlayerOrPlayerItself() && minion->_IsValidAttackTarget(unit, info))
+            return true;
+    return false;
 }
 bool Travelling(Player const* player)
 {
@@ -136,6 +146,10 @@ void Evict(Player* player, int32 needed)
     }
 }
 }
+bool FollowsOwner(uint32 entry)
+{
+    return Follows(entry);
+}
 bool Responds(uint32 entry, uint32 command)
 {
     switch (command)
@@ -175,13 +189,105 @@ bool Responds(uint32 entry, uint32 command)
         return false;
     }
 }
+constexpr float OwnerStaminaPerLifeForce = 0.2714f;
+uint32 LegacyStaminaGain(Classes legacyClass, uint8 level)
+{
+    for (uint8 race = RACE_HUMAN; race < sRaceMgr->GetMaxRaces(); ++race)
+    {
+        if (!sObjectMgr->GetPlayerInfo(race, legacyClass))
+            continue;
+
+        PlayerLevelInfo first;
+        PlayerLevelInfo current;
+        sObjectMgr->GetPlayerLevelInfo(race, legacyClass, 1, &first);
+        sObjectMgr->GetPlayerLevelInfo(race, legacyClass, level, &current);
+        return current.stats[STAT_STAMINA] - first.stats[STAT_STAMINA];
+    }
+
+    return 0;
+}
+uint32 LegacyBaseHealthGain(Classes legacyClass, uint8 level)
+{
+    PlayerClassLevelInfo first;
+    PlayerClassLevelInfo current;
+    sObjectMgr->GetPlayerClassLevelInfo(legacyClass, 1, &first);
+    sObjectMgr->GetPlayerClassLevelInfo(legacyClass, level, &current);
+    return current.basehealth - first.basehealth;
+}
+float LegacyNakedStamina(Player const* player)
+{
+    PlayerLevelInfo firstLevel;
+    sObjectMgr->GetPlayerLevelInfo(player->getRace(true), player->getClass(), 1, &firstLevel);
+    Classes const legacyClass = GetLegacyClassForCustomClass(Classes(player->getClass()));
+    return float(firstLevel.stats[STAT_STAMINA] + LegacyStaminaGain(legacyClass, player->GetLevel()));
+}
+float LegacyOwnerStamina(Player const* player)
+{
+    float const legacyBaseDelta = LegacyNakedStamina(player) - player->GetCreateStat(STAT_STAMINA);
+    float const multiplier = player->GetPctModifierValue(UNIT_MOD_STAT_STAMINA, BASE_PCT) *
+                             player->GetPctModifierValue(UNIT_MOD_STAT_STAMINA, TOTAL_PCT);
+    return std::max(0.0f, player->GetStat(STAT_STAMINA) + legacyBaseDelta * multiplier);
+}
+float NakedHealth(Player const* player)
+{
+    Classes const legacyClass = GetLegacyClassForCustomClass(Classes(player->getClass()));
+    PlayerClassLevelInfo firstClassLevel;
+    sObjectMgr->GetPlayerClassLevelInfo(player->getClass(), 1, &firstClassLevel);
+    float stamina = LegacyNakedStamina(player);
+    float baseHealth = float(firstClassLevel.basehealth + LegacyBaseHealthGain(legacyClass, player->GetLevel()));
+    float firstTwenty = std::min(stamina, 20.0f);
+    return baseHealth + firstTwenty + (stamina - firstTwenty) * 10.0f;
+}
+float HealthShare(uint32 entry, uint8 cost)
+{
+    switch (entry)
+    {
+    case 50065:
+    case 51065:
+        return 0.54f;
+    case 50073:
+    case 50075:
+        return 0.66f;
+    case 50115:
+        return 0.79f;
+    case 50323:
+        return 0.94f;
+    case 50068:
+        return 1.38f;
+    case 51275:
+        return 1.44f;
+    case 50177:
+        return 2.53f;
+    case 500482:
+    case 500483:
+    case 500484:
+        return 4.0f;
+    default:
+        break;
+    }
+    switch (cost)
+    {
+    case 1:
+        return 0.54f;
+    case 2:
+        return 0.94f;
+    case 3:
+        return 1.38f;
+    default:
+        return 1.0f;
+    }
+}
+float HealthPerStamina(uint32 entry)
+{
+    return entry == 50073 ? 5.0f : 10.0f;
+}
 void Scale(Player* player, Creature* minion, uint8 cost, float& inheritedSpeed)
 {
     float weight = float(std::max<uint8>(1, cost));
     float healthFraction = minion->GetHealthPct() / 100.0f;
     float manaFraction =
         minion->GetMaxPower(POWER_MANA) ? float(minion->GetPower(POWER_MANA)) / minion->GetMaxPower(POWER_MANA) : 1.0f;
-    float stamina = (player->GetLevel() * 3.0f + player->GetStat(STAT_STAMINA) * 0.3f) * weight;
+    float stamina = LegacyOwnerStamina(player) * OwnerStaminaPerLifeForce * cost;
     float intellect = player->GetStat(STAT_INTELLECT);
     float spellPower = float(std::max(player->SpellBaseDamageBonusDone(SPELL_SCHOOL_MASK_FROST),
                                       player->SpellBaseDamageBonusDone(SPELL_SCHOOL_MASK_SHADOW)));
@@ -190,8 +296,10 @@ void Scale(Player* player, Creature* minion, uint8 cost, float& inheritedSpeed)
     minion->SetStatFlatModifier(UNIT_MOD_STAT_INTELLECT, BASE_VALUE, intellect * 0.3f * weight);
     minion->UpdateStats(STAT_STAMINA);
     minion->UpdateStats(STAT_INTELLECT);
+    float minionStamina = std::max(0.0f, minion->GetStat(STAT_STAMINA) - minion->GetCreateStat(STAT_STAMINA));
     minion->SetStatFlatModifier(UNIT_MOD_HEALTH, BASE_VALUE,
-                                50.0f * player->GetLevel() * weight + minion->GetStat(STAT_STAMINA) * 10);
+                                NakedHealth(player) * HealthShare(minion->GetEntry(), cost) +
+                                    minionStamina * HealthPerStamina(minion->GetEntry()));
     minion->UpdateMaxHealth();
     minion->SetHealth(std::max(1u, uint32(healthFraction * minion->GetMaxHealth())));
     minion->setPowerType(POWER_MANA);
@@ -304,8 +412,12 @@ bool Summon(Player* player, uint32 spell, Unit* target, Position const& position
                     point.SetOrientation(heading);
                     player->MovePositionToFirstCollision(point, 2.0f, heading - player->GetOrientation());
                     float const lateral = (float(i) - (count - 1) / 2.0f) * 1.0f;
-                    point.m_positionX += std::cos(heading + float(M_PI) / 2) * lateral;
-                    point.m_positionY += std::sin(heading + float(M_PI) / 2) * lateral;
+                    float const lateralX = std::cos(heading + float(M_PI) / 2) * lateral;
+                    float const lateralY = std::sin(heading + float(M_PI) / 2) * lateral;
+                    point.m_positionX += lateralX;
+                    point.m_positionY += lateralY;
+                    aim.m_positionX += lateralX;
+                    aim.m_positionY += lateralY;
                     point.SetOrientation(heading);
                 }
                 else
@@ -385,10 +497,11 @@ class npc_ascension_necromancer : public ScriptedAI
     float _inheritedSpeed = 1.0f;
     float _followRange = 0.0f;
     bool _travelling = false;
+    bool _charmed = false;
 
     bool Pacified(Player const* player) const
     {
-        return _travelling || player->HasAura(500983);
+        return _travelling || player->HasAura(500983) || player->IsCharmed();
     }
     void IsSummonedBy(WorldObject* summoner) override
     {
@@ -405,7 +518,7 @@ class npc_ascension_necromancer : public ScriptedAI
         }
         me->SetOwnerGUID(_owner);
         me->SetCreatorGUID(_owner);
-        me->SetFaction(player->GetFaction());
+        me->SetFaction(player->IsCharmed() ? player->GetOldFactionId() : player->GetFaction());
         me->SetReactState(REACT_DEFENSIVE);
         me->SetCombatMovement(!Stationary(me->GetEntry()) && !Ranged(me->GetEntry()));
         State(player).minions.push_back({me->GetGUID(), _spell, _cost});
@@ -414,7 +527,8 @@ class npc_ascension_necromancer : public ScriptedAI
         me->SetHealth(me->GetMaxHealth());
         me->SetPower(POWER_MANA, me->GetMaxPower(POWER_MANA));
         if (_cost && player->HasAura(504866))
-            player->CastCustomSpell(505224, SPELLVALUE_BASE_POINT0, int32(me->CountPctFromMaxHealth(40)), me, true);
+            player->CastCustomSpell(SummonShield, SPELLVALUE_BASE_POINT0, int32(me->CountPctFromMaxHealth(40)), me,
+                                    true);
         if (me->GetEntry() == 50073)
             player->AddAura(805290, me);
         if (uint32 occupancy = OccupancyAura(me->GetEntry()))
@@ -639,6 +753,11 @@ class npc_ascension_necromancer : public ScriptedAI
             me->SetImmuneToNPC(travelling);
             _events.RescheduleEvent(1, 1ms);
         }
+        if (bool charmed = player->IsCharmed(); charmed != _charmed)
+        {
+            _charmed = charmed;
+            _events.RescheduleEvent(1, 1ms);
+        }
         _events.Update(diff);
         while (uint32 event = _events.ExecuteEvent())
         {
@@ -704,7 +823,7 @@ class npc_ascension_necromancer : public ScriptedAI
             {
                 if (!Pacified(player) && !me->HasUnitState(UNIT_STATE_CONTROLLED))
                 {
-                    if (me->GetEntry() == 50068)
+                    if (me->GetEntry() == 50068 && (me->IsInCombat() || PlayerInCloud(me, 802353)))
                         Cast(me, me, 802353);
                     if (Unit* victim = me->GetVictim(); victim && InReach(me, victim))
                         if (uint32 ability = AttackSpell(me->GetEntry()))
@@ -755,7 +874,9 @@ class npc_ascension_necromancer : public ScriptedAI
             }
             if (event == 9)
                 if (Unit* enemy = ObjectAccessor::GetUnit(*me, _breathTarget))
-                    Cast(me, enemy, 807339);
+                    for (Unit* blasted : Nearby(enemy, 10.0f))
+                        if (player->IsValidAttackTarget(blasted))
+                            Cast(me, blasted, 807339);
         }
         if (me->GetEntry() == 523032 && !_exploded)
             for (Unit* nearby : Nearby(me, 2.5f))
@@ -788,6 +909,11 @@ class spell_ascension_necromancer_summon : public SpellScript
             return;
         _summoned = true;
         Position position = GetExplTargetDest() ? GetExplTargetDest()->GetPosition() : player->GetPosition();
+        if (GetSpellInfo()->Id == 804681)
+        {
+            float const heading = player->GetAbsoluteAngle(position.GetPositionX(), position.GetPositionY());
+            position = player->GetNearPosition(3.0f, heading - player->GetOrientation());
+        }
         Summon(player, GetSpellInfo()->Id, GetExplTargetUnit(), position);
     }
     void Register() override

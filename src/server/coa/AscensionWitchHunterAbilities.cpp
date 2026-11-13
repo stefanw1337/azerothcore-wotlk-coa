@@ -32,9 +32,11 @@ enum WitchHunterCastSpells
     SPELL_SIXFOLD_SHOT_TRANSFORM = 500604,
     SPELL_SHADOW_RAGE_TALENT = 705455,
     SPELL_SHADOW_RAGE_PET = 804192,
+    SPELL_SHADOW_RAGE_DAMAGE = 567570,
     SPELL_SHARPSHOOTER = 705456,
     SPELL_SHARPSHOOTER_ENERGIZE = 704385,
     SPELL_DEAL_WITH_THE_DEVIL = 680255,
+    SPELL_SHADOWSTORM = 520277,
     SPELL_SHADOWSTORM_DAMAGE = 520278,
     SPELL_SHADOWSTORM_HEAL = 520793,
     SPELL_SHADOWSTORM_LEECH = 520794
@@ -99,18 +101,29 @@ class witch_hunter_casts : public AllSpellScript
   public:
     witch_hunter_casts() : AllSpellScript("witch_hunter_casts") {}
 
-    void OnSpellCritChance(Spell* spell, Unit*, float& chance) override
+    void OnSpellCritChance(Spell* spell, Unit* target, float& chance) override
     {
-        Player* player = Owner(spell->GetCaster());
-        if (player && spell->GetCaster() == player && Quickdraw(spell->GetSpellInfo()) &&
+        Unit* striker = spell->GetCaster();
+        Player* player = striker ? Owner(striker->GetCharmerOrOwnerPlayerOrPlayerItself()) : nullptr;
+        if (player && striker == player && Quickdraw(spell->GetSpellInfo()) &&
             player->HasAura(SPELL_DEAL_WITH_THE_DEVIL, player->GetGUID()))
             chance = 100.0f;
+        if (player && spell->GetSpellInfo()->Id == SPELL_SHADOW_RAGE_DAMAGE)
+        {
+            float const ranged = player->GetFloatValue(PLAYER_RANGED_CRIT_PERCENTAGE);
+            chance = striker == player ? ranged :
+                     striker->GetUnitCriticalChance(BASE_ATTACK, target) + std::max(0.0f, ranged - 5.0f);
+        }
     }
 
     void OnSpellCast(Spell* spell, Unit* caster, SpellInfo const* info, bool) override
     {
         Player* player = Owner(caster);
-        if (!player || !spell->IsTriggered())
+        if (!player)
+            return;
+        if (!spell->IsTriggered() && Desecrate(info) && player->HasAura(SPELL_SHADOWSTORM))
+            Cast(player, player, SPELL_SHADOWSTORM_DAMAGE);
+        if (!spell->IsTriggered())
             return;
         SpellInfo const* channel = spell->GetTriggeredByAuraSpellInfo();
         if (!channel)
@@ -243,6 +256,8 @@ class spell_ascension_witch_hunter_ability : public SpellScript
     {
         Player* player = Owner(GetCaster());
         Unit* target = GetHitUnit();
+        if (player && target == player && _anguish && Family(GetSpellInfo(), 0, 2))
+            player->RemoveAurasDueToSpell(500566);
         if (!player || !target || target == player)
             return;
         uint32 id = GetSpellInfo()->Id;
@@ -303,7 +318,7 @@ class spell_ascension_witch_hunter_ability : public SpellScript
         if (id == 802139 && !target->IsControlledByPlayer())
             Cast(player, target, 32747);
         if (Family(GetSpellInfo(), 1, 16384) && dealt && player->HasAura(680503))
-            Cast(player, target, 680517);
+            Brand(player, target);
         if (id == 684330)
             Cast(player, target, 504472);
     }
@@ -411,8 +426,6 @@ class spell_ascension_witch_hunter_ability : public SpellScript
             player->RemoveAurasDueToSpell(500161);
         if (_dawnKnight && Family(info, 0, 1024))
             player->RemoveAurasDueToSpell(681390);
-        if (_anguish && Family(info, 0, 2))
-            player->RemoveAurasDueToSpell(500566);
         if (Family(info, 1, 134217728))
         {
             talent(705480, 806191);

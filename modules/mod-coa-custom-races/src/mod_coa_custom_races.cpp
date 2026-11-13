@@ -7,29 +7,112 @@
  */
 
 #include "Config.h"
+#include "CoARaceAvailability.h"
+#include "CryptoHash.h"
+#include "DBCStores.h"
 #include "Log.h"
 #include "ScriptMgr.h"
+#include <filesystem>
+#include <fstream>
+#include <mutex>
 
 namespace
 {
     bool CustomRacesEnabled = false;
-
-    // The original Wrath races; every other playable race id is a CoA Custom race.
-    bool IsStockRace(uint8 race)
+    std::set<uint8> DisabledRaceIds;
+    struct PendingPolicy
     {
-        return race >= 1 && race <= 11 && race != 9;
+        bool Enabled;
+        std::set<uint8> Disabled;
+        std::string CatalogHash;
+        std::string DataDirectory;
+    };
+    std::optional<PendingPolicy> Pending;
+    bool CatalogLoaded = false;
+    std::mutex PolicyMutex;
+
+    bool CatalogMatches(PendingPolicy const& policy)
+    {
+        if (policy.Disabled.empty() || policy.CatalogHash.empty())
+            return true;
+        auto const path = std::filesystem::path(policy.DataDirectory) / "dbc_races" / "ChrRaces.dbc";
+        std::ifstream input(path, std::ios::binary);
+        if (!input)
+            return false;
+        Acore::Crypto::SHA256 hash;
+        char buffer[4096];
+        while (input.read(buffer, sizeof(buffer)) || input.gcount())
+            hash.UpdateData(std::string_view(buffer, static_cast<size_t>(input.gcount())));
+        if (!input.eof())
+            return false;
+        hash.Finalize();
+        std::string hex;
+        char const* digits = "0123456789abcdef";
+        for (auto byte : hash.GetDigest())
+        {
+            hex.push_back(digits[byte >> 4]);
+            hex.push_back(digits[byte & 15]);
+        }
+        return hex == policy.CatalogHash;
+    }
+
+    void ApplyPendingPolicy()
+    {
+        if (!Pending || !sChrRacesStore.GetNumRows())
+            return;
+        CatalogLoaded = true;
+        if (!CatalogMatches(*Pending))
+        {
+            LOG_ERROR("server.loading", "CoA Custom Races: race catalog changed; review DisabledRaceIds before applying a new policy");
+            Pending.reset();
+            return;
+        }
+        if (!CoARaceAvailability::Valid(Pending->Disabled, [](uint8 race)
+            {
+                return sChrRacesStore.LookupEntry(race) != nullptr;
+            }))
+        {
+            LOG_ERROR("server.loading", "CoA Custom Races: DisabledRaceIds contains an unknown race; keeping the previous creation policy");
+            Pending.reset();
+            return;
+        }
+        CustomRacesEnabled = Pending->Enabled;
+        DisabledRaceIds = std::move(Pending->Disabled);
+        Pending.reset();
+        LOG_INFO("server.loading", "CoA Custom Races: {}, {} races disabled for new characters",
+            CustomRacesEnabled ? "enabled" : "disabled", DisabledRaceIds.size());
     }
 }
 
 class CoACustomRacesConfig : public WorldScript
 {
 public:
-    CoACustomRacesConfig() : WorldScript("CoACustomRacesConfig", { WORLDHOOK_ON_BEFORE_CONFIG_LOAD }) { }
+    CoACustomRacesConfig() : WorldScript("CoACustomRacesConfig",
+        { WORLDHOOK_ON_BEFORE_CONFIG_LOAD, WORLDHOOK_ON_STARTUP }) { }
 
     void OnBeforeConfigLoad(bool /*reload*/) override
     {
-        CustomRacesEnabled = sConfigMgr->GetOption<bool>("CoACustomRaces.Enable", false);
-        LOG_INFO("server.loading", "CoA Custom Races: {}", CustomRacesEnabled ? "enabled" : "disabled (no new characters of the added races)");
+        std::lock_guard<std::mutex> guard(PolicyMutex);
+        auto disabled = CoARaceAvailability::Parse(
+            sConfigMgr->GetOption<std::string>("CoACustomRaces.DisabledRaceIds", ""));
+        auto catalogHash = CoARaceAvailability::NormalizeCatalogHash(
+            sConfigMgr->GetOption<std::string>("CoACustomRaces.DisabledRaceCatalogSha256", ""));
+        Pending.reset();
+        if (!disabled || !catalogHash)
+        {
+            LOG_ERROR("server.loading", "CoA Custom Races: invalid DisabledRaceIds; keeping the previous creation policy");
+            return;
+        }
+        Pending = PendingPolicy{sConfigMgr->GetOption<bool>("CoACustomRaces.Enable", false), std::move(*disabled),
+            std::move(*catalogHash), sConfigMgr->GetOption<std::string>("DataDir", ".")};
+        if (CatalogLoaded)
+            ApplyPendingPolicy();
+    }
+
+    void OnStartup() override
+    {
+        std::lock_guard<std::mutex> guard(PolicyMutex);
+        ApplyPendingPolicy();
     }
 };
 
@@ -40,7 +123,9 @@ public:
 
     bool CanAccountCreateCharacter(uint32 /*accountId*/, uint8 race, uint8 /*charClass*/) override
     {
-        return CustomRacesEnabled || IsStockRace(race);
+        std::lock_guard<std::mutex> guard(PolicyMutex);
+        ApplyPendingPolicy();
+        return CoARaceAvailability::CanCreate(CustomRacesEnabled, DisabledRaceIds, race);
     }
 };
 

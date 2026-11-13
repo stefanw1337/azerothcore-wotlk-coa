@@ -204,9 +204,9 @@ class ThreadOutput:
         return getattr(self.stream, name)
 
 
-def validated(scenario, where):
+def validated(scenario, where, clock=REAL_CLOCK):
     try:
-        return run.validate(scenario)
+        return run.validate(scenario, clock)
     except (ValueError, KeyError, TypeError) as error:
         raise ValueError(f'{where}: {error}') from None
 
@@ -237,7 +237,7 @@ def admissible(attempts, lanes):
 
 def read_report(path):
     try:
-        return run.read_json(path)
+        return run.read_published_json(path)
     except (OSError, ValueError) as error:
         return error
 
@@ -272,7 +272,7 @@ def clock_policy(directory=catalog.DIRECTORY):
     return exclusive
 
 
-def select_cases(values, directory=catalog.DIRECTORY, excluded=()):
+def select_cases(values, directory=catalog.DIRECTORY, excluded=(), clock=REAL_CLOCK):
     checks = catalog.bindings(directory)
     definitions = {row['id']: catalog.read_json(catalog.ROOT / row['path'])
                    for row in catalog.catalog(directory)}
@@ -293,7 +293,7 @@ def select_cases(values, directory=catalog.DIRECTORY, excluded=()):
         elif str(path.resolve()) not in sources:
             sources.add(str(path.resolve()))
             name = exploratory_key(path, exploratory.keys() | definitions.keys())
-            exploratory[name] = Case(name, validated(scenario, value), str(path.resolve()))
+            exploratory[name] = Case(name, validated(scenario, value, clock), str(path.resolve()))
     cases = [Case(key, validated(definitions[key], key)) for key in catalog.companion_cases(requested, checks)]
     cases.extend(exploratory.values())
     run.require(cases, 'No scenarios selected')
@@ -349,6 +349,8 @@ class Server:
                                               credentials, self.batch_id,
                                               cache.metadata['world_id'] if cache else self.batch_id, files,
                                               batch.clock_settings) | batch.database_settings
+            overrides.update(run.migration_settings(batch.source_config, batch.args.external_db_migrations))
+            self.summary['database_migrations'] = 'external' if batch.args.external_db_migrations else 'native'
             overrides['WorldServerPort'] = batch.claim_port(overrides['WorldServerPort'])
             run.write_config(batch.source_config, generated, overrides)
             self.serve(run.server_command(batch.binary, generated), run.server_environment(overrides), cache)
@@ -1012,7 +1014,7 @@ class Batch:
             output=directory, startup_timeout=self.args.startup_timeout, fresh_databases=self.args.fresh_databases,
             refresh_world=refresh, world_cache_dir=self.cache_root / f'slot-{slot}',
             staged_module_configs=self.staged if self.args.server_modules_dir else None,
-            copy_workers=self.args.copy_workers,
+            copy_workers=self.args.copy_workers, external_db_migrations=self.args.external_db_migrations,
             should_stop=self.stopping.is_set)
         kind = 'single-mode run' if mode == 'single' else 'isolated rerun'
         started = time.monotonic()
@@ -1196,16 +1198,18 @@ class Batch:
 
 def run_batch(args, directory=catalog.DIRECTORY):
     started = time.monotonic()
-    cases = select_cases(args.scenario, directory, getattr(args, 'skip_scenario', []))
+    cases = select_cases(args.scenario, directory, getattr(args, 'skip_scenario', []), args.clock)
     if args.clock == SIMULATED_CLOCK:
         exclusive = clock_policy(directory)
         for case in cases:
-            world_phase = any(step['action'] == 'set_phase' and step['value'] & 1
+            world_phase = any(step['action'] == 'set_phase' and step.get('value', 0) & 1
                               for step in case.scenario['steps'])
             process_global = any(step['action'] in {'game_event', 'encounter_start'}
                                  for step in case.scenario['steps'])
             case.exclusive = (world_phase or process_global or case.scenario.get('creature_scaling', False)
+                              or case.scenario.get('ptr_character_copy', False)
                               or 'vanity_ownership' in case.scenario or 'two_side' in case.scenario
+                              or 'quest_log_size' in case.scenario
                               or (not case.exploratory and case.key in exclusive) or case.hour is not None)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
@@ -1283,6 +1287,8 @@ def parser():
                              '(default: off; requires --clock simulated)')
     result.add_argument('--isolated-rerun', action=argparse.BooleanOptionalAction, default=None,
                         help='Rerun failed catalog cases in single mode (default: on for the real clock only)')
+    result.add_argument('--external-db-migrations', action='store_true',
+                        help='Use an externally migrated packaged schema with native updates disabled in source config')
     result.add_argument('--startup-timeout', type=float, default=600)
     mode = result.add_mutually_exclusive_group()
     mode.add_argument('--fresh-databases', action='store_true', help='Use disposable copies without the world cache')

@@ -51,6 +51,13 @@ void Cast(Unit* caster, Unit* target, uint32 id)
         caster->CastSpell(target, id, true);
 }
 
+void Brand(Unit* caster, Unit* target)
+{
+    if (caster && target && target->IsAlive())
+        caster->CastSpell(target, SPELL_SHADOW_BRAND,
+            TriggerCastFlags(TRIGGERED_FULL_MASK | TRIGGERED_NO_PERIODIC_RESET));
+}
+
 void Reset(Player* player, uint32 id)
 {
     if (player)
@@ -98,6 +105,8 @@ void ApplyContracts(SpellInfo* info)
     if (!info || info->SpellFamilyName != 21)
         return;
     uint32 id = info->Id;
+    if (id == 500351 || id == 680517)
+        info->AttributesEx &= ~SPELL_ATTR1_NO_THREAT;
     if (id == 802272)
     {
         info->AttributesCu &= ~SPELL_ATTR0_CU_FORCE_AURA_SAVING;
@@ -123,9 +132,7 @@ void ApplyContracts(SpellInfo* info)
         info->InterruptFlags |= SPELL_INTERRUPT_FLAG_MOVEMENT;
         info->ChannelInterruptFlags |= AURA_INTERRUPT_FLAG_MOVE;
     }
-    if (Family(info, 0, 2) && info->HasAura(SPELL_AURA_PERIODIC_TRIGGER_SPELL_WITH_VALUE))
-        info->AttributesEx |= SPELL_ATTR1_IS_CHANNELED;
-    if ((id == 807364 || id == 805751 || Family(info, 0, 2)) && info->IsChanneled())
+    if ((id == 807364 || id == 805751) && info->IsChanneled())
         info->AttributesEx5 &= ~SPELL_ATTR5_ALLOW_ACTION_DURING_CHANNEL;
     if (id == 574149 || id == 574163)
         ConvertCreatureTypeDamage(info, EFFECT_1);
@@ -135,6 +142,8 @@ void ApplyContracts(SpellInfo* info)
         info->Effects[EFFECT_1].ChainTarget = info->Effects[EFFECT_0].ChainTarget;
     if (id == 804194 && info->Effects[EFFECT_1].ApplyAuraName == SPELL_AURA_MOD_ARMOR_PENETRATION_PCT)
         info->Effects[EFFECT_1].ApplyAuraName = SPELL_AURA_ASCENSION_MOD_IGNORE_ARMOR_PCT;
+    if (id == 807733 && info->Effects[EFFECT_1].ApplyAuraName == SPELL_AURA_MOD_DAMAGE_PERCENT_TAKEN)
+        info->Effects[EFFECT_1].ApplyAuraName = SPELL_AURA_SCHOOL_ABSORB;
     if (id == 707535)
     {
         info->Effects[EFFECT_0].ApplyAuraName = SPELL_AURA_MOD_SPELL_DAMAGE_OF_STAT_PERCENT;
@@ -322,7 +331,8 @@ void ApplyContracts(SpellInfo* info)
                 effect.BonusMultiplier = 0.0f;
     if (id == 574335 || id == 574337 || id == 681270 || id == 680532 || id == 807262 || id == 567570)
     {
-        info->AttributesEx2 |= SPELL_ATTR2_CANT_CRIT;
+        if (id != 567570)
+            info->AttributesEx2 |= SPELL_ATTR2_CANT_CRIT;
         info->AttributesEx3 |= SPELL_ATTR3_IGNORE_CASTER_MODIFIERS;
         info->AttributesEx4 |= SPELL_ATTR4_IGNORE_DAMAGE_TAKEN_MODIFIERS;
         info->AttributesCu |= SPELL_ATTR0_CU_IGNORE_ARMOR;
@@ -371,7 +381,26 @@ class witch_hunter_resources : public PlayerScript
 class witch_hunter_scaling : public UnitScript
 {
   public:
-    witch_hunter_scaling() : UnitScript("witch_hunter_scaling", true, {UNITHOOK_MODIFY_SPELL_EFFECT_BASE_VALUE}) {}
+    witch_hunter_scaling()
+        : UnitScript("witch_hunter_scaling", true,
+                     {UNITHOOK_MODIFY_SPELL_EFFECT_BASE_VALUE, UNITHOOK_ON_BEFORE_ROLL_MELEE_OUTCOME_AGAINST})
+    {
+    }
+
+    void OnBeforeRollMeleeOutcomeAgainst(Unit const* attacker, Unit const*, WeaponAttackType, int32&, int32&, int32&,
+                                         int32&, int32& crit, int32& miss, int32& dodge, int32& parry, int32&) override
+    {
+        if (!attacker || (attacker->GetEntry() != 50124 && attacker->GetEntry() != 50224))
+            return;
+        Player* player = attacker->GetCharmerOrOwnerPlayerOrPlayerItself();
+        if (!player || !UsesAscensionClassMechanics(player, CLASS_WITCH_HUNTER))
+            return;
+        crit += int32(std::max(0.0f, player->GetFloatValue(PLAYER_RANGED_CRIT_PERCENTAGE) - 5.0f) * 100);
+        miss = std::max(0, miss - int32(std::max(0.0f, player->m_modRangedHitChance) * 100));
+        int32 expertise = int32(std::max(0.0f, player->GetExpertiseDodgeOrParryReduction(BASE_ATTACK)) * 100);
+        dodge = std::max(0, dodge - expertise);
+        parry = std::max(0, parry - expertise);
+    }
 
     void ModifySpellEffectBaseValue(Unit const* caster, SpellInfo const* info, uint8 index, float& value) override
     {

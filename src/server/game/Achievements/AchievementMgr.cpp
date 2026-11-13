@@ -566,8 +566,6 @@ void AchievementMgr::DeleteFromDB(ObjectGuid::LowType lowguid)
 
 void AchievementMgr::SaveToDB(CharacterDatabaseTransaction trans)
 {
-    // Companions are not persisted with an achievement history: it is hundreds of rows per character, rewritten by
-    // two statements each, that nothing reads for a character no client ever opens an achievement window for.
     if (WorldSession* session = GetPlayer()->GetSession(); session && session->IsBot())
         return;
 
@@ -1842,7 +1840,6 @@ bool AchievementMgr::IsCompletedCriteria(AchievementCriteriaEntry const* achieve
         if (sAchievementMgr->IsRealmCompleted(achievement))
             return false;
 
-        // companions (bots) do not take 'Realm First!' away from real players
         if (sWorld->getBoolConfig(CONFIG_ACHIEVEMENT_REALM_FIRST_BLOCK_BOTS))
             if (Player* owner = GetPlayer(); owner && owner->GetSession() && owner->GetSession()->IsBot())
                 return false;

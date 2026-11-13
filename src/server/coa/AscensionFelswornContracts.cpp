@@ -18,11 +18,20 @@ void ApplyContracts(SpellInfo* info)
     for (auto const& rift : FelswornRifts)
         if (info->Id == rift.spell)
             info->Effects[0].MiscValue = rift.entry;
+    if (info->Id == 805240)
+        info->AscensionTargetAuraStateOnlyPrimary = true;
     if (info->SpellFamilyName != 20)
         return;
     uint32 id = info->Id;
     if (id == MannorothFelfury)
         info->Effects[EFFECT_0].MiscValue = 6;
+    if (id == 300466)
+    {
+        info->Effects[EFFECT_0].SpellClassMask = flag96(128, 0, 2097152);
+        info->Effects[EFFECT_1].SpellClassMask = flag96(128, 0, 2097152);
+    }
+    if (id == 578317)
+        info->SpellFamilyFlags = flag96(0, 0, 2097152);
     auto dummy = [info](uint8 slot) {
         info->Effects[slot].ApplyAuraName = SPELL_AURA_DUMMY;
         info->Effects[slot].TriggerSpell = 0;
@@ -50,7 +59,7 @@ void ApplyContracts(SpellInfo* info)
         {
             info->AttributesEx2 |= SPELL_ATTR2_CANT_CRIT;
             info->AttributesEx3 |= SPELL_ATTR3_IGNORE_CASTER_MODIFIERS;
-            info->AttributesEx4 |= SPELL_ATTR4_IGNORE_DAMAGE_TAKEN_MODIFIERS;
+            info->AttributesEx4 |= SPELL_ATTR4_IGNORE_DAMAGE_TAKEN_MODIFIERS | SPELL_ATTR4_NO_CAST_LOG;
             info->AttributesCu |= SPELL_ATTR0_CU_IGNORE_ARMOR;
             info->ProcFlags = 0;
             info->Effects[0].TargetA = SpellImplicitTargetInfo(
@@ -63,12 +72,10 @@ void ApplyContracts(SpellInfo* info)
     {
         info->DurationEntry = sSpellDurationStore.LookupEntry(1);
         info->Effects[2].Effect = 0;
-        info->StartRecoveryCategory = 133;
-        info->StartRecoveryTime = 1000;
     }
     if (id == 803465 || id == 807421 || id == 807428 || id == 807426)
         for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
-            if (info->Effects[i].Effect)
+            if (info->Effects[i].Effect && !(id == 807428 && i == EFFECT_2))
                 dummy(i);
     if (id == 807426)
     {
