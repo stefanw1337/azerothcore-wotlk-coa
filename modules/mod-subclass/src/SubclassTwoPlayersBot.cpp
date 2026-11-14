@@ -48,25 +48,40 @@ struct Ride
     bool Held = false;
     float HeldX = 0.0f;
     float HeldY = 0.0f;
+    uint32 LastTalk = 0;
+    uint32 LastDown = 0;
+    uint32 LastMountLine = 0;
+    uint32 LastDropLine = 0;
 };
 
 constexpr uint32 RideRetryMs = 10000;
+constexpr uint32 RemountAfterMs = 30 * IN_MILLISECONDS;
+constexpr uint32 TalkEveryMs = 5 * MINUTE * IN_MILLISECONDS;
 constexpr uint32 FirstHotsMountSpell = 9860001;
 constexpr uint32 LastHotsMountSpell = 9860999;
 
 std::mutex& rideMutex = *new std::mutex;
 std::unordered_map<uint32, Ride>& rides = *new std::unordered_map<uint32, Ride>;
 
-std::array<char const*, 4> const MountLines = {
+std::array<char const*, 10> const MountLines = {
     "Long walk. {0} carry the ride, {1} enjoy the view.",
     "We ride! Well. Ride rides. {0} walks.",
     "{0} legs, ride on top. Fair deal, {1}?",
     "Up you go. Heavy, but faster than {1}'s chatter.",
+    "{1} say ride. {0} say who carry who?",
+    "Two heads, one back, and now a mount on top. {0} strong.",
+    "Shoulders full. Legs busy. {1}, you count the steps.",
+    "This mount lazy. {0} do all the walking again.",
+    "{1}, stop kicking. Mount not go faster.",
+    "Far place is far. {0} carry everything, like always.",
 };
-std::array<char const*, 3> const DropLines = {
+std::array<char const*, 6> const DropLines = {
     "drops the {0} and raises both fists.",
     "sets the {0} down, gently. Then charges.",
     "tosses the {0} aside. Fight first, ride later.",
+    "plants the {0} in the grass and cracks his knuckles.",
+    "shrugs the {0} off his shoulders. Smash time.",
+    "parks the {0} behind a rock and turns to fight.",
 };
 
 float MountDistance()
@@ -114,7 +129,35 @@ std::string MountName(Player* body)
     return mounts.empty() ? "mount" : mounts.front()->GetSpellInfo()->SpellName[LOCALE_enUS];
 }
 
-bool MountUp(Player* body, Player* rider)
+bool MayTalk(Player* body, bool asked)
+{
+    std::lock_guard<std::mutex> lock(rideMutex);
+    Ride& ride = rides[body->GetGUID().GetCounter()];
+    uint32 const now = getMSTime();
+    if (!asked && ride.LastTalk && getMSTimeDiff(ride.LastTalk, now) < TalkEveryMs)
+        return false;
+    ride.LastTalk = now;
+    return true;
+}
+
+uint32 FreshLine(Player* body, uint32 count, bool drop)
+{
+    std::lock_guard<std::mutex> lock(rideMutex);
+    uint32& last = drop ? rides[body->GetGUID().GetCounter()].LastDropLine :
+        rides[body->GetGUID().GetCounter()].LastMountLine;
+    uint32 line = urand(0, count - 2);
+    if (line >= last)
+        ++line;
+    last = line;
+    return line;
+}
+
+void BodyEmote(Player* body, std::string const& text)
+{
+    body->TextEmote(" " + text);
+}
+
+bool MountUp(Player* body, Player* rider, bool asked)
 {
     std::vector<uint32> mounts;
     AddMountsOf(body, mounts);
@@ -134,15 +177,22 @@ bool MountUp(Player* body, Player* rider)
     body->GetMotionMaster()->Clear();
     if (body->CastSpell(body, mount, TRIGGERED_NONE) != SPELL_CAST_OK)
         return false;
-    body->TextEmote(std::string("hoists the ") + mount->SpellName[LOCALE_enUS] + " onto his shoulders.");
-    body->Say(Acore::StringFormat(MountLines[urand(0, MountLines.size() - 1)], body->GetName(), rider->GetName()),
-        LANG_UNIVERSAL);
+    if (!MayTalk(body, asked))
+        return true;
+    BodyEmote(body, std::string("hoists the ") + mount->SpellName[LOCALE_enUS] + " onto his shoulders.");
+    body->Say(Acore::StringFormat(MountLines[FreshLine(body, MountLines.size(), false)], body->GetName(),
+        rider->GetName()), LANG_UNIVERSAL);
     return true;
 }
 
 void GetDown(Player* body)
 {
-    body->TextEmote(Acore::StringFormat(DropLines[urand(0, DropLines.size() - 1)], MountName(body)));
+    {
+        std::lock_guard<std::mutex> lock(rideMutex);
+        rides[body->GetGUID().GetCounter()].LastDown = getMSTime();
+    }
+    if (MayTalk(body, false))
+        BodyEmote(body, Acore::StringFormat(DropLines[FreshLine(body, DropLines.size(), true)], MountName(body)));
     body->RemoveAurasByType(SPELL_AURA_MOUNTED);
 }
 
@@ -256,7 +306,8 @@ void TwoPlayersBotBodyRides(Player* body, Player* rider, bool halted)
         if (ride.Held && goal && goal->GetPositionX() == ride.HeldX && goal->GetPositionY() == ride.HeldY)
             return;
         ride.Held = false;
-        if (ride.NextTry && getMSTimeDiff(ride.NextTry, now) < RideRetryMs)
+        if ((ride.NextTry && getMSTimeDiff(ride.NextTry, now) < RideRetryMs) ||
+            (ride.LastDown && getMSTimeDiff(ride.LastDown, now) < RemountAfterMs))
             return;
         ride.NextTry = 0;
     }
@@ -267,7 +318,7 @@ void TwoPlayersBotBodyRides(Player* body, Player* rider, bool halted)
         std::lock_guard<std::mutex> lock(rideMutex);
         rides[body->GetGUID().GetCounter()].NextTry = now;
     }
-    MountUp(body, rider);
+    MountUp(body, rider, false);
 }
 
 std::string TwoPlayersBotBodyRideToggle(Player* body, Player* rider)
@@ -285,7 +336,7 @@ std::string TwoPlayersBotBodyRideToggle(Player* body, Player* rider)
             ride.HeldX = goal ? goal->GetPositionX() : 0.0f;
             ride.HeldY = goal ? goal->GetPositionY() : 0.0f;
         }
-        body->TextEmote("puts the " + MountName(body) + " down. Walking it is.");
+        BodyEmote(body, "puts the " + MountName(body) + " down. Walking it is.");
         body->RemoveAurasByType(SPELL_AURA_MOUNTED);
         return "";
     }
@@ -293,7 +344,7 @@ std::string TwoPlayersBotBodyRideToggle(Player* body, Player* rider)
         return body->GetName() + " is fighting. Ride after the fight.";
     if (!body->IsOutdoors())
         return "No riding in here.";
-    if (!MountUp(body, rider))
+    if (!MountUp(body, rider, true))
     {
         body->Say(body->GetName() + " got no ride to carry. " + body->GetName() + " walk.", LANG_UNIVERSAL);
         return "Neither head knows a mount that works here.";
