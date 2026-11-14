@@ -39,6 +39,7 @@ std::unordered_map<uint32, ChosenReward>& chosenRewards = *new std::unordered_ma
 std::unordered_map<uint32, std::vector<std::pair<uint32, uint32>>>& rewardItems =
     *new std::unordered_map<uint32, std::vector<std::pair<uint32, uint32>>>;
 std::set<std::pair<uint32, uint32>>& toldLogFull = *new std::set<std::pair<uint32, uint32>>;
+std::set<std::pair<uint32, uint32>>& toldBagsFull = *new std::set<std::pair<uint32, uint32>>;
 std::unordered_set<uint32>& turningInForPartner = *new std::unordered_set<uint32>;
 
 bool RangedHead(Player const* player)
@@ -124,7 +125,19 @@ void CatchUpItems(Player* behind, Player* ahead, Quest const* quest)
             continue;
         ItemPosCountVec dest;
         if (behind->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, itemId, missing) != EQUIP_ERR_OK)
+        {
+            bool fresh = false;
+            {
+                std::lock_guard<std::mutex> lock(questMutex);
+                fresh = toldBagsFull.emplace(behind->GetGUID().GetCounter(), itemId).second;
+            }
+            ItemTemplate const* proto = sObjectMgr->GetItemTemplate(itemId);
+            if (fresh && proto)
+                for (Player* head : { behind, ahead })
+                    Tell(head, behind->GetName() + " has no room for " + proto->Name1 + ", so it could not be "
+                        "shared for \"" + quest->GetTitle() + "\". Make room in " + behind->GetName() + "'s bags.");
             continue;
+        }
         if (Item* item = behind->StoreNewItem(dest, itemId, true))
             behind->SendNewItem(item, missing, true, false);
     }
@@ -309,6 +322,8 @@ public:
         turningInForPartner.erase(guid);
         for (auto it = toldLogFull.begin(); it != toldLogFull.end();)
             it = it->first == guid ? toldLogFull.erase(it) : std::next(it);
+        for (auto it = toldBagsFull.begin(); it != toldBagsFull.end();)
+            it = it->first == guid ? toldBagsFull.erase(it) : std::next(it);
     }
 };
 }
