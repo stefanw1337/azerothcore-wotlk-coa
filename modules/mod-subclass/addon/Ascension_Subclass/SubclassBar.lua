@@ -628,14 +628,25 @@ local pendingLent = {}
 local LENT_PLACEMENT_DELAY = 3
 local OWN_SLOT_ORDER = { 1, 61, 49, 25, 37, 13 }
 
-local function OnOwnBars(spellId)
+local function ActionSpell(slot)
+    local kind, id, _, spellId = GetActionInfo(slot)
+    if kind == "spell" then
+        return spellId or id
+    end
+end
+
+local function SlotsWith(spellId)
+    local slots = {}
     for slot = 1, OWN_ACTION_SLOTS do
-        local kind, _, _, actionSpell = GetActionInfo(slot)
-        if kind == "spell" and actionSpell == spellId then
-            return true
+        if ActionSpell(slot) == spellId then
+            slots[#slots + 1] = slot
         end
     end
-    return false
+    return slots
+end
+
+local function OnOwnBars(spellId)
+    return #SlotsWith(spellId) > 0
 end
 
 local function FreeOwnSlot()
@@ -660,8 +671,8 @@ local function RememberLentSlot(slot)
     if not slot or slot < 1 or slot > OWN_ACTION_SLOTS then
         return
     end
-    local kind, _, _, spellId = GetActionInfo(slot)
-    if kind == "spell" and spellId and lentSpells[spellId] then
+    local spellId = ActionSpell(slot)
+    if spellId and lentSpells[spellId] then
         LentSlots()[spellId] = slot
     end
 end
@@ -691,7 +702,37 @@ local function PlaceLentOnOwnBars()
     return true
 end
 
+local function DropDoubledLent()
+    if GetCursorInfo() then
+        return false
+    end
+    local sound = GetCVar("Sound_EnableAllSound")
+    SetCVar("Sound_EnableAllSound", 0)
+    for spellId in pairs(lentSpells) do
+        local slots = SlotsWith(spellId)
+        if #slots > 1 then
+            local keep = slots[1]
+            for _, slot in ipairs(slots) do
+                if slot == LentSlots()[spellId] then
+                    keep = slot
+                end
+            end
+            for _, slot in ipairs(slots) do
+                if slot ~= keep then
+                    PickupAction(slot)
+                    ClearCursor()
+                end
+            end
+            LentSlots()[spellId] = keep
+        end
+    end
+    SetCVar("Sound_EnableAllSound", sound)
+    return true
+end
+
 Ascension_Subclass.RememberLentSlot = RememberLentSlot
+
+local LENT_DOUBLE_CHECKS = 3
 
 local lentPlacer = CreateFrame("Frame")
 lentPlacer:Hide()
@@ -700,8 +741,16 @@ lentPlacer:SetScript("OnUpdate", function(self, elapsed)
     if self.wait > 0 or InCombatLockdown() then
         return
     end
-    if PlaceLentOnOwnBars() then
-        self:Hide()
+    if not self.placed then
+        self.placed = PlaceLentOnOwnBars()
+    end
+    if self.placed and DropDoubledLent() then
+        self.checks = (self.checks or 0) + 1
+        self.wait = LENT_PLACEMENT_DELAY
+        if self.checks >= LENT_DOUBLE_CHECKS then
+            self.placed, self.checks = nil, nil
+            self:Hide()
+        end
     end
 end)
 
@@ -721,8 +770,9 @@ local function ApplyLent()
         end
     end
     lentSpells = now
-    if next(lentWaiting) then
+    if next(now) then
         lentPlacer.wait = LENT_PLACEMENT_DELAY
+        lentPlacer.placed, lentPlacer.checks = nil, nil
         lentPlacer:Show()
     end
     if bar then
