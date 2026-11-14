@@ -294,6 +294,14 @@ local function RideTooltip(self)
     GameTooltip:Show()
 end
 
+local function JunkTooltip(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText("Junk")
+    GameTooltip:AddLine("Both heads hand their grey items to a courier, who comes back with the coins in a few " ..
+        "minutes. No vendor needed. Your bot body sends one by himself when his bags are full.", 1, 1, 1, true)
+    GameTooltip:Show()
+end
+
 local barButtons = {}
 local function BarButton(bar, name, icon, caption, onClick, onEnter)
     local button = CreateFrame("Button", name, bar)
@@ -370,6 +378,8 @@ barWatch:SetScript("OnUpdate", function(self, elapsed)
             TogglePlans, PlansTooltip)
         BarButton(SquidBotsLiteBar, "CoACBotPlanRideButton", "Interface\\Icons\\Ability_Mount_RidingHorse", "Ride",
             function() Send("PAIRMOUNT") end, RideTooltip)
+        BarButton(SquidBotsLiteBar, "CoACBotPlanJunkButton", "Interface\\Icons\\INV_Misc_Coin_02", "Junk",
+            function() Send("PAIRJUNK") end, JunkTooltip)
     end
     if #barButtons > 0 then
         PlaceBarButtons(SquidBotsLiteBar)

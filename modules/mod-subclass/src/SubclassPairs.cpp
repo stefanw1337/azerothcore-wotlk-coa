@@ -36,6 +36,7 @@ void TwoPlayersSeparate(uint32 first, uint32 second);
 bool TwoPlayersEnabled();
 std::string TwoPlayersHalt(Player* rider, bool halt);
 std::string TwoPlayersRide(Player* rider);
+std::string TwoPlayersSendCourier(Player* presser);
 
 namespace
 {
@@ -640,6 +641,11 @@ void HandlePairMessage(Player* player, std::vector<std::string_view> const& word
         Decline(player);
     else if (words.size() == 1 && words[0] == "PAIRSTATUS")
         Status(player);
+    else if (words.size() == 1 && words[0] == "PAIRJUNK")
+    {
+        if (std::string const refusal = TwoPlayersSendCourier(player); !refusal.empty())
+            Tell(player, refusal);
+    }
     else if (words.size() == 1 && words[0] == "PAIRMOUNT")
     {
         if (std::string const refusal = TwoPlayersRide(player); !refusal.empty())

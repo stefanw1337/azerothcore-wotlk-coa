@@ -206,6 +206,14 @@ Subclass.TwoPlayers.Bot.MountDistance = 100
 
 Subclass.TwoPlayers.Bot.PreferHotsMounts = 1
 
+#    Subclass.TwoPlayers.CourierMinutes
+#        The Junk button on the bot bar hands both heads' grey items to a courier, who comes back with their
+#        vendor price after this many minutes, wherever the body is. A bot body sends one by itself when its bags
+#        are full.
+#        Default: 3
+
+Subclass.TwoPlayers.CourierMinutes = 3
+
 #    Subclass.TwoPlayers.Agree.MaxStacks
 #    Subclass.TwoPlayers.Disagree.MaxStacks
 #        Agree builds while both heads hit the same foe, Disagree while each hits its own. One stack is
