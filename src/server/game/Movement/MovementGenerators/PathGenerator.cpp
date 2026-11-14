@@ -152,6 +152,9 @@ PathGenerator::~PathGenerator()
 {
 }
 
+// A falling bot is only steered to ground right below it; a far target would pull it through the terrain.
+constexpr float BotFallReach = 5.0f;
+
 bool PathGenerator::CalculatePath(float destX, float destY, float destZ, bool forceDest)
 {
     float x, y, z;
@@ -377,7 +380,9 @@ void PathGenerator::BuildPolyPath(G3D::Vector3 const& startPos, G3D::Vector3 con
             bool canSwim = player && player->CanSwim();
             bool isWater = (canSwim && waterPath);
 
-            if (isWater || canFly || (player && player->IsFalling() && endPos.z < startPos.z))
+            bool const landingBelow = player && player->IsFalling() && endPos.z < startPos.z &&
+                std::hypot(endPos.x - startPos.x, endPos.y - startPos.y) <= BotFallReach;
+            if (isWater || canFly || landingBelow)
             {
                 buildShortcut = true;
             }

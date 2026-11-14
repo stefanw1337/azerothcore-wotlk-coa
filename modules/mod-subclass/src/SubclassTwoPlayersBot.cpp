@@ -117,8 +117,8 @@ void AddMountsOf(Player* head, std::vector<uint32>& mounts)
         if (spell->State == PLAYERSPELL_REMOVED || !spell->Active)
             continue;
         SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
-        if (info && info->HasAura(SPELL_AURA_MOUNTED) &&
-            std::find(mounts.begin(), mounts.end(), spellId) == mounts.end())
+        if (info && info->HasAura(SPELL_AURA_MOUNTED) && !info->HasAura(SPELL_AURA_MOD_INCREASE_MOUNTED_FLIGHT_SPEED) &&
+            !info->HasAura(SPELL_AURA_FLY) && std::find(mounts.begin(), mounts.end(), spellId) == mounts.end())
             mounts.push_back(spellId);
     }
 }
