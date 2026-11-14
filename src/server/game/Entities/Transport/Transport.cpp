@@ -319,6 +319,19 @@ void MotionTransport::Update(uint32 diff)
         }
     }
 
+    // Hardluck ferries: after a map teleport the client stops the ship's animation; toggling the state restarts it.
+    if (_animKickCount)
+    {
+        if (diff >= _animKickTimer)
+        {
+            SetGoState(GO_STATE_READY);
+            --_animKickCount;
+            _animKickTimer = 3000;
+        }
+        else
+            _animKickTimer -= diff;
+    }
+
     sScriptMgr->OnTransportUpdate(this, diff);
 }
 
@@ -721,6 +734,12 @@ void MotionTransport::DelayedTeleportTransport()
     GetMap()->AddToMap<Transport>(this);
 
     LoadStaticPassengers();
+
+    if (GetEntry() == 9900101 || GetEntry() == 9900102)
+    {
+        _animKickCount = 2;
+        _animKickTimer = 3000;
+    }
 }
 
 void MotionTransport::UpdatePassengerPositions(PassengerSet& passengers)

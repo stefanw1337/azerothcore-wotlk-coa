@@ -426,6 +426,38 @@ void WorldSession::HandleMoverRelocation(MovementInfo& movementInfo, Unit* mover
 {
     SynchronizeMovement(movementInfo);
 
+    // Hardluck ferries (custom WMO transports): the client can keep a player attached after he falls off the side,
+    // so he never swims and falls through the water. Detach him and resync with a near teleport.
+    if (Player* fallingPlayer = mover->ToPlayer())
+    {
+        if (movementInfo.HasMovementFlag(MOVEMENTFLAG_ONTRANSPORT) && movementInfo.HasMovementFlag(MOVEMENTFLAG_FALLING) &&
+            !fallingPlayer->IsBeingTeleported())
+        {
+            Transport* ferry = fallingPlayer->GetTransport();
+            if (ferry && (ferry->GetEntry() == 9900101 || ferry->GetEntry() == 9900102))
+            {
+                float localX = movementInfo.transport.pos.GetPositionX();
+                float localY = movementInfo.transport.pos.GetPositionY();
+                float localZ = movementInfo.transport.pos.GetPositionZ();
+                // Hull bounds measured at ship scale 0.45; valid up to scale 1.0.
+                float const k = 1.0f / 0.45f;
+                bool outside = localX < -22.f * k || localX > 19.f * k || localY < -10.5f * k || localY > 7.5f * k ||
+                    localZ < -3.5f * k || (localZ < -1.0f * k && (localY < -7.5f * k || localY > 5.5f * k));
+                if (outside)
+                {
+                    ferry->RemovePassenger(fallingPlayer);
+                    fallingPlayer->SetTransport(nullptr);
+                    movementInfo.RemoveMovementFlag(MOVEMENTFLAG_ONTRANSPORT);
+                    movementInfo.transport.Reset();
+                    fallingPlayer->m_movementInfo.transport.Reset();
+                    fallingPlayer->NearTeleportTo(movementInfo.pos.GetPositionX(), movementInfo.pos.GetPositionY(),
+                        movementInfo.pos.GetPositionZ(), movementInfo.pos.GetOrientation());
+                    return;
+                }
+            }
+        }
+    }
+
     mover->UpdatePosition(movementInfo.pos);
     mover->m_movementInfo = movementInfo;
 
