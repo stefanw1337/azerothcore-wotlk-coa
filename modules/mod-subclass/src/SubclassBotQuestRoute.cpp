@@ -280,6 +280,26 @@ std::string TitleOf(uint32 questId)
     return quest ? Plain(quest->GetTitle()) : std::to_string(questId);
 }
 
+std::string WithCounts(Player* bot, uint32 questId, std::string title)
+{
+    Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
+    auto const found = bot->getQuestStatusMap().find(questId);
+    if (!quest || found == bot->getQuestStatusMap().end())
+        return title;
+    if (found->second.Status == QUEST_STATUS_COMPLETE)
+        return title + " (done)";
+    std::string counts;
+    for (int32 i = 0; i < QUEST_OBJECTIVES_COUNT; ++i)
+        if (quest->RequiredNpcOrGo[i] && quest->RequiredNpcOrGoCount[i])
+            counts += (counts.empty() ? "" : ", ") + std::to_string(found->second.CreatureOrGOCount[i]) + "/" +
+                std::to_string(quest->RequiredNpcOrGoCount[i]);
+    for (int32 i = 0; i < QUEST_ITEM_OBJECTIVES_COUNT; ++i)
+        if (quest->RequiredItemId[i] && quest->RequiredItemCount[i])
+            counts += (counts.empty() ? "" : ", ") + std::to_string(found->second.ItemCount[i]) + "/" +
+                std::to_string(quest->RequiredItemCount[i]);
+    return counts.empty() ? title : title + " (" + counts + ")";
+}
+
 std::string PlanOf(Player* player, Player* bot, PlayerbotAI* brain)
 {
     BotRoute& route = routes[bot->GetGUID().GetCounter()];
@@ -289,18 +309,19 @@ std::string PlanOf(Player* player, Player* bot, PlayerbotAI* brain)
     auto const* doing = std::get_if<NewRpgInfo::DoQuest>(&info.data);
     uint32 const doingId = doing ? doing->questId : 0;
     std::string plan = std::string(StatusWords(info.GetStatus())) + "|" + std::to_string(doingId) + ":" +
-        (doingId ? TitleOf(doingId) : "") + "|";
+        (doingId ? WithCounts(bot, doingId, TitleOf(doingId)) : "") + "|";
     std::string separator;
     for (uint32 const questId : route.Quests)
     {
-        plan += separator + std::to_string(questId) + ":" + TitleOf(questId);
+        plan += separator + std::to_string(questId) + ":" + WithCounts(bot, questId, TitleOf(questId));
         separator = ";";
     }
     plan += "|";
     separator.clear();
     for (auto const& [questId, reason] : route.Unplanned)
     {
-        plan += separator + std::to_string(questId) + ":" + std::string(reason) + ":" + TitleOf(questId);
+        plan += separator + std::to_string(questId) + ":" + std::string(reason) + ":" +
+            WithCounts(bot, questId, TitleOf(questId));
         separator = ";";
     }
     return plan;
