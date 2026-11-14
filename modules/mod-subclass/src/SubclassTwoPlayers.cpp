@@ -61,6 +61,7 @@ namespace
 constexpr uint32 KeepTogetherMs = 1000;
 constexpr float SeatReach = 40.0f;
 constexpr float SideBySide = 4.0f;
+constexpr uint32 InvisibleDisplay = 11686;
 constexpr uint32 LentBuffRecastMs = 60000;
 constexpr float LentHealBelowPct = 60.0f;
 constexpr std::size_t LentBarChunk = 200;
@@ -997,9 +998,9 @@ class mod_subclass_two_players_player : public PlayerScript
 {
 public:
     mod_subclass_two_players_player() : PlayerScript("mod_subclass_two_players_player", { PLAYERHOOK_ON_UPDATE,
-        PLAYERHOOK_ON_PLAYER_JUST_DIED, PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_CAN_GROUP_ACCEPT, PLAYERHOOK_CAN_EQUIP_ITEM,
-        PLAYERHOOK_CAN_UNEQUIP_ITEM, PLAYERHOOK_ON_LOAD_FROM_DB, PLAYERHOOK_ON_BEFORE_LOGOUT,
-        PLAYERHOOK_ON_KEEPS_OWN_VEHICLE })
+        PLAYERHOOK_ON_PLAYER_JUST_DIED, PLAYERHOOK_ON_PLAYER_RESURRECT, PLAYERHOOK_ON_LOGOUT,
+        PLAYERHOOK_CAN_GROUP_ACCEPT, PLAYERHOOK_CAN_EQUIP_ITEM, PLAYERHOOK_CAN_UNEQUIP_ITEM,
+        PLAYERHOOK_ON_LOAD_FROM_DB, PLAYERHOOK_ON_BEFORE_LOGOUT, PLAYERHOOK_ON_KEEPS_OWN_VEHICLE })
     {
     }
 
@@ -1058,7 +1059,14 @@ public:
             return;
         right->ExitVehicle();
         Unit::Kill(right, right, false);
+        right->SetDisplayId(InvisibleDisplay);
         Tell(right, "The body you share has fallen, and you with it.");
+    }
+
+    void OnPlayerResurrect(Player* player, float /*restorePercent*/, bool& /*applySickness*/) override
+    {
+        if (player->GetDisplayId() == InvisibleDisplay && TwoPlayersPartnerOf(player->GetGUID().GetCounter()))
+            player->RestoreDisplayId();
     }
 
     bool OnPlayerCanGroupAccept(Player* player, Group* group) override
