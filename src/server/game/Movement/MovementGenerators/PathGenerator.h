@@ -180,7 +180,7 @@ class PathGenerator
         bool InRangeYZX(float const* v1, float const* v2, float r, float h) const;
 
         dtPolyRef GetPathPolyByPosition(dtPolyRef const* polyPath, uint32 polyPathSize, float const* Point, float* Distance = nullptr) const;
-        dtPolyRef GetPolyByLocation(float const* Point, float* Distance) const;
+        dtPolyRef GetPolyByLocation(float const* Point, float* Distance, dtQueryFilter const& filter) const;
         [[nodiscard]] bool HaveTile(G3D::Vector3 const& p) const;
 
         void BuildPolyPath(G3D::Vector3 const& startPos, G3D::Vector3 const& endPos);

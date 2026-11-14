@@ -252,7 +252,7 @@ dtPolyRef PathGenerator::GetPathPolyByPosition(dtPolyRef const* polyPath, uint32
     return (minDist < 3.0f) ? nearestPoly : INVALID_POLYREF;
 }
 
-dtPolyRef PathGenerator::GetPolyByLocation(float const* point, float* distance) const
+dtPolyRef PathGenerator::GetPolyByLocation(float const* point, float* distance, dtQueryFilter const& filter) const
 {
     // first we check the current path
     // if the current path doesn't contain the current poly,
@@ -266,7 +266,7 @@ dtPolyRef PathGenerator::GetPolyByLocation(float const* point, float* distance) 
     // first try with low search box
     float extents[VERTEX_SIZE] = { 3.0f, 5.0f, 3.0f };    // bounds of poly search area
     float closestPoint[VERTEX_SIZE] = { 0.0f, 0.0f, 0.0f };
-    if (dtStatusSucceed(_navMeshQuery->findNearestPoly(point, extents, &_filter, &polyRef, closestPoint)) && polyRef != INVALID_POLYREF)
+    if (dtStatusSucceed(_navMeshQuery->findNearestPoly(point, extents, &filter, &polyRef, closestPoint)) && polyRef != INVALID_POLYREF)
     {
         *distance = dtVdist(closestPoint, point);
         return polyRef;
@@ -277,7 +277,7 @@ dtPolyRef PathGenerator::GetPolyByLocation(float const* point, float* distance) 
     // Note that the extent should not overlap more than 128 polygons in the navmesh (see dtNavMeshQuery::findNearestPoly)
     extents[1] = 50.0f;
 
-    if (dtStatusSucceed(_navMeshQuery->findNearestPoly(point, extents, &_filter, &polyRef, closestPoint)) && polyRef != INVALID_POLYREF)
+    if (dtStatusSucceed(_navMeshQuery->findNearestPoly(point, extents, &filter, &polyRef, closestPoint)) && polyRef != INVALID_POLYREF)
     {
         *distance = dtVdist(closestPoint, point);
         return polyRef;
@@ -295,8 +295,11 @@ void PathGenerator::BuildPolyPath(G3D::Vector3 const& startPos, G3D::Vector3 con
     float startPoint[VERTEX_SIZE] = { startPos.y, startPos.z, startPos.x };
     float endPoint[VERTEX_SIZE] = { endPos.y, endPos.z, endPos.x };
 
-    dtPolyRef startPoly = GetPolyByLocation(startPoint, &distToStartPoly);
-    dtPolyRef endPoly = GetPolyByLocation(endPoint, &distToEndPoly);
+    // The mover starts on whatever ground it stands on; snapping to the nearest gentle slope would lift it there.
+    dtQueryFilterExt standing = _filter;
+    standing.setMinGroundNormalUp(0.0f);
+    dtPolyRef startPoly = GetPolyByLocation(startPoint, &distToStartPoly, standing);
+    dtPolyRef endPoly = GetPolyByLocation(endPoint, &distToEndPoly, _filter);
 
     _type = PathType(PATHFIND_NORMAL);
 
