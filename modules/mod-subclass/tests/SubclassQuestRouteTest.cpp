@@ -46,3 +46,22 @@ TEST(QuestRoute, ACrossedPathIsUntangled)
     std::vector<RouteStop> const planned = Untangled(0.0f, 0.0f, crossed);
     EXPECT_LT(RouteLength(0.0f, 0.0f, planned), RouteLength(0.0f, 0.0f, crossed));
 }
+
+TEST(QuestRoute, ThePlayersOrderComesBeforeTheNearestFirstOrder)
+{
+    std::vector<uint32_t> const route = PriorityFirst({ 1, 2, 3, 4 }, { 3, 9, 1 });
+    EXPECT_EQ(route, (std::vector<uint32_t>{ 3, 1, 2, 4 }));
+}
+
+TEST(QuestRoute, AQuestMovesUpOnePlaceOrStaysOnTop)
+{
+    EXPECT_EQ(MovedUp({ 1, 2, 3 }, 3), (std::vector<uint32_t>{ 1, 3, 2 }));
+    EXPECT_EQ(MovedUp({ 1, 2, 3 }, 1), (std::vector<uint32_t>{ 1, 2, 3 }));
+    EXPECT_EQ(MovedUp({ 1, 2, 3 }, 7), (std::vector<uint32_t>{ 1, 2, 3 }));
+}
+
+TEST(QuestRoute, AQuestMovesToTheTopKeepingTheRestInOrder)
+{
+    EXPECT_EQ(MovedFirst({ 1, 2, 3, 4 }, 3), (std::vector<uint32_t>{ 3, 1, 2, 4 }));
+    EXPECT_EQ(MovedFirst({ 1, 2 }, 5), (std::vector<uint32_t>{ 1, 2 }));
+}

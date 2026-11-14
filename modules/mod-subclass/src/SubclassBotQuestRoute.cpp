@@ -18,7 +18,9 @@
 #include <algorithm>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -50,7 +52,8 @@ struct BotRoute
     uint32 Head = 0;
     uint32 Steers = 0;
     uint64 Progress = 0;
-    uint32 Pinned = 0;
+    std::vector<uint32> Priority;
+    std::vector<std::pair<uint32, std::string_view>> Unplanned;
     std::unordered_map<uint32, uint32> SkippedAt;
 };
 
@@ -80,15 +83,21 @@ std::vector<int32> ObjectivesLeft(Quest const* quest, QuestStatusData const& sta
     return left;
 }
 
-bool StopOf(Player* bot, PlayerbotAI* brain, uint32 questId, Subclass::RouteStop& stop)
+std::string_view StopOf(Player* bot, PlayerbotAI* brain, uint32 questId, Subclass::RouteStop& stop)
 {
     Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
     QuestPOIVector const* pois = sObjectMgr->GetQuestPOIVector(questId);
     auto const found = bot->getQuestStatusMap().find(questId);
-    if (!quest || !pois || found == bot->getQuestStatusMap().end() || brain->lowPriorityQuest.count(questId))
-        return false;
+    if (!quest || found == bot->getQuestStatusMap().end())
+        return "unknown";
+    if (found->second.Status == QUEST_STATUS_FAILED)
+        return "failed";
+    if (brain->lowPriorityQuest.count(questId))
+        return "set aside by the bot";
     if (found->second.Status != QUEST_STATUS_COMPLETE && !DoableAlone(bot, quest))
-        return false;
+        return bot->GetLevel() + 3 < bot->GetQuestLevel(quest) ? "level too high" : "group quest";
+    if (!pois)
+        return "no map marker";
     std::vector<int32> const left = ObjectivesLeft(quest, found->second);
     float nearest = QuestReach;
     for (QuestPOI const& poi : *pois)
@@ -115,7 +124,7 @@ bool StopOf(Player* bot, PlayerbotAI* brain, uint32 questId, Subclass::RouteStop
         nearest = distance;
         stop = { questId, x, y };
     }
-    return nearest < QuestReach;
+    return nearest < QuestReach ? "" : "far away";
 }
 
 std::string LogOf(Player* bot)
@@ -144,25 +153,30 @@ void Replan(Player* bot, PlayerbotAI* brain, BotRoute& route)
 {
     uint32 const now = getMSTime();
     std::vector<Subclass::RouteStop> stops;
+    route.Unplanned.clear();
     for (uint8 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
     {
         uint32 const questId = bot->GetQuestSlotQuestId(slot);
+        if (!questId)
+            continue;
         auto const skipped = route.SkippedAt.find(questId);
         if (skipped != route.SkippedAt.end() && getMSTimeDiff(skipped->second, now) < SkipMs)
+        {
+            route.Unplanned.emplace_back(questId, "stuck, tried again soon");
             continue;
+        }
         Subclass::RouteStop stop;
-        if (questId && StopOf(bot, brain, questId, stop))
+        std::string_view const reason = StopOf(bot, brain, questId, stop);
+        if (reason.empty())
             stops.push_back(stop);
+        else
+            route.Unplanned.emplace_back(questId, reason);
     }
-    route.Quests = Subclass::PlanQuestRoute(bot->GetPositionX(), bot->GetPositionY(), stops);
+    route.Priority.erase(std::remove_if(route.Priority.begin(), route.Priority.end(),
+        [bot](uint32 questId) { return bot->FindQuestSlot(questId) >= MAX_QUEST_LOG_SIZE; }), route.Priority.end());
+    route.Quests = Subclass::PriorityFirst(Subclass::PlanQuestRoute(bot->GetPositionX(), bot->GetPositionY(), stops),
+        route.Priority);
     route.Log = LogOf(bot);
-    if (route.Pinned && bot->GetQuestStatus(route.Pinned) == QUEST_STATUS_NONE)
-        route.Pinned = 0;
-    if (route.Pinned)
-    {
-        route.Quests.erase(std::remove(route.Quests.begin(), route.Quests.end(), route.Pinned), route.Quests.end());
-        route.Quests.insert(route.Quests.begin(), route.Pinned);
-    }
 }
 
 bool Steerable(Player* bot, PlayerbotAI* brain)
@@ -204,8 +218,7 @@ void FollowRoute(Player* bot, PlayerbotAI* brain, BotRoute& route)
     }
     if (route.Steers > StuckSteers)
     {
-        if (route.Pinned == head)
-            route.Pinned = 0;
+        route.Priority.erase(std::remove(route.Priority.begin(), route.Priority.end(), head), route.Priority.end());
         route.SkippedAt[head] = getMSTime();
         route.Quests.erase(route.Quests.begin());
         route.Steers = 0;
@@ -240,19 +253,35 @@ std::string Plain(std::string text)
     return text;
 }
 
-std::string PlanOf(Player* bot, PlayerbotAI* brain)
+std::string TitleOf(uint32 questId)
 {
+    Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
+    return quest ? Plain(quest->GetTitle()) : std::to_string(questId);
+}
+
+std::string PlanOf(Player* player, Player* bot, PlayerbotAI* brain)
+{
+    BotRoute& route = routes[bot->GetGUID().GetCounter()];
+    if (bot->GetMap() == player->GetMap() && route.Log != LogOf(bot))
+        Replan(bot, brain, route);
     NewRpgInfo& info = brain->rpgInfo;
     auto const* doing = std::get_if<NewRpgInfo::DoQuest>(&info.data);
-    std::string plan = std::string(StatusWords(info.GetStatus())) + "|" + std::to_string(doing ? doing->questId : 0) + "|";
-    BotRoute& route = routes[bot->GetGUID().GetCounter()];
-    bool first = true;
-    for (uint32 questId : route.Quests)
-        if (Quest const* quest = sObjectMgr->GetQuestTemplate(questId))
-        {
-            plan += (first ? "" : ";") + std::to_string(questId) + ":" + Plain(quest->GetTitle());
-            first = false;
-        }
+    uint32 const doingId = doing ? doing->questId : 0;
+    std::string plan = std::string(StatusWords(info.GetStatus())) + "|" + std::to_string(doingId) + ":" +
+        (doingId ? TitleOf(doingId) : "") + "|";
+    std::string separator;
+    for (uint32 const questId : route.Quests)
+    {
+        plan += separator + std::to_string(questId) + ":" + TitleOf(questId);
+        separator = ";";
+    }
+    plan += "|";
+    separator.clear();
+    for (auto const& [questId, reason] : route.Unplanned)
+    {
+        plan += separator + std::to_string(questId) + ":" + std::string(reason) + ":" + TitleOf(questId);
+        separator = ";";
+    }
     return plan;
 }
 
@@ -284,7 +313,7 @@ void SendBotPlans(Player* player)
     {
         std::lock_guard<std::mutex> lock(routeMutex);
         for (Player* bot : bots)
-            lines.push_back("BOTPLAN " + bot->GetName() + " " + PlanOf(bot, GET_PLAYERBOT_AI(bot)));
+            lines.push_back("BOTPLAN " + bot->GetName() + " " + PlanOf(player, bot, GET_PLAYERBOT_AI(bot)));
     }
     for (std::string const& line : lines)
         SendPlanLine(player, line);
@@ -300,13 +329,29 @@ void BotPlanDoNow(Player* player, std::string_view botName, uint32 questId)
         PlayerbotAI* brain = GET_PLAYERBOT_AI(bot);
         std::lock_guard<std::mutex> lock(routeMutex);
         BotRoute& route = routes[bot->GetGUID().GetCounter()];
-        route.Pinned = questId;
         route.SkippedAt.erase(questId);
         route.Steers = 0;
-        route.Quests.erase(std::remove(route.Quests.begin(), route.Quests.end(), questId), route.Quests.end());
-        route.Quests.insert(route.Quests.begin(), questId);
+        if (std::find(route.Quests.begin(), route.Quests.end(), questId) == route.Quests.end())
+            route.Quests.push_back(questId);
+        route.Quests = Subclass::MovedFirst(route.Quests, questId);
+        route.Priority = route.Quests;
         if (Quest const* quest = sObjectMgr->GetQuestTemplate(questId))
             brain->rpgInfo.ChangeToDoQuest(questId, quest);
+    }
+    SendBotPlans(player);
+}
+
+void BotPlanMoveUp(Player* player, std::string_view botName, uint32 questId)
+{
+    for (Player* bot : GroupBots(player))
+    {
+        if (bot->GetName() != botName)
+            continue;
+        std::lock_guard<std::mutex> lock(routeMutex);
+        BotRoute& route = routes[bot->GetGUID().GetCounter()];
+        route.Quests = Subclass::MovedUp(route.Quests, questId);
+        route.Priority = route.Quests;
+        route.Steers = 0;
     }
     SendBotPlans(player);
 }
@@ -374,6 +419,11 @@ void SendBotPlans(Player* player)
 }
 
 void BotPlanDoNow(Player* player, std::string_view /*botName*/, uint32 /*questId*/)
+{
+    SendBotPlans(player);
+}
+
+void BotPlanMoveUp(Player* player, std::string_view /*botName*/, uint32 /*questId*/)
 {
     SendBotPlans(player);
 }

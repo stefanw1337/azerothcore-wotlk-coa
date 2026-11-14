@@ -94,6 +94,35 @@ inline std::vector<RouteStop> Untangled(float fromX, float fromY, std::vector<Ro
     return route;
 }
 
+inline std::vector<uint32_t> PriorityFirst(std::vector<uint32_t> const& route, std::vector<uint32_t> const& priority)
+{
+    std::vector<uint32_t> ordered;
+    for (uint32_t const quest : priority)
+        if (std::find(route.begin(), route.end(), quest) != route.end() &&
+            std::find(ordered.begin(), ordered.end(), quest) == ordered.end())
+            ordered.push_back(quest);
+    for (uint32_t const quest : route)
+        if (std::find(ordered.begin(), ordered.end(), quest) == ordered.end())
+            ordered.push_back(quest);
+    return ordered;
+}
+
+inline std::vector<uint32_t> MovedUp(std::vector<uint32_t> route, uint32_t quest)
+{
+    auto const found = std::find(route.begin(), route.end(), quest);
+    if (found != route.end() && found != route.begin())
+        std::iter_swap(found, found - 1);
+    return route;
+}
+
+inline std::vector<uint32_t> MovedFirst(std::vector<uint32_t> route, uint32_t quest)
+{
+    auto const found = std::find(route.begin(), route.end(), quest);
+    if (found != route.end())
+        std::rotate(route.begin(), found, found + 1);
+    return route;
+}
+
 inline std::vector<uint32_t> PlanQuestRoute(float fromX, float fromY, std::vector<RouteStop> stops)
 {
     std::vector<uint32_t> quests;
