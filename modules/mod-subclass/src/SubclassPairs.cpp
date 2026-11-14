@@ -639,6 +639,8 @@ void HandlePairMessage(Player* player, std::vector<std::string_view> const& word
         Decline(player);
     else if (words.size() == 1 && words[0] == "PAIRSTATUS")
         Status(player);
+    else if (words.size() == 1 && words[0] == "PAIRSTATEASK")
+        SendPairAddon(player, StateOf(player));
     else if (words.size() == 1 && words[0] == "PAIRECHO")
         ShowEcho(player);
     else if (words.size() == 1 && (words[0] == "PAIRSTOP" || words[0] == "PAIRGO"))

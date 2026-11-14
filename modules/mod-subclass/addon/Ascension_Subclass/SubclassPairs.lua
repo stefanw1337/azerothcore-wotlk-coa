@@ -152,10 +152,18 @@ end
 if PaperDollItemSlotButton_Update then
     hooksecurefunc("PaperDollItemSlotButton_Update", FreezeSlot)
 end
+if CharacterFrame then
+    CharacterFrame:HookScript("OnShow", FreezeGear)
+end
 
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("CHAT_MSG_ADDON")
-frame:SetScript("OnEvent", function(_, _, prefix, message, _, sender)
+frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+frame:SetScript("OnEvent", function(_, event, prefix, message, _, sender)
+    if event == "PLAYER_ENTERING_WORLD" then
+        Send("PAIRSTATEASK")
+        return
+    end
     if prefix ~= PREFIX or sender ~= UnitName("player") then
         return
     end
