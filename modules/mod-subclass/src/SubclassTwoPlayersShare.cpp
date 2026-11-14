@@ -3,6 +3,7 @@
  */
 
 #include "AscensionSpecialization.h"
+#include "Chat.h"
 #include "ObjectMgr.h"
 #include "Opcodes.h"
 #include "Player.h"
@@ -19,6 +20,7 @@
 
 uint32 TwoPlayersPartnerOf(uint32 guid);
 bool TwoPlayersAskStopOrGo(uint32 guid);
+ObjectGuid TwoPlayersWornCopyAt(Player const* rider, uint8 slot);
 bool TwoPlayersIsLeftHead(uint32 guid);
 Player* TwoPlayersSeatedPartner(Player const* head);
 Subclass::SpecializationRoles RolesOfSpecialization(uint16 specialization);
@@ -140,6 +142,58 @@ public:
     }
 };
 
+ObjectGuid WornCopyIn(Player const* player, uint8 bag, uint8 slot)
+{
+    return bag == INVENTORY_SLOT_BAG_0 ? TwoPlayersWornCopyAt(player, slot) : ObjectGuid::Empty;
+}
+
+ObjectGuid Either(ObjectGuid first, ObjectGuid second)
+{
+    return first ? first : second;
+}
+
+void RefuseFrozenMove(Player* player, ObjectGuid copy)
+{
+    WorldPacket data(SMSG_INVENTORY_CHANGE_FAILURE, 18);
+    data << uint8(EQUIP_ERR_CANT_DO_RIGHT_NOW);
+    data << copy;
+    data << ObjectGuid::Empty;
+    data << uint8(0);
+    player->SendDirectMessage(&data);
+    ChatHandler(player->GetSession()).SendNotification("Frozen: the body wears this gear for both heads.");
+}
+
+bool TouchesWornCopy(Player* player, WorldPacket const& packet)
+{
+    auto byte = [&packet](std::size_t at) { return packet.read<uint8>(at); };
+    ObjectGuid copy;
+    switch (packet.GetOpcode())
+    {
+        case CMSG_SWAP_INV_ITEM:
+            if (packet.size() >= 2)
+                copy = Either(WornCopyIn(player, INVENTORY_SLOT_BAG_0, byte(0)),
+                    WornCopyIn(player, INVENTORY_SLOT_BAG_0, byte(1)));
+            break;
+        case CMSG_SWAP_ITEM:
+            if (packet.size() >= 4)
+                copy = Either(WornCopyIn(player, byte(0), byte(1)), WornCopyIn(player, byte(2), byte(3)));
+            break;
+        case CMSG_AUTOSTORE_BAG_ITEM:
+        case CMSG_DESTROYITEM:
+        case CMSG_SPLIT_ITEM:
+        case CMSG_AUTOEQUIP_ITEM:
+            if (packet.size() >= 2)
+                copy = WornCopyIn(player, byte(0), byte(1));
+            break;
+        default:
+            return false;
+    }
+    if (!copy)
+        return false;
+    RefuseFrozenMove(player, copy);
+    return true;
+}
+
 class mod_subclass_two_players_share_server : public ServerScript
 {
 public:
@@ -180,6 +234,8 @@ public:
 
     bool CanPacketReceive(WorldSession* session, WorldPacket& packet) override
     {
+        if (session && session->GetPlayer() && TouchesWornCopy(session->GetPlayer(), packet))
+            return false;
         if (packet.GetOpcode() == CMSG_REQUEST_VEHICLE_EXIT && session && session->GetPlayer())
             return !TwoPlayersAskStopOrGo(session->GetPlayer()->GetGUID().GetCounter());
         if (packet.GetOpcode() != CMSG_LOOT_ROLL || !session || !session->GetPlayer() ||

@@ -84,9 +84,13 @@ end
 local GEAR_SLOTS = { "Head", "Neck", "Shoulder", "Shirt", "Chest", "Waist", "Legs", "Feet", "Wrist", "Hands",
     "Finger0", "Finger1", "Trinket0", "Trinket1", "Back", "MainHand", "SecondaryHand", "Ranged", "Tabard" }
 
+local GEAR_WINDOWS = { "Character", "AscensionCharacter" }
+
 local GEAR_BUTTONS = {}
-for _, name in ipairs(GEAR_SLOTS) do
-    GEAR_BUTTONS["Character" .. name .. "Slot"] = true
+for _, window in ipairs(GEAR_WINDOWS) do
+    for _, name in ipairs(GEAR_SLOTS) do
+        GEAR_BUTTONS[window .. name .. "Slot"] = true
+    end
 end
 
 local function ShowFrozenTooltip(ice)
@@ -141,13 +145,26 @@ local function FreezeSlot(button)
 end
 
 local function FreezeGear()
-    for _, name in ipairs(GEAR_SLOTS) do
-        local button = _G["Character" .. name .. "Slot"]
+    for buttonName in pairs(GEAR_BUTTONS) do
+        local button = _G[buttonName]
         if button then
             FreezeSlot(button)
         end
     end
 end
+
+local watchedSlots = {}
+
+local function WatchGearSlots()
+    for buttonName in pairs(GEAR_BUTTONS) do
+        local button = _G[buttonName]
+        if button and not watchedSlots[button] then
+            watchedSlots[button] = true
+            button:HookScript("OnShow", FreezeSlot)
+        end
+    end
+end
+WatchGearSlots()
 
 if PaperDollItemSlotButton_Update then
     hooksecurefunc("PaperDollItemSlotButton_Update", FreezeSlot)
@@ -161,6 +178,7 @@ frame:RegisterEvent("CHAT_MSG_ADDON")
 frame:RegisterEvent("PLAYER_ENTERING_WORLD")
 frame:SetScript("OnEvent", function(_, event, prefix, message, _, sender)
     if event == "PLAYER_ENTERING_WORLD" then
+        WatchGearSlots()
         Send("PAIRSTATEASK")
         return
     end
