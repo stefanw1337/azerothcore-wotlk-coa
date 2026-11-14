@@ -5,3 +5,4 @@
 ## SavedVariables: CoACBotPlanIgnored
 BotChat.lua
 BotPlan.lua
+Courier.lua

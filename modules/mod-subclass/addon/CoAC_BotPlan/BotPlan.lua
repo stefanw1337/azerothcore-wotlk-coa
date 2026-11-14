@@ -297,8 +297,10 @@ end
 local function JunkTooltip(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     GameTooltip:SetText("Junk")
-    GameTooltip:AddLine("Both heads hand their grey items to a courier, who comes back with the coins in a few " ..
-        "minutes. No vendor needed. Your bot body sends one by himself when his bags are full.", 1, 1, 1, true)
+    GameTooltip:AddLine("Both heads hand their grey and marked items to a courier, who comes back with the coins " ..
+        "in a few minutes, and throw away leftover quest items. No vendor needed. Your bot body sends one by " ..
+        "himself when his bags are full.", 1, 1, 1, true)
+    GameTooltip:AddLine("Right-click: open the courier bag to see what goes, or mark more to sell.", 0, 1, 0, true)
     GameTooltip:Show()
 end
 
@@ -379,7 +381,14 @@ barWatch:SetScript("OnUpdate", function(self, elapsed)
         BarButton(SquidBotsLiteBar, "CoACBotPlanRideButton", "Interface\\Icons\\Ability_Mount_RidingHorse", "Ride",
             function() Send("PAIRMOUNT") end, RideTooltip)
         BarButton(SquidBotsLiteBar, "CoACBotPlanJunkButton", "Interface\\Icons\\INV_Misc_Coin_02", "Junk",
-            function() Send("PAIRJUNK") end, JunkTooltip)
+            function(_, mouse)
+                if mouse == "RightButton" and CoACCourierToggle then
+                    CoACCourierToggle()
+                else
+                    Send("PAIRJUNK")
+                end
+            end, JunkTooltip)
+        CoACBotPlanJunkButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     end
     if #barButtons > 0 then
         PlaceBarButtons(SquidBotsLiteBar)

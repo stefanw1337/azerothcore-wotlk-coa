@@ -5,16 +5,23 @@
 #include "Bag.h"
 #include "Chat.h"
 #include "Config.h"
+#include "DatabaseEnv.h"
 #include "Item.h"
+#include "ObjectMgr.h"
 #include "Player.h"
 #include "PlayerScript.h"
+#include "QuestDef.h"
+#include "WorldScript.h"
+#include <map>
 #include <mutex>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 Player* TwoPlayersSeatedPartner(Player const* head);
 bool TwoPlayersHeadIsBot(Player const* head);
+void TwoPlayersSendAddon(Player* player, std::string const& message);
 
 namespace
 {
@@ -25,11 +32,24 @@ struct Payout
     uint32 Due = 0;
     uint32 Money = 0;
     uint32 Items = 0;
+    uint32 Leftovers = 0;
 };
+
+enum class Load : char
+{
+    None = 0,
+    Junk = 'J',
+    Marked = 'M',
+    Leftover = 'Q'
+};
+
+using Marks = std::set<uint32>;
 
 std::mutex& courierMutex = *new std::mutex;
 std::unordered_map<uint32, std::vector<Payout>>& payouts = *new std::unordered_map<uint32, std::vector<Payout>>;
 std::unordered_map<uint32, uint32>& sinceAutoCheck = *new std::unordered_map<uint32, uint32>;
+std::unordered_map<uint32, Marks>& marks = *new std::unordered_map<uint32, Marks>;
+std::unordered_map<uint32, std::vector<uint32>>& questsNeeding = *new std::unordered_map<uint32, std::vector<uint32>>;
 
 uint32 CourierMs()
 {
@@ -52,10 +72,40 @@ std::string Coins(uint32 money)
     return text + std::to_string(money % SILVER) + "c";
 }
 
-bool IsJunk(Item const* item)
+Marks MarksOf(Player const* first, Player const* second)
+{
+    std::lock_guard<std::mutex> lock(courierMutex);
+    Marks both;
+    for (Player const* head : { first, second })
+        if (head)
+            if (auto const found = marks.find(head->GetGUID().GetCounter()); found != marks.end())
+                both.insert(found->second.begin(), found->second.end());
+    return both;
+}
+
+bool QuestStillNeeds(Player const* holder, uint32 entry)
+{
+    auto const found = questsNeeding.find(entry);
+    if (found == questsNeeding.end())
+        return true;
+    for (uint32 questId : found->second)
+        if (!holder->GetQuestRewardStatus(questId))
+            return true;
+    return false;
+}
+
+Load LoadOf(Player const* holder, Item const* item, Marks const& marked)
 {
     ItemTemplate const* proto = item ? item->GetTemplate() : nullptr;
-    return proto && proto->Quality == ITEM_QUALITY_POOR && proto->SellPrice > 0;
+    if (!proto)
+        return Load::None;
+    if (proto->Bonding == BIND_QUEST_ITEM)
+        return !proto->StartQuest && !QuestStillNeeds(holder, proto->ItemId) ? Load::Leftover : Load::None;
+    if (!proto->SellPrice)
+        return Load::None;
+    if (proto->Quality == ITEM_QUALITY_POOR)
+        return Load::Junk;
+    return marked.count(proto->ItemId) ? Load::Marked : Load::None;
 }
 
 template <typename Visit>
@@ -71,10 +121,13 @@ void ForEachCarried(Player* player, Visit visit)
                     visit(bagSlot, uint8(slot), item);
 }
 
-bool HasJunk(Player* player)
+bool HasLoad(Player* player, Marks const& marked)
 {
     bool found = false;
-    ForEachCarried(player, [&found](uint8, uint8, Item* item) { found = found || IsJunk(item); });
+    ForEachCarried(player, [&](uint8, uint8, Item* item)
+    {
+        found = found || LoadOf(player, item, marked) != Load::None;
+    });
     return found;
 }
 
@@ -85,15 +138,21 @@ bool CourierOut(Player* player)
     return found != payouts.end() && !found->second.empty();
 }
 
-Payout HandJunkToCourier(Player* player)
+Payout HandJunkToCourier(Player* player, Marks const& marked)
 {
     std::vector<std::pair<uint8, uint8>> junk;
     Payout payout;
     ForEachCarried(player, [&](uint8 bag, uint8 slot, Item* item)
     {
-        if (!IsJunk(item))
+        Load const load = LoadOf(player, item, marked);
+        if (load == Load::None)
             return;
         junk.emplace_back(bag, slot);
+        if (load == Load::Leftover)
+        {
+            payout.Leftovers += item->GetCount();
+            return;
+        }
         payout.Money += item->GetTemplate()->SellPrice * item->GetCount();
         payout.Items += item->GetCount();
     });
@@ -107,9 +166,19 @@ Payout HandJunkToCourier(Player* player)
     return payout;
 }
 
+std::string Count(uint32 count, std::string const& what)
+{
+    return std::to_string(count) + " " + what + (count == 1 ? "" : "s");
+}
+
 std::string CourierLeaves(Player* owner, Payout const& payout)
 {
-    return owner->GetName() + " hands " + std::to_string(payout.Items) + " junk item" + (payout.Items == 1 ? "" : "s") +
+    std::string text;
+    if (payout.Leftovers)
+        text = owner->GetName() + " throws away " + Count(payout.Leftovers, "leftover quest item") + ".";
+    if (!payout.Items)
+        return text;
+    return text + (text.empty() ? "" : " ") + owner->GetName() + " hands " + Count(payout.Items, "item") +
         " to a courier. Back in " + std::to_string(CourierMs() / (MINUTE * IN_MILLISECONDS)) + " minutes with " +
         Coins(payout.Money) + ".";
 }
@@ -143,7 +212,7 @@ void PayWhatIsDue(Player* player)
         return;
     player->ModifyMoney(int32(money));
     std::string const line = "The courier is back: " + Coins(money) + " for " + player->GetName() + "'s " +
-        std::to_string(items) + " junk item" + (items == 1 ? "" : "s") + ".";
+        Count(items, "item") + ".";
     Tell(player, line);
     if (TwoPlayersHeadIsBot(player))
         Tell(TwoPlayersSeatedPartner(player), line);
@@ -156,20 +225,88 @@ std::string TwoPlayersSendCourier(Player* presser)
     if (!partner)
         return "The courier only serves the two heads of one body.";
     std::string told;
+    Marks const marked = MarksOf(presser, partner);
     for (Player* head : { presser, partner })
     {
-        if (!head)
-            continue;
-        Payout const payout = HandJunkToCourier(head);
-        if (payout.Items)
+        Payout const payout = HandJunkToCourier(head, marked);
+        if (payout.Items || payout.Leftovers)
             told += (told.empty() ? "" : " ") + CourierLeaves(head, payout);
     }
     if (told.empty())
-        return "No junk to send off.";
+        return "Nothing for the courier: no grey, marked or leftover quest items.";
     Tell(presser, told);
     if (partner && !TwoPlayersHeadIsBot(partner))
         Tell(partner, told);
     return "";
+}
+
+void TwoPlayersCourierList(Player* presser)
+{
+    Player* partner = TwoPlayersSeatedPartner(presser);
+    Marks const marked = MarksOf(presser, partner);
+    std::map<std::tuple<std::string, char, uint32>, std::pair<uint32, uint32>> loads;
+    uint32 worth = 0;
+    for (Player* head : { presser, partner })
+    {
+        if (!head)
+            continue;
+        ForEachCarried(head, [&](uint8, uint8, Item* item)
+        {
+            Load const load = LoadOf(head, item, marked);
+            if (load == Load::None)
+                return;
+            auto& [count, money] = loads[{ head->GetName(), char(load), item->GetEntry() }];
+            count += item->GetCount();
+            if (load != Load::Leftover)
+                money += item->GetTemplate()->SellPrice * item->GetCount();
+        });
+    }
+    for (auto const& [key, value] : loads)
+    {
+        auto const& [owner, load, entry] = key;
+        worth += value.second;
+        TwoPlayersSendAddon(presser, "COURIER " + std::string(1, load) + " " + std::to_string(entry) + " " +
+            std::to_string(value.first) + " " + std::to_string(value.second) + " " + owner);
+    }
+    for (uint32 entry : marked)
+        TwoPlayersSendAddon(presser, "COURIERMARKED " + std::to_string(entry));
+    TwoPlayersSendAddon(presser, "COURIEREND " + std::to_string(worth) + (partner ? "" : " ALONE"));
+}
+
+void TwoPlayersCourierMark(Player* presser, uint32 entry, bool mark)
+{
+    ItemTemplate const* proto = sObjectMgr->GetItemTemplate(entry);
+    if (!proto)
+        return;
+    if (mark && (!proto->SellPrice || proto->Bonding == BIND_QUEST_ITEM))
+    {
+        Tell(presser, proto->Name1 + " cannot be sold, so the courier will not take it.");
+        TwoPlayersCourierList(presser);
+        return;
+    }
+    Player* partner = TwoPlayersSeatedPartner(presser);
+    {
+        std::lock_guard<std::mutex> lock(courierMutex);
+        for (Player* head : { presser, partner })
+        {
+            if (!head || (mark && head != presser))
+                continue;
+            uint32 const guid = head->GetGUID().GetCounter();
+            if (mark)
+                marks[guid].insert(entry);
+            else if (auto const found = marks.find(guid); found != marks.end())
+                found->second.erase(entry);
+        }
+    }
+    if (mark)
+        CharacterDatabase.Execute("INSERT IGNORE INTO `mod_subclass_courier_mark` (`guid`, `item`) VALUES ({}, {})",
+            presser->GetGUID().GetCounter(), entry);
+    else
+        for (Player* head : { presser, partner })
+            if (head)
+                CharacterDatabase.Execute("DELETE FROM `mod_subclass_courier_mark` WHERE `guid` = {} AND `item` = {}",
+                    head->GetGUID().GetCounter(), entry);
+    TwoPlayersCourierList(presser);
 }
 
 class mod_subclass_two_players_courier : public PlayerScript
@@ -193,13 +330,16 @@ public:
         }
         PayWhatIsDue(player);
         if (!TwoPlayersHeadIsBot(player) || player->IsInCombat() || player->GetFreeInventorySpace() ||
-            CourierOut(player) || !HasJunk(player))
+            CourierOut(player))
             return;
         Player* rider = TwoPlayersSeatedPartner(player);
         if (!rider)
             return;
-        Payout const payout = HandJunkToCourier(player);
-        if (payout.Items)
+        Marks const marked = MarksOf(player, rider);
+        if (!HasLoad(player, marked))
+            return;
+        Payout const payout = HandJunkToCourier(player, marked);
+        if (payout.Items || payout.Leftovers)
             Tell(rider, "Bags full. " + CourierLeaves(player, payout));
     }
 
@@ -210,7 +350,44 @@ public:
     }
 };
 
+class mod_subclass_two_players_courier_world : public WorldScript
+{
+public:
+    mod_subclass_two_players_courier_world() : WorldScript("mod_subclass_two_players_courier_world",
+        { WORLDHOOK_ON_STARTUP })
+    {
+    }
+
+    void OnStartup() override
+    {
+        CharacterDatabase.DirectExecute("CREATE TABLE IF NOT EXISTS `mod_subclass_courier_mark` (`guid` INT UNSIGNED "
+            "NOT NULL, `item` INT UNSIGNED NOT NULL, PRIMARY KEY (`guid`, `item`)) ENGINE=InnoDB "
+            "DEFAULT CHARSET=utf8mb4");
+        std::unordered_map<uint32, Marks> loaded;
+        if (QueryResult result = CharacterDatabase.Query("SELECT `guid`, `item` FROM `mod_subclass_courier_mark`"))
+            do
+            {
+                Field* fields = result->Fetch();
+                loaded[fields[0].Get<uint32>()].insert(fields[1].Get<uint32>());
+            } while (result->NextRow());
+        std::unordered_map<uint32, std::vector<uint32>> needing;
+        for (auto const& [questId, quest] : sObjectMgr->GetQuestTemplates())
+        {
+            std::set<uint32> items(std::begin(quest->RequiredItemId), std::end(quest->RequiredItemId));
+            items.insert(std::begin(quest->ItemDrop), std::end(quest->ItemDrop));
+            items.insert(quest->GetSrcItemId());
+            items.erase(0);
+            for (uint32 entry : items)
+                needing[entry].push_back(questId);
+        }
+        std::lock_guard<std::mutex> lock(courierMutex);
+        marks = std::move(loaded);
+        questsNeeding = std::move(needing);
+    }
+};
+
 void AddSC_mod_subclass_two_players_courier()
 {
     new mod_subclass_two_players_courier();
+    new mod_subclass_two_players_courier_world();
 }
