@@ -32,3 +32,28 @@ LiveMon.Port = 8089
 #        Default:     60
 
 LiveMon.FlushSeconds = 60
+
+#
+#    LiveMon.Log.Enable
+#        Description: Keep a fight log for balancing: per day, class, spec, subclass, talent build, company
+#                     (solo, Two-Players, party, raid), level band and target kind (normal, elite, boss,
+#                     player) it adds up fights, damage, healing, deaths, every ability and every buff that
+#                     was up. The LiveMon window shows it on the Abilities and Builds tabs and exports CSV.
+#        Default:     1 - enabled
+#                     0 - disabled
+
+LiveMon.Log.Enable = 1
+
+#
+#    LiveMon.Log.MinFightSeconds
+#        Description: Shorter fights are left out of the fight log.
+#        Default:     5
+
+LiveMon.Log.MinFightSeconds = 5
+
+#
+#    LiveMon.Log.KeepDays
+#        Description: Days of fight log to keep. Older days are deleted at startup and once a day.
+#        Default:     30 (0 keeps everything)
+
+LiveMon.Log.KeepDays = 30

@@ -15,9 +15,22 @@ Per character, for the server session and per minute:
 The minute totals go to the characters table `livemon_minute` (created on startup). The window groups them into
 combos and compares a subclassed combo's damage with the same main class without a subclass.
 
+## Fight log
+
+With `LiveMon.Log.Enable` every fight of at least `LiveMon.Log.MinFightSeconds` is added up per day in the
+`livemon_log_*` tables. The key is class, CoA spec, talent tree, subclass and its spec, company (solo, Two-Players,
+party or raid, from group members within 100 yards) and level band. Combos also split by the kind of target that
+took the most damage (normal, elite, boss or player); builds split by talent build instead. For each key the log
+keeps fights, characters, combat time, damage, healing, damage taken and deaths, and the damage and healing of
+every ability. Combos also keep every visible buff that was up, with its uptime, the share that was the
+character's own, and the damage and healing of the fights it was up for at least half of. `livemon_build` turns
+a build number into its CoA and standard talents. Days older than `LiveMon.Log.KeepDays` are deleted.
+
 ## Live feed
 
-`http://127.0.0.1:8089/live` (characters) and `/history?minutes=60` (combos), JSON. Settings are in
+`http://127.0.0.1:8089/live` (characters) and `/history?minutes=60` (combos), JSON. The fight log is on
+`/analysis` and `/builds`, and `/export?what=combos|spells|buffs|builds|buildspells|talents` returns CSV. All
+three take `days`, `company`, `band`, `foe` and `class`. Settings are in
 `mod_livemon.conf.dist`; the feed only listens on this computer unless `LiveMon.Bind` is changed.
 
 ## The window

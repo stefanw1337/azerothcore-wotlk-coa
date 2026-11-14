@@ -155,6 +155,11 @@ tr.thin td { opacity: .45; }
 .badge { font-size: 10px; padding: 0 5px; border-radius: 3px; background: #4a2a6a; color: #e8d8ff; margin-left: 5px; }
 .pct { color: var(--green); }
 .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 26px 18px; }
+.logbar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+.logbar .spacer { flex: 1; }
+a.act { font: 12px "Friz", Georgia, serif; color: var(--gold); text-decoration: none; }
+a.act:hover { color: #fff; }
+.taglist span { display: inline-block; margin: 2px 6px 2px 0; }
 .seg button { font: 11px "Friz", Georgia, serif; color: var(--gold-dim); background: #120d07; border: 1px solid var(--metal-lo);
   padding: 3px 10px; cursor: pointer; } .seg button.on { color: var(--gold); border-color: var(--metal); }
 @media (max-width: 1050px) { .cols2 { grid-template-columns: 1fr; } }
@@ -191,6 +196,7 @@ tr.thin td { opacity: .45; }
 </header>
 <nav class="tabs" id="tabs">
   <button data-tab="characters" class="on">Characters</button><button data-tab="combos">Combos</button>
+  <button data-tab="abilities">Abilities</button><button data-tab="builds">Builds</button>
   <button data-tab="records">Records</button><button data-tab="character" id="characterTab" hidden><span
     id="characterName">Character</span><span class="close" id="closeCharacter"
     title="Close this tab">&times;</span></button>
@@ -211,6 +217,43 @@ tr.thin td { opacity: .45; }
     <h2>Damage per second in combat</h2>
     <div class="bars noicons" id="comboBars" style="--label: 360px"></div>
   </section>
+</main>
+<main class="tab" id="logFilters" style="padding-bottom:0">
+  <section class="wide logbar">
+    <label>Days <select class="lf" id="lfDays"><option value="1">Today</option><option value="3">3</option>
+      <option value="7" selected>7</option><option value="30">30</option></select></label>
+    <label>Company <select class="lf" id="lfCompany"><option value="">All</option><option value="0">Solo</option>
+      <option value="1">Two-Players</option><option value="2">Party</option><option value="3">Raid</option></select></label>
+    <label>Levels <select class="lf" id="lfBand"><option value="">All</option><option value="0">1-9</option>
+      <option value="1">10-19</option><option value="2">20-29</option><option value="3">30-39</option>
+      <option value="4">40-49</option><option value="5">50-59</option><option value="6">60-69</option>
+      <option value="7">70-79</option><option value="8">80</option></select></label>
+    <label>Target <select class="lf" id="lfFoe"><option value="">All</option><option value="0">Normal</option>
+      <option value="1">Elite</option><option value="2">Boss</option><option value="3">Player</option></select></label>
+    <span class="seg" id="lfKind"><button data-kind="0" class="on">Damage</button><button data-kind="1">Healing</button></span>
+    <span class="spacer"></span>
+    <span class="muted">Export CSV:</span>
+    <a class="act lx" data-what="combos" href="#">combos</a><a class="act lx" data-what="spells" href="#">abilities</a>
+    <a class="act lx" data-what="buffs" href="#">buffs</a><a class="act lx" data-what="builds" href="#">builds</a>
+    <a class="act lx" data-what="buildspells" href="#">build abilities</a><a class="act lx" data-what="talents" href="#">talents</a>
+  </section>
+</main>
+<main class="tab" id="tab-abilities">
+  <section class="wide"><h2>Strongest abilities<small id="topNote"></small></h2>
+    <div class="scroll"><table id="topAbilities"></table></div></section>
+  <section class="wide"><h2>Combos<small>class · spec + subclass, from the fight log · click one for its abilities and buffs</small></h2>
+    <div class="scroll"><table id="logCombos"></table></div></section>
+  <section class="wide"><h2 id="comboTitle">Abilities<small>pick a combo above</small></h2>
+    <div class="scroll"><table id="comboAbilities"></table></div></section>
+  <section class="wide"><h2>Buffs in their fights<small>"mostly on" = up for at least half the fight · on vs off compares fights, it does not prove cause</small></h2>
+    <div class="scroll"><table id="comboBuffs"></table></div></section>
+</main>
+<main class="tab" id="tab-builds">
+  <section class="wide"><h2>Builds<small>talent builds by combat time · click one for its talents</small></h2>
+    <div class="scroll"><table id="builds"></table></div></section>
+  <section><h2 id="buildTitle">Top abilities<small>pick a build above</small></h2>
+    <div class="scroll"><table id="buildAbilities"></table></div></section>
+  <section><h2>Talents</h2><div class="taglist" id="buildTalents"></div></section>
 </main>
 <main class="tab" id="tab-records">
   <section class="wide"><h2>Records<small>best per character, kept until you clear the data</small></h2>
@@ -561,6 +604,201 @@ function renderCharacter() {
   renderRecords($("charRecords"), r => String(r.guid) === state.selected);
 }
 
+
+const COMPANY = ["Solo", "Two-Players", "Party", "Raid"];
+const logState = { analysis: null, builds: null, kind: 0, combo: null, build: null,
+  topSort: { key: "perSec", asc: false }, logComboSort: { key: "combatMs", asc: false },
+  comboAbilitySort: { key: "perSec", asc: false }, buffSort: { key: "uptime", asc: false },
+  buildSort: { key: "combatMs", asc: false }, buildAbilitySort: { key: "amount", asc: false } };
+const comboName = r => `${r.class}${specLabel(r) ? " " + specLabel(r) : ""}` +
+  (r.subclass ? ` + ${r.subclass}${r.subSpecName ? " " + r.subSpecName : ""}` : "");
+const comboCell = r => colored(`${r.class}${specLabel(r) ? " " + specLabel(r) : ""}`, r.classId) +
+  (r.subclass ? ` <span class="muted">+ ${esc(r.subclass)}${r.subSpecName ? " " + esc(r.subSpecName) : ""}</span>` : "");
+const versus = v => v === null ? '<span class="muted">–</span>' :
+  `<span class="${v >= 0 ? "up" : "down"}">${v >= 0 ? "+" : ""}${v.toFixed(1)}%</span>`;
+const pct = (a, b) => b > 0 ? 100 * a / b : 0;
+const spellName = (names, id) => (names[id] || ["?", 0, 0])[0];
+const spellCell = (names, id) => `${img(spellIcon((names[id] || [])[1], Number(id)))} ${esc(spellName(names, id))}`;
+
+function logQuery() {
+  const parts = ["days=" + $("lfDays").value];
+  for (const [id, key] of [["lfCompany", "company"], ["lfBand", "band"], ["lfFoe", "foe"]])
+    if ($(id).value !== "") parts.push(key + "=" + $(id).value);
+  return parts.join("&");
+}
+
+function withRates(r) {
+  const n = k => Number(r[k]) || 0;
+  return { ...r, fights: n("fights"), characters: n("characters"), combatMs: n("combatMs"), damage: n("damage"),
+    healing: n("healing"), taken: n("taken"), deaths: n("deaths"), level: n("fights") ? n("levelSum") / n("fights") : 0,
+    dps: perSec(n("damage"), n("combatMs")), hps: perSec(n("healing"), n("combatMs")),
+    dtps: perSec(n("taken"), n("combatMs")), deathsPerHour: n("combatMs") ? n("deaths") / (n("combatMs") / 3600000) : 0,
+    trusted: n("combatMs") >= trustMs() };
+}
+
+function withClassBaseline(rows) {
+  const base = {};
+  for (const r of rows) {
+    const b = base[r.classId] ||= { damage: 0, healing: 0, combatMs: 0 };
+    b.damage += r.damage; b.healing += r.healing; b.combatMs += r.combatMs;
+  }
+  for (const r of rows) {
+    const b = base[r.classId];
+    const fair = r.trusted && b.combatMs > r.combatMs;
+    r.vsDps = fair && r.damage && b.damage ? 100 * (r.dps / perSec(b.damage, b.combatMs) - 1) : null;
+    r.vsHps = fair && r.healing && b.healing ? 100 * (r.hps / perSec(b.healing, b.combatMs) - 1) : null;
+  }
+  return rows;
+}
+
+function logComboRows() {
+  const a = logState.analysis;
+  if (!a) return [];
+  return withClassBaseline(a.combos.map(c => ({ ...withRates(c), id: String(c.i), name: comboName(c) })));
+}
+
+const logComboColumns = [
+  { key: "name", label: "Combo", left: true, show: r => comboCell(r) +
+    (r.trusted ? "" : ' <span class="muted" title="Too little time in combat to trust these numbers">(too little data)</span>') },
+  { key: "level", label: "Avg lvl", show: r => r.level.toFixed(0) },
+  { key: "fights", label: "Fights" },
+  { key: "characters", label: "Char-days", show: r => r.characters },
+  { key: "combatMs", label: "Combat", show: r => secs(r.combatMs) },
+  { key: "dps", label: "DPS", show: r => fmt(r.dps) },
+  { key: "vsDps", label: "vs class", show: r => versus(r.vsDps) },
+  { key: "hps", label: "HPS", show: r => fmt(r.hps) },
+  { key: "vsHps", label: "vs class", show: r => versus(r.vsHps) },
+  { key: "dtps", label: "Taken/s", show: r => fmt(r.dtps) },
+  { key: "deathsPerHour", label: "Deaths/h", show: r => r.deathsPerHour.toFixed(1) },
+];
+
+function abilityLogRows(combos, spells, kind, names, comboOf) {
+  const totals = {};
+  for (const [i, , k, amount] of spells) if (k === kind) totals[i] = (totals[i] || 0) + Number(amount);
+  return spells.filter(s => s[2] === kind).map(([i, id, k, amount, hits]) => {
+    const c = combos[comboOf(i)];
+    amount = Number(amount); hits = Number(hits);
+    return { id: i + ":" + id, spellId: id, name: spellName(names, id), combo: c, comboName: c ? c.name : "",
+      amount, hits, perHit: hits ? amount / hits : 0, perSec: c ? perSec(amount, c.combatMs) : 0,
+      share: pct(amount, totals[i]), trusted: c ? c.trusted : false };
+  });
+}
+
+const abilityLogColumns = (names, withCombo) => [
+  { key: "name", label: "Ability", left: true, show: r => spellCell(names, r.spellId) },
+  ...(withCombo ? [{ key: "comboName", label: "Combo", left: true, show: r => comboCell(r.combo) }] : []),
+  { key: "perSec", label: "Per combat second", show: r => fmt(r.perSec) },
+  { key: "share", label: "Share of combo", show: r => r.share.toFixed(1) + "%" },
+  { key: "perHit", label: "Per hit", show: r => fmt(r.perHit) },
+  { key: "hits", label: "Hits", show: r => fmt(r.hits) },
+  { key: "amount", label: "Total", show: r => fmt(r.amount) },
+];
+
+function buffRows(combo) {
+  const a = logState.analysis;
+  if (!a || !combo) return [];
+  return a.buffs.filter(b => String(b[0]) === combo.id).map(([i, id, ms, own, fights, withFights, withMs, withDamage,
+    withHealing]) => {
+    [ms, own, fights, withFights, withMs, withDamage, withHealing] =
+      [ms, own, fights, withFights, withMs, withDamage, withHealing].map(Number);
+    const withoutMs = combo.combatMs - withMs;
+    const fair = withMs >= 60000 && withoutMs >= 60000;
+    const dpsWith = perSec(withDamage, withMs), dpsWithout = perSec(combo.damage - withDamage, withoutMs);
+    const hpsWith = perSec(withHealing, withMs), hpsWithout = perSec(combo.healing - withHealing, withoutMs);
+    return { id: String(id), spellId: id, name: spellName(a.names, id), uptime: pct(ms, combo.combatMs),
+      own: pct(own, ms), fights, mostly: pct(withFights, combo.fights), dpsWith, dpsWithout, hpsWith, hpsWithout,
+      dpsGain: fair && dpsWithout ? 100 * (dpsWith / dpsWithout - 1) : null,
+      hpsGain: fair && hpsWithout ? 100 * (hpsWith / hpsWithout - 1) : null };
+  });
+}
+
+const buffColumns = () => [
+  { key: "name", label: "Buff", left: true, show: r => spellCell(logState.analysis.names, r.spellId) },
+  { key: "uptime", label: "Uptime", show: r => r.uptime.toFixed(0) + "%" },
+  { key: "own", label: "Own", show: r => r.own.toFixed(0) + "%" },
+  { key: "mostly", label: "Fights mostly on", show: r => r.mostly.toFixed(0) + "%" },
+  { key: "dpsGain", label: "DPS on vs off", show: r => versus(r.dpsGain) },
+  { key: "hpsGain", label: "HPS on vs off", show: r => versus(r.hpsGain) },
+];
+
+function buildRows() {
+  const b = logState.builds;
+  if (!b) return [];
+  return withClassBaseline(b.builds.map(r => ({ ...withRates(r), id: String(r.i), name: comboName(r) })));
+}
+
+const buildColumns = () => [
+  { key: "name", label: "Combo", left: true, show: r => comboCell(r) +
+    (r.trusted ? "" : ' <span class="muted">(too little data)</span>') },
+  { key: "build", label: "Build", show: r => `<span class="muted">#${Number(r.build).toString(16)}</span>` },
+  { key: "talentCount", label: "Talents", show: r => talentsOf(r).length },
+  { key: "level", label: "Avg lvl", show: r => r.level.toFixed(0) },
+  { key: "fights", label: "Fights" },
+  { key: "combatMs", label: "Combat", show: r => secs(r.combatMs) },
+  { key: "dps", label: "DPS", show: r => fmt(r.dps) },
+  { key: "vsDps", label: "vs class", show: r => versus(r.vsDps) },
+  { key: "hps", label: "HPS", show: r => fmt(r.hps) },
+  { key: "vsHps", label: "vs class", show: r => versus(r.vsHps) },
+  { key: "deathsPerHour", label: "Deaths/h", show: r => r.deathsPerHour.toFixed(1) },
+];
+const talentsOf = r => (logState.builds && logState.builds.talents[`${r.classId}-${r.build}`]) || [];
+
+function renderLog() {
+  const a = logState.analysis;
+  const kind = logState.kind;
+  const combos = logComboRows();
+  const byIndex = {};
+  for (const c of combos) byIndex[c.id] = c;
+  if (a) {
+    const top = abilityLogRows(byIndex, a.spells, kind, a.names, i => String(i)).filter(r => r.trusted);
+    renderTable($("topAbilities"), abilityLogColumns(a.names, true), sortRows(top, logState.topSort).slice(0, 60),
+      logState.topSort);
+    $("topNote").textContent = `${kind ? "healing" : "damage"} each ability adds per second its combo spends in combat` +
+      ` · combos with at least ${$("trust").selectedOptions[0].text} in combat`;
+  }
+  renderTable($("logCombos"), logComboColumns, sortRows(combos, logState.logComboSort), logState.logComboSort,
+    id => { logState.combo = id; renderLog(); }, r => (r.trusted ? "" : "thin ") +
+    (r.id === logState.combo ? "selected" : ""));
+  const combo = byIndex[logState.combo];
+  $("comboTitle").innerHTML = combo ? `${comboCell(combo)}<small>${kind ? "healing" : "damage"} by ability</small>` :
+    "Abilities<small>pick a combo above</small>";
+  if (a) renderTable($("comboAbilities"), abilityLogColumns(a.names, false), combo ?
+    sortRows(abilityLogRows(byIndex, a.spells.filter(s => String(s[0]) === combo.id), kind, a.names, i => String(i)),
+      logState.comboAbilitySort) : [], logState.comboAbilitySort);
+  if (a) renderTable($("comboBuffs"), buffColumns(), sortRows(buffRows(combo), logState.buffSort), logState.buffSort);
+  const builds = buildRows();
+  const b = logState.builds;
+  renderTable($("builds"), buildColumns(), sortRows(builds.map(r => ({ ...r, talentCount: talentsOf(r).length })),
+    logState.buildSort), logState.buildSort, id => { logState.build = id; renderLog(); },
+    r => (r.trusted ? "" : "thin ") + (r.id === logState.build ? "selected" : ""));
+  const build = builds.find(r => r.id === logState.build);
+  $("buildTitle").innerHTML = build ? `${comboCell(build)}<small>#${Number(build.build).toString(16)} · top abilities</small>` :
+    "Top abilities<small>pick a build above</small>";
+  if (b) {
+    const byBuild = {};
+    for (const r of builds) byBuild[r.id] = r;
+    const rows = build ? [0, 1].flatMap(k => abilityLogRows(byBuild, b.spells.filter(s => String(s[0]) === build.id), k,
+      b.names, i => String(i)).map(r => ({ ...r, name: (k ? "Heal: " : "") + r.name }))) : [];
+    renderTable($("buildAbilities"), abilityLogColumns(b.names, false), sortRows(rows, logState.buildAbilitySort),
+      logState.buildAbilitySort);
+  }
+  const talents = build ? talentsOf(build) : [];
+  $("buildTalents").innerHTML = build ? (talents.length ? talents.map(t => `<span title="${t.borrowed ?
+    "borrowed from the subclass" : ""}">${img(spellIcon(t.icon, -1))} ${t.borrowed ? '<span class="gold">' : ""}` +
+    `${esc(t.name)}${t.borrowed ? "</span>" : ""} <span class="muted">${t.rank}/${t.maxRank}</span></span>`).join("") :
+    '<div class="empty">No talents recorded for this build</div>') : '<div class="empty">Pick a build above</div>';
+}
+
+async function pollLog() {
+  if (state.tab !== "abilities" && state.tab !== "builds") return;
+  try {
+    const query = logQuery();
+    const [analysis, builds] = await Promise.all([getJson("feed/analysis?" + query), getJson("feed/builds?" + query)]);
+    logState.analysis = analysis; logState.builds = builds;
+  } catch (e) { }
+  renderLog();
+}
+
 function render() {
   const rows = sortRows(liveRows(), state.liveSort);
   renderTiles(rows);
@@ -572,6 +810,7 @@ function render() {
     .map(g => ({ id: g.id, name: g.name, amount: g.dps }));
   renderBars($("comboBars"), byDps, `Top 25 with at least ${$("trust").selectedOptions[0].text} in combat`);
   if (state.tab === "records") renderRecords($("records"), () => true);
+  if (state.tab === "abilities" || state.tab === "builds") renderLog();
   if (state.tab === "character") renderCharacter();
 }
 
@@ -579,7 +818,9 @@ function showTab(tab) {
   state.tab = tab;
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
   document.querySelectorAll("main.tab").forEach(m => m.classList.toggle("on", m.id === "tab-" + tab));
+  $("logFilters").classList.toggle("on", tab === "abilities" || tab === "builds");
   if (tab === "records") pollRecords();
+  if (tab === "abilities" || tab === "builds") pollLog();
   if (tab === "character") pollCharacter();
   render();
 }
@@ -683,6 +924,18 @@ $("closeCharacter").onclick = event => { event.stopPropagation(); closeCharacter
 $("clearGone").onclick = () => clearData("gone", "Remove stored data of characters that no longer exist, and of everyone offline from this session's list?");
 $("clearAll").onclick = () => clearData("all", "Remove ALL stored LiveMon data and records? This cannot be undone.");
 $("window").onchange = pollHistory;
+document.querySelectorAll(".lf").forEach(select => select.onchange = () => {
+  logState.combo = null; logState.build = null; pollLog();
+});
+document.querySelectorAll("#lfKind button").forEach(b => b.onclick = () => {
+  logState.kind = Number(b.dataset.kind);
+  document.querySelectorAll("#lfKind button").forEach(x => x.classList.toggle("on", x === b));
+  renderLog();
+});
+document.querySelectorAll(".lx").forEach(link => link.onclick = event => {
+  event.preventDefault();
+  window.location.href = "feed/export?what=" + link.dataset.what + "&" + logQuery();
+});
 $("group").onchange = render;
 $("trust").onchange = pollHistory;
 pollLive(); pollHistory();
@@ -690,6 +943,7 @@ setInterval(pollLive, 1000);
 setInterval(pollHistory, 15000);
 setInterval(() => state.tab === "records" && pollRecords(), 10000);
 setInterval(pollCharacter, 2000);
+setInterval(pollLog, 60000);
 </script>
 </body>
 </html>

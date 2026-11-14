@@ -112,7 +112,7 @@ func main() {
 
 	game := newLibrary(*wow)
 	pages, _ := fs.Sub(web, "web")
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := &http.Client{Timeout: 30 * time.Second}
 	mux := http.NewServeMux()
 	mux.Handle("/", http.FileServer(http.FS(pages)))
 	sendPNG := func(w http.ResponseWriter, r *http.Request, data []byte, err error) {
@@ -158,7 +158,14 @@ func main() {
 			return
 		}
 		defer response.Body.Close()
-		w.Header().Set("Content-Type", "application/json")
+		kind := response.Header.Get("Content-Type")
+		if kind == "" {
+			kind = "application/json"
+		}
+		w.Header().Set("Content-Type", kind)
+		if disposition := response.Header.Get("Content-Disposition"); disposition != "" {
+			w.Header().Set("Content-Disposition", disposition)
+		}
 		w.Header().Set("Cache-Control", "no-store")
 		io.Copy(w, response.Body)
 	})

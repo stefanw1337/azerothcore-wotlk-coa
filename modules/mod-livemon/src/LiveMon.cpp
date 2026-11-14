@@ -6,9 +6,12 @@
 #include "AscensionSpecialization.h"
 #include "ClientDBC.h"
 #include "Config.h"
+#include "Creature.h"
 #include "DatabaseEnv.h"
 #include "DBCStores.h"
 #include "GameTime.h"
+#include "Group.h"
+#include "GroupReference.h"
 #include "Item.h"
 #include "Log.h"
 #include "Player.h"
@@ -21,6 +24,7 @@
 #include "SpellMgr.h"
 #include "StringFormat.h"
 #include "UnitScript.h"
+#include "Vehicle.h"
 #include "WorldScript.h"
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/read_until.hpp>
@@ -31,6 +35,7 @@
 #include <cstring>
 #include <map>
 #include <mutex>
+#include <set>
 #include <sstream>
 #include <thread>
 #include <unordered_map>
@@ -49,6 +54,13 @@ constexpr uint32 SnapshotInterestMs = 30000;
 constexpr uint32 BuildRefreshMs = 60000;
 constexpr std::size_t RecordsShown = 15;
 constexpr uint32 StandardTalentKey = 0x80000000;
+constexpr float CompanyYards = 100.0f;
+constexpr uint32 RaidCompanions = 5;
+constexpr std::size_t MaxFightBuffs = 48;
+constexpr std::size_t BuildSpellsShown = 6;
+constexpr std::size_t BuildsShown = 400;
+constexpr std::size_t RowsPerInsert = 400;
+constexpr uint8 AnyFilter = 255;
 
 struct Totals
 {
@@ -70,6 +82,108 @@ struct Tally
 {
     uint64 Amount = 0;
     uint32 Count = 0;
+};
+
+enum Company : uint8
+{
+    CompanySolo,
+    CompanyPair,
+    CompanyParty,
+    CompanyRaid
+};
+
+enum FoeKind : uint8
+{
+    FoeNormal,
+    FoeElite,
+    FoeBoss,
+    FoePlayer
+};
+
+struct Foe
+{
+    uint64 Damage = 0;
+    uint8 Kind = FoeNormal;
+};
+
+struct BuffSeen
+{
+    uint32 Ms = 0;
+    uint32 OwnMs = 0;
+};
+
+using SpellKind = std::pair<uint32, uint8>;
+
+struct ComboKey
+{
+    uint32 Day = 0;
+    uint8 Class = 0;
+    uint16 Spec = 0;
+    uint8 Tree = 0;
+    uint8 SubClass = 0;
+    uint16 SubSpec = 0;
+    uint8 Company = 0;
+    uint8 Band = 0;
+    uint8 Foe = 0;
+    bool operator<(ComboKey const& other) const
+    {
+        return std::tie(Day, Class, Spec, Tree, SubClass, SubSpec, Company, Band, Foe) < std::tie(other.Day,
+            other.Class, other.Spec, other.Tree, other.SubClass, other.SubSpec, other.Company, other.Band, other.Foe);
+    }
+};
+
+struct BuildKey
+{
+    uint32 Day = 0;
+    uint8 Class = 0;
+    uint16 Spec = 0;
+    uint8 Tree = 0;
+    uint8 SubClass = 0;
+    uint16 SubSpec = 0;
+    uint32 Build = 0;
+    uint8 Company = 0;
+    uint8 Band = 0;
+    bool operator<(BuildKey const& other) const
+    {
+        return std::tie(Day, Class, Spec, Tree, SubClass, SubSpec, Build, Company, Band) < std::tie(other.Day,
+            other.Class, other.Spec, other.Tree, other.SubClass, other.SubSpec, other.Build, other.Company,
+            other.Band);
+    }
+};
+
+struct FightSums
+{
+    uint32 Fights = 0;
+    uint64 CombatMs = 0;
+    uint64 Damage = 0;
+    uint64 Healing = 0;
+    uint64 Taken = 0;
+    uint32 Deaths = 0;
+    uint64 LevelSum = 0;
+};
+
+struct BuffSums
+{
+    uint64 Ms = 0;
+    uint64 OwnMs = 0;
+    uint32 Fights = 0;
+    uint32 WithFights = 0;
+    uint64 WithMs = 0;
+    uint64 WithDamage = 0;
+    uint64 WithHealing = 0;
+};
+
+struct ComboLog
+{
+    FightSums Sums;
+    std::map<SpellKind, Tally> Spells;
+    std::map<uint32, BuffSums> Buffs;
+};
+
+struct BuildLog
+{
+    FightSums Sums;
+    std::map<SpellKind, Tally> Spells;
 };
 
 enum RecordKind : uint8
@@ -104,6 +218,7 @@ struct Watched
     uint8 Level = 0;
     uint8 Tree = 0;
     std::string Spec;
+    uint16 SpecId = 0;
     uint8 SubClass = 0;
     uint16 SubSpec = 0;
     uint32 Build = 0;
@@ -128,6 +243,12 @@ struct Watched
     uint32 FightStart = 0;
     uint64 FightDamage = 0;
     uint64 FightHealing = 0;
+    uint64 FightTaken = 0;
+    bool FightDied = false;
+    uint8 FightCompany = CompanySolo;
+    std::map<SpellKind, Tally> FightSpells;
+    std::map<uint32, BuffSeen> FightBuffs;
+    std::map<uint32, Foe> FightFoes;
     float X = 0.0f;
     float Y = 0.0f;
     float Z = 0.0f;
@@ -155,6 +276,9 @@ struct Settings
     std::string Bind = "127.0.0.1";
     uint16 Port = 8089;
     uint32 FlushSeconds = 60;
+    bool LogEnabled = true;
+    uint32 LogMinFightMs = 5000;
+    uint32 LogKeepDays = 30;
 };
 
 std::mutex& liveMutex = *new std::mutex;
@@ -163,6 +287,14 @@ std::map<AuraKey, uint32>& controls = *new std::map<AuraKey, uint32>;
 std::map<AuraKey, uint32>& buffs = *new std::map<AuraKey, uint32>;
 std::map<std::pair<uint8, uint32>, Record>& records = *new std::map<std::pair<uint8, uint32>, Record>;
 Settings& settings = *new Settings;
+std::map<ComboKey, ComboLog>& comboLogs = *new std::map<ComboKey, ComboLog>;
+std::map<BuildKey, BuildLog>& buildLogs = *new std::map<BuildKey, BuildLog>;
+std::map<ComboKey, std::set<uint32>>& comboCharacters = *new std::map<ComboKey, std::set<uint32>>;
+std::map<BuildKey, std::set<uint32>>& buildCharacters = *new std::map<BuildKey, std::set<uint32>>;
+std::set<std::pair<uint8, uint32>>& knownBuilds = *new std::set<std::pair<uint8, uint32>>;
+std::map<std::pair<uint8, uint32>, std::string>& pendingBuilds = *new std::map<std::pair<uint8, uint32>, std::string>;
+uint32 charactersDay = 0;
+uint32 prunedDay = 0;
 std::atomic<bool> serving{ false };
 uint32 flushElapsed = 0;
 uint32 startedAt = 0;
@@ -285,6 +417,77 @@ void NoteRecord(Player* player, RecordKind kind, double value, uint32 spellId, u
         player->GetLevel(), true };
 }
 
+uint32 Today()
+{
+    return NowSeconds() / DAY;
+}
+
+void AddFight(FightSums& sums, Watched const& entry, uint32 lasted)
+{
+    ++sums.Fights;
+    sums.CombatMs += lasted;
+    sums.Damage += entry.FightDamage;
+    sums.Healing += entry.FightHealing;
+    sums.Taken += entry.FightTaken;
+    sums.Deaths += entry.FightDied ? 1 : 0;
+    sums.LevelSum += entry.Level;
+}
+
+uint8 MainFoeOf(Watched const& entry)
+{
+    uint8 kind = FoeNormal;
+    uint64 most = 0;
+    for (auto const& [foeKey, foe] : entry.FightFoes)
+        if (foe.Damage > most)
+        {
+            most = foe.Damage;
+            kind = foe.Kind;
+        }
+    return kind;
+}
+
+void LogFight(Watched const& entry, uint32 lasted)
+{
+    uint32 const day = Today();
+    if (day != charactersDay)
+    {
+        comboCharacters.clear();
+        buildCharacters.clear();
+        charactersDay = day;
+    }
+    uint8 const band = uint8(entry.Level / 10);
+    ComboKey const combo = { day, entry.Class, entry.SpecId, entry.Tree, entry.SubClass, entry.SubSpec,
+        entry.FightCompany, band, MainFoeOf(entry) };
+    BuildKey const build = { day, entry.Class, entry.SpecId, entry.Tree, entry.SubClass, entry.SubSpec, entry.Build,
+        entry.FightCompany, band };
+    ComboLog& comboLog = comboLogs[combo];
+    BuildLog& buildLog = buildLogs[build];
+    AddFight(comboLog.Sums, entry, lasted);
+    AddFight(buildLog.Sums, entry, lasted);
+    comboCharacters[combo].insert(entry.Guid);
+    buildCharacters[build].insert(entry.Guid);
+    for (auto const& [spell, tally] : entry.FightSpells)
+        for (Tally* sum : { &comboLog.Spells[spell], &buildLog.Spells[spell] })
+        {
+            sum->Amount += tally.Amount;
+            sum->Count += tally.Count;
+        }
+    for (auto const& [spellId, seen] : entry.FightBuffs)
+    {
+        BuffSums& sums = comboLog.Buffs[spellId];
+        sums.Ms += std::min(seen.Ms, lasted);
+        sums.OwnMs += std::min(seen.OwnMs, lasted);
+        ++sums.Fights;
+        if (uint64(seen.Ms) * 2 >= lasted)
+        {
+            ++sums.WithFights;
+            sums.WithMs += lasted;
+            sums.WithDamage += entry.FightDamage;
+            sums.WithHealing += entry.FightHealing;
+        }
+    }
+}
+
 void EndFight(Player* player, Watched& entry)
 {
     uint32 const lasted = NowMs() - entry.FightStart;
@@ -293,9 +496,87 @@ void EndFight(Player* player, Watched& entry)
         NoteRecord(player, RecordFightDps, entry.FightDamage * 1000.0 / lasted, 0, entry.SubClass);
         NoteRecord(player, RecordFightHps, entry.FightHealing * 1000.0 / lasted, 0, entry.SubClass);
     }
+    if (settings.LogEnabled && entry.FightStart && lasted >= settings.LogMinFightMs &&
+        (entry.FightDamage || entry.FightHealing || entry.FightTaken))
+        LogFight(entry, lasted);
     entry.FightStart = 0;
     entry.FightDamage = 0;
     entry.FightHealing = 0;
+    entry.FightTaken = 0;
+    entry.FightDied = false;
+    entry.FightCompany = CompanySolo;
+    entry.FightSpells.clear();
+    entry.FightBuffs.clear();
+    entry.FightFoes.clear();
+}
+
+void NoteFoe(Watched& entry, Unit* victim, uint32 damage)
+{
+    if (!victim)
+        return;
+    uint32 key = 0;
+    uint8 kind = FoePlayer;
+    if (Creature* creature = victim->ToCreature())
+    {
+        key = creature->GetEntry();
+        kind = creature->IsDungeonBoss() || creature->isWorldBoss() ? FoeBoss : creature->isElite() ? FoeElite :
+            FoeNormal;
+    }
+    else if (!victim->IsPlayer())
+        return;
+    Foe& foe = entry.FightFoes[key];
+    foe.Damage += damage;
+    foe.Kind = kind;
+}
+
+bool Fighting(Player* player, Watched& entry)
+{
+    if (!entry.FightStart && player->IsInCombat())
+        entry.FightStart = NowMs();
+    return entry.FightStart != 0;
+}
+
+uint8 CompanyOf(Player* player)
+{
+    ObjectGuid partner;
+    if (Unit* base = player->GetVehicleBase(); base && base->IsPlayer())
+        partner = base->GetGUID();
+    else if (Vehicle* kit = player->GetVehicleKit())
+        for (auto const& [seatId, seat] : kit->Seats)
+            if (seat.Passenger.Guid.IsPlayer())
+            {
+                partner = seat.Passenger.Guid;
+                break;
+            }
+    uint32 others = 0;
+    if (Group* group = player->GetGroup())
+        for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+            if (Player* member = ref->GetSource(); member && member != player && member->GetGUID() != partner &&
+                member->IsInMap(player) && player->IsWithinDistInMap(member, CompanyYards))
+                ++others;
+    if (others >= RaidCompanions)
+        return CompanyRaid;
+    if (others)
+        return CompanyParty;
+    return partner ? CompanyPair : CompanySolo;
+}
+
+void NoteBuffs(Player* player, Watched& entry, uint32 elapsed)
+{
+    std::set<uint32> counted;
+    for (auto const& [spellId, application] : player->GetAppliedAuras())
+    {
+        Aura const* aura = application->GetBase();
+        if (!aura || aura->IsPassive() || !application->IsPositive() ||
+            aura->GetSpellInfo()->HasAttribute(SPELL_ATTR0_DO_NOT_DISPLAY) || !counted.insert(spellId).second)
+            continue;
+        if (!entry.FightBuffs.contains(spellId) && entry.FightBuffs.size() >= MaxFightBuffs)
+            continue;
+        BuffSeen& seen = entry.FightBuffs[spellId];
+        seen.Ms += elapsed;
+        if (aura->GetCasterGUID() == player->GetGUID())
+            seen.OwnMs += elapsed;
+    }
 }
 
 std::vector<std::pair<uint32, uint32>> StandardTalentsOf(Player const* player)
@@ -343,6 +624,19 @@ uint32 BuildHash(Player const* player)
     return hash;
 }
 
+std::string TalentText(Player const* player)
+{
+    std::vector<AscensionCoATalentState::KnownEntry> entries = GetAscensionKnownTalentEntries(player);
+    std::sort(entries.begin(), entries.end(), [](auto const& a, auto const& b) { return a.EntryId < b.EntryId; });
+    std::string text;
+    for (auto const& entry : entries)
+        if (entry.Rank)
+            text += Acore::StringFormat("{}c{}:{}", text.empty() ? "" : ",", entry.EntryId, entry.Rank);
+    for (auto const& [talentId, rank] : StandardTalentsOf(player))
+        text += Acore::StringFormat("{}s{}:{}", text.empty() ? "" : ",", talentId, rank);
+    return text;
+}
+
 void Refresh(Player* player, Watched& entry, uint32 elapsed)
 {
     entry.Level = player->GetLevel();
@@ -364,6 +658,11 @@ void Refresh(Player* player, Watched& entry, uint32 elapsed)
         entry.FightStart = NowMs();
     else if (!fighting && entry.FightStart)
         EndFight(player, entry);
+    if (fighting)
+    {
+        entry.FightCompany = std::max(entry.FightCompany, CompanyOf(player));
+        NoteBuffs(player, entry, elapsed);
+    }
     entry.InCombat = fighting;
     float const step = std::hypot(player->GetPositionX() - entry.X, player->GetPositionY() - entry.Y,
         player->GetPositionZ() - entry.Z);
@@ -747,6 +1046,523 @@ std::string CharacterJson(uint32 guid)
         "\"minutes\":{}}}", guid, snapshot.empty() ? "null" : snapshot, live, spells, heals, timeline);
 }
 
+void InsertRows(std::string const& head, std::vector<std::string> const& rows, std::string const& tail)
+{
+    for (std::size_t start = 0; start < rows.size(); start += RowsPerInsert)
+    {
+        std::string values;
+        for (std::size_t index = start; index < rows.size() && index < start + RowsPerInsert; ++index)
+            values += (values.empty() ? "" : ",") + rows[index];
+        CharacterDatabase.Execute(head + values + tail);
+    }
+}
+
+std::string SumsRow(FightSums const& sums, std::size_t characters)
+{
+    return Acore::StringFormat("{}, {}, {}, {}, {}, {}, {}, {}", sums.Fights, characters, sums.CombatMs, sums.Damage,
+        sums.Healing, sums.Taken, sums.Deaths, sums.LevelSum);
+}
+
+std::string ComboColumns(ComboKey const& key)
+{
+    return Acore::StringFormat("{}, {}, {}, {}, {}, {}, {}, {}, {}", key.Day, uint32(key.Class), key.Spec,
+        uint32(key.Tree), uint32(key.SubClass), key.SubSpec, uint32(key.Company), uint32(key.Band), uint32(key.Foe));
+}
+
+std::string BuildColumns(BuildKey const& key)
+{
+    return Acore::StringFormat("{}, {}, {}, {}, {}, {}, {}, {}, {}", key.Day, uint32(key.Class), key.Spec,
+        uint32(key.Tree), uint32(key.SubClass), key.SubSpec, key.Build, uint32(key.Company), uint32(key.Band));
+}
+
+char const* const SumsUpdate = " ON DUPLICATE KEY UPDATE `fights` = `fights` + VALUES(`fights`), `characters` = "
+    "GREATEST(`characters`, VALUES(`characters`)), `combat_ms` = `combat_ms` + VALUES(`combat_ms`), `damage` = "
+    "`damage` + VALUES(`damage`), `healing` = `healing` + VALUES(`healing`), `taken` = `taken` + VALUES(`taken`), "
+    "`deaths` = `deaths` + VALUES(`deaths`), `level_sum` = `level_sum` + VALUES(`level_sum`)";
+char const* const TallyUpdate = " ON DUPLICATE KEY UPDATE `amount` = `amount` + VALUES(`amount`), `hits` = `hits` + "
+    "VALUES(`hits`)";
+char const* const ComboKeyNames = "`day`, `class`, `spec`, `tree`, `sub_class`, `sub_spec`, `company`, `band`, `foe`";
+char const* const BuildKeyNames = "`day`, `class`, `spec`, `tree`, `sub_class`, `sub_spec`, `build`, `company`, "
+    "`band`";
+char const* const SumsNames = "`fights`, `characters`, `combat_ms`, `damage`, `healing`, `taken`, `deaths`, "
+    "`level_sum`";
+
+void FlushLog()
+{
+    std::vector<std::string> combos;
+    std::vector<std::string> comboSpells;
+    std::vector<std::string> comboBuffs;
+    std::vector<std::string> builds;
+    std::vector<std::string> buildSpells;
+    std::vector<std::string> talents;
+    {
+        std::lock_guard<std::mutex> lock(liveMutex);
+        for (auto const& [key, log] : comboLogs)
+        {
+            std::string const columns = ComboColumns(key);
+            combos.push_back("(" + columns + ", " + SumsRow(log.Sums, comboCharacters[key].size()) + ")");
+            for (auto const& [spell, tally] : log.Spells)
+                comboSpells.push_back(Acore::StringFormat("({}, {}, {}, {}, {})", columns, spell.first,
+                    uint32(spell.second), tally.Amount, tally.Count));
+            for (auto const& [spellId, buff] : log.Buffs)
+                comboBuffs.push_back(Acore::StringFormat("({}, {}, {}, {}, {}, {}, {}, {}, {})", columns, spellId,
+                    buff.Ms, buff.OwnMs, buff.Fights, buff.WithFights, buff.WithMs, buff.WithDamage,
+                    buff.WithHealing));
+        }
+        for (auto const& [key, log] : buildLogs)
+        {
+            std::string const columns = BuildColumns(key);
+            builds.push_back("(" + columns + ", " + SumsRow(log.Sums, buildCharacters[key].size()) + ")");
+            for (auto const& [spell, tally] : log.Spells)
+                buildSpells.push_back(Acore::StringFormat("({}, {}, {}, {}, {})", columns, spell.first,
+                    uint32(spell.second), tally.Amount, tally.Count));
+        }
+        for (auto const& [key, text] : pendingBuilds)
+            talents.push_back(Acore::StringFormat("({}, {}, '{}')", uint32(key.first), key.second, text));
+        comboLogs.clear();
+        buildLogs.clear();
+        pendingBuilds.clear();
+    }
+    InsertRows(Acore::StringFormat("INSERT INTO `livemon_log_combo` ({}, {}) VALUES ", ComboKeyNames, SumsNames),
+        combos, SumsUpdate);
+    InsertRows(Acore::StringFormat("INSERT INTO `livemon_log_spell` ({}, `spell_id`, `kind`, `amount`, `hits`) "
+        "VALUES ", ComboKeyNames), comboSpells, TallyUpdate);
+    InsertRows(Acore::StringFormat("INSERT INTO `livemon_log_buff` ({}, `spell_id`, `uptime_ms`, `own_ms`, "
+        "`fights`, `with_fights`, `with_ms`, `with_damage`, `with_healing`) VALUES ", ComboKeyNames), comboBuffs,
+        " ON DUPLICATE KEY UPDATE `uptime_ms` = `uptime_ms` + VALUES(`uptime_ms`), `own_ms` = `own_ms` + "
+        "VALUES(`own_ms`), `fights` = `fights` + VALUES(`fights`), `with_fights` = `with_fights` + "
+        "VALUES(`with_fights`), `with_ms` = `with_ms` + VALUES(`with_ms`), `with_damage` = `with_damage` + "
+        "VALUES(`with_damage`), `with_healing` = `with_healing` + VALUES(`with_healing`)");
+    InsertRows(Acore::StringFormat("INSERT INTO `livemon_log_build` ({}, {}) VALUES ", BuildKeyNames, SumsNames),
+        builds, SumsUpdate);
+    InsertRows(Acore::StringFormat("INSERT INTO `livemon_log_build_spell` ({}, `spell_id`, `kind`, `amount`, "
+        "`hits`) VALUES ", BuildKeyNames), buildSpells, TallyUpdate);
+    InsertRows("INSERT IGNORE INTO `livemon_build` (`class`, `build`, `talents`) VALUES ", talents, "");
+}
+
+char const* const LogTables[] = { "livemon_log_combo", "livemon_log_spell", "livemon_log_buff", "livemon_log_build",
+    "livemon_log_build_spell" };
+
+void CreateLogTables()
+{
+    std::string const comboKey = "`day` INT UNSIGNED NOT NULL, `class` TINYINT UNSIGNED NOT NULL, "
+        "`spec` SMALLINT UNSIGNED NOT NULL, `tree` TINYINT UNSIGNED NOT NULL, `sub_class` TINYINT UNSIGNED NOT NULL, "
+        "`sub_spec` SMALLINT UNSIGNED NOT NULL, `company` TINYINT UNSIGNED NOT NULL, "
+        "`band` TINYINT UNSIGNED NOT NULL, `foe` TINYINT UNSIGNED NOT NULL, ";
+    std::string const buildKey = "`day` INT UNSIGNED NOT NULL, `class` TINYINT UNSIGNED NOT NULL, "
+        "`spec` SMALLINT UNSIGNED NOT NULL, `tree` TINYINT UNSIGNED NOT NULL, `sub_class` TINYINT UNSIGNED NOT NULL, "
+        "`sub_spec` SMALLINT UNSIGNED NOT NULL, `build` INT UNSIGNED NOT NULL, `company` TINYINT UNSIGNED NOT NULL, "
+        "`band` TINYINT UNSIGNED NOT NULL, ";
+    std::string const sums = "`fights` INT UNSIGNED NOT NULL DEFAULT 0, `characters` INT UNSIGNED NOT NULL DEFAULT 0, "
+        "`combat_ms` BIGINT UNSIGNED NOT NULL DEFAULT 0, `damage` BIGINT UNSIGNED NOT NULL DEFAULT 0, "
+        "`healing` BIGINT UNSIGNED NOT NULL DEFAULT 0, `taken` BIGINT UNSIGNED NOT NULL DEFAULT 0, "
+        "`deaths` INT UNSIGNED NOT NULL DEFAULT 0, `level_sum` BIGINT UNSIGNED NOT NULL DEFAULT 0, ";
+    std::string const tally = "`spell_id` INT UNSIGNED NOT NULL, `kind` TINYINT UNSIGNED NOT NULL, "
+        "`amount` BIGINT UNSIGNED NOT NULL DEFAULT 0, `hits` INT UNSIGNED NOT NULL DEFAULT 0, ";
+    std::string const comboPrimary = "`day`, `class`, `spec`, `tree`, `sub_class`, `sub_spec`, `company`, `band`, "
+        "`foe`";
+    std::string const buildPrimary = "`day`, `class`, `spec`, `tree`, `sub_class`, `sub_spec`, `build`, `company`, "
+        "`band`";
+    std::string const engine = ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+    CharacterDatabase.DirectExecute("CREATE TABLE IF NOT EXISTS `livemon_log_combo` (" + comboKey + sums +
+        "PRIMARY KEY (" + comboPrimary + ")" + engine);
+    CharacterDatabase.DirectExecute("CREATE TABLE IF NOT EXISTS `livemon_log_spell` (" + comboKey + tally +
+        "PRIMARY KEY (" + comboPrimary + ", `spell_id`, `kind`)" + engine);
+    CharacterDatabase.DirectExecute("CREATE TABLE IF NOT EXISTS `livemon_log_buff` (" + comboKey +
+        "`spell_id` INT UNSIGNED NOT NULL, `uptime_ms` BIGINT UNSIGNED NOT NULL DEFAULT 0, "
+        "`own_ms` BIGINT UNSIGNED NOT NULL DEFAULT 0, `fights` INT UNSIGNED NOT NULL DEFAULT 0, "
+        "`with_fights` INT UNSIGNED NOT NULL DEFAULT 0, `with_ms` BIGINT UNSIGNED NOT NULL DEFAULT 0, "
+        "`with_damage` BIGINT UNSIGNED NOT NULL DEFAULT 0, `with_healing` BIGINT UNSIGNED NOT NULL DEFAULT 0, "
+        "PRIMARY KEY (" + comboPrimary + ", `spell_id`)" + engine);
+    CharacterDatabase.DirectExecute("CREATE TABLE IF NOT EXISTS `livemon_log_build` (" + buildKey + sums +
+        "PRIMARY KEY (" + buildPrimary + ")" + engine);
+    CharacterDatabase.DirectExecute("CREATE TABLE IF NOT EXISTS `livemon_log_build_spell` (" + buildKey + tally +
+        "PRIMARY KEY (" + buildPrimary + ", `spell_id`, `kind`)" + engine);
+    CharacterDatabase.DirectExecute("CREATE TABLE IF NOT EXISTS `livemon_build` (`class` TINYINT UNSIGNED NOT NULL, "
+        "`build` INT UNSIGNED NOT NULL, `talents` TEXT NOT NULL, PRIMARY KEY (`class`, `build`)" + engine);
+}
+
+void LoadKnownBuilds()
+{
+    std::set<std::pair<uint8, uint32>> loaded;
+    if (QueryResult result = CharacterDatabase.Query("SELECT `class`, `build` FROM `livemon_build`"))
+        do
+        {
+            Field* f = result->Fetch();
+            loaded.insert({ f[0].Get<uint8>(), f[1].Get<uint32>() });
+        } while (result->NextRow());
+    std::lock_guard<std::mutex> lock(liveMutex);
+    knownBuilds = std::move(loaded);
+}
+
+void PruneLog()
+{
+    uint32 const today = Today();
+    if (!settings.LogKeepDays || prunedDay == today)
+        return;
+    prunedDay = today;
+    uint32 const cutoff = today > settings.LogKeepDays ? today - settings.LogKeepDays : 0;
+    for (char const* table : LogTables)
+        CharacterDatabase.Execute(Acore::StringFormat("DELETE FROM `{}` WHERE `day` < {}", table, cutoff));
+}
+
+struct Filters
+{
+    uint32 Days = 7;
+    uint32 Company = AnyFilter;
+    uint32 Band = AnyFilter;
+    uint32 Foe = AnyFilter;
+    uint32 Class = 0;
+};
+
+std::string WhereOf(Filters const& filters, bool hasFoe)
+{
+    std::string where = Acore::StringFormat("`day` >= {}", Today() + 1 - std::clamp<uint32>(filters.Days, 1,
+        Today()));
+    if (filters.Company != AnyFilter)
+        where += Acore::StringFormat(" AND `company` = {}", filters.Company);
+    if (filters.Band != AnyFilter)
+        where += Acore::StringFormat(" AND `band` = {}", filters.Band);
+    if (hasFoe && filters.Foe != AnyFilter)
+        where += Acore::StringFormat(" AND `foe` = {}", filters.Foe);
+    if (filters.Class)
+        where += Acore::StringFormat(" AND `class` = {}", filters.Class);
+    return where;
+}
+
+using ComboIdentity = std::tuple<uint8, uint16, uint8, uint8, uint16>;
+
+ComboIdentity IdentityAt(Field* f)
+{
+    return { f[0].Get<uint8>(), f[1].Get<uint16>(), f[2].Get<uint8>(), f[3].Get<uint8>(), f[4].Get<uint16>() };
+}
+
+std::string IdentityJson(ComboIdentity const& identity)
+{
+    auto const& [classId, spec, tree, subClass, subSpec] = identity;
+    return Acore::StringFormat("\"classId\":{},\"class\":\"{}\",\"specId\":{},\"spec\":\"{}\",\"tree\":{},"
+        "\"subclassId\":{},\"subclass\":\"{}\",\"subSpec\":{},\"subSpecName\":\"{}\"", classId,
+        Escaped(ClassName(classId)), spec, Escaped(CoASpecName(spec)), tree, subClass,
+        subClass ? Escaped(ClassName(subClass)) : "", subSpec, Escaped(CoASpecName(subSpec)));
+}
+
+std::string SumsJson(Field* f, std::size_t first)
+{
+    return Acore::StringFormat("\"fights\":{},\"characters\":{},\"combatMs\":{},\"damage\":{},\"healing\":{},"
+        "\"taken\":{},\"deaths\":{},\"levelSum\":{}", f[first].Get<std::string>(), f[first + 1].Get<std::string>(),
+        f[first + 2].Get<std::string>(), f[first + 3].Get<std::string>(), f[first + 4].Get<std::string>(),
+        f[first + 5].Get<std::string>(), f[first + 6].Get<std::string>(), f[first + 7].Get<std::string>());
+}
+
+void NoteName(std::map<uint32, std::string>& names, uint32 spellId)
+{
+    if (names.contains(spellId))
+        return;
+    std::string const name = spellId ? SpellName(spellId) : "Melee";
+    names[spellId] = Acore::StringFormat("\"{}\":[\"{}\",{},{}]", spellId, Escaped(name.empty() ? "?" : name),
+        SpellIcon(spellId), SourceOf(spellId));
+}
+
+std::string NamesJson(std::map<uint32, std::string> const& names)
+{
+    std::string out = "{";
+    for (auto const& [spellId, text] : names)
+        out += (out.size() > 1 ? "," : "") + text;
+    return out + "}";
+}
+
+char const* const IdentityNames = "`class`, `spec`, `tree`, `sub_class`, `sub_spec`";
+char const* const SumsTotals = "SUM(`fights`), SUM(`characters`), SUM(`combat_ms`), SUM(`damage`), SUM(`healing`), "
+    "SUM(`taken`), SUM(`deaths`), SUM(`level_sum`)";
+
+std::string AnalysisJson(Filters const& filters)
+{
+    std::string const where = WhereOf(filters, true);
+    std::map<ComboIdentity, std::size_t> index;
+    std::map<uint32, std::string> names;
+    std::string combos = "[";
+    if (QueryResult result = CharacterDatabase.Query(Acore::StringFormat("SELECT {0}, {1} FROM `livemon_log_combo` "
+            "WHERE {2} GROUP BY {0}", IdentityNames, SumsTotals, where)))
+        do
+        {
+            Field* f = result->Fetch();
+            ComboIdentity const identity = IdentityAt(f);
+            std::size_t const at = index.size();
+            index[identity] = at;
+            combos += Acore::StringFormat("{}{{\"i\":{},{},{}}}", at ? "," : "", at, IdentityJson(identity),
+                SumsJson(f, 5));
+        } while (result->NextRow());
+    combos += "]";
+    std::string spells = "[";
+    if (QueryResult result = CharacterDatabase.Query(Acore::StringFormat("SELECT {0}, `spell_id`, `kind`, "
+            "SUM(`amount`), SUM(`hits`) FROM `livemon_log_spell` WHERE {1} GROUP BY {0}, `spell_id`, `kind`",
+            IdentityNames, where)))
+        do
+        {
+            Field* f = result->Fetch();
+            auto const itr = index.find(IdentityAt(f));
+            if (itr == index.end())
+                continue;
+            NoteName(names, f[5].Get<uint32>());
+            spells += Acore::StringFormat("{}[{},{},{},{},{}]", spells.size() > 1 ? "," : "", itr->second,
+                f[5].Get<uint32>(), uint32(f[6].Get<uint8>()), f[7].Get<std::string>(), f[8].Get<std::string>());
+        } while (result->NextRow());
+    spells += "]";
+    std::string buffs = "[";
+    if (QueryResult result = CharacterDatabase.Query(Acore::StringFormat("SELECT {0}, `spell_id`, SUM(`uptime_ms`), "
+            "SUM(`own_ms`), SUM(`fights`), SUM(`with_fights`), SUM(`with_ms`), SUM(`with_damage`), "
+            "SUM(`with_healing`) FROM `livemon_log_buff` WHERE {1} GROUP BY {0}, `spell_id`", IdentityNames, where)))
+        do
+        {
+            Field* f = result->Fetch();
+            auto const itr = index.find(IdentityAt(f));
+            if (itr == index.end())
+                continue;
+            NoteName(names, f[5].Get<uint32>());
+            buffs += Acore::StringFormat("{}[{},{},{},{},{},{},{},{},{}]", buffs.size() > 1 ? "," : "", itr->second,
+                f[5].Get<uint32>(), f[6].Get<std::string>(), f[7].Get<std::string>(), f[8].Get<std::string>(),
+                f[9].Get<std::string>(), f[10].Get<std::string>(), f[11].Get<std::string>(),
+                f[12].Get<std::string>());
+        } while (result->NextRow());
+    buffs += "]";
+    return Acore::StringFormat("{{\"days\":{},\"combos\":{},\"spells\":{},\"buffs\":{},\"names\":{}}}", filters.Days,
+        combos, spells, buffs, NamesJson(names));
+}
+
+std::string TalentListJson(uint8 classId, std::string const& text)
+{
+    std::string out = "[";
+    std::istringstream parts(text);
+    std::string part;
+    while (std::getline(parts, part, ','))
+    {
+        std::size_t const colon = part.find(':');
+        if (part.size() < 3 || colon == std::string::npos)
+            continue;
+        uint32 const id = uint32(std::strtoul(part.c_str() + 1, nullptr, 10));
+        uint32 const rank = uint32(std::strtoul(part.c_str() + colon + 1, nullptr, 10));
+        uint32 spellId = 0;
+        uint32 maxRank = 0;
+        uint8 owner = classId;
+        if (part[0] == 'c')
+        {
+            AscensionCompatData::CoATalentEntry const* entry = FindEntry(id);
+            if (!entry || !entry->Talent || !rank || rank > entry->SpellCount)
+                continue;
+            spellId = entry->SpellIds[rank - 1];
+            maxRank = entry->SpellCount;
+            owner = uint8(entry->ClassId);
+        }
+        else if (TalentEntry const* talent = sTalentStore.LookupEntry(id); talent && rank && rank <= MAX_TALENT_RANK)
+        {
+            spellId = talent->RankID[rank - 1];
+            for (uint32 rankSpell : talent->RankID)
+                maxRank += rankSpell ? 1 : 0;
+        }
+        if (!spellId)
+            continue;
+        out += Acore::StringFormat("{}{{\"name\":\"{}\",\"icon\":{},\"rank\":{},\"maxRank\":{},\"borrowed\":{}}}",
+            out.size() > 1 ? "," : "", Escaped(SpellName(spellId)), SpellIcon(spellId), rank, maxRank,
+            owner != classId ? "true" : "false");
+    }
+    return out + "]";
+}
+
+std::string BuildsJson(Filters const& filters)
+{
+    std::string const where = WhereOf(filters, false);
+    std::map<std::pair<ComboIdentity, uint32>, std::size_t> index;
+    std::set<std::pair<uint8, uint32>> wanted;
+    std::string builds = "[";
+    if (QueryResult result = CharacterDatabase.Query(Acore::StringFormat("SELECT {0}, `build`, {1} FROM "
+            "`livemon_log_build` WHERE {2} GROUP BY {0}, `build` ORDER BY SUM(`combat_ms`) DESC LIMIT {3}",
+            IdentityNames, SumsTotals, where, BuildsShown)))
+        do
+        {
+            Field* f = result->Fetch();
+            ComboIdentity const identity = IdentityAt(f);
+            uint32 const build = f[5].Get<uint32>();
+            std::size_t const at = index.size();
+            index[{ identity, build }] = at;
+            wanted.insert({ std::get<0>(identity), build });
+            builds += Acore::StringFormat("{}{{\"i\":{},\"build\":{},{},{}}}", at ? "," : "", at, build,
+                IdentityJson(identity), SumsJson(f, 6));
+        } while (result->NextRow());
+    builds += "]";
+    std::string ids;
+    for (auto const& [classId, build] : wanted)
+        ids += (ids.empty() ? "" : ",") + std::to_string(build);
+    std::map<uint32, std::string> names;
+    std::string spells = "[";
+    std::string talents = "{";
+    if (!ids.empty())
+    {
+        std::map<std::pair<std::size_t, uint8>, std::size_t> shown;
+        if (QueryResult result = CharacterDatabase.Query(Acore::StringFormat("SELECT {0}, `build`, `spell_id`, "
+                "`kind`, SUM(`amount`) AS `total`, SUM(`hits`) FROM `livemon_log_build_spell` WHERE {1} AND `build` "
+                "IN ({2}) GROUP BY {0}, `build`, `spell_id`, `kind` ORDER BY `total` DESC", IdentityNames, where,
+                ids)))
+            do
+            {
+                Field* f = result->Fetch();
+                auto const itr = index.find({ IdentityAt(f), f[5].Get<uint32>() });
+                uint8 const kind = std::min<uint8>(f[7].Get<uint8>(), 1);
+                if (itr == index.end() || shown[{ itr->second, kind }]++ >= BuildSpellsShown)
+                    continue;
+                NoteName(names, f[6].Get<uint32>());
+                spells += Acore::StringFormat("{}[{},{},{},{},{}]", spells.size() > 1 ? "," : "", itr->second,
+                    f[6].Get<uint32>(), uint32(kind), f[8].Get<std::string>(), f[9].Get<std::string>());
+            } while (result->NextRow());
+        if (QueryResult result = CharacterDatabase.Query(Acore::StringFormat("SELECT `class`, `build`, `talents` "
+                "FROM `livemon_build` WHERE `build` IN ({})", ids)))
+            do
+            {
+                Field* f = result->Fetch();
+                if (!wanted.contains({ f[0].Get<uint8>(), f[1].Get<uint32>() }))
+                    continue;
+                talents += Acore::StringFormat("{}\"{}-{}\":{}", talents.size() > 1 ? "," : "",
+                    uint32(f[0].Get<uint8>()), f[1].Get<uint32>(), TalentListJson(f[0].Get<uint8>(),
+                    f[2].Get<std::string>()));
+            } while (result->NextRow());
+    }
+    spells += "]";
+    talents += "}";
+    return Acore::StringFormat("{{\"days\":{},\"builds\":{},\"spells\":{},\"talents\":{},\"names\":{}}}",
+        filters.Days, builds, spells, talents, NamesJson(names));
+}
+
+std::string CsvText(std::string const& text)
+{
+    std::string out = "\"";
+    for (char c : text)
+    {
+        if (c == '"')
+            out += '"';
+        if (uint8(c) >= 0x20)
+            out += c;
+    }
+    return out + "\"";
+}
+
+constexpr std::array<char const*, 4> CompanyNames = { "solo", "two-players", "party", "raid" };
+constexpr std::array<char const*, 4> FoeNames = { "normal", "elite", "boss", "player" };
+
+std::string CsvIdentity(Field* f, bool hasFoe, bool hasBuild)
+{
+    uint32 const day = f[0].Get<uint32>();
+    uint8 const classId = f[1].Get<uint8>();
+    uint16 const spec = f[2].Get<uint16>();
+    uint8 const subClass = f[4].Get<uint8>();
+    std::size_t const next = hasBuild ? 7 : 6;
+    uint8 const company = std::min<uint8>(f[next].Get<uint8>(), CompanyNames.size() - 1);
+    uint8 const band = f[next + 1].Get<uint8>();
+    std::string out = Acore::StringFormat("{},{},{},{},{},{},{}", Acore::Time::TimeToTimestampStr(
+        Seconds(uint64(day) * DAY), "%Y-%m-%d"), CsvText(ClassName(classId)), CsvText(CoASpecName(spec)),
+        uint32(f[3].Get<uint8>()), CsvText(subClass ? ClassName(subClass) : ""), CsvText(CoASpecName(
+        f[5].Get<uint16>())), CompanyNames[company]);
+    out += Acore::StringFormat(",{}-{}", band * 10, band * 10 + 9);
+    if (hasFoe)
+        out += Acore::StringFormat(",{}", FoeNames[std::min<uint8>(f[8].Get<uint8>(), FoeNames.size() - 1)]);
+    if (hasBuild)
+        out += Acore::StringFormat(",{}", f[6].Get<uint32>());
+    return out;
+}
+
+std::string CsvOf(std::string const& what, Filters const& filters)
+{
+    bool const combo = what == "combos" || what == "spells" || what == "buffs";
+    std::string const keys = combo ? ComboKeyNames : BuildKeyNames;
+    std::string const head = combo ? "date,class,spec,tree,subclass,subclass_spec,context,levels,target" :
+        "date,class,spec,tree,subclass,subclass_spec,context,levels,build";
+    std::string const where = WhereOf(filters, combo);
+    std::string out;
+    if (what == "combos" || what == "builds")
+    {
+        out = head + ",fights,characters,combat_seconds,damage,healing,damage_taken,deaths,avg_level,dps,hps\n";
+        if (QueryResult result = CharacterDatabase.Query(Acore::StringFormat("SELECT {}, {} FROM `{}` WHERE {} "
+                "ORDER BY `day`", keys, SumsNames, combo ? "livemon_log_combo" : "livemon_log_build", where)))
+            do
+            {
+                Field* f = result->Fetch();
+                uint64 const fights = f[9].Get<uint32>();
+                double const seconds = f[11].Get<uint64>() / 1000.0;
+                out += CsvIdentity(f, combo, !combo) + Acore::StringFormat(",{},{},{:.1f},{},{},{},{},{:.1f},{:.1f},"
+                    "{:.1f}\n", fights, f[10].Get<uint32>(), seconds, f[12].Get<uint64>(), f[13].Get<uint64>(),
+                    f[14].Get<uint64>(), f[15].Get<uint32>(), fights ? double(f[16].Get<uint64>()) / fights : 0.0,
+                    seconds > 0 ? f[12].Get<uint64>() / seconds : 0.0, seconds > 0 ? f[13].Get<uint64>() / seconds :
+                    0.0);
+            } while (result->NextRow());
+    }
+    else if (what == "spells" || what == "buildspells")
+    {
+        out = head + ",spell_id,ability,kind,amount,hits,per_hit\n";
+        if (QueryResult result = CharacterDatabase.Query(Acore::StringFormat("SELECT {}, `spell_id`, `kind`, "
+                "`amount`, `hits` FROM `{}` WHERE {} ORDER BY `day`, `amount` DESC", keys, combo ?
+                "livemon_log_spell" : "livemon_log_build_spell", where)))
+            do
+            {
+                Field* f = result->Fetch();
+                uint32 const spellId = f[9].Get<uint32>();
+                uint32 const hits = f[12].Get<uint32>();
+                out += CsvIdentity(f, combo, !combo) + Acore::StringFormat(",{},{},{},{},{},{:.1f}\n", spellId,
+                    CsvText(spellId ? SpellName(spellId) : "Melee"), f[10].Get<uint8>() ? "healing" : "damage",
+                    f[11].Get<uint64>(), hits, hits ? double(f[11].Get<uint64>()) / hits : 0.0);
+            } while (result->NextRow());
+    }
+    else if (what == "buffs")
+    {
+        out = head + ",spell_id,buff,uptime_seconds,own_seconds,fights,fights_mostly_on,seconds_mostly_on,"
+            "damage_mostly_on,healing_mostly_on\n";
+        if (QueryResult result = CharacterDatabase.Query(Acore::StringFormat("SELECT {}, `spell_id`, `uptime_ms`, "
+                "`own_ms`, `fights`, `with_fights`, `with_ms`, `with_damage`, `with_healing` FROM `livemon_log_buff` "
+                "WHERE {} ORDER BY `day`, `uptime_ms` DESC", keys, where)))
+            do
+            {
+                Field* f = result->Fetch();
+                uint32 const spellId = f[9].Get<uint32>();
+                out += CsvIdentity(f, true, false) + Acore::StringFormat(",{},{},{:.1f},{:.1f},{},{},{:.1f},{},{}\n",
+                    spellId, CsvText(SpellName(spellId)), f[10].Get<uint64>() / 1000.0, f[11].Get<uint64>() / 1000.0,
+                    f[12].Get<uint32>(), f[13].Get<uint32>(), f[14].Get<uint64>() / 1000.0, f[15].Get<uint64>(),
+                    f[16].Get<uint64>());
+            } while (result->NextRow());
+    }
+    else if (what == "talents")
+    {
+        out = "class,build,talents\n";
+        if (QueryResult result = CharacterDatabase.Query("SELECT `class`, `build`, `talents` FROM `livemon_build`"))
+            do
+            {
+                Field* f = result->Fetch();
+                uint8 const classId = f[0].Get<uint8>();
+                std::string list;
+                std::istringstream parts(f[2].Get<std::string>());
+                std::string part;
+                while (std::getline(parts, part, ','))
+                {
+                    std::size_t const colon = part.find(':');
+                    uint32 const id = uint32(std::strtoul(part.c_str() + 1, nullptr, 10));
+                    uint32 const rank = colon == std::string::npos ? 0 : uint32(std::strtoul(part.c_str() + colon + 1,
+                        nullptr, 10));
+                    uint32 spellId = 0;
+                    if (part[0] == 'c')
+                    {
+                        AscensionCompatData::CoATalentEntry const* entry = FindEntry(id);
+                        if (entry && entry->Talent && rank && rank <= entry->SpellCount)
+                            spellId = entry->SpellIds[rank - 1];
+                    }
+                    else if (TalentEntry const* talent = sTalentStore.LookupEntry(id); talent && rank &&
+                        rank <= MAX_TALENT_RANK)
+                        spellId = talent->RankID[rank - 1];
+                    if (spellId)
+                        list += (list.empty() ? "" : "; ") + SpellName(spellId) + " " + std::to_string(rank);
+                }
+                out += Acore::StringFormat("{},{},{}\n", CsvText(ClassName(classId)), f[1].Get<uint32>(),
+                    CsvText(list));
+            } while (result->NextRow());
+    }
+    return out;
+}
+
 void FlushSpells(uint32 guid, std::map<uint32, Tally>& spells, uint8 kind, std::vector<std::string>& rows)
 {
     for (auto const& [spellId, tally] : spells)
@@ -757,6 +1573,7 @@ void FlushSpells(uint32 guid, std::map<uint32, Tally>& spells, uint8 kind, std::
 
 void Flush()
 {
+    FlushLog();
     uint32 const minute = NowSeconds() / 60;
     std::vector<std::string> rows;
     std::vector<std::string> spellRows;
@@ -900,8 +1717,14 @@ std::string Reset(bool onlyGone)
     }
     for (char const* table : { "livemon_minute", "livemon_spell", "livemon_record" })
         CharacterDatabase.DirectExecute(Acore::StringFormat("TRUNCATE TABLE `{}`", table));
+    for (char const* table : LogTables)
+        CharacterDatabase.DirectExecute(Acore::StringFormat("TRUNCATE TABLE `{}`", table));
     std::lock_guard<std::mutex> lock(liveMutex);
     records.clear();
+    comboLogs.clear();
+    buildLogs.clear();
+    comboCharacters.clear();
+    buildCharacters.clear();
     controls.clear();
     buffs.clear();
     std::erase_if(watched, [](auto const& item) { return !item.second.Online; });
@@ -934,8 +1757,32 @@ std::string Respond(std::string const& request)
         return at == std::string::npos ? fallback : uint32(std::strtoul(path.c_str() + at + std::strlen(key), nullptr,
             10));
     };
+    auto filters = [&number]()
+    {
+        return Filters{ std::max<uint32>(1, number("days=", 7)), number("company=", AnyFilter),
+            number("band=", AnyFilter), number("foe=", AnyFilter), number("class=", 0) };
+    };
     std::string body;
-    if (path.rfind("/live", 0) == 0)
+    std::string type = "application/json";
+    std::string extra;
+    if (path.rfind("/analysis", 0) == 0)
+        body = AnalysisJson(filters());
+    else if (path.rfind("/builds", 0) == 0)
+        body = BuildsJson(filters());
+    else if (path.rfind("/export", 0) == 0)
+    {
+        std::size_t const at = path.find("what=");
+        std::string what = at == std::string::npos ? "combos" : path.substr(at + 5, path.find('&', at) - at - 5);
+        static std::set<std::string> const known = { "combos", "spells", "buffs", "builds", "buildspells",
+            "talents" };
+        if (!known.contains(what))
+            what = "combos";
+        body = CsvOf(what, filters());
+        type = "text/csv; charset=utf-8";
+        extra = Acore::StringFormat("Content-Disposition: attachment; filename=\"livemon-{}-{}.csv\"\r\n", what,
+            Acore::Time::TimeToTimestampStr(Seconds(NowSeconds()), "%Y%m%d"));
+    }
+    else if (path.rfind("/live", 0) == 0)
         body = LiveJson();
     else if (path.rfind("/history", 0) == 0)
         body = HistoryJson(std::max<uint32>(1, number("minutes=", 60)));
@@ -946,8 +1793,9 @@ std::string Respond(std::string const& request)
     else if (path.rfind("/character", 0) == 0)
         body = CharacterJson(number("guid=", 0));
     else
-        body = "{\"livemon\":2,\"endpoints\":[\"/live\",\"/history?minutes=60\",\"/records\",\"/character?guid=1\"]}";
-    return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n"
+        body = "{\"livemon\":3,\"endpoints\":[\"/live\",\"/history?minutes=60\",\"/records\",\"/character?guid=1\","
+            "\"/analysis?days=7\",\"/builds?days=7\",\"/export?what=combos&days=7\"]}";
+    return "HTTP/1.1 200 OK\r\nContent-Type: " + type + "\r\n" + extra + "Access-Control-Allow-Origin: *\r\n"
         "Cache-Control: no-store\r\nConnection: close\r\nContent-Length: " + std::to_string(body.size()) + "\r\n\r\n" +
         body;
 }
@@ -1009,6 +1857,9 @@ public:
         settings.Bind = sConfigMgr->GetOption<std::string>("LiveMon.Bind", "127.0.0.1");
         settings.Port = uint16(sConfigMgr->GetOption<uint32>("LiveMon.Port", 8089));
         settings.FlushSeconds = std::max<uint32>(10, sConfigMgr->GetOption<uint32>("LiveMon.FlushSeconds", 60));
+        settings.LogEnabled = sConfigMgr->GetOption<bool>("LiveMon.Log.Enable", true);
+        settings.LogMinFightMs = sConfigMgr->GetOption<uint32>("LiveMon.Log.MinFightSeconds", 5) * IN_MILLISECONDS;
+        settings.LogKeepDays = sConfigMgr->GetOption<uint32>("LiveMon.Log.KeepDays", 30);
     }
 
     void OnStartup() override
@@ -1018,6 +1869,9 @@ public:
             return;
         LoadSpecNames();
         CreateTables();
+        CreateLogTables();
+        LoadKnownBuilds();
+        PruneLog();
         LoadRecords();
         std::thread(Serve).detach();
     }
@@ -1032,6 +1886,7 @@ public:
         flushElapsed = 0;
         ApplySubclassChoices();
         Flush();
+        PruneLog();
     }
 };
 
@@ -1050,6 +1905,7 @@ public:
             std::lock_guard<std::mutex> lock(liveMutex);
             Watched& entry = Track(player);
             entry.Spec = spec;
+            entry.SpecId = uint16(GetAscensionActiveSpecialization(player));
             Refresh(player, entry, SampleTick);
         }
         ApplySubclassChoices();
@@ -1092,11 +1948,23 @@ public:
             return;
         uint32 const build = rebuild ? BuildHash(player) : 0;
         std::string const spec = SpecOf(player);
+        uint16 const specId = uint16(GetAscensionActiveSpecialization(player));
+        std::pair<uint8, uint32> const buildKey = { player->getClass(), build };
+        bool fresh = false;
+        if (rebuild)
+        {
+            std::lock_guard<std::mutex> lock(liveMutex);
+            fresh = !knownBuilds.contains(buildKey);
+        }
+        std::string const talents = fresh ? TalentText(player) : "";
         std::lock_guard<std::mutex> lock(liveMutex);
         Watched& entry = Track(player);
         entry.Spec = spec;
+        entry.SpecId = specId;
         if (rebuild)
             entry.Build = build;
+        if (fresh && knownBuilds.insert(buildKey).second)
+            pendingBuilds[buildKey] = talents;
         if (snapshot)
             BuildSnapshot(player, entry);
     }
@@ -1107,6 +1975,7 @@ public:
         Watched& entry = Track(player);
         ++entry.Session.Deaths;
         ++entry.Minute.Deaths;
+        entry.FightDied = entry.FightStart != 0;
     }
 
     void OnPlayerCreatureKill(Player* killer, Creature* /*killed*/) override
@@ -1145,7 +2014,11 @@ public:
             Watched& entry = Track(dealer);
             entry.Session.Damage += damage;
             entry.Minute.Damage += damage;
-            entry.FightDamage += damage;
+            if (Fighting(dealer, entry))
+            {
+                entry.FightDamage += damage;
+                NoteFoe(entry, victim, damage);
+            }
             NoteRecord(dealer, RecordHit, damage, entry.LastSpell, entry.SubClass);
         }
         if (taker)
@@ -1153,6 +2026,8 @@ public:
             Watched& entry = Track(taker);
             entry.Session.DamageTaken += damage;
             entry.Minute.DamageTaken += damage;
+            if (Fighting(taker, entry))
+                entry.FightTaken += damage;
         }
         return damage;
     }
@@ -1171,7 +2046,8 @@ public:
             Watched& entry = Track(giver);
             entry.Session.Healing += gain;
             entry.Minute.Healing += gain;
-            entry.FightHealing += gain;
+            if (Fighting(giver, entry))
+                entry.FightHealing += gain;
             NoteRecord(giver, RecordHeal, gain, entry.LastHeal, entry.SubClass);
         }
         if (taker)
@@ -1191,6 +2067,12 @@ public:
         Watched& entry = Track(dealer);
         AddSpell(entry, spellId, amount, healing);
         (healing ? entry.LastHeal : entry.LastSpell) = spellId;
+        if (Fighting(dealer, entry))
+        {
+            Tally& fight = entry.FightSpells[{ spellId, healing ? 1 : 0 }];
+            fight.Amount += amount;
+            ++fight.Count;
+        }
     }
 
     void ModifySpellDamageTaken(Unit* /*target*/, Unit* attacker, int32& damage, SpellInfo const* info) override
