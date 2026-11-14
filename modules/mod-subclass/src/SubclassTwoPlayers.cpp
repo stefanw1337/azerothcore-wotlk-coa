@@ -931,8 +931,14 @@ class mod_subclass_two_players_player : public PlayerScript
 public:
     mod_subclass_two_players_player() : PlayerScript("mod_subclass_two_players_player", { PLAYERHOOK_ON_UPDATE,
         PLAYERHOOK_ON_PLAYER_JUST_DIED, PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_CAN_GROUP_ACCEPT, PLAYERHOOK_CAN_EQUIP_ITEM,
-        PLAYERHOOK_CAN_UNEQUIP_ITEM, PLAYERHOOK_ON_LOAD_FROM_DB, PLAYERHOOK_ON_BEFORE_LOGOUT })
+        PLAYERHOOK_CAN_UNEQUIP_ITEM, PLAYERHOOK_ON_LOAD_FROM_DB, PLAYERHOOK_ON_BEFORE_LOGOUT,
+        PLAYERHOOK_ON_KEEPS_OWN_VEHICLE })
     {
+    }
+
+    bool OnPlayerKeepsOwnVehicle(Player const* player) override
+    {
+        return HasBodyKit(player);
     }
 
     void OnPlayerLoadFromDB(Player* player) override

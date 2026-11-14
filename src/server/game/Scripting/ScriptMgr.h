@@ -543,6 +543,7 @@ public: /* PlayerScript */
     std::optional<uint32> OnPlayerGetGameModeMask(Player const* player);
     std::optional<uint32> OnPlayerGetQuestRaceMask(Player const* player);
     bool OnPlayerKeepsOwnLook(Player const* player, uint32 spellId);
+    bool OnPlayerKeepsOwnVehicle(Player const* player);
     void OnPlayerBeforeBoardedBy(Player* player, Unit* clicker);
 
     // Anti cheat

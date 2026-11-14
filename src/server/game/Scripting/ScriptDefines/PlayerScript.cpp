@@ -1211,6 +1211,15 @@ bool ScriptMgr::OnPlayerKeepsOwnLook(Player const* player, uint32 spellId)
     return false;
 }
 
+bool ScriptMgr::OnPlayerKeepsOwnVehicle(Player const* player)
+{
+    for (auto const& script : ScriptRegistry<PlayerScript>::EnabledHooks[PLAYERHOOK_ON_KEEPS_OWN_VEHICLE])
+        if (script->OnPlayerKeepsOwnVehicle(player))
+            return true;
+
+    return false;
+}
+
 void ScriptMgr::OnPlayerBeforeBoardedBy(Player* player, Unit* clicker)
 {
     CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_BEFORE_BOARDED_BY, script->OnPlayerBeforeBoardedBy(player, clicker));

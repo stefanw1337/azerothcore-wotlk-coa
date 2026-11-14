@@ -11814,7 +11814,7 @@ void Unit::Mount(uint32 mount, uint32 VehicleId, uint32 creatureEntry)
         sScriptMgr->AnticheatSetUnderACKmount(player);
 
         // mount as a vehicle
-        if (VehicleId)
+        if (VehicleId && !sScriptMgr->OnPlayerKeepsOwnVehicle(player))
         {
             if (CreateVehicleKit(VehicleId, creatureEntry))
             {

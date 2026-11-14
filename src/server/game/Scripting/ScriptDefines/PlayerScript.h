@@ -271,6 +271,7 @@ enum PlayerHook
     PLAYERHOOK_CAN_LFG_TELEPORT,
     PLAYERHOOK_ON_HOLDS_TANK_OR_HEALER_ROLE,
     PLAYERHOOK_ON_SAVE_INVENTORY,
+    PLAYERHOOK_ON_KEEPS_OWN_VEHICLE,
     PLAYERHOOK_END
 };
 
@@ -1207,6 +1208,14 @@ public:
      * @return true to keep the character's own model while the spell's other effects apply
      */
     [[nodiscard]] virtual bool OnPlayerKeepsOwnLook(Player const* /*player*/, uint32 /*spellId*/) { return false; }
+
+    /**
+     * @brief Called when a player mounts a mount that is a vehicle, before the mount's vehicle kit is made
+     *
+     * @param player Contains information about the Player
+     * @return true to mount without the mount's vehicle kit, keeping the player's own kit and passengers
+     */
+    [[nodiscard]] virtual bool OnPlayerKeepsOwnVehicle(Player const* /*player*/) { return false; }
 
     /**
      * @brief Called when a unit clicks a player's vehicle to ride along, before a seat is chosen
