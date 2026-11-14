@@ -3,11 +3,22 @@
  */
 
 #include "CharacterCache.h"
+#include "Config.h"
 #include "DatabaseEnv.h"
 #include "MotionMaster.h"
 #include "Player.h"
+#include "Random.h"
+#include "SpellAuraEffects.h"
+#include "SpellInfo.h"
+#include "SpellMgr.h"
+#include "StringFormat.h"
 #include "WorldSession.h"
+#include <algorithm>
+#include <array>
+#include <mutex>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 #if __has_include("Playerbots.h") && __has_include("PlayerbotMgr.h") && __has_include("PlayerbotAIConfig.h")
 #include "PlayerbotAIConfig.h"
@@ -28,6 +39,103 @@ namespace
 std::string QuestingStrategy()
 {
     return sPlayerbotAIConfig.enableNewRpgStrategy ? "new rpg" : "rpg";
+}
+
+struct Ride
+{
+    uint32 NextTry = 0;
+    bool Held = false;
+    float HeldX = 0.0f;
+    float HeldY = 0.0f;
+};
+
+constexpr uint32 RideRetryMs = 10000;
+
+std::mutex& rideMutex = *new std::mutex;
+std::unordered_map<uint32, Ride>& rides = *new std::unordered_map<uint32, Ride>;
+
+std::array<char const*, 4> const MountLines = {
+    "Long walk. {0} carry the ride, {1} enjoy the view.",
+    "We ride! Well. Ride rides. {0} walks.",
+    "{0} legs, ride on top. Fair deal, {1}?",
+    "Up you go. Heavy, but faster than {1}'s chatter.",
+};
+std::array<char const*, 3> const DropLines = {
+    "drops the {0} and raises both fists.",
+    "sets the {0} down, gently. Then charges.",
+    "tosses the {0} aside. Fight first, ride later.",
+};
+
+float MountDistance()
+{
+    return sConfigMgr->GetOption<float>("Subclass.TwoPlayers.Bot.MountDistance", 100.0f);
+}
+
+WorldPosition const* GoalOf(PlayerbotAI* brain)
+{
+    NewRpgInfo& info = brain->rpgInfo;
+    if (auto const* quest = std::get_if<NewRpgInfo::DoQuest>(&info.data))
+        return &quest->pos;
+    if (auto const* grind = std::get_if<NewRpgInfo::GoGrind>(&info.data))
+        return &grind->pos;
+    if (auto const* camp = std::get_if<NewRpgInfo::GoCamp>(&info.data))
+        return &camp->pos;
+    if (auto const* city = std::get_if<NewRpgInfo::GoCity>(&info.data))
+        return &city->pos;
+    return nullptr;
+}
+
+float GoalDistance(Player* body, WorldPosition const* goal)
+{
+    if (!goal || goal->GetMapId() != body->GetMapId() || (!goal->GetPositionX() && !goal->GetPositionY()))
+        return 0.0f;
+    return body->GetExactDist2d(goal->GetPositionX(), goal->GetPositionY());
+}
+
+void AddMountsOf(Player* head, std::vector<uint32>& mounts)
+{
+    for (auto const& [spellId, spell] : head->GetSpellMap())
+    {
+        if (spell->State == PLAYERSPELL_REMOVED || !spell->Active)
+            continue;
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+        if (info && info->HasAura(SPELL_AURA_MOUNTED) &&
+            std::find(mounts.begin(), mounts.end(), spellId) == mounts.end())
+            mounts.push_back(spellId);
+    }
+}
+
+std::string MountName(Player* body)
+{
+    Unit::AuraEffectList const& mounts = body->GetAuraEffectsByType(SPELL_AURA_MOUNTED);
+    return mounts.empty() ? "mount" : mounts.front()->GetSpellInfo()->SpellName[LOCALE_enUS];
+}
+
+bool MountUp(Player* body, Player* rider)
+{
+    std::vector<uint32> mounts;
+    AddMountsOf(body, mounts);
+    AddMountsOf(rider, mounts);
+    if (mounts.empty())
+        return false;
+    body->CastSpell(body, mounts[urand(0, mounts.size() - 1)], true);
+    if (!body->IsMounted())
+        return false;
+    body->TextEmote("hoists the " + MountName(body) + " onto his shoulders.");
+    body->Say(Acore::StringFormat(MountLines[urand(0, MountLines.size() - 1)], body->GetName(), rider->GetName()),
+        LANG_UNIVERSAL);
+    return true;
+}
+
+void GetDown(Player* body)
+{
+    body->TextEmote(Acore::StringFormat(DropLines[urand(0, DropLines.size() - 1)], MountName(body)));
+    body->RemoveAurasByType(SPELL_AURA_MOUNTED);
+}
+
+bool Fighting(Player* body, PlayerbotAI* brain)
+{
+    return body->IsInCombat() || brain->GetState() == BOT_STATE_COMBAT;
 }
 
 void LinkForOneLogin(uint32 headAccount, uint32 masterAccount, bool link)
@@ -115,6 +223,71 @@ void TwoPlayersKeepBotBodyRoaming(Player* body)
         brain->ChangeStrategy(change.substr(1), BOT_STATE_NON_COMBAT);
 }
 
+void TwoPlayersBotBodyRides(Player* body, Player* rider, bool halted)
+{
+    PlayerbotAI* brain = GET_PLAYERBOT_AI(body);
+    if (!brain || !body->IsAlive())
+        return;
+    if (body->IsMounted())
+    {
+        if (Fighting(body, brain))
+            GetDown(body);
+        return;
+    }
+    WorldPosition const* goal = GoalOf(brain);
+    float const distance = GoalDistance(body, goal);
+    uint32 const now = getMSTime();
+    {
+        std::lock_guard<std::mutex> lock(rideMutex);
+        Ride& ride = rides[body->GetGUID().GetCounter()];
+        if (ride.Held && goal && goal->GetPositionX() == ride.HeldX && goal->GetPositionY() == ride.HeldY)
+            return;
+        ride.Held = false;
+        if (ride.NextTry && getMSTimeDiff(ride.NextTry, now) < RideRetryMs)
+            return;
+        ride.NextTry = 0;
+    }
+    if (halted || Fighting(body, brain) || !body->IsOutdoors() || body->GetVehicle() ||
+        brain->HasStrategy("stay", BOT_STATE_NON_COMBAT) || distance < MountDistance())
+        return;
+    if (!MountUp(body, rider))
+    {
+        std::lock_guard<std::mutex> lock(rideMutex);
+        rides[body->GetGUID().GetCounter()].NextTry = now;
+    }
+}
+
+std::string TwoPlayersBotBodyRideToggle(Player* body, Player* rider)
+{
+    PlayerbotAI* brain = GET_PLAYERBOT_AI(body);
+    if (!brain)
+        return "Ride only works when the body is a bot.";
+    if (body->IsMounted())
+    {
+        WorldPosition const* goal = GoalOf(brain);
+        {
+            std::lock_guard<std::mutex> lock(rideMutex);
+            Ride& ride = rides[body->GetGUID().GetCounter()];
+            ride.Held = true;
+            ride.HeldX = goal ? goal->GetPositionX() : 0.0f;
+            ride.HeldY = goal ? goal->GetPositionY() : 0.0f;
+        }
+        body->TextEmote("puts the " + MountName(body) + " down. Walking it is.");
+        body->RemoveAurasByType(SPELL_AURA_MOUNTED);
+        return "";
+    }
+    if (Fighting(body, brain))
+        return body->GetName() + " is fighting. Ride after the fight.";
+    if (!body->IsOutdoors())
+        return "No riding in here.";
+    if (!MountUp(body, rider))
+    {
+        body->Say(body->GetName() + " got no ride to carry. " + body->GetName() + " walk.", LANG_UNIVERSAL);
+        return "Neither head knows a mount that works here.";
+    }
+    return "";
+}
+
 void TwoPlayersKeepBotRiderStill(Player* rider)
 {
     PlayerbotAI* brain = GET_PLAYERBOT_AI(rider);
@@ -153,6 +326,15 @@ void TwoPlayersKeepBotBodyRoaming(Player* /*body*/)
 
 void TwoPlayersKeepBotRiderStill(Player* /*rider*/)
 {
+}
+
+void TwoPlayersBotBodyRides(Player* /*body*/, Player* /*rider*/, bool /*halted*/)
+{
+}
+
+std::string TwoPlayersBotBodyRideToggle(Player* /*body*/, Player* /*rider*/)
+{
+    return "Ride needs the bot module on this server.";
 }
 
 #endif

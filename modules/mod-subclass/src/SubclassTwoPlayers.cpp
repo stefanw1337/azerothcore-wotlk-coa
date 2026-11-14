@@ -52,6 +52,8 @@ void TwoPlayersKeepSharedBuffsEven(Player* first, Player* second);
 void TwoPlayersDropSharedBuffs(Player* holder);
 void TwoPlayersSteerBotBody(Player* body, bool roam);
 void TwoPlayersKeepBotBodyRoaming(Player* body);
+void TwoPlayersBotBodyRides(Player* body, Player* rider, bool halted);
+std::string TwoPlayersBotBodyRideToggle(Player* body, Player* rider);
 void KeepTwoPlayersBrother(Player* player);
 
 namespace
@@ -801,6 +803,8 @@ void KeepTogether(Player* player)
         TwoPlayersKeepBotBodyRoaming(body);
     if (left && SameMap(body, rider) && Ready(body) && Ready(rider))
         GroupUp(body, rider);
+    if (!left && TwoPlayersHeadIsBot(body) && Seated(body, rider))
+        TwoPlayersBotBodyRides(body, rider, Halted(guid));
     if (Seated(body, rider))
     {
         if (left)
@@ -1276,6 +1280,17 @@ public:
         return true;
     }
 };
+}
+
+std::string TwoPlayersRide(Player* rider)
+{
+    uint32 const guid = rider->GetGUID().GetCounter();
+    Player* body = TwoPlayersSeatedPartner(rider);
+    if (!body || TwoPlayersIsLeftHead(guid))
+        return "Ride is for the Ranged Head, seated on a bot body.";
+    if (!TwoPlayersHeadIsBot(body))
+        return body->GetName() + " walks the body; ask them to mount up.";
+    return TwoPlayersBotBodyRideToggle(body, rider);
 }
 
 Player* TwoPlayersSeatedPartner(Player const* head)

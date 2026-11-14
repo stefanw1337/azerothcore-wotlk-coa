@@ -286,40 +286,50 @@ if QuestLogFrame then
     questButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
 end
 
-local barButton
-local function BarButton(bar)
-    barButton = CreateFrame("Button", "CoACBotPlanBarButton", bar)
-    barButton:SetWidth(34)
-    barButton:SetHeight(34)
-    barButton.icon = barButton:CreateTexture(nil, "ARTWORK")
-    barButton.icon:SetAllPoints()
-    barButton.icon:SetTexture("Interface\\Icons\\INV_Misc_Map_01")
-    barButton.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-    barButton.ring = barButton:CreateTexture(nil, "OVERLAY")
-    barButton.ring:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
-    barButton.ring:SetBlendMode("ADD")
-    barButton.ring:SetWidth(62)
-    barButton.ring:SetHeight(62)
-    barButton.ring:SetPoint("CENTER")
-    barButton.ring:SetAlpha(0.8)
-    barButton.caption = barButton:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+local function RideTooltip(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText("Ride")
+    GameTooltip:AddLine("Your bot body mounts up now, or puts the mount down. He also mounts by himself for long " ..
+        "trips and gets down for fights.", 1, 1, 1, true)
+    GameTooltip:Show()
+end
+
+local barButtons = {}
+local function BarButton(bar, name, icon, caption, onClick, onEnter)
+    local button = CreateFrame("Button", name, bar)
+    button:SetWidth(34)
+    button:SetHeight(34)
+    button.icon = button:CreateTexture(nil, "ARTWORK")
+    button.icon:SetAllPoints()
+    button.icon:SetTexture(icon)
+    button.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    button.ring = button:CreateTexture(nil, "OVERLAY")
+    button.ring:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+    button.ring:SetBlendMode("ADD")
+    button.ring:SetWidth(62)
+    button.ring:SetHeight(62)
+    button.ring:SetPoint("CENTER")
+    button.ring:SetAlpha(0.8)
+    button.caption = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     local like = bar.last and bar.last.caption
     if like then
         local font, size, flags = like:GetFont()
-        barButton.caption:SetFont(font, size, flags)
+        button.caption:SetFont(font, size, flags)
     end
-    barButton.caption:SetPoint("TOP", barButton, "BOTTOM", 0, -1)
-    barButton.caption:SetText("Plans")
-    barButton:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
-    barButton:SetScript("OnClick", TogglePlans)
-    barButton:SetScript("OnEnter", PlansTooltip)
-    barButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    button.caption:SetPoint("TOP", button, "BOTTOM", 0, -1)
+    button.caption:SetText(caption)
+    button:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+    button:SetScript("OnClick", onClick)
+    button:SetScript("OnEnter", onEnter)
+    button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    barButtons[#barButtons + 1] = button
+    button.ours = true
 end
 
-local function PlaceBarButton(bar)
+local function PlaceBarButtons(bar)
     local places = {}
     for _, child in ipairs({ bar:GetChildren() }) do
-        if child ~= barButton and child.caption and child:IsShown() then
+        if not child.ours and child.caption and child:IsShown() then
             local point, _, _, x = child:GetPoint()
             if point == "TOPLEFT" and x then
                 places[#places + 1] = x
@@ -337,11 +347,13 @@ local function PlaceBarButton(bar)
             step = gap
         end
     end
-    local x = places[#places] + (step or 0)
-    if barButton.x ~= x then
-        barButton.x = x
-        barButton:ClearAllPoints()
-        barButton:SetPoint("TOPLEFT", bar, "TOPLEFT", x, 0)
+    for index, button in ipairs(barButtons) do
+        local x = places[#places] + (step or 0) * index
+        if button.x ~= x then
+            button.x = x
+            button:ClearAllPoints()
+            button:SetPoint("TOPLEFT", bar, "TOPLEFT", x, 0)
+        end
     end
 end
 
@@ -353,11 +365,14 @@ barWatch:SetScript("OnUpdate", function(self, elapsed)
         return
     end
     self.wait = 1
-    if not barButton and SquidBotsLiteBar and SquidBotsLiteBar.last then
-        BarButton(SquidBotsLiteBar)
+    if #barButtons == 0 and SquidBotsLiteBar and SquidBotsLiteBar.last then
+        BarButton(SquidBotsLiteBar, "CoACBotPlanBarButton", "Interface\\Icons\\INV_Misc_Map_01", "Plans",
+            TogglePlans, PlansTooltip)
+        BarButton(SquidBotsLiteBar, "CoACBotPlanRideButton", "Interface\\Icons\\Ability_Mount_RidingHorse", "Ride",
+            function() Send("PAIRMOUNT") end, RideTooltip)
     end
-    if barButton then
-        PlaceBarButton(SquidBotsLiteBar)
+    if #barButtons > 0 then
+        PlaceBarButtons(SquidBotsLiteBar)
     end
 end)
 
