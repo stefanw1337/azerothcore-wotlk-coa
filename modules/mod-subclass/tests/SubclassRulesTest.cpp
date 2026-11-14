@@ -779,6 +779,18 @@ TEST(Subclass, TheTwinsCarryTheSecondBrotherOnTheirOwnVisibleSeat)
     EXPECT_EQ(BodyVehicleFor(ThinHumanRace), TwinsTwoPlayersVehicle);
 }
 
+TEST(Subclass, TheOgreBodyCarriesTheMountsPassengers)
+{
+    EXPECT_EQ(TwoPlayersVehicleCarrying(DriveKartVehicle), TwoPlayersOnDriveKartVehicle);
+    EXPECT_EQ(TwoPlayersVehicleCarrying(HordeTravelersMammothVehicle), TwoPlayersOnHordeMammothVehicle);
+    EXPECT_EQ(TwoPlayersVehicleCarrying(AllianceTravelersMammothVehicle), TwoPlayersOnAllianceMammothVehicle);
+    EXPECT_EQ(TwoPlayersVehicleCarrying(0), 0u);
+    EXPECT_TRUE(IsBodyVehicle(TwoPlayersOnDriveKartVehicle, TwoHeadedOgreRace));
+    EXPECT_TRUE(IsBodyVehicle(TwoPlayersVehicle, TwoHeadedOgreRace));
+    EXPECT_FALSE(IsBodyVehicle(TwoPlayersOnDriveKartVehicle, ThinHumanRace));
+    EXPECT_FALSE(IsBodyVehicle(DriveKartVehicle, TwoHeadedOgreRace));
+}
+
 TEST(Subclass, OnlyCoAClassesPairUpAsHeads)
 {
     SpecializationRoles melee;

@@ -18,6 +18,7 @@
 #include "PlayerScript.h"
 #include "ScriptMgr.h"
 #include "Spell.h"
+#include "SpellAuraEffects.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
 #include "SubclassRules.h"
@@ -156,7 +157,7 @@ bool ClassAbilityOf(Player const* owner, uint32 spellId)
 bool HasBodyKit(Player const* body)
 {
     Vehicle const* kit = body->GetVehicleKit();
-    return kit && kit->GetVehicleInfo()->m_ID == Subclass::BodyVehicleFor(body->getRace(true));
+    return kit && Subclass::IsBodyVehicle(kit->GetVehicleInfo()->m_ID, body->getRace(true));
 }
 
 void SendVehicleData(Player* body, uint32 vehicleId)
@@ -191,6 +192,21 @@ void DropBodyKit(Player* body)
 bool Seated(Player const* left, Player const* right)
 {
     return left && right && right->GetVehicleBase() == left;
+}
+
+uint32 MountCreatureOf(Player const* body)
+{
+    Unit::AuraEffectList const& mounts = body->GetAuraEffectsByType(SPELL_AURA_MOUNTED);
+    return mounts.empty() ? 0 : uint32(mounts.front()->GetMiscValue());
+}
+
+uint32 KitWanted(Player const* body, uint32 mountCreature)
+{
+    uint32 const own = Subclass::BodyVehicleFor(body->getRace(true));
+    CreatureTemplate const* mount = mountCreature ? sObjectMgr->GetCreatureTemplate(mountCreature) : nullptr;
+    uint32 const carrying = mount && own == Subclass::TwoPlayersVehicle ?
+        Subclass::TwoPlayersVehicleCarrying(mount->VehicleId) : 0;
+    return carrying ? carrying : own;
 }
 
 bool RidesHidden(Player const* rider)
@@ -503,6 +519,33 @@ void RevealArrival(Player* rider, bool onlyWhenOverdue)
         rider->SetVisible(true);
 }
 
+void Seat(Player* left, Player* right);
+
+void CarryMountPassengers(Player* body, Player* rider)
+{
+    if (!HasBodyKit(body))
+        return;
+    uint32 const mountCreature = MountCreatureOf(body);
+    uint32 const wanted = KitWanted(body, mountCreature);
+    if (body->GetVehicleKit()->GetVehicleInfo()->m_ID == wanted)
+        return;
+    bool const reseat = rider && Seated(body, rider);
+    body->RemoveVehicleKit();
+    if (!body->CreateVehicleKit(wanted, wanted == Subclass::BodyVehicleFor(body->getRace(true)) ? 0 : mountCreature))
+    {
+        GiveBodyKit(body);
+        if (reseat)
+            Seat(body, rider);
+        return;
+    }
+    body->GetVehicleKit()->Reset();
+    body->RemoveNpcFlag(UNIT_NPC_FLAG_SPELLCLICK | UNIT_NPC_FLAG_PLAYER_VEHICLE);
+    SendVehicleData(body, wanted);
+    body->GetVehicleKit()->InstallAllAccessories(false);
+    if (reseat)
+        Seat(body, rider);
+}
+
 void Seat(Player* left, Player* right)
 {
     if (Seated(left, right) || !GiveBodyKit(left))
@@ -717,6 +760,8 @@ void KeepTogether(Player* player)
     if (!leaving)
         CallBotForMissingHead(player, partnerGuid, !connected, left);
     Player* partner = Online(partnerGuid);
+    if (left)
+        CarryMountPassengers(player, partner);
     if (!left)
         RevealArrival(player, partner != nullptr);
     if (!partner)

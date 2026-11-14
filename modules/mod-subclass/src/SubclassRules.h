@@ -632,6 +632,36 @@ inline std::uint32_t BodyVehicleFor(std::uint8_t race)
     return race == ThinHumanRace ? TwinsTwoPlayersVehicle : TwoPlayersVehicle;
 }
 
+constexpr std::uint32_t HordeTravelersMammothVehicle = 312;
+constexpr std::uint32_t AllianceTravelersMammothVehicle = 313;
+constexpr std::uint32_t DriveKartVehicle = 8223;
+constexpr std::uint32_t TwoPlayersOnHordeMammothVehicle = 9602;
+constexpr std::uint32_t TwoPlayersOnAllianceMammothVehicle = 9603;
+constexpr std::uint32_t TwoPlayersOnDriveKartVehicle = 9604;
+
+inline std::uint32_t TwoPlayersVehicleCarrying(std::uint32_t mountVehicle)
+{
+    switch (mountVehicle)
+    {
+        case HordeTravelersMammothVehicle:
+            return TwoPlayersOnHordeMammothVehicle;
+        case AllianceTravelersMammothVehicle:
+            return TwoPlayersOnAllianceMammothVehicle;
+        case DriveKartVehicle:
+            return TwoPlayersOnDriveKartVehicle;
+        default:
+            return 0;
+    }
+}
+
+inline bool IsBodyVehicle(std::uint32_t vehicle, std::uint8_t race)
+{
+    if (vehicle == BodyVehicleFor(race))
+        return true;
+    return BodyVehicleFor(race) == TwoPlayersVehicle && (vehicle == TwoPlayersOnHordeMammothVehicle ||
+        vehicle == TwoPlayersOnAllianceMammothVehicle || vehicle == TwoPlayersOnDriveKartVehicle);
+}
+
 enum class Borrow
 {
     None,
