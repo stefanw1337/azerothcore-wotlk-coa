@@ -116,12 +116,14 @@ bool MountUp(Player* body, Player* rider)
     std::vector<uint32> mounts;
     AddMountsOf(body, mounts);
     AddMountsOf(rider, mounts);
-    if (mounts.empty())
+    if (mounts.empty() || body->IsNonMeleeSpellCast(false))
         return false;
-    body->CastSpell(body, mounts[urand(0, mounts.size() - 1)], true);
-    if (!body->IsMounted())
+    SpellInfo const* mount = sSpellMgr->GetSpellInfo(mounts[urand(0, mounts.size() - 1)]);
+    body->StopMoving();
+    body->GetMotionMaster()->Clear();
+    if (body->CastSpell(body, mount, TRIGGERED_NONE) != SPELL_CAST_OK)
         return false;
-    body->TextEmote("hoists the " + MountName(body) + " onto his shoulders.");
+    body->TextEmote(std::string("hoists the ") + mount->SpellName[LOCALE_enUS] + " onto his shoulders.");
     body->Say(Acore::StringFormat(MountLines[urand(0, MountLines.size() - 1)], body->GetName(), rider->GetName()),
         LANG_UNIVERSAL);
     return true;
@@ -250,11 +252,11 @@ void TwoPlayersBotBodyRides(Player* body, Player* rider, bool halted)
     if (halted || Fighting(body, brain) || !body->IsOutdoors() || body->GetVehicle() ||
         brain->HasStrategy("stay", BOT_STATE_NON_COMBAT) || distance < MountDistance())
         return;
-    if (!MountUp(body, rider))
     {
         std::lock_guard<std::mutex> lock(rideMutex);
         rides[body->GetGUID().GetCounter()].NextTry = now;
     }
+    MountUp(body, rider);
 }
 
 std::string TwoPlayersBotBodyRideToggle(Player* body, Player* rider)
