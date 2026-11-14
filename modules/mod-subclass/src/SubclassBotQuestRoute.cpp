@@ -196,7 +196,52 @@ void Replan(Player* bot, PlayerbotAI* brain, BotRoute& route)
         [bot](uint32 questId) { return bot->FindQuestSlot(questId) >= MAX_QUEST_LOG_SIZE; }), route.Priority.end());
     route.Quests = Subclass::PriorityFirst(Subclass::PlanQuestRoute(bot->GetPositionX(), bot->GetPositionY(), stops),
         route.Priority);
+    for (auto chosen = route.Priority.rbegin(); chosen != route.Priority.rend(); ++chosen)
+    {
+        uint32 const questId = *chosen;
+        if (Ignored(bot, questId) || std::find(route.Quests.begin(), route.Quests.end(), questId) != route.Quests.end())
+            continue;
+        route.Quests.insert(route.Quests.begin(), questId);
+        route.Unplanned.erase(std::remove_if(route.Unplanned.begin(), route.Unplanned.end(),
+            [questId](auto const& unplanned) { return unplanned.first == questId; }), route.Unplanned.end());
+    }
     route.Log = LogOf(bot);
+}
+
+void AimAtQuest(Player* bot, NewRpgInfo::DoQuest& doing)
+{
+    if (doing.pos != WorldPosition())
+        return;
+    Quest const* quest = sObjectMgr->GetQuestTemplate(doing.questId);
+    QuestPOIVector const* pois = sObjectMgr->GetQuestPOIVector(doing.questId);
+    auto const found = bot->getQuestStatusMap().find(doing.questId);
+    if (!quest || !pois || found == bot->getQuestStatusMap().end())
+        return;
+    std::vector<int32> const left = ObjectivesLeft(quest, found->second);
+    float nearest = 0.0f;
+    for (QuestPOI const& poi : *pois)
+    {
+        if (poi.MapId != bot->GetMapId() || poi.points.empty() ||
+            std::find(left.begin(), left.end(), poi.ObjectiveIndex) == left.end())
+            continue;
+        float x = 0.0f;
+        float y = 0.0f;
+        for (QuestPOIPoint const& point : poi.points)
+        {
+            x += point.x;
+            y += point.y;
+        }
+        x /= poi.points.size();
+        y /= poi.points.size();
+        float const z = std::max(bot->GetMap()->GetHeight(x, y, MAX_HEIGHT), bot->GetMap()->GetWaterLevel(x, y));
+        float const distance = bot->GetDistance2d(x, y);
+        if (z == INVALID_HEIGHT || z == VMAP_INVALID_HEIGHT_VALUE || (nearest && distance >= nearest))
+            continue;
+        nearest = distance;
+        doing.pos = WorldPosition(bot->GetMapId(), x, y, z);
+        doing.objectiveIdx = poi.ObjectiveIndex;
+        doing.lastReachPOI = 0;
+    }
 }
 
 bool Steerable(Player* bot, PlayerbotAI* brain)
@@ -261,7 +306,10 @@ void FollowRoute(Player* bot, PlayerbotAI* brain, BotRoute& route)
         doing = nullptr;
     }
     if (doing)
+    {
         SteerToQuestObject(bot, *doing);
+        AimAtQuest(bot, *doing);
+    }
     NewRpgStatus const status = info.GetStatus();
     uint64 const progress = ProgressOf(bot, head);
     if (doing && doing->questId == head)
@@ -295,7 +343,11 @@ void FollowRoute(Player* bot, PlayerbotAI* brain, BotRoute& route)
         return;
     }
     if (Quest const* quest = sObjectMgr->GetQuestTemplate(head))
+    {
         info.ChangeToDoQuest(head, quest);
+        if (auto* now = std::get_if<NewRpgInfo::DoQuest>(&info.data))
+            AimAtQuest(bot, *now);
+    }
 }
 }
 
@@ -428,8 +480,14 @@ void BotPlanDoNow(Player* player, std::string_view botName, uint32 questId)
             route.Quests.push_back(questId);
         route.Quests = Subclass::MovedFirst(route.Quests, questId);
         route.Priority = route.Quests;
+        route.Unplanned.erase(std::remove_if(route.Unplanned.begin(), route.Unplanned.end(),
+            [questId](auto const& unplanned) { return unplanned.first == questId; }), route.Unplanned.end());
         if (Quest const* quest = sObjectMgr->GetQuestTemplate(questId))
+        {
             brain->rpgInfo.ChangeToDoQuest(questId, quest);
+            if (auto* now = std::get_if<NewRpgInfo::DoQuest>(&brain->rpgInfo.data))
+                AimAtQuest(bot, *now);
+        }
     }
     SendBotPlans(player);
 }
