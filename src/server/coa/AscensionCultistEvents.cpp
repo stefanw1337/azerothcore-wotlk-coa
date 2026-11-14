@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 #include "AscensionCultist.h"
 #include "AscensionCultistData.h"
+#include "Map.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
 #include "Random.h"
@@ -9,6 +10,8 @@
 #include "SpellAuras.h"
 #include "SpellMgr.h"
 #include "SpellScript.h"
+#include "WorldPacket.h"
+#include "WorldSession.h"
 #include <algorithm>
 namespace
 {
@@ -74,7 +77,8 @@ class aura_ascension_cultist_event : public AuraScript
         switch (id)
         {
             case 300280: case 301262: case 504642: return dealt && melee && critical;
-            case 300286: return healed && !periodic;
+            case 300286: return event.GetHealInfo() && event.GetHealInfo()->GetHeal() && !periodic &&
+                !(event.GetTypeMask() & TAKEN_HIT_PROC_FLAG_MASK);
             case 300300: return dealt && (periodic || (info && info->IsChanneled())) && Chance(player, id);
             case 300308: case 704527: return dealt && (periodic || (info && info->IsChanneled()));
             case 300313: return dealt && Chance(player, id);
@@ -94,7 +98,7 @@ class aura_ascension_cultist_event : public AuraScript
             case 706911: return dealt && Named(info, 520332) && Chance(player, id);
             case 707640: return dealt && Named(info, 500720) && Chance(player, id);
             case 803035: case 803037: case 803082: case 803339: case 805606:
-                return dealt && event.GetActor() == player && Chance(player, id);
+                return dealt && event.GetActor() == player && (!info || info->Id != Thoughtseize) && Chance(player, id);
             case 805110: return dealt && !periodic && Chance(player, id);
             case 807307: return dealt && melee && ability;
             case 255283: return dealt && critical;
@@ -158,7 +162,6 @@ class aura_ascension_cultist_event : public AuraScript
             case 300300: Cast(player, target, 560943); break;
             case 300308:
                 Resource(player, Insanity, 2);
-                Reduce(player, 805572, std::abs(Amount(300605, 1)));
                 Cast(player, player, 300605);
                 break;
             case 300313: case 706245:
@@ -187,6 +190,7 @@ class aura_ascension_cultist_event : public AuraScript
                                  .1f * player->GetTotalAttackPowerValue(BASE_ATTACK);
                     flat *= .5f;
                     Copy(player, ally, 500748, CalculatePct(damage, Amount(id)) + uint32(std::max(0.0f, flat)));
+                    MarkVoidTouched(player, ally);
                 }
                 break;
             case 525065: Cast(player, target, 525066); break;
@@ -197,7 +201,7 @@ class aura_ascension_cultist_event : public AuraScript
                 break;
             case 560715:
                 for (uint32 n = 0; n < 3; ++n)
-                    Summon(player, 397771, player->GetNearPosition(2, float(n) * 2), 10000, target);
+                    Summon(player, 397771, player->GetNearPosition(2, float(n) * 2), 10000, target, id);
                 break;
             case 572064:
                 if (player->isHonorOrXPTarget(target))
@@ -210,7 +214,7 @@ class aura_ascension_cultist_event : public AuraScript
                 Reduce(player, 567524, std::abs(Amount(681475)));
                 break;
             case 681425:
-                Summon(player, 397771, player->GetNearPosition(2, 0), sSpellMgr->GetSpellInfo(680573)->GetDuration(), target);
+                Summon(player, 397771, player->GetNearPosition(2, 0), sSpellMgr->GetSpellInfo(680573)->GetDuration(), target, id);
                 break;
             case 681474:
                 Cast(player, player, 681532);
@@ -221,7 +225,7 @@ class aura_ascension_cultist_event : public AuraScript
             case 704527: Cast(player, target, 706908); break;
             case 706182: Resource(player, Insanity, 3); break;
             case 706911:
-                Summon(player, 533030, target->GetNearPosition(3, 0), 12000, target);
+                Summon(player, 533030, target->GetNearPosition(3, 0), 12000, target, id);
                 break;
             case 707640: Cast(player, player, 805113); break;
             case 800463: Cast(player, player, 502133); break;
@@ -232,8 +236,11 @@ class aura_ascension_cultist_event : public AuraScript
                         ModifiedDuration(player, YshaarjCurse), target, true);
                 break;
             case 803037:
-                Summon(player, 500464, player->GetNearPosition(1, 0),
-                    ModifiedDuration(player, NzothTentacleSummon), target);
+                OverrideSpellVisual(player, NzothTentacleSummon, PresenceTentacleVisual);
+                if (Aura* tentacles = player->AddAura(NzothTentacleSummon, player))
+                    tentacles->SetDuration(ModifiedDuration(player, NzothTentacleSummon));
+                Summon(player, 500464, player->GetPosition(),
+                    ModifiedDuration(player, NzothTentacleSummon), target, id);
                 break;
             case 803082: Cast(player, target, 803083); break;
             case 803339: Cast(player, player, 803340); break;
@@ -258,7 +265,10 @@ class aura_ascension_cultist_event : public AuraScript
                 auto allies = Allies(player, player, 40);
                 allies.remove_if([player](Unit* ally) { return !ally->HasAura(BlackBlood, player->GetGUID()); });
                 if (!allies.empty())
+                {
                     Copy(player, allies.front(), 500773, CalculatePct(damage, Amount(id)));
+                    MarkVoidTouched(player, allies.front());
+                }
                 break;
             }
             case 600327:

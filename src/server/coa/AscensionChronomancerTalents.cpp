@@ -17,6 +17,7 @@ namespace
 enum ChronomancerTalentSpells : uint32
 {
     SPELL_ROLL_BACK = 804490,
+    SPELL_ROLL_BACK_COST = 807771,
     SPELL_TIME_SKIP = 804451,
     SPELL_SHIMMERING_SHARD = 806302,
     SPELL_SHIMMER = 806303,
@@ -152,6 +153,44 @@ class spell_ascension_unmaker_of_realities : public AuraScript
     }
 };
 
+class spell_ascension_infinite_power : public AuraScript
+{
+    PrepareAuraScript(spell_ascension_infinite_power);
+
+    static bool DealsDamage(SpellInfo const* spellInfo)
+    {
+        for (SpellEffectInfo const& effect : spellInfo->Effects)
+            switch (effect.Effect)
+            {
+                case SPELL_EFFECT_SCHOOL_DAMAGE:
+                case SPELL_EFFECT_WEAPON_DAMAGE:
+                case SPELL_EFFECT_WEAPON_DAMAGE_NOSCHOOL:
+                case SPELL_EFFECT_NORMALIZED_WEAPON_DMG:
+                case SPELL_EFFECT_WEAPON_PERCENT_DAMAGE:
+                    return true;
+                case SPELL_EFFECT_APPLY_AURA:
+                    if (effect.ApplyAuraName == SPELL_AURA_PERIODIC_DAMAGE ||
+                        effect.ApplyAuraName == SPELL_AURA_PERIODIC_DAMAGE_PERCENT)
+                        return true;
+                    break;
+                default:
+                    break;
+            }
+        return false;
+    }
+
+    bool CheckProc(ProcEventInfo& eventInfo)
+    {
+        SpellInfo const* procSpell = eventInfo.GetSpellInfo();
+        return procSpell && DealsDamage(procSpell);
+    }
+
+    void Register() override
+    {
+        DoCheckProc += AuraCheckProcFn(spell_ascension_infinite_power::CheckProc);
+    }
+};
+
 class spell_ascension_destabilize_time : public AuraScript
 {
     PrepareAuraScript(spell_ascension_destabilize_time);
@@ -256,8 +295,8 @@ class spell_ascension_the_bieko_effect : public SpellScript
         if (!player || spellId <= 0)
             return;
         if (uint32 const remaining = player->GetSpellCooldownDelay(uint32(spellId)))
-            player->ModifySpellCooldown(uint32(spellId),
-                -int32(CalculatePct(remaining, std::clamp(GetEffectValue(), 0, 100))));
+            if (int32 const reduction = int32(CalculatePct(remaining, std::clamp(GetEffectValue(), 0, 100))))
+                ModifyAscensionCooldown(player, uint32(spellId), -reduction, false);
     }
 
     void Register() override
@@ -365,8 +404,14 @@ public:
     void OnSpellCast(Spell* spell, Unit* caster, SpellInfo const* info, bool) override
     {
         Player* player = caster ? caster->ToPlayer() : nullptr;
-        if (!player || player->getClass() != CLASS_CHRONOMANCER || info->SpellFamilyName != 28 ||
-            spell->HasTriggeredCastFlag(TRIGGERED_IGNORE_GCD) || !IsAeonActivation(info->Id))
+        if (!player || player->getClass() != CLASS_CHRONOMANCER || info->SpellFamilyName != 28)
+            return;
+        if (info->Id == SPELL_ROLL_BACK && !spell->IsTriggered())
+        {
+            player->CastSpell(player, SPELL_ROLL_BACK_COST, true);
+            return;
+        }
+        if (spell->HasTriggeredCastFlag(TRIGGERED_IGNORE_GCD) || !IsAeonActivation(info->Id))
             return;
         if (player->HasAura(SPELL_SHIMMERING_SHARD))
             player->CastSpell(player, SPELL_SHIMMER, true);
@@ -462,6 +507,7 @@ void AddSC_AscensionChronomancerTalents()
     new chronomancer_talent_casts();
     RegisterSpellScript(spell_ascension_dimensional_divergence);
     RegisterSpellScript(spell_ascension_unmaker_of_realities);
+    RegisterSpellScript(spell_ascension_infinite_power);
     RegisterSpellScript(spell_ascension_destabilize_time);
     RegisterSpellScript(spell_ascension_timeguard);
     RegisterSpellScript(spell_ascension_the_bieko_effect);

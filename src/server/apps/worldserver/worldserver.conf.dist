@@ -2208,6 +2208,23 @@ Rate.Talent = 1
 Rate.Talent.Pet = 1
 
 #
+#    Rate.Threat.Healing
+#        Description: Threat a heal generates, as a share of the health it restores, split among the
+#                     creatures fighting its target (a paladin's heal half of it). Stock WotLK is 0.5;
+#                     CoA lowers it so a healer does not pull a group off its tank.
+#        Default:     0.25
+
+Rate.Threat.Healing = 0.25
+
+#
+#    Rate.Threat.TankStance
+#        Description: Threat multiplier for players in a CoA tank stance (spells 807725-807736),
+#                     on top of the stance's own threat bonus. Temporary tuning, 1 disables it.
+#        Default:     2
+
+Rate.Threat.TankStance = 2
+
+#
 #    Rate.Health
 #    Rate.Mana
 #    Rate.Rage.Income
@@ -2335,6 +2352,15 @@ Achievement.RealmFirstKillWindow = 60
 #                     0 - (Disabled)
 
 Achievement.RealmFirstRaceLimitOnePerCharacter = 1
+
+#
+#    Achievement.RealmFirstBlockBots
+#        Description: Companions (bots) cannot earn 'Realm First!' achievements, so they never take
+#                     a server first away from real players.
+#        Default:     1 - (Enabled)
+#                     0 - (Disabled, bots can earn them like any player)
+
+Achievement.RealmFirstBlockBots = 1
 
 #
 ###################################################################################################
@@ -2581,8 +2607,10 @@ Rate.XP.Global = 0.9295
 #        Skill/difficulty defaults come from PR #4128; BaseFraction is a local policy (1/50 of a level).
 #        Set Profession to 0 to disable ordinary profession awards. All rates reload with .reload config.
 #        Profession-only challenges retain their separate per-skill-up formula and group sharing;
-#        those awards also use Global and dynamic XP. Woodcutting/woodworking have no core action path here.
-Rate.XP.Profession = 0.4
+#        those awards also use Global and dynamic XP.
+#        Smelting is a Mining craft and uses Rate.XP.Profession.Smelting instead of the Mining rate, so
+#        ore pays once when mined; 0 (default) gives smelting no XP.
+Rate.XP.Profession = 0.2
 Rate.XP.Profession.BaseFraction = 0.02
 Rate.XP.Profession.Gray = 0
 Rate.XP.Profession.Green = 0.95
@@ -2591,6 +2619,7 @@ Rate.XP.Profession.Orange = 1.05
 Rate.XP.Profession.Mining = 2.11
 Rate.XP.Profession.Herbalism = 1.44
 Rate.XP.Profession.Disenchanting = 1.44
+Rate.XP.Profession.Smelting = 0
 Rate.XP.Profession.Skinning = 0.55
 Rate.XP.Profession.Fishing = 0.33
 Rate.XP.Profession.Blacksmithing = 3.77
@@ -2604,6 +2633,8 @@ Rate.XP.Profession.Engineering = 3.6
 Rate.XP.Profession.Tailoring = 1.66
 Rate.XP.Profession.Lockpicking = 0
 Rate.XP.Profession.Inscription = 2.88
+Rate.XP.Profession.Woodcutting = 0.33
+Rate.XP.Profession.Woodworking = 1
 
 Rate.XP.Kill            = 1.0909091
 Rate.XP.Kill.TBC        = 1.0909091
@@ -3066,6 +3097,17 @@ Quests.IgnoreAutoAccept = 0
 Quests.IgnoreAutoComplete = 0
 
 #
+#    Quests.LogSize
+#        Description: Number of quests a character can hold. The client shows the first 25 in its quest log;
+#                     further quests are kept by the server and listed by the server-sent Extra Quests window.
+#                     A kill, item or exploration update on such a quest counts as normal. Abandoning or turning
+#                     in a quest from the client log moves the next extra quest into the freed slot.
+#        Default:     25 - (Client quest log only)
+#        Range:       25-64
+
+Quests.LogSize = 25
+
+#
 #    Rate.RewardQuestMoney
 #        Description: Allows to tweak the amount of money rewarded by quests (does not affect RewardBonusMoney).
 #        Default:     1
@@ -3152,6 +3194,15 @@ CreatureFamilyAssistancePeriod = 3000
 CreatureFamilyFleeDelay = 7000
 
 #
+#    CreatureFamilyFleeWalk
+#        Description: Creatures that flee at low health walk instead of running, both while
+#                     seeking assistance and while fleeing without it. Fear effects are unchanged.
+#        Default:     0 - (Disabled, creatures run)
+#                     1 - (Enabled, creatures walk)
+
+CreatureFamilyFleeWalk = 0
+
+#
 #    WorldBossLevelDiff
 #        Description: World boss level difference.
 #        Default:     3
@@ -3193,6 +3244,38 @@ Rate.Corpse.Decay.Looted = 0.5
 #                     0 - Disabled (respawn delay counts from corpse removal)
 
 Respawn.TimerStartsAtDeath = 1
+
+#
+#    Respawn.QuestTarget.Named
+#        Description: Longest respawn time, in seconds from death, of a unique named quest target in the
+#                     open world: a creature flagged as a quest boss (type_flags 0x80000000) that has a
+#                     single open-world spawn point, counting each spawn pool as one. These targets also
+#                     share their quest credit and quest loot with every contributor. Longer database
+#                     respawn times are shortened to this value; rares, rare elites and world bosses are
+#                     never shortened.
+#        Default:     150 - (2.5 minutes)
+#                     0   - (Disabled, the database respawn time applies)
+
+Respawn.QuestTarget.Named = 150
+
+#
+#    Respawn.QuestTarget.General
+#        Description: Longest respawn time, in seconds from death, of any other open-world creature a
+#                     quest needs: a kill objective, a kill-credit stand-in, a creature with quest loot,
+#                     or a quest-boss-flagged creature with more than one spawn point. Credit and loot
+#                     stay tapped as usual. Rares, rare elites and world bosses are never shortened.
+#        Default:     0 - (Disabled, the database respawn time applies)
+
+Respawn.QuestTarget.General = 0
+
+#
+#    Respawn.QuestTarget.LongRespawn
+#        Description: Quest targets whose database respawn time, in seconds, is longer than this keep it;
+#                     neither Respawn.QuestTarget.Named nor Respawn.QuestTarget.General shortens them.
+#        Default:     358 - (5 minutes 58 seconds)
+#                     0   - (No limit, every quest target can be shortened)
+
+Respawn.QuestTarget.LongRespawn = 358
 
 #
 #    Rate.Creature.Normal.Damage
@@ -3501,9 +3584,9 @@ Instance.UnloadDelay = 1800000
 #
 #   AccountInstancesPerHour
 #        Description: Controls the max amount of different instances player can enter within hour
-#        Default:     5
+#        Default:     10
 
-AccountInstancesPerHour = 5
+AccountInstancesPerHour = 10
 
 #
 #    Instance.SharedNormalHeroicId
@@ -4684,6 +4767,33 @@ AllowTwoSide.Interaction.Arena = 0
 AllowTwoSide.Interaction.Auction = 0
 
 #
+#    AllowTwoSide.Interaction.Mail
+#        Description: Allow sending mails between factions.
+#        Default:     1 - (Enabled)
+#                     0 - (Disabled)
+
+AllowTwoSide.Interaction.Mail = 1
+
+#
+#    SoloKill.RequirePlayerHit
+#        Description: A player who is not in a group gets loot and experience from a creature only
+#                     if they hit it themselves, with an attack or a harmful spell. Kills made only
+#                     by their pets, guardians, totems or other summons give no loot or experience.
+#                     Quest kill credit and reputation are not affected.
+#        Default:     1 - (Enabled)
+#                     0 - (Disabled)
+
+SoloKill.RequirePlayerHit = 1
+
+#
+#    AllowTwoSide.Trade
+#        Description: Allow trading between factions.
+#        Default:     1 - (Enabled)
+#                     0 - (Disabled)
+
+AllowTwoSide.Trade = 1
+
+#
 #    AllowTwoSide.WhoList
 #        Description: Show characters of both factions in the who list and the friends list.
 #        Default:     1 - (Enabled)
@@ -4726,17 +4836,33 @@ RecruitAFriend.MaxLevel = 60
 #    RecruitAFriend.MaxDifference
 #        Description: Highest level difference between linked Recruiter and Friend benefit from
 #                     the Recruit-A-Friend experience multiplier.
-#        Default:     4
+#        Default:     30
 
-RecruitAFriend.MaxDifference = 4
+#    Legacy value 4 is automatically treated as 30 when loading or reloading the config.
+RecruitAFriend.MaxDifference = 30
+
+#
+#    RecruitAFriend.SharedAddressLinks
+#        Description: Number of Recruit-A-Friend links one IP address can hold between a recruiter
+#                     and a recruit who both play from that address. Links between different
+#                     addresses are not limited.
+#        Default:     2
+#                     0 - (Recruiter and recruit must use different IP addresses)
+
+RecruitAFriend.SharedAddressLinks = 2
 
 #
 #    MaxRecruitAFriendBonusDistance
-#        Description: Max distance between character and and group to gain the Recruit-A-Friend
-#                     XP multiplier.
+#        Description: Max distance for Recruit-A-Friend level grants and reputation bonuses.
 #        Default:     100
 
 MaxRecruitAFriendBonusDistance = 100
+
+#    MaxRecruitAFriendXPDistance
+#        Description: Max distance between linked group members for the Recruit-A-Friend XP bonus.
+#        Default:     200
+
+MaxRecruitAFriendXPDistance = 200
 
 #
 ###################################################################################################
@@ -5084,3 +5210,11 @@ Cluster.IsCrossrealm=0
 # CLUSTER SETTINGS END                                                                            #
 #                                                                                                 #
 ###################################################################################################
+
+# Social.AccountWideFriends
+# Share friends/notes across owner characters and follow the friend's current character.
+# Requires the Ascension client friend-metadata protocol. Not for stock 3.3.5 clients.
+# Existing character friendships are imported once per account on first use after enabling.
+# Conflicting notes or more than 50 friend accounts require administrator reconciliation.
+# Ignore lists remain character-specific. Restart required; default disabled.
+Social.AccountWideFriends = 0

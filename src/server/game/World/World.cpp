@@ -550,6 +550,7 @@ void World::SetInitialWorldSettings()
 
     LOG_INFO("server.loading", "Loading Creature Template Addons...");
     sObjectMgr->LoadCreatureTemplateAddons();
+    sObjectMgr->LoadAscensionNpcOverheadIcons();
 
     LOG_INFO("server.loading", "Loading Reputation Reward Rates...");
     sObjectMgr->LoadReputationRewardRate();
@@ -728,6 +729,9 @@ void World::SetInitialWorldSettings()
     // Loot tables
     LoadLootTables();
 
+    LOG_INFO("server.loading", "Loading Quest Target Respawn Classes...");
+    sObjectMgr->LoadQuestTargetRespawns();                       // must be after LoadQuests(), pools and loot
+
     LOG_INFO("server.loading", "Loading Skill Discovery Table...");
     LoadSkillDiscoveryTable();
 
@@ -774,6 +778,7 @@ void World::SetInitialWorldSettings()
     LOG_INFO("server.loading", "Loading Profanity Names...");
     sObjectMgr->LoadProfanityNamesFromDB();
     sObjectMgr->LoadProfanityNamesFromDBC(); // Needs to be after LoadProfanityNamesFromDB()
+    sObjectMgr->LoadCoANameFilter();
 
     LOG_INFO("server.loading", "Loading Chat Filter...");
     sObjectMgr->LoadChatFilter();

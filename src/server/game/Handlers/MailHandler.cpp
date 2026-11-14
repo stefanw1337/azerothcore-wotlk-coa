@@ -16,6 +16,7 @@
  */
 
 #include "AccountMgr.h"
+#include "AscensionBazaarTokenReserve.h"
 #include "Chat.h"
 #include "RBAC.h"
 #include "CharacterCache.h"
@@ -221,7 +222,7 @@ void WorldSession::HandleSendMail(WorldPacket& recvData)
         }
     }*/
 
-    if (/*!accountBound*/ GetAccountId() != rc_account && player->GetTeamId() != rc_teamId && !HasPermission(rbac::RBAC_PERM_TWO_SIDE_INTERACTION_MAIL))
+    if (/*!accountBound*/ GetAccountId() != rc_account && !sWorld->getBoolConfig(CONFIG_ALLOW_TWO_SIDE_INTERACTION_MAIL) && player->GetTeamId() != rc_teamId && !HasPermission(rbac::RBAC_PERM_TWO_SIDE_INTERACTION_MAIL))
     {
         player->SendMailResult(0, MAIL_SEND, MAIL_ERR_NOT_YOUR_TEAM);
         return;
@@ -290,6 +291,23 @@ void WorldSession::HandleSendMail(WorldPacket& recvData)
     {
         player->SendMailResult(0, MAIL_SEND, MAIL_ERR_INTERNAL_ERROR);
         return;
+    }
+
+    // Elite Warchest Bazaar Tokens are Realm Bound: free between the account's own characters, otherwise the
+    // account must keep its reserve.
+    if (GetAccountId() != rc_account)
+    {
+        uint32 tokens = 0;
+        for (uint8 i = 0; i < items_count; ++i)
+            if (items[i]->GetEntry() == AscensionBazaarTokenReserve::TOKEN_ITEM)
+                tokens += items[i]->GetCount();
+
+        if (!AscensionBazaarTokenReserve::CanGiveAway(player, tokens))
+        {
+            AscensionBazaarTokenReserve::SendRefusal(player);
+            player->SendMailResult(0, MAIL_SEND, MAIL_ERR_EQUIP_ERROR, EQUIP_ERR_MAIL_BOUND_ITEM);
+            return;
+        }
     }
 
     player->SendMailResult(0, MAIL_SEND, MAIL_OK);

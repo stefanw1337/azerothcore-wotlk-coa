@@ -36,6 +36,7 @@
 #include "PlayerSettings.h"
 #include "PlayerTaxi.h"
 #include "QuestDef.h"
+#include "QuestLogSlots.h"
 #include "SpellAuras.h"
 #include "SpellChargeState.h"
 #include "SpellInfo.h"
@@ -1004,7 +1005,7 @@ enum PlayerCommandStates
     CHEAT_SPELLCHARGES = 0x20
 };
 
-// Used for OnGiveXP PlayerScript hook
+// Used for XP awards and the OnGiveXP PlayerScript hook
 enum PlayerXPSource
 {
     XPSOURCE_KILL = 0,
@@ -1193,10 +1194,12 @@ public:
     [[nodiscard]] bool isGMVisible() const { return !(m_ExtraFlags & PLAYER_EXTRA_GM_INVISIBLE); }
     void SetGMVisible(bool on);
     bool Has310Flyer(bool checkAllSpells, uint32 excludeSpellId = 0);
+    void CastRidingMount(uint32 spellId);
     void SetHas310Flyer(bool on) { if (on) m_ExtraFlags |= PLAYER_EXTRA_HAS_310_FLYER; else m_ExtraFlags &= ~PLAYER_EXTRA_HAS_310_FLYER; }
     void SetPvPDeath(bool on) { if (on) m_ExtraFlags |= PLAYER_EXTRA_PVP_DEATH; else m_ExtraFlags &= ~PLAYER_EXTRA_PVP_DEATH; }
 
-    void GiveXP(uint32 xp, Unit* victim, float group_rate = 1.0f, bool isLFGReward = false);
+    void GiveXP(uint32 xp, Unit* victim, float group_rate = 1.0f, bool isLFGReward = false,
+        PlayerXPSource xpSource = XPSOURCE_KILL);
     void GiveLevel(uint8 level);
 
     void InitStatsForLevel(bool reapplyMods = false);
@@ -1507,7 +1510,7 @@ public:
     void RemoveActiveQuest(uint32 questId, bool update = true);
     void RemoveRewardedQuest(uint32 questId, bool update = true);
     void SendQuestUpdate(uint32 questId);
-    QuestGiverStatus GetQuestDialogStatus(Object* questGiver);
+    QuestGiverStatus GetQuestDialogStatus(Object* questGiver, uint32 questFilter = 0);
     float GetQuestRate(bool isDFQuest = false, int32 questLevel = 0);
     void SetDailyQuestStatus(uint32 quest_id);
     bool IsDailyQuestDone(uint32 quest_id);
@@ -1520,39 +1523,20 @@ public:
     void ResetSeasonalQuestStatus(uint16 event_id);
 
     [[nodiscard]] uint16 FindQuestSlot(uint32 quest_id) const;
-    [[nodiscard]] uint32 GetQuestSlotQuestId(uint16 slot) const { return GetUInt32Value(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_ID_OFFSET); }
-    [[nodiscard]] uint32 GetQuestSlotState(uint16 slot)   const { return GetUInt32Value(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_STATE_OFFSET); }
-    [[nodiscard]] uint16 GetQuestSlotCounter(uint16 slot, uint8 counter) const { return (uint16)(GetUInt64Value(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_COUNTS_OFFSET) >> (counter * 16)); }
-    [[nodiscard]] uint32 GetQuestSlotTime(uint16 slot)    const { return GetUInt32Value(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_TIME_OFFSET); }
-    void SetQuestSlot(uint16 slot, uint32 quest_id, uint32 timer = 0)
-    {
-        SetUInt32Value(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_ID_OFFSET, quest_id);
-        SetUInt32Value(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_STATE_OFFSET, 0);
-        SetUInt32Value(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_COUNTS_OFFSET, 0);
-        SetUInt32Value(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_COUNTS_OFFSET + 1, 0);
-        SetUInt32Value(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_TIME_OFFSET, timer);
-    }
-    void SetQuestSlotCounter(uint16 slot, uint8 counter, uint16 count)
-    {
-        uint64 val = GetUInt64Value(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_COUNTS_OFFSET);
-        val &= ~((uint64)0xFFFF << (counter * 16));
-        val |= ((uint64)count << (counter * 16));
-        SetUInt64Value(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_COUNTS_OFFSET, val);
-    }
-    void SetQuestSlotState(uint16 slot, uint32 state) { SetFlag(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_STATE_OFFSET, state); }
-    void RemoveQuestSlotState(uint16 slot, uint32 state) { RemoveFlag(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_STATE_OFFSET, state); }
-    void SetQuestSlotTimer(uint16 slot, uint32 timer) { SetUInt32Value(PLAYER_QUEST_LOG_1_1 + slot * MAX_QUEST_OFFSET + QUEST_TIME_OFFSET, timer); }
-    void SwapQuestSlot(uint16 slot1, uint16 slot2)
-    {
-        for (int i = 0; i < MAX_QUEST_OFFSET; ++i)
-        {
-            uint32 temp1 = GetUInt32Value(PLAYER_QUEST_LOG_1_1 + MAX_QUEST_OFFSET * slot1 + i);
-            uint32 temp2 = GetUInt32Value(PLAYER_QUEST_LOG_1_1 + MAX_QUEST_OFFSET * slot2 + i);
-
-            SetUInt32Value(PLAYER_QUEST_LOG_1_1 + MAX_QUEST_OFFSET * slot1 + i, temp2);
-            SetUInt32Value(PLAYER_QUEST_LOG_1_1 + MAX_QUEST_OFFSET * slot2 + i, temp1);
-        }
-    }
+    [[nodiscard]] uint16 GetQuestLogCapacity() const;
+    [[nodiscard]] uint32 GetQuestSlotQuestId(uint16 slot) const { return m_questLogSlots[slot].QuestId; }
+    [[nodiscard]] uint32 GetQuestSlotState(uint16 slot)   const { return m_questLogSlots[slot].State; }
+    [[nodiscard]] uint16 GetQuestSlotCounter(uint16 slot, uint8 counter) const { return (uint16)(m_questLogSlots[slot].Counters >> (counter * 16)); }
+    [[nodiscard]] uint32 GetQuestSlotTime(uint16 slot)    const { return m_questLogSlots[slot].Time; }
+    [[nodiscard]] bool HasOverflowQuests() const { return m_questLogSlots.HasOverflow(); }
+    void SetQuestSlot(uint16 slot, uint32 quest_id, uint32 timer = 0);
+    void SetQuestSlotCounter(uint16 slot, uint8 counter, uint16 count);
+    void SetQuestSlotState(uint16 slot, uint32 state);
+    void RemoveQuestSlotState(uint16 slot, uint32 state);
+    void SetQuestSlotTimer(uint16 slot, uint32 timer);
+    void SwapQuestSlot(uint16 slot1, uint16 slot2);
+    void PromoteOverflowQuests();
+    bool PromoteQuestToNativeLog(uint32 questId);
     uint16 GetReqKillOrCastCurrentCount(uint32 quest_id, int32 entry);
     void AreaExploredOrEventHappens(uint32 questId);
     void GroupEventHappens(uint32 questId, WorldObject const* pEventObject);
@@ -1728,6 +1712,8 @@ public:
     void VehicleSpellInitialize();
     void SendRemoveControlBar();
     [[nodiscard]] bool HasSpell(uint32 spell) const override;
+    /// HasSpell that also matches a stock spell's twins and namesakes (SpellMgr::GetSpellAndRelatives)
+    [[nodiscard]] bool HasSpellOrTwin(uint32 spell) const;
     [[nodiscard]] bool HasActiveSpell(uint32 spell) const;            // show in spellbook
     [[nodiscard]] bool IsSpellFitByClassAndRace(uint32 spell_id) const;
     bool IsNeedCastPassiveSpellAtLearn(SpellInfo const* spellInfo) const;
@@ -1791,7 +1777,7 @@ public:
     [[nodiscard]] uint8 GetSpecsCount() const { return m_specsCount; }
     void SetSpecsCount(uint8 count) { m_specsCount = count; }
     void ActivateSpec(uint8 spec);
-    void LoadActions(PreparedQueryResult result);
+    void LoadActions(PreparedQueryResult result, bool send = true);
     void GetTalentTreePoints(uint8 (&specPoints)[3]) const;
     [[nodiscard]] uint8 GetMostPointsTalentTree() const;
     bool HasTankSpec();
@@ -1816,6 +1802,7 @@ public:
     [[nodiscard]] uint32 GetFreePrimaryProfessionPoints() const { return GetUInt32Value(PLAYER_CHARACTER_POINTS2); }
     void SetFreePrimaryProfessions(uint16 profs) { SetUInt32Value(PLAYER_CHARACTER_POINTS2, profs); }
     void InitPrimaryProfessions();
+    [[nodiscard]] bool SpendsPrimaryProfessionSlot(SpellInfo const* spellInfo) const;
 
     [[nodiscard]] PlayerSpellMap const& GetSpellMap() const { return m_spells; }
     PlayerSpellMap&       GetSpellMap()       { return m_spells; }
@@ -2001,7 +1988,7 @@ public:
     bool UpdateSkillPro(uint16 SkillId, int32 Chance, uint32 step);
 
     void RewardProfessionXP(uint32 skillId, uint32 current, uint32 gray, uint32 green, uint32 yellow,
-        bool disenchanting = false);
+        bool disenchanting = false, bool crafted = false);
     bool UpdateCraftSkill(uint32 spellid);
     bool UpdateGatherSkill(uint32 SkillId, uint32 SkillValue, uint32 RedLevel, uint32 Multiplicator = 1);
     bool UpdateFishingSkill();
@@ -2015,6 +2002,7 @@ public:
     float GetManaBonusFromIntellect();
 
     bool UpdateStats(Stats stat) override;
+    [[nodiscard]] float GetExactStatValue(Stats stat) const;
     bool UpdateAllStats() override;
     void ApplySpellPenetrationBonus(int32 amount, bool apply);
     void UpdateResistances(uint32 school) override;
@@ -2232,14 +2220,14 @@ public:
 
     bool IsAtGroupRewardDistance(WorldObject const* pRewardSource) const;
     bool IsAtLootRewardDistance(WorldObject const* pRewardSource) const;
-    bool IsAtRecruitAFriendDistance(WorldObject const* pOther) const;
+    bool IsAtRecruitAFriendDistance(WorldObject const* pOther, bool forXP = false) const;
     void RewardPlayerAndGroupAtKill(Unit* victim, bool isBattleGround);
     void RewardPlayerAndGroupAtEvent(uint32 creature_id, WorldObject* pRewardSource);
     bool isHonorOrXPTarget(Unit* victim) const;
 
     bool GetsRecruitAFriendBonus(bool forXP);
-    uint8 GetGrantableLevels() { return m_grantableLevels; }
-    void SetGrantableLevels(uint8 val) { m_grantableLevels = val; }
+    uint8 GetGrantableLevels() const { return m_grantableLevels; }
+    void SetGrantableLevels(uint8 val);
 
     ReputationMgr&       GetReputationMgr()       { return *m_reputationMgr; }
     [[nodiscard]] ReputationMgr const& GetReputationMgr() const { return *m_reputationMgr; }
@@ -2362,6 +2350,7 @@ public:
     void CastItemCombatSpell(Unit* target, WeaponAttackType attType, uint32 procVictim, uint32 procEx, Item* item, ItemTemplate const* proto);
 
     void SendEquipmentSetList();
+    [[nodiscard]] EquipmentSets const& GetEquipmentSets() const { return m_EquipmentSets; }
     void SetEquipmentSet(uint32 index, EquipmentSet eqset);
     void DeleteEquipmentSet(uint64 setGuid);
 
@@ -2756,6 +2745,7 @@ public:
 
     [[nodiscard]] float GetRealParry() const { return m_realParry; }
     [[nodiscard]] float GetRealDodge() const { return m_realDodge; }
+    void SetRealDodgeParryForTest(float dodge, float parry) { m_realDodge = dodge; m_realParry = parry; }
     // mt maps
     [[nodiscard]] PlayerTalentMap const& GetTalentMap() const { return m_talents; }
     [[nodiscard]] uint32 GetNextSave() const { return m_nextSave; }
@@ -2861,6 +2851,11 @@ protected:
     QuestSet m_weeklyquests;
     QuestSet m_monthlyquests;
     SeasonalEventQuestMap m_seasonalquests;
+    QuestLogSlots m_questLogSlots;
+    bool m_questLogPromotionPending = false;
+    void MirrorQuestSlot(uint16 slot);
+    uint16 MoveQuestToNativeLog(uint16 slot);
+    void PinTimedQuestsToNativeLog();
 
     ObjectGuid m_divider;
     uint32 m_ingametime;
@@ -3111,6 +3106,7 @@ protected:
     bool m_needZoneUpdate;
 
 private:
+    [[nodiscard]] bool HasStoredActiveSpell(uint32 spell) const;
     // internal common parts for CanStore/StoreItem functions
     InventoryResult CanStoreItem_InSpecificSlot(uint8 bag, uint8 slot, ItemPosCountVec& dest, ItemTemplate const* pProto, uint32& count, bool swap, Item* pSrcItem) const;
     InventoryResult CanStoreItem_InBag(uint8 bag, ItemPosCountVec& dest, ItemTemplate const* pProto, uint32& count, bool merge, bool non_specialized, Item* pSrcItem, uint8 skip_bag, uint8 skip_slot) const;

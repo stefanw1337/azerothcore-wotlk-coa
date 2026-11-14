@@ -114,9 +114,12 @@ void Pet::AddToWorld()
                 owner->SetLastPetSpell(GetUInt32Value(UNIT_CREATED_BY_SPELL));
             }
         }
-
-        sScriptMgr->OnPetAddToWorld(this);
     }
+
+    // a tamed pet enters the world before Unit::SetMinion gives it its owner GUID (Spell::EffectTameCreature):
+    // the hook goes by the owning player the pet was created for
+    if (GetOwner())
+        sScriptMgr->OnPetAddToWorld(this);
 }
 
 void Pet::RemoveFromWorld()
@@ -849,7 +852,13 @@ void Pet::Update(uint32 diff)
                     }
                 }
 
-                if (getPetType() == HUNTER_PET)
+                // CoA: Wildwalker pets are always happy (Ascension changelog 70528)
+                if (getPetType() == HUNTER_PET && GetOwner()->getClass() == CLASS_WILDWALKER)
+                {
+                    if (GetPower(POWER_HAPPINESS) != GetMaxPower(POWER_HAPPINESS))
+                        SetPower(POWER_HAPPINESS, GetMaxPower(POWER_HAPPINESS));
+                }
+                else if (getPetType() == HUNTER_PET)
                 {
                     m_happinessTimer -= diff;
                     if (m_happinessTimer <= int32(0))
@@ -1019,8 +1028,10 @@ bool Pet::CreateBaseAtTamed(CreatureTemplate const* cinfo, Map* map, uint32 phas
     {
         SetUInt32Value(UNIT_FIELD_BYTES_0, 0x02020100);
         SetSheath(SHEATH_STATE_MELEE);
-        SetByteFlag(UNIT_FIELD_BYTES_2, 2, UNIT_CAN_BE_RENAMED | UNIT_CAN_BE_ABANDONED);
     }
+    // CoA tames demons, undead, dragonkin and elementals too; without these flags the client offers
+    // Dismiss instead of Abandon, and that Dismiss deletes the hunter pet
+    SetByteFlag(UNIT_FIELD_BYTES_2, 2, UNIT_CAN_BE_RENAMED | UNIT_CAN_BE_ABANDONED);
 
     return true;
 }
@@ -1682,7 +1693,9 @@ void Pet::_SaveAuras(CharacterDatabaseTransaction trans)
             continue;
 
         Aura* aura = itr->second;
-        if (aura->GetDuration() < 60 * IN_MILLISECONDS)
+        // A permanent aura reports duration -1, so it must not be caught by this short-duration
+        // test: doing so drops it from every pet save, including the one taken at logout.
+        if (!aura->IsPermanent() && aura->GetDuration() < 60 * IN_MILLISECONDS)
             continue;
 
         // dont save infinite negative auras! (lavas, transformations etc)
@@ -2289,9 +2302,11 @@ bool Pet::IsPermanentPetFor(Player* owner) const
             else if (owner->IsClass(CLASS_DEATH_KNIGHT, CLASS_CONTEXT_PET))
                 return GetCreatureTemplate()->type == CREATURE_TYPE_UNDEAD;
             else if (owner->IsClass(CLASS_MAGE, CLASS_CONTEXT_PET))
-                return GetEntry() == 37994;
+                return GetStockPetEntry(GetEntry()) == NPC_WATER_ELEMENTAL_PERM;
+            else if (owner->IsClass(CLASS_TINKER, CLASS_CONTEXT_PET))
+                return GetCreatureTemplate()->type == CREATURE_TYPE_MECHANICAL;
             else
-                return false;
+                return IsAscensionClass(owner->getClass());
         case HUNTER_PET:
             return true;
         default:

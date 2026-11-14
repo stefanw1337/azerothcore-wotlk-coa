@@ -15,6 +15,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "AscensionBazaarTokenReserve.h"
 #include "Guild.h"
 #include "Bag.h"
 #include "CalendarMgr.h"
@@ -776,6 +777,14 @@ bool Guild::PlayerMoveItemData::InitItem()
             m_pPlayer->SendEquipError(EQUIP_ERR_ITEMS_CANT_BE_SWAPPED, m_pItem);
             m_pItem = nullptr;
         }
+        // Elite Warchest Bazaar Tokens are Realm Bound: the account must keep its reserve.
+        else if (m_pItem->GetEntry() == AscensionBazaarTokenReserve::TOKEN_ITEM
+            && !AscensionBazaarTokenReserve::CanGiveAway(m_pPlayer, m_pItem->GetCount()))
+        {
+            AscensionBazaarTokenReserve::SendRefusal(m_pPlayer);
+            m_pPlayer->SendEquipError(EQUIP_ERR_ITEMS_CANT_BE_SWAPPED, m_pItem);
+            m_pItem = nullptr;
+        }
     }
     return (m_pItem != nullptr);
 }
@@ -1462,9 +1471,18 @@ void Guild::HandleBuyBankTab(WorldSession* session, uint8 tabId)
 
     player->ModifyMoney(-int32(tabCost));
 
+    HandleUnlockBankTab(session);
+}
+
+bool Guild::HandleUnlockBankTab(WorldSession* session)
+{
+    if (_GetPurchasedTabsSize() >= GUILD_BANK_MAX_TABS)
+        return false;
+
     _CreateNewBankTab();
     _BroadcastEvent(GE_BANK_TAB_PURCHASED);
     SendPermissions(session); /// Hack to force client to update permissions
+    return true;
 }
 
 void Guild::HandleInviteMember(WorldSession* session, std::string const& name)

@@ -15,6 +15,9 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "AscensionItemRecovery.h"
+#include "AscensionCosmeticPetTokens.h"
+#include "AscensionVanityOwnership.h"
 #include "Common.h"
 #include "Item.h"
 #include "LocalLevelScaling.h"
@@ -26,8 +29,10 @@
 #include "ScriptMgr.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
+#include "World.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
+#include <algorithm>
 #include <cmath>
 
 #include "ItemPackets.h"
@@ -308,7 +313,11 @@ void WorldSession::HandleDestroyItemOpcode(WorldPackets::Item::DestroyItem& pack
         return;
     }
 
-    recoveryItem(pItem);
+    uint32 const removedCount = packet.Count ? std::min<uint32>(packet.Count, pItem->GetCount()) : pItem->GetCount();
+    bool const archived = AscensionItemRecovery::Capture && AscensionItemRecovery::Capture(_player, pItem,
+        removedCount, AscensionItemRecovery::Source::Deleted, 0);
+    if (!archived)
+        RecordRecoveryItem(pItem, packet.Count);
 
     if (packet.Count)
     {
@@ -319,6 +328,8 @@ void WorldSession::HandleDestroyItemOpcode(WorldPackets::Item::DestroyItem& pack
     {
         _player->DestroyItem(packet.Bag, packet.Slot, true);
     }
+    if (archived && AscensionItemRecovery::Persist)
+        AscensionItemRecovery::Persist(_player);
     _player->SendQuestGiverStatusMultiple();
 }
 
@@ -435,7 +446,10 @@ void WorldSession::SendItemQuerySingleResponse(uint32 item)
         queryData << pProto->AllowableClass;
         queryData << pProto->AllowableRace;
         queryData << pProto->ItemLevel;
-        queryData << pProto->RequiredLevel;
+        uint32 const requiredLevel = pProto->ScriptId != 0 &&
+            pProto->ScriptId == sObjectMgr->GetScriptId("item_ascension_prestigious_cache")
+            ? uint32(sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL)) : pProto->RequiredLevel;
+        queryData << requiredLevel;
         queryData << pProto->RequiredSkill;
         queryData << pProto->RequiredSkillRank;
         queryData << pProto->RequiredSpell;
@@ -666,9 +680,6 @@ void WorldSession::HandleSellItemOpcode(WorldPackets::Item::SellItem& packet)
                     return;
                 }
 
-                if (sWorld->getBoolConfig(CONFIG_ITEMDELETE_VENDOR))
-                    recoveryItem(pItem);
-
                 uint32 maxDurability = pItem->GetUInt32Value(ITEM_FIELD_MAXDURABILITY);
                 if (maxDurability)
                 {
@@ -740,6 +751,8 @@ void WorldSession::HandleSellItemOpcode(WorldPackets::Item::SellItem& packet)
                 }
 
                 _player->ModifyMoney(money);
+                if (AscensionItemRecovery::Persist)
+                    AscensionItemRecovery::Persist(_player);
                 _player->UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_MONEY_FROM_VENDORS, money);
             }
             else
@@ -792,6 +805,8 @@ void WorldSession::HandleBuybackItem(WorldPackets::Item::BuybackItem& packet)
             _player->RemoveItemFromBuyBackSlot(packet.Slot, false);
             _player->ItemAddedQuestCheck(pItem->GetEntry(), pItem->GetCount());
             _player->StoreItem(dest, pItem, true);
+            if (AscensionItemRecovery::Persist)
+                AscensionItemRecovery::Persist(_player);
         }
         else
             _player->SendEquipError(msg, pItem, nullptr);
@@ -928,6 +943,18 @@ void WorldSession::SendListInventory(ObjectGuid vendorGuid, uint32 vendorEntry)
                 // Items sold out are not displayed in list
                 uint32 leftInStock = !item->maxcount ? 0xFFFFFFFF : vendor->GetVendorItemCurrentCount(item);
                 if (!_player->IsGameMaster() && !leftInStock)
+                {
+                    continue;
+                }
+
+                // Vanity items the account already owns are delivered from its collection, not sold again
+                if (!_player->IsGameMaster() && AscensionVanityOwnership::OwnsItem(_player, item->item))
+                {
+                    continue;
+                }
+
+                // Cosmetic pet tokens only sell on realm types whose classes can use them
+                if (!_player->IsGameMaster() && !AscensionCosmeticPetTokens::AvailableOnRealm(item->item))
                 {
                     continue;
                 }
@@ -1487,7 +1514,7 @@ void WorldSession::HandleItemTextQuery(WorldPacket& recvData )
     SendPacket(&data);
 }
 
-bool WorldSession::recoveryItem(Item* pItem)
+bool WorldSession::RecordRecoveryItem(Item* pItem, uint32 count)
 {
     if (sWorld->getBoolConfig(CONFIG_ITEMDELETE_METHOD)
             && pItem->GetTemplate()->Quality >= sWorld->getIntConfig(CONFIG_ITEMDELETE_QUALITY)
@@ -1497,9 +1524,9 @@ bool WorldSession::recoveryItem(Item* pItem)
 
         stmt->SetData(0, pItem->GetOwnerGUID().GetCounter());
         stmt->SetData(1, pItem->GetTemplate()->ItemId);
-        stmt->SetData(2, pItem->GetCount());
+        stmt->SetData(2, count ? std::min(count, pItem->GetCount()) : pItem->GetCount());
 
-        CharacterDatabase.Query(stmt);
+        CharacterDatabase.DirectExecute(stmt);
 
         return true;
     }

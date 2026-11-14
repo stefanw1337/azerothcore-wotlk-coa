@@ -27,9 +27,11 @@
 #include "Containers.h"
 #include "Creature.h"
 #include "CreatureAI.h"
+#include "Log.h"
 #include "Player.h"
 #include "ScriptMgr.h"
 #include "ThreatManager.h"
+#include "TrainingDummyDefines.h"
 #include "Unit.h"
 #include "UnitAI.h"
 
@@ -61,7 +63,18 @@
         return false;
     // ...not friendly, unless one side is hostile (asymmetric aggressor wins)
     if ((a->IsFriendlyTo(b) || b->IsFriendlyTo(a)) && !a->IsHostileTo(b) && !b->IsHostileTo(a))
-        return false;
+    {
+        auto isHealingPractice = [](Unit const* dummy, Unit const* participant)
+        {
+            Creature const* creature = dummy->ToCreature();
+            return creature && participant->GetCharmerOrOwnerPlayerOrPlayerItself()
+                && creature->GetEntry() == 666935
+                && creature->GetScriptName() == "npc_advanced_training_dummy" && creature->IsAIEnabled
+                && creature->AI()->GetData(DATA_HEALING_PRACTICE_ACTIVE);
+        };
+        if (!isHealingPractice(a, b) && !isHealingPractice(b, a))
+            return false;
+    }
     Player const* playerA = a->GetCharmerOrOwnerPlayerOrPlayerItself();
     Player const* playerB = b->GetCharmerOrOwnerPlayerOrPlayerItself();
     // ...neither of the two units must be (owned by) a player with .gm on
@@ -229,6 +242,11 @@ bool CombatManager::SetInCombatWith(Unit* who, bool addSecondUnitSuppressed)
     // Otherwise, check validity...
     if (!CombatManager::CanBeginCombat(_owner, who))
         return false;
+
+    CombatManager& whoManager = who->GetCombatManager();
+    if (whoManager._pvpRefs.erase(_owner->GetGUID()) + whoManager._pveRefs.erase(_owner->GetGUID()))
+        LOG_ERROR("entities.unit.combat", "CombatManager::SetInCombatWith: dropped a one-sided combat reference of {} to {}",
+            who->GetGUID().ToString(), _owner->GetGUID().ToString());
 
     // ...then create new reference
     CombatReference* ref;

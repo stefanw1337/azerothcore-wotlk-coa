@@ -59,6 +59,7 @@ namespace CoAPrestige
         bool active = false;
         uint32_t specialization = 0;
         bool signaturePending = false;
+        uint32_t dailyQuest = 0;
 
         bool operator==(State const&) const = default;
     };
@@ -74,14 +75,18 @@ namespace CoAPrestige
             state.specialization = values[2];
         if (values.size() > 3)
             state.signaturePending = values[3] != 0;
+        if (values.size() > 4)
+            state.dailyQuest = values[4];
         return state;
     }
 
     inline std::vector<uint32_t> EncodeState(State const& state)
     {
         std::vector<uint32_t> values{ state.level, state.active ? 1u : 0u, state.specialization };
-        if (state.signaturePending)
-            values.push_back(1);
+        if (state.signaturePending || state.dailyQuest)
+            values.push_back(state.signaturePending ? 1u : 0u);
+        if (state.dailyQuest)
+            values.push_back(state.dailyQuest);
         return values;
     }
 
@@ -89,7 +94,6 @@ namespace CoAPrestige
     {
         None,
         Disabled,
-        NotCustomClass,
         BelowLevel,
         InProgress,
         NoSpecialization,
@@ -99,12 +103,16 @@ namespace CoAPrestige
         NotInOpenWorld
     };
 
+    inline uint32_t ResolveRequiredLevel(uint32_t realmCap)
+    {
+        return std::max(2u, realmCap);
+    }
+
     struct ActivationFacts
     {
         bool enabled = true;
-        bool customClass = true;
         uint32_t level = 0;
-        uint32_t requiredLevel = 60;
+        uint32_t requiredLevel = 0;
         bool active = false;
         uint32_t specialization = 0;
         bool alive = true;
@@ -117,8 +125,6 @@ namespace CoAPrestige
     {
         if (!facts.enabled)
             return Refusal::Disabled;
-        if (!facts.customClass)
-            return Refusal::NotCustomClass;
         if (facts.level < facts.requiredLevel)
             return Refusal::BelowLevel;
         if (facts.active)
@@ -144,8 +150,6 @@ namespace CoAPrestige
                 return {};
             case Refusal::Disabled:
                 return "Chromie cannot wind back time right now.";
-            case Refusal::NotCustomClass:
-                return "Prestige Mode is only available to Conquest of Azeroth classes.";
             case Refusal::BelowLevel:
                 return "You must be level " + std::to_string(requiredLevel) +
                     " or higher to participate in Prestige Mode";
@@ -165,8 +169,8 @@ namespace CoAPrestige
         return {};
     }
 
-    // Once Prestige Mode is active the specialization stays locked until the character is back at
-    // the required level; choosing the locked specialization again is not a switch.
+    // Warcraft Reborn keeps its talent specialization locked during Prestige. Custom-class
+    // archetypes use separate slot-switch protection instead.
     inline bool IsSpecializationSwitchAllowed(State const& state, uint32_t requestedSpecialization)
     {
         return !state.active || !state.specialization || requestedSpecialization == state.specialization;
@@ -246,9 +250,9 @@ namespace CoAPrestige
         return rewards;
     }
 
-    inline uint32_t ApplyExperienceBonus(uint32_t amount, uint32_t bonusPercent)
+    inline uint32_t ApplyExperienceBonus(uint32_t amount, uint32_t totalPercent)
     {
-        uint64_t const boosted = uint64_t(amount) * (100u + uint64_t(bonusPercent)) / 100u;
+        uint64_t const boosted = uint64_t(amount) * totalPercent / 100u;
         return uint32_t(std::min<uint64_t>(boosted, std::numeric_limits<uint32_t>::max()));
     }
 
@@ -311,6 +315,24 @@ namespace CoAPrestige
     constexpr uint32_t DailyCreditBattlegrounds = 900002; // "Battlegrounds Completed"
     constexpr uint32_t DailyCreditDungeons      = 900003; // "Dungeons Completed"
     constexpr uint32_t DailyCreditWorldQuests   = 900004; // "Daily Quests Completed"
+
+    struct RidingTome
+    {
+        uint32_t spell = 0;
+        uint32_t tome = 0;
+    };
+
+    // The "Riding Tome: <tier> (Prestige)" items, which the CoA world package
+    // (data/coa-world) defines; data/sql holds no item_template row for them.
+    constexpr RidingTome RidingTomes[] =
+    {
+        { 33388, 2200037 },
+        { 33391, 1039605 },
+        { 34090, 1046168 },
+        { 34091, 1052731 },
+        { 91774, 2179243 },
+        { 54197, 2179244 },
+    };
 
     constexpr uint32_t DailyQuestBattlegrounds = 80954; // "Prestige: Battlegrounds"
     constexpr uint32_t DailyQuestDungeons = 80955;      // "Prestige: Dungeons"

@@ -238,6 +238,12 @@ extern std::array<char const*, PRESET_SAVE_RESULT_COUNT> const PRESET_SAVE_RESUL
 extern std::array<char const*, PRESET_SET_ACTIVE_RESULT_COUNT> const PRESET_SET_ACTIVE_RESULTS;
 extern std::array<char const*, PRESET_UNLOCK_RESULT_COUNT> const PRESET_UNLOCK_RESULTS;
 
+struct NamedTransform
+{
+    std::string From;
+    std::uint32_t To = 0;
+};
+
 struct Enchant
 {
     std::uint32_t Id = 0;
@@ -247,6 +253,9 @@ struct Enchant
     std::uint32_t RebornQuality = QUALITY_POOR;
     std::uint32_t RequiredLevel = 0;
     std::uint32_t Item = 0;
+    std::vector<std::uint32_t> Taught;
+    bool Transforms = false;
+    NamedTransform Named;
     bool Worldforged = false;
     std::array<bool, REALM_COUNT> Realms{};
     std::uint64_t ClassMask = 0;
@@ -397,6 +406,8 @@ struct GuideEnchant
 };
 
 Slots GuideSlots(Catalog const& catalog, Character const& character, Slots const& current,
+    std::vector<GuideEnchant> const& guide);
+std::vector<std::uint32_t> GuideLessons(Catalog const& catalog, Character const& character,
     std::vector<GuideEnchant> const& guide);
 std::uint64_t LevelProgress(std::uint32_t level);
 std::uint64_t ReforgeProgressGain(Enchant const& enchant, double multiplier);

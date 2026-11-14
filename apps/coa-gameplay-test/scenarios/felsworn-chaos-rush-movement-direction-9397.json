@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "name": "Chaos Rush dashes in the held movement direction instead of the caster's facing (#9397)",
+  "contract": "Chaos Rush 500028's tooltip reads 'dash forward in the direction you're running'. It triggers Chaos Rush Jump 802028, whose effect 0 is SPELL_EFFECT_CHARGE_DEST with EffectImplicitTargetA TARGET_DEST_CASTER_FRONT; Spell::SelectImplicitCasterDestTargets resolves that destination with WorldObject::MovePositionToFirstCollision(pos, dist, 0) around the caster's current orientation, so the native charge forced the caster toward the dummy they faced even while holding S (backpedal) or Q (strafe), i.e. always facing-direction regardless of the movement key held. The fix overrides the destination in OnDestinationTargetSelect to MovePositionToFirstCollision(pos, dist, atan2(strafe, forward)) whenever a movement key is held, so the native SPELL_EFFECT_CHARGE_DEST handler still runs a full-distance server-driven MoveCharge, just toward the held direction instead of the caster's facing. The fixture faces +X (orientation 0) with a dummy 30 yd ahead; a stationary cast still lunges forward (no movement key, no bug to trigger). Holding S (pure backward) must move the caster directly away from the dummy by the 10 yd radius (distance 30 -> 40); holding Q (pure strafe_left, perpendicular to facing) must move the caster sideways, increasing the 2D distance to the dummy by only sqrt(30^2+10^2)-30 ~= 1.62 yd, not the 10 yd a facing-direction lunge toward the dummy would still close. Both figures are derived independently from the fixture geometry, not read off the current implementation. The movement flag is set through the harness rather than a real client, so this establishes the server computes the correct destination; proving a real client's own steered displacement lands exactly there needs the client lab and is outside this scenario's evidence.",
+  "timeout_ms": 90000,
+  "location": { "map": 0, "x": -8917.41, "y": -115.853, "z": 82.3711, "o": 0 },
+  "players": [
+    { "id": "dh", "race": 1, "class": 14, "level": 80 }
+  ],
+  "creatures": [
+    { "id": "e", "owner": "dh", "entry": 36, "level": 80, "health": 500000, "distance": 30 }
+  ],
+  "steps": [
+    { "action": "wait", "label": "Let spawn AI and level scaling settle", "ms": 3000 },
+    { "action": "learn", "actor": "dh", "spell": 500028 },
+    { "action": "assert", "label": "SETUP: the Felsworn knows Chaos Rush", "actor": "dh", "metric": "knows_spell", "spell": 500028, "equals": 1 },
+
+    { "action": "snapshot", "label": "Gap to the dummy before any cast", "actor": "dh", "metric": "distance_2d", "target": "e", "save_as": "still0" },
+    { "action": "reset_cooldown", "actor": "dh", "spell": 500028 },
+    { "action": "cast", "label": "CONTROL: stand still and use Chaos Rush", "actor": "dh", "spell": 500028 },
+    { "action": "assert", "label": "SETUP: the standing cast was accepted", "actor": "dh", "metric": "cast_failure", "spell": 500028, "equals": 0 },
+    { "action": "wait", "label": "Let the standing dash finish", "ms": 2000 },
+    {
+      "action": "assert", "label": "CONTROL: a standing Felsworn with no movement key held still dashes forward, closing the 30 yd gap by the 10 yd radius",
+      "actor": "dh", "metric": "distance_2d", "target": "e", "relative_to": "still0", "min": -14, "max": -4
+    },
+
+    { "action": "set_moving", "label": "Hold S: backpedal without turning", "actor": "dh", "enabled": true, "flag": "backward" },
+    { "action": "assert", "label": "SETUP: the Felsworn is moving", "actor": "dh", "metric": "moving", "equals": 1 },
+    { "action": "snapshot", "label": "Gap before the backpedalling cast", "actor": "dh", "metric": "distance_2d", "target": "e", "save_as": "back0" },
+    { "action": "reset_cooldown", "actor": "dh", "spell": 500028 },
+    { "action": "cast", "label": "Chaos Rush while holding S", "actor": "dh", "spell": 500028 },
+    { "action": "assert", "label": "SETUP: the backpedalling cast was accepted", "actor": "dh", "metric": "cast_failure", "spell": 500028, "equals": 0 },
+    { "action": "wait", "label": "Let any residual charge or surge finish", "ms": 2000 },
+    {
+      "action": "assert", "label": "DISCRIMINATING: holding S dashes the Felsworn away from the dummy by the 10 yd radius, not toward it",
+      "actor": "dh", "metric": "distance_2d", "target": "e", "relative_to": "back0", "min": 4, "max": 14
+    },
+    { "action": "set_moving", "label": "Release S", "actor": "dh", "enabled": false, "flag": "backward" },
+    { "action": "assert", "label": "SETUP: the Felsworn has stopped", "actor": "dh", "metric": "moving", "equals": 0 },
+
+    { "action": "set_moving", "label": "Hold Q: strafe left without turning", "actor": "dh", "enabled": true, "flag": "strafe_left" },
+    { "action": "assert", "label": "SETUP: the Felsworn is moving sideways", "actor": "dh", "metric": "moving", "equals": 1 },
+    { "action": "snapshot", "label": "Gap before the strafing cast", "actor": "dh", "metric": "distance_2d", "target": "e", "save_as": "strafe0" },
+    { "action": "wait", "label": "Let the dash cooldown clear", "ms": 2000 },
+    { "action": "reset_cooldown", "actor": "dh", "spell": 500028 },
+    { "action": "cast", "label": "Chaos Rush while holding Q", "actor": "dh", "spell": 500028 },
+    { "action": "assert", "label": "SETUP: the strafing cast was accepted", "actor": "dh", "metric": "cast_failure", "spell": 500028, "equals": 0 },
+    { "action": "wait", "label": "Let any residual charge or surge finish", "ms": 2000 },
+    {
+      "action": "assert", "label": "DISCRIMINATING: holding Q dashes the Felsworn sideways (small distance increase), not toward the dummy it faces",
+      "actor": "dh", "metric": "distance_2d", "target": "e", "relative_to": "strafe0", "min": 0.5, "max": 3.0
+    },
+    { "action": "set_moving", "label": "Release Q", "actor": "dh", "enabled": false, "flag": "strafe_left" },
+    { "action": "assert", "label": "SETUP: the Felsworn has stopped again", "actor": "dh", "metric": "moving", "equals": 0 }
+  ]
+}

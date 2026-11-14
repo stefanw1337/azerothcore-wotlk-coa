@@ -25,16 +25,23 @@ uint32 SelectPrimalWeapon(Player* player, bool allowUnconfirmed = false)
 {
     if (!IsAscensionPrimalistWeaponsEligible(player, allowUnconfirmed))
         return 0;
-    Item* weapon = player->GetWeaponForAttack(BASE_ATTACK, true);
-    if (!weapon)
+    Item* weapon = player->GetWeaponForAttack(BASE_ATTACK);
+    if (!weapon || weapon->IsBroken())
         return 0;
     ItemTemplate const* item = weapon->GetTemplate();
-    for (uint32 id : {SPELL_BESTIAL_MIGHT, SPELL_PRIMAL_MIGHT})
-        if (SpellInfo const* info = sSpellMgr->GetSpellInfo(id))
-            if (item->Class == uint32(info->EquippedItemClass) && item->SubClass < 32 &&
-                (info->EquippedItemSubClassMask & (uint32(1) << item->SubClass)))
-                return id;
-    return 0;
+    if (item->Class != ITEM_CLASS_WEAPON)
+        return 0;
+
+    switch (item->InventoryType)
+    {
+        case INVTYPE_2HWEAPON:
+            return SPELL_PRIMAL_MIGHT;
+        case INVTYPE_WEAPON:
+        case INVTYPE_WEAPONMAINHAND:
+            return SPELL_BESTIAL_MIGHT;
+        default:
+            return 0;
+    }
 }
 
 class spell_ascension_primal_weapons : public SpellScript
@@ -142,8 +149,25 @@ void RemoveAscensionPrimalistWeapons(Player* player)
         pet->RemoveAurasDueToSpell(SPELL_PET_TALONFURY, player->GetGUID());
 }
 
+void ReconcileAscensionPrimalistWeapon(Player* player)
+{
+    if (!player || player->getClass() != CLASS_WILDWALKER)
+        return;
+    uint32 const selected = SelectPrimalWeapon(player, true);
+    for (uint32 id : {SPELL_BESTIAL_MIGHT, SPELL_PRIMAL_MIGHT})
+        if (id != selected && player->HasAura(id))
+            player->RemoveAurasDueToSpell(id, player->GetGUID());
+}
+
 void ApplyAscensionPrimalistWeaponsContract(SpellInfo* info)
 {
+    if ((info->Id == SPELL_BESTIAL_MIGHT || info->Id == SPELL_PRIMAL_MIGHT) && info->SpellFamilyName == 37)
+    {
+        info->EquippedItemClass = -1;
+        info->EquippedItemSubClassMask = 0;
+        info->EquippedItemInventoryTypeMask = 0;
+        return;
+    }
     if (info->Id != SPELL_PRIMAL_WEAPONS || info->SpellFamilyName != 37)
         return;
     info->Attributes = 0;

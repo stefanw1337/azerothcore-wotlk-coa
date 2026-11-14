@@ -260,6 +260,10 @@ enum PlayerHook
     PLAYERHOOK_ON_COA_PRESTIGE_SAVED,
     PLAYERHOOK_ON_MASTER_LOOT_ITEM,
     PLAYERHOOK_ON_GET_SHAPESHIFT_MODEL,
+    PLAYERHOOK_ON_GET_NAME_QUERY_RACE,
+    PLAYERHOOK_CAN_LFG_TELEPORT,
+    PLAYERHOOK_ON_HOLDS_TANK_OR_HEALER_ROLE,
+    PLAYERHOOK_ON_SAVE_INVENTORY,
     PLAYERHOOK_END
 };
 
@@ -277,7 +281,25 @@ enum class CoAProgressEvent : uint8
     VanityDelivered,
     VanityCollected,
     AppearanceCollected,
-    ExperimentalTeleporter
+    ExperimentalTeleporter,
+    OutfitSaved,
+    MysticScrollPurchased,
+    MysticScrollReforged,
+    MysticExtractEarned,
+    MysticEnchantExtracted,
+    MysticCollectionApplied,
+    MysticScrollApplied,
+    MysticPresetActivated,
+    ArchitectOpened,
+    BuildActivated,
+    SoloArenaQueued,
+    WildcardScrollUnlearned,
+    WildcardEntryLocked,
+    WildcardCardPackOpened,
+    WildcardStarterCardSet,
+    WildcardScrollsClaimed,
+    WildcardScrollsRepurchased,
+    WildcardRapidRolled
 };
 
 class PlayerScript : public ScriptObject
@@ -364,6 +386,10 @@ public:
     // returns true.
     virtual bool OnPlayerHasNoBonusExperience(Player* /*player*/) { return false; }
 
+    // Whether the player's active specialization tanks or heals. Vanilla 5-player dungeon bosses never use
+    // sleep, charm or possession on such a player (BossControlTargeting.h).
+    virtual bool OnPlayerHoldsTankOrHealerRole(Player const* /*player*/) { return false; }
+
     // Called when a player, or a unit they control, lands the killing blow on a player that counted as an honorable kill
     virtual void OnPlayerHonorableKillingBlow(Player* /*killer*/, Player* /*victim*/) { }
 
@@ -430,6 +456,7 @@ public:
 
     // Called when a player is about to be saved.
     virtual void OnPlayerSave(Player* /*player*/) { }
+    virtual void OnPlayerSaveInventory(Player* /*player*/, CharacterDatabaseTransaction /*trans*/) { }
 
     virtual void OnPlayerNormalizeActionButtonSpell(Player* /*player*/, uint32& /*action*/, bool /*loading*/) { }
 
@@ -701,6 +728,9 @@ public:
     // Model the player takes in a shapeshift form; leaving modelId at 0 keeps the form's own model.
     virtual void OnPlayerGetShapeshiftModel(Player* /*player*/, uint8 /*form*/, uint32 /*spellId*/, uint32& /*modelId*/) { }
 
+    // Race sent in name query responses; the client places a battleground scoreboard row by its faction.
+    virtual void OnPlayerGetNameQueryRace(Player* /*player*/, uint8& /*race*/) { }
+
     [[nodiscard]] virtual bool OnPlayerCanEquipItem(Player* /*player*/, uint8 /*slot*/, uint16& /*dest*/, Item* /*pItem*/, bool /*swap*/, bool /*not_loading*/) { return true; }
 
     [[nodiscard]] virtual bool OnPlayerCanUnequipItem(Player* /*player*/, uint16 /*pos*/, bool /*swap*/) { return true; }
@@ -737,6 +767,8 @@ public:
     [[nodiscard]] virtual bool OnPlayerNotSetArenaTeamInfoField(Player* /*player*/, uint8 /*slot*/, ArenaTeamInfoType /*type*/, uint32 /*value*/) { return true; } // Whats that?
 
     [[nodiscard]] virtual bool OnPlayerCanJoinLfg(Player* /*player*/, uint8 /*roles*/, std::set<uint32>& /*dungeons*/, std::string const& /*comment*/) { return true; }
+
+    [[nodiscard]] virtual bool OnPlayerCanLfgTeleport(Player* /*player*/) { return true; }
 
     [[nodiscard]] virtual bool OnPlayerCanEnterMap(Player* /*player*/, MapEntry const* /*entry*/, InstanceTemplate const* /*instance*/, MapDifficulty const* /*mapDiff*/, bool /*loginCheck*/) { return true; }
 

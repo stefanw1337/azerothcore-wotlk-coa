@@ -31,10 +31,12 @@ bool HasFreepickBuild(Player const* player);
 std::vector<AscensionCoATalentState::KnownEntry> KnownEntries(Player const* player);
 UploadResult ApplyUpload(Player* player, std::vector<AscensionCoATalentState::KnownEntry> const& upload);
 UploadResult ApplyGuide(Player* player, std::vector<GuideSpell> const& spells, std::uint32_t primaryStat);
+std::uint32_t PrestigeSpecialization(Player* player);
 void Synchronize(Player* player);
 std::array<bool, 5> RealmGates();
 std::uint32_t ActiveSpecialization(Player const* player);
 bool SwitchSpecialization(Player* player, std::uint32_t index, std::string& error);
+bool GmSetEntry(Player* player, std::uint32_t entryId, bool learn, std::string& error);
 std::uint32_t InvestedEssence(Player const* player, std::uint32_t classType, std::uint32_t tab, bool talent);
 }
 

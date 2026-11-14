@@ -56,7 +56,7 @@ void WorldConfig::BuildConfigCache()
     auto const validXPRate = [](float const& value) { return std::isfinite(value) && value >= 0.0f; };
     SetConfigValue<float>(RATE_XP_GLOBAL, "Rate.XP.Global", 0.9295f,
         ConfigValueCache::Reloadable::Yes, validXPRate, "finite and >= 0");
-    SetConfigValue<float>(RATE_XP_PROFESSION, "Rate.XP.Profession", 0.4f,
+    SetConfigValue<float>(RATE_XP_PROFESSION, "Rate.XP.Profession", 0.2f,
         ConfigValueCache::Reloadable::Yes, validXPRate, "finite and >= 0");
     SetConfigValue<float>(RATE_XP_PROFESSION_BASE_FRACTION, "Rate.XP.Profession.BaseFraction", 0.02f,
         ConfigValueCache::Reloadable::Yes, validXPRate, "finite and >= 0");
@@ -73,6 +73,8 @@ void WorldConfig::BuildConfigCache()
     SetConfigValue<float>(RATE_XP_PROFESSION_HERBALISM, "Rate.XP.Profession.Herbalism", 1.44f,
         ConfigValueCache::Reloadable::Yes, validXPRate, "finite and >= 0");
     SetConfigValue<float>(RATE_XP_PROFESSION_DISENCHANTING, "Rate.XP.Profession.Disenchanting", 1.44f,
+        ConfigValueCache::Reloadable::Yes, validXPRate, "finite and >= 0");
+    SetConfigValue<float>(RATE_XP_PROFESSION_SMELTING, "Rate.XP.Profession.Smelting", 0.0f,
         ConfigValueCache::Reloadable::Yes, validXPRate, "finite and >= 0");
     SetConfigValue<float>(RATE_XP_PROFESSION_SKINNING, "Rate.XP.Profession.Skinning", 0.55f,
         ConfigValueCache::Reloadable::Yes, validXPRate, "finite and >= 0");
@@ -99,6 +101,10 @@ void WorldConfig::BuildConfigCache()
     SetConfigValue<float>(RATE_XP_PROFESSION_LOCKPICKING, "Rate.XP.Profession.Lockpicking", 0.0f,
         ConfigValueCache::Reloadable::Yes, validXPRate, "finite and >= 0");
     SetConfigValue<float>(RATE_XP_PROFESSION_INSCRIPTION, "Rate.XP.Profession.Inscription", 2.88f,
+        ConfigValueCache::Reloadable::Yes, validXPRate, "finite and >= 0");
+    SetConfigValue<float>(RATE_XP_PROFESSION_WOODCUTTING, "Rate.XP.Profession.Woodcutting", 0.33f,
+        ConfigValueCache::Reloadable::Yes, validXPRate, "finite and >= 0");
+    SetConfigValue<float>(RATE_XP_PROFESSION_WOODWORKING, "Rate.XP.Profession.Woodworking", 1.0f,
         ConfigValueCache::Reloadable::Yes, validXPRate, "finite and >= 0");
     SetConfigValue<float>(RATE_XP_KILL, "Rate.XP.Kill", 1.0909091f);
     SetConfigValue<float>(RATE_XP_KILL_TBC, "Rate.XP.Kill.TBC", 1.0909091f);
@@ -181,7 +187,9 @@ void WorldConfig::BuildConfigCache()
     SetConfigValue<bool>(CONFIG_MISS_CHANCE_MULTIPLIER_ONLY_FOR_PLAYERS, "Rate.MissChanceMultiplier.OnlyAffectsPlayer", false);
 
     SetConfigValue<float>(RATE_TALENT, "Rate.Talent", 1.0f, ConfigValueCache::Reloadable::Yes, [](float const& value) { return value >= 0.0f; }, ">= 0");
+    SetConfigValue<float>(RATE_THREAT_HEALING, "Rate.Threat.Healing", 0.25f, ConfigValueCache::Reloadable::Yes, [](float const& value) { return std::isfinite(value) && value >= 0.0f; }, "finite and >= 0");
     SetConfigValue<float>(RATE_TALENT_PET, "Rate.Talent.Pet", 1.0f, ConfigValueCache::Reloadable::Yes, [](float const& value) { return value >= 0.0f; }, ">= 0");
+    SetConfigValue<float>(RATE_THREAT_TANK_STANCE, "Rate.Threat.TankStance", 2.0f, ConfigValueCache::Reloadable::Yes, [](float const& value) { return std::isfinite(value) && value > 0.0f; }, "finite and > 0");
     // Controls Player movespeed rate.
     SetConfigValue<float>(RATE_MOVESPEED_PLAYER, "Rate.MoveSpeed.Player", 1.0f, ConfigValueCache::Reloadable::Yes, [](float const& value) { return value >= 0.0f; }, ">= 0");
 
@@ -190,6 +198,9 @@ void WorldConfig::BuildConfigCache()
 
     SetConfigValue<float>(RATE_CORPSE_DECAY_LOOTED, "Rate.Corpse.Decay.Looted", 0.5f);
     SetConfigValue<bool>(CONFIG_RESPAWN_TIMER_STARTS_AT_DEATH, "Respawn.TimerStartsAtDeath", true);
+    SetConfigValue<uint32>(CONFIG_RESPAWN_QUEST_TARGET_NAMED, "Respawn.QuestTarget.Named", 150);
+    SetConfigValue<uint32>(CONFIG_RESPAWN_QUEST_TARGET_GENERAL, "Respawn.QuestTarget.General", 0);
+    SetConfigValue<uint32>(CONFIG_RESPAWN_QUEST_TARGET_LONG_RESPAWN, "Respawn.QuestTarget.LongRespawn", 358);
 
     SetConfigValue<float>(RATE_DURABILITY_LOSS_ON_DEATH, "DurabilityLoss.OnDeath", 10.0f, ConfigValueCache::Reloadable::Yes, [](float const& value) { return value >= 0.0f && value <= 100.0f; }, ">= 0 && <= 100");
 
@@ -238,6 +249,7 @@ void WorldConfig::BuildConfigCache()
 
     SetConfigValue<float>(CONFIG_GROUP_XP_DISTANCE, "MaxGroupXPDistance", 74.0f);
     SetConfigValue<float>(CONFIG_MAX_RECRUIT_A_FRIEND_DISTANCE, "MaxRecruitAFriendBonusDistance", 100.0f);
+    SetConfigValue<float>(CONFIG_MAX_RECRUIT_A_FRIEND_XP_DISTANCE, "MaxRecruitAFriendXPDistance", 200.0f);
 
     SetConfigValue<float>(CONFIG_SIGHT_MONSTER, "MonsterSight", 50.0f);
 
@@ -256,6 +268,7 @@ void WorldConfig::BuildConfigCache()
     SetConfigValue<bool>(CONFIG_CHAT_FILTER_YELL, "ChatFilter.Yell", false);
     SetConfigValue<bool>(CONFIG_CHAT_FILTER_EMOTE, "ChatFilter.Emote", false);
 
+    SetConfigValue<bool>(CONFIG_ACCOUNT_WIDE_FRIENDS, "Social.AccountWideFriends", false, ConfigValueCache::Reloadable::No);
     SetConfigValue<bool>(CONFIG_ALLOW_TWO_SIDE_ACCOUNTS, "AllowTwoSide.Accounts", true);
     SetConfigValue<bool>(CONFIG_ALLOW_TWO_SIDE_INTERACTION_CALENDAR, "AllowTwoSide.Interaction.Calendar", false);
     SetConfigValue<bool>(CONFIG_ALLOW_TWO_SIDE_INTERACTION_CHAT, "AllowTwoSide.Interaction.Chat", false);
@@ -264,6 +277,9 @@ void WorldConfig::BuildConfigCache()
     SetConfigValue<bool>(CONFIG_ALLOW_TWO_SIDE_INTERACTION_GUILD, "AllowTwoSide.Interaction.Guild", false);
     SetConfigValue<bool>(CONFIG_ALLOW_TWO_SIDE_INTERACTION_ARENA, "AllowTwoSide.Interaction.Arena", false);
     SetConfigValue<bool>(CONFIG_ALLOW_TWO_SIDE_INTERACTION_AUCTION, "AllowTwoSide.Interaction.Auction", false);
+    SetConfigValue<bool>(CONFIG_ALLOW_TWO_SIDE_INTERACTION_MAIL, "AllowTwoSide.Interaction.Mail", true);
+    SetConfigValue<bool>(CONFIG_SOLO_KILL_REQUIRES_PLAYER_HIT, "SoloKill.RequirePlayerHit", true);
+    SetConfigValue<bool>(CONFIG_ALLOW_TWO_SIDE_TRADE, "AllowTwoSide.Trade", true);
     SetConfigValue<bool>(CONFIG_ALLOW_TWO_SIDE_WHO_LIST, "AllowTwoSide.WhoList", true);
 
     SetConfigValue<uint32>(CONFIG_MIN_PLAYER_NAME, "MinPlayerName", 2, ConfigValueCache::Reloadable::Yes, [](uint32 const& value) { return value > 0 && value <= MAX_PLAYER_NAME_PART; }, "> 0 && <= MAX_PLAYER_NAME_PART");
@@ -322,7 +338,15 @@ void WorldConfig::BuildConfigCache()
 
     SetConfigValue<uint32>(CONFIG_MAX_RECRUIT_A_FRIEND_BONUS_PLAYER_LEVEL, "RecruitAFriend.MaxLevel", 60, ConfigValueCache::Reloadable::Yes, [this](uint32 const& value) { return value <= GetConfigValue<uint32>(CONFIG_MAX_PLAYER_LEVEL); }, "<= CONFIG_MAX_PLAYER_LEVEL");
 
-    SetConfigValue<uint32>(CONFIG_MAX_RECRUIT_A_FRIEND_BONUS_PLAYER_LEVEL_DIFFERENCE, "RecruitAFriend.MaxDifference", 4);
+    SetConfigValue<uint32>(CONFIG_MAX_RECRUIT_A_FRIEND_BONUS_PLAYER_LEVEL_DIFFERENCE, "RecruitAFriend.MaxDifference", 30);
+    if (GetConfigValue<uint32>(CONFIG_MAX_RECRUIT_A_FRIEND_BONUS_PLAYER_LEVEL_DIFFERENCE) == 4)
+    {
+        LOG_INFO("server.loading", "RecruitAFriend.MaxDifference: upgrading legacy value 4 to 30.");
+        OverwriteConfigValue<uint32>(CONFIG_MAX_RECRUIT_A_FRIEND_BONUS_PLAYER_LEVEL_DIFFERENCE, 30);
+    }
+
+    SetConfigValue<uint32>(CONFIG_RECRUIT_A_FRIEND_SHARED_ADDRESS_LINKS, "RecruitAFriend.SharedAddressLinks", 2);
+
     SetConfigValue<bool>(CONFIG_ALL_TAXI_PATHS, "AllFlightPaths", false);
     SetConfigValue<uint32>(CONFIG_INSTANT_TAXI, "InstantFlightPaths", 0);
 
@@ -360,6 +384,17 @@ void WorldConfig::BuildConfigCache()
     SetConfigValue<bool>(CONFIG_CLASSIC_PLUS_COMBAT_RULES, "ClassicPlus.CombatRules", true);
     SetConfigValue<bool>(CONFIG_CLASSIC_PLUS_STAT_FORMULAS, "ClassicPlus.StatFormulas", true);
     SetConfigValue<bool>(CONFIG_CLASSIC_PLUS_REPUTATION_SPILLOVER, "ClassicPlus.ReputationSpillover", true);
+    SetConfigValue<bool>(CONFIG_MONSTER_RESISTANCE_ENABLE, "CoA.MonsterResistance.Enable", true);
+    SetConfigValue<float>(CONFIG_MONSTER_RESISTANCE_PER_LEVEL, "CoA.MonsterResistance.PerLevel", 1.0f,
+        ConfigValueCache::Reloadable::Yes,
+        [](float const& value) { return std::isfinite(value) && value >= 0.0f; }, "finite and >= 0");
+    SetConfigValue<float>(CONFIG_MONSTER_RESISTANCE_PER_PERCENT, "CoA.MonsterResistance.PerPercent", 5.0f,
+        ConfigValueCache::Reloadable::Yes,
+        [](float const& value) { return std::isfinite(value) && value > 0.0f; }, "finite and > 0");
+    SetConfigValue<float>(CONFIG_MONSTER_RESISTANCE_MAX_REDUCTION_PCT, "CoA.MonsterResistance.MaxReductionPct", 75.0f,
+        ConfigValueCache::Reloadable::Yes,
+        [](float const& value) { return std::isfinite(value) && value >= 0.0f && value <= 100.0f; },
+        "finite and between 0 and 100");
 
     SetConfigValue<bool>(CONFIG_OBJECT_QUEST_MARKERS, "Visibility.ObjectQuestMarkers", true);
 
@@ -434,6 +469,7 @@ void WorldConfig::BuildConfigCache()
     SetConfigValue<uint32>(CONFIG_CREATURE_FAMILY_ASSISTANCE_DELAY, "CreatureFamilyAssistanceDelay", 2000);
     SetConfigValue<uint32>(CONFIG_CREATURE_FAMILY_ASSISTANCE_PERIOD, "CreatureFamilyAssistancePeriod", 3000);
     SetConfigValue<uint32>(CONFIG_CREATURE_FAMILY_FLEE_DELAY, "CreatureFamilyFleeDelay", 7000);
+    SetConfigValue<bool>(CONFIG_CREATURE_FAMILY_FLEE_WALK, "CreatureFamilyFleeWalk", false);
 
     SetConfigValue<uint32>(CONFIG_WORLD_BOSS_LEVEL_DIFF, "WorldBossLevelDiff", 3);
 
@@ -445,6 +481,7 @@ void WorldConfig::BuildConfigCache()
     SetConfigValue<bool>(CONFIG_QUEST_IGNORE_RAID, "Quests.IgnoreRaid", false);
     SetConfigValue<bool>(CONFIG_QUEST_IGNORE_AUTO_ACCEPT, "Quests.IgnoreAutoAccept", false);
     SetConfigValue<bool>(CONFIG_QUEST_IGNORE_AUTO_COMPLETE, "Quests.IgnoreAutoComplete", false);
+    SetConfigValue<uint32>(CONFIG_QUEST_LOG_SIZE, "Quests.LogSize", NATIVE_QUEST_LOG_SIZE, ConfigValueCache::Reloadable::Yes, [](uint32 const& value) { return value >= NATIVE_QUEST_LOG_SIZE && value <= MAX_QUEST_LOG_SIZE; }, ">= 25 and <= 64");
 
     SetConfigValue<uint32>(CONFIG_RANDOM_BG_RESET_HOUR, "Battleground.Random.ResetHour", 6, ConfigValueCache::Reloadable::Yes, [](uint32 const& value) { return value <= 23; }, "<= 23");
     SetConfigValue<uint32>(CONFIG_CALENDAR_DELETE_OLD_EVENTS_HOUR, "Calendar.DeleteOldEventsHour", 6, ConfigValueCache::Reloadable::Yes, [](uint32 const& value) { return value <= 23; }, "<= 23");
@@ -658,7 +695,7 @@ void WorldConfig::BuildConfigCache()
     SetConfigValue<bool>(CONFIG_DBC_ENFORCE_ITEM_ATTRIBUTES, "DBC.EnforceItemAttributes", true);
 
     // Max instances per hour
-    SetConfigValue<uint32>(CONFIG_MAX_INSTANCES_PER_HOUR, "AccountInstancesPerHour", 5);
+    SetConfigValue<uint32>(CONFIG_MAX_INSTANCES_PER_HOUR, "AccountInstancesPerHour", 10);
 
     // AutoBroadcast
     SetConfigValue<bool>(CONFIG_AUTOBROADCAST, "AutoBroadcast.On", false);
@@ -775,4 +812,5 @@ void WorldConfig::BuildConfigCache()
     // Achievement
     SetConfigValue<uint32>(CONFIG_ACHIEVEMENT_REALM_FIRST_KILL_WINDOW, "Achievement.RealmFirstKillWindow", 60);
     SetConfigValue<bool>(CONFIG_ACHIEVEMENT_REALM_FIRST_RACE_LIMIT_ONE_PER_CHARACTER, "Achievement.RealmFirstRaceLimitOnePerCharacter", true);
+    SetConfigValue<bool>(CONFIG_ACHIEVEMENT_REALM_FIRST_BLOCK_BOTS, "Achievement.RealmFirstBlockBots", true);
 }

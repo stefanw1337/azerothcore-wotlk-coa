@@ -10,6 +10,7 @@
 #include "SpellAuras.h"
 #include "SpellMgr.h"
 #include "SpellScript.h"
+#include "ThreatManager.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -66,7 +67,8 @@ enum BloodmageSecondarySpells : uint32
     SPELL_RUNNING_WILD = 800175,
     SPELL_RUNNING_WILD_JOURNEYMAN = 520575,
     SPELL_BITE_WOUND = 706654,
-    SPELL_BITE_WOUND_PERCENT = 532612
+    SPELL_BITE_WOUND_PERCENT = 532612,
+    SPELL_CALL_OF_THE_DARKWING = 801958
 };
 
 constexpr uint32 TORTURE_MINIMUM_THIRST_STACKS = 9;
@@ -427,6 +429,8 @@ public:
         if (info->Id == SPELL_THIRST_FOR_BLOOD &&
             info->Effects[EFFECT_0].ApplyAuraName == SPELL_AURA_DUMMY && info->Effects[EFFECT_0].Amplitude)
             info->Effects[EFFECT_0].ApplyAuraName = SPELL_AURA_PERIODIC_DUMMY;
+        if (info->Id == SPELL_ACCURSED_FORM)
+            info->AuraInterruptFlags |= AURA_INTERRUPT_FLAG_MOUNT;
     }
 };
 
@@ -777,10 +781,121 @@ public:
             SyncRunningWildJourneyman(player);
     }
 };
+
+constexpr uint32 FemaleWorgenDisplay = 142818;
+
+bool ShowsFemaleWorgen(Player const* player)
+{
+    return player->GetDisplayId() == FemaleWorgenDisplay;
+}
+
+void HideFemaleWorgenHelm(Player* player)
+{
+    player->SetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + EQUIPMENT_SLOT_HEAD * 2, 0);
+    player->SetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENCHANTMENT + EQUIPMENT_SLOT_HEAD * 2, 0);
+}
+
+class aura_ascension_bloodmage_female_worgen : public AuraScript
+{
+    PrepareAuraScript(aura_ascension_bloodmage_female_worgen);
+
+    static bool IsNativelyFemale(Player const* player)
+    {
+        return player->GetByteValue(PLAYER_BYTES_3, PLAYER_BYTES_3_OFFSET_GENDER) == GENDER_FEMALE;
+    }
+
+    void Apply(AuraEffect const*, AuraEffectHandleModes)
+    {
+        Player* player = GetTarget()->ToPlayer();
+        if (!player || !IsNativelyFemale(player) || player->getTransForm() != GetId())
+            return;
+        player->SetDisplayId(FemaleWorgenDisplay);
+        HideFemaleWorgenHelm(player);
+    }
+
+    void Remove(AuraEffect const*, AuraEffectHandleModes)
+    {
+        Player* player = GetTarget()->ToPlayer();
+        if (player && IsNativelyFemale(player) && !ShowsFemaleWorgen(player))
+            player->SetVisibleItemSlot(EQUIPMENT_SLOT_HEAD,
+                player->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_HEAD));
+    }
+
+    void Register() override
+    {
+        AfterEffectApply += AuraEffectApplyFn(aura_ascension_bloodmage_female_worgen::Apply, EFFECT_ALL,
+            SPELL_AURA_TRANSFORM, AURA_EFFECT_HANDLE_SEND_FOR_CLIENT_MASK);
+        AfterEffectRemove += AuraEffectRemoveFn(aura_ascension_bloodmage_female_worgen::Remove, EFFECT_ALL,
+            SPELL_AURA_TRANSFORM, AURA_EFFECT_HANDLE_SEND_FOR_CLIENT_MASK);
+    }
+};
+
+class bloodmage_female_worgen_helm : public PlayerScript
+{
+public:
+    bloodmage_female_worgen_helm() : PlayerScript("bloodmage_female_worgen_helm",
+        {PLAYERHOOK_ON_AFTER_SET_VISIBLE_ITEM_SLOT}) { }
+
+    void OnPlayerAfterSetVisibleItemSlot(Player* player, uint8 slot, Item*) override
+    {
+        if (player && slot == EQUIPMENT_SLOT_HEAD && ShowsFemaleWorgen(player))
+            HideFemaleWorgenHelm(player);
+    }
+};
+
+class aura_ascension_bloodmage_shadow_colony : public AuraScript
+{
+    PrepareAuraScript(aura_ascension_bloodmage_shadow_colony);
+
+    bool Check(Unit* target)
+    {
+        return target && target->IsPlayer();
+    }
+
+    void CallTheDarkwing(AuraEffect const* aurEff, ProcEventInfo& eventInfo)
+    {
+        PreventDefaultAction();
+
+        Unit* ally = GetTarget();
+        Unit* enemy = eventInfo.GetActor();
+        if (!ally || !enemy)
+            return;
+
+        ally->CastSpell(enemy, SPELL_CALL_OF_THE_DARKWING, TRIGGERED_FULL_MASK, nullptr, aurEff, ally->GetGUID());
+        RedirectThreat(aurEff, ally, enemy);
+    }
+
+    void RedirectThreat(AuraEffect const* aurEff, Unit* ally, Unit* enemy)
+    {
+        Unit* bloodmage = ObjectAccessor::GetUnit(*ally, aurEff->GetCasterGUID());
+        if (!bloodmage || bloodmage == ally || !bloodmage->IsAlive() || !enemy->IsValidAttackTarget(bloodmage))
+            return;
+
+        if (ally->GetHealthPct() >= bloodmage->GetHealthPct())
+            return;
+
+        float const amount = enemy->GetThreatMgr().GetThreat(ally) * 0.5f;
+        if (amount <= 0.0f)
+            return;
+
+        enemy->GetThreatMgr().ModifyThreatByPercent(ally, -50);
+        enemy->GetThreatMgr().AddThreat(bloodmage, amount, GetSpellInfo(), true, true);
+    }
+
+    void Register() override
+    {
+        DoCheckAreaTarget += AuraCheckAreaTargetFn(aura_ascension_bloodmage_shadow_colony::Check);
+        OnEffectProc += AuraEffectProcFn(aura_ascension_bloodmage_shadow_colony::CallTheDarkwing, EFFECT_0,
+            SPELL_AURA_PROC_TRIGGER_SPELL);
+    }
+};
 }
 
 void AddSC_AscensionBloodmageSecondary()
 {
+    RegisterSpellScript(aura_ascension_bloodmage_shadow_colony);
+    RegisterSpellScript(aura_ascension_bloodmage_female_worgen);
+    new bloodmage_female_worgen_helm();
     RegisterSpellScript(spell_ascension_bloodmage_bloodfang_bite);
     RegisterSpellScript(aura_ascension_bloodmage_bite_wound);
     RegisterSpellScript(aura_ascension_bloodmage_sacrificial_rite);

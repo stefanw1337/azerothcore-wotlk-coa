@@ -13,7 +13,7 @@ struct ClassSpell
     std::uint32_t SpellId;
 };
 
-inline constexpr std::array<ClassSpell, 847> ClassSpells =
+inline constexpr std::array<ClassSpell, 850> ClassSpells =
 {{
     {12, 1, 81},
     {12, 1, 107},
@@ -577,9 +577,11 @@ inline constexpr std::array<ClassSpell, 847> ClassSpells =
     {26, 1, 5019},
     {26, 1, 6603},
     {26, 1, 552011},
+    {26, 1, 573711},
     {26, 1, 800496},
     {26, 1, 801127},
     {26, 1, 801132},
+    {26, 1, 805527},
     {26, 2, 680220},
     {26, 2, 801972},
     {26, 4, 300255},
@@ -610,6 +612,7 @@ inline constexpr std::array<ClassSpell, 847> ClassSpells =
     {27, 1, 81},
     {27, 1, 107},
     {27, 1, 3018},
+    {27, 1, 3124},
     {27, 1, 5019},
     {27, 1, 6603},
     {27, 1, 500143},
@@ -1375,7 +1378,7 @@ struct ClassProficiency
     std::uint32_t SpellId;
 };
 
-inline constexpr std::array<ClassProficiency, 127> ClassProficiencies =
+inline constexpr std::array<ClassProficiency, 128> ClassProficiencies =
 {{
     {12, 197},
     {12, 200},
@@ -1487,6 +1490,7 @@ inline constexpr std::array<ClassProficiency, 127> ClassProficiencies =
     {30, 197},
     {30, 200},
     {30, 750},
+    {30, 2567},
     {30, 8737},
     {30, 9077},
     {30, 9078},

@@ -339,6 +339,9 @@ bool ManastormGreedyDemon::Load()
             return false;
         }
 
+        candidate.ItemLevel =
+            itemTemplate->ItemLevel;
+
         _lootPools[
             QualityPoolIndex(
                 candidate.Quality)]
@@ -855,21 +858,30 @@ uint32 ManastormGreedyDemon::SelectLootItem(
             QualityPoolIndex(
                 quality)];
 
+    uint32 const itemLevelCap =
+        ManastormRewards::Instance()
+            .GetReleasedItemLevelCap();
+
+    auto const inLevelWindow =
+        [playerLevel](ManastormGreedyLootCandidate const& candidate)
+        {
+            return playerLevel >=
+                    candidate.MinPlayerLevel &&
+                playerLevel <=
+                    candidate.MaxPlayerLevel;
+        };
+
     uint64 eligibleWeight = 0;
 
     for (ManastormGreedyLootCandidate const& candidate :
         pool)
     {
-        if (playerLevel <
-                candidate.MinPlayerLevel ||
-            playerLevel >
-                candidate.MaxPlayerLevel)
+        if (candidate.ItemLevel <= itemLevelCap &&
+            inLevelWindow(candidate))
         {
-            continue;
+            eligibleWeight +=
+                candidate.Weight;
         }
-
-        eligibleWeight +=
-            candidate.Weight;
     }
 
     bool const useLevelWindow =
@@ -880,8 +892,11 @@ uint32 ManastormGreedyDemon::SelectLootItem(
         for (ManastormGreedyLootCandidate const& candidate :
             pool)
         {
-            eligibleWeight +=
-                candidate.Weight;
+            if (candidate.ItemLevel <= itemLevelCap)
+            {
+                eligibleWeight +=
+                    candidate.Weight;
+            }
         }
     }
 
@@ -901,11 +916,9 @@ uint32 ManastormGreedyDemon::SelectLootItem(
     for (ManastormGreedyLootCandidate const& candidate :
         pool)
     {
-        if (useLevelWindow &&
-            (playerLevel <
-                candidate.MinPlayerLevel ||
-             playerLevel >
-                candidate.MaxPlayerLevel))
+        if (candidate.ItemLevel > itemLevelCap ||
+            (useLevelWindow &&
+             !inLevelWindow(candidate)))
         {
             continue;
         }
@@ -993,25 +1006,33 @@ bool ManastormGreedyDemon::ClaimLoot(
         QualityForLootObject(
             gameObject->GetEntry());
 
-    uint32 const itemEntry =
-        SelectLootItem(
-            quality,
-            player->GetLevel());
-
-    if (!itemEntry)
-    {
-        player->SendSystemMessage(
-            "Greedy Demon loot could not resolve an item reward.");
+    if (gameObject->HasGameObjectFlag(GO_FLAG_NOT_SELECTABLE))
         return true;
-    }
-
-    if (!player->AddItem(
-            itemEntry,
-            1))
+    bool const coaLoot = ManastormRewards::Instance().IsCoALootMode(player->GetGUID().GetCounter());
+    uint32 itemEntry = 0;
+    if (!coaLoot)
     {
-        player->SendSystemMessage(
-            "Make room in your bags before opening the Greedy Demon loot.");
-        return true;
+        itemEntry =
+            SelectLootItem(
+                quality,
+                player->GetLevel());
+
+        if (!itemEntry)
+        {
+            player->SendSystemMessage(
+                "Greedy Demon loot could not resolve an item reward.");
+            return true;
+        }
+
+        if (!player->AddItem(
+                itemEntry,
+                1))
+        {
+            player->SendSystemMessage(
+                "Make room in your bags before opening the Greedy Demon loot.");
+            return true;
+        }
+
     }
 
     uint32 goldCopper = 0;
@@ -1031,11 +1052,20 @@ bool ManastormGreedyDemon::ClaimLoot(
             break;
     }
 
-    if (goldCopper)
+    if (coaLoot)
     {
-        player->ModifyMoney(
-            int32(goldCopper));
+        std::string error;
+        gameObject->SetGameObjectFlag(GO_FLAG_NOT_SELECTABLE);
+        if (!ManastormRewards::Instance().AwardCoAGreedyReward(player, *run,
+            gameObject->GetGUID().GetRawValue(), quality, goldCopper, error))
+        {
+            gameObject->RemoveGameObjectFlag(GO_FLAG_NOT_SELECTABLE);
+            player->SendSystemMessage(error);
+            return true;
+        }
     }
+    else if (goldCopper)
+        player->ModifyMoney(int32(goldCopper));
 
     gameObject->SetGameObjectFlag(
         GO_FLAG_NOT_SELECTABLE);

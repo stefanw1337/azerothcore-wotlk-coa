@@ -16,14 +16,29 @@
 #include <utility>
 
 class Creature;
+class Map;
 class Item;
 class Player;
 class Quest;
+class SpellInfo;
 class Unit;
 struct ItemTemplate;
 
 namespace LocalLevelScaling
 {
+using PersonalInstanceScalingResolver = bool (*)(Map const*, Player const*);
+inline std::atomic<PersonalInstanceScalingResolver> PersonalInstanceScalingOwner{nullptr};
+
+inline bool PersonalInstanceScalingFor(Map const* map, Player const* viewer = nullptr)
+{
+    PersonalInstanceScalingResolver const owner = PersonalInstanceScalingOwner.load(std::memory_order_relaxed);
+    return owner && map && owner(map, viewer);
+}
+
+using CreatureViewDamageResolver = double (*)(Player const*, Creature const*);
+inline std::atomic<CreatureViewDamageResolver> CreatureViewDamageOwner{nullptr};
+AC_GAME_API uint32 PersonalDamageHealthFor(Unit const* source, Unit const* target);
+
 inline std::atomic<bool> QuestEnabled{false};
 inline std::atomic<std::uint8_t> CreatureOffset{4};
 
@@ -74,6 +89,57 @@ inline std::uint8_t ScalingBlocksFor(Player const* player)
     if (ruleset && player && ruleset(player))
         return ChallengeBlocksCreatureScaling | ChallengeBlocksQuestScaling;
     return ChallengeBlocksFor(player);
+}
+
+/// Where the character stands for dungeon scaling: outside any scaled dungeon, in one they walked into,
+/// whose creatures and loot keep their authored levels whatever their own or their leader's choice, or in
+/// the one their Dungeon Finder group was assigned, which scales for them whatever that choice. The module
+/// that owns the dungeon list installs the resolver.
+enum class DungeonScaling : std::uint8_t
+{
+    None,
+    WalkedIn,
+    Finder,
+};
+using ScaledDungeonResolver = DungeonScaling (*)(Player const*);
+inline std::atomic<ScaledDungeonResolver> ScaledDungeonOwner{nullptr};
+
+inline DungeonScaling DungeonScalingFor(Player const* player)
+{
+    ScaledDungeonResolver const owner = ScaledDungeonOwner.load(std::memory_order_relaxed);
+    return owner && player ? owner(player) : DungeonScaling::None;
+}
+
+inline bool InScaledDungeon(Player const* player)
+{
+    return DungeonScalingFor(player) == DungeonScaling::Finder;
+}
+
+/// Whether the loot this character takes is scaled to them by the dungeon: only inside the scaled dungeon
+/// their Dungeon Finder group was assigned, and never while a challenge holds them to the authored world.
+inline bool DungeonLootScales(Player const* player)
+{
+    return InScaledDungeon(player) && !(ScalingBlocksFor(player) & ChallengeBlocksCreatureScaling);
+}
+
+/// What one character's heal is worth to another inside a scaled dungeon, as a factor on the amount: each
+/// of them fights their own version of the creatures, so a heal sized for the blows of the healer's version
+/// is carried over to the blows of the receiver's. The module that owns the creature view installs the
+/// resolver; 1 means the heal lands as cast.
+using HealReceivedResolver = double (*)(Unit const* healer, Unit const* receiver, SpellInfo const* spell);
+inline std::atomic<HealReceivedResolver> HealReceivedOwner{nullptr};
+
+inline std::uint32_t HealReceivedFor(Unit const* healer, Unit const* receiver, SpellInfo const* spell,
+    std::uint32_t heal)
+{
+    HealReceivedResolver const owner = HealReceivedOwner.load(std::memory_order_relaxed);
+    if (!owner || !heal)
+        return heal;
+
+    double const factor = owner(healer, receiver, spell);
+    if (factor == 1.0)
+        return heal;
+    return std::max<std::uint32_t>(1, static_cast<std::uint32_t>(double(heal) * factor + 0.5));
 }
 
 /// Something other than the character's own choice changed whether they see scaled content: a
@@ -325,6 +391,18 @@ inline ItemTemplate const* InstanceTemplateFor(Item const* item, ItemTemplate co
 
     ItemTemplate const* scaled = owner(item);
     return scaled ? scaled : authored;
+}
+
+/// The armor one character gets from wearing an item built from this template. The client shows the
+/// reborn armor column to every class but the classless Hero, so the owner of item ladders answers
+/// with that column for those classes; without an owner the template's own armor applies.
+using WornArmorResolver = std::uint32_t (*)(Player const*, ItemTemplate const*, std::uint32_t armor);
+inline std::atomic<WornArmorResolver> WornArmorOwner{nullptr};
+
+inline std::uint32_t WornArmorFor(Player const* player, ItemTemplate const* proto, std::uint32_t armor)
+{
+    WornArmorResolver const owner = WornArmorOwner.load(std::memory_order_relaxed);
+    return owner && player && proto ? owner(player, proto, armor) : armor;
 }
 
 /// An item instance moved into a character's inventory from somewhere the character's login did not

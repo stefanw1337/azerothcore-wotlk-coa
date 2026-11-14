@@ -8,8 +8,6 @@
 #include "SpellInfo.h"
 #include "SpellMgr.h"
 #include "SpellScript.h"
-#include <algorithm>
-#include <array>
 #include <cmath>
 #include <list>
 
@@ -20,7 +18,8 @@ namespace
 constexpr uint32 SINGLE_MINDED_FURY_DAMAGE = 1988257;
 constexpr uint32 REBORN_SPELL_OFFSET = 1100000;
 constexpr uint32 MORTAL_STRIKE_FLAG = 0x2000000;
-constexpr std::array<uint32, 2> IMPROVED_REVENGE = { 1112797, 1112799 };
+constexpr uint32 VICTORY_RUSH_FLAG = 0x100;
+constexpr int32 VICTORY_RUSH_STOCK_PERCENT = 45;
 constexpr uint32 PIERCING_HOWL_FLAG = 0x20;
 constexpr uint32 DAZED_FLAG = 0x200000;
 constexpr int32 HEROIC_STRIKE_DAZED_PCT = 35;
@@ -28,6 +27,8 @@ constexpr int32 BLADESTORM_SINGLE_TARGET_PCT = 30;
 constexpr uint32 IMPROVED_SPELL_REFLECTION = 59088;
 constexpr uint32 IMPROVED_SPELL_REFLECTION_PARTY = 59725;
 constexpr int32 IMPROVED_SPELL_REFLECTION_RADIUS_MOD = 2000;
+
+constexpr uint32 PROTECTION_MASTERY = 1134996;
 
 class spell_ascension_reborn_shockwave : public SpellScript
 {
@@ -225,17 +226,20 @@ void ApplyAscensionWarcraftRebornWarriorContracts(SpellInfo* spellInfo)
     if (!spellInfo || spellInfo->Id < REBORN_SPELL_OFFSET || spellInfo->SpellFamilyName != SPELLFAMILY_WARRIOR)
         return;
 
+    if (spellInfo->Id == PROTECTION_MASTERY && spellInfo->Effects[EFFECT_0].ApplyAuraName == SPELL_AURA_MOD_THREAT &&
+        !spellInfo->Effects[EFFECT_0].MiscValue)
+        spellInfo->Effects[EFFECT_0].MiscValue = SPELL_SCHOOL_MASK_ALL;
+
+    if ((spellInfo->SpellFamilyFlags[1] & VICTORY_RUSH_FLAG) && !spellInfo->Effects[EFFECT_0].BasePoints &&
+        spellInfo->Effects[EFFECT_0].Effect == SPELL_EFFECT_SCHOOL_DAMAGE)
+        spellInfo->Effects[EFFECT_0].BasePoints = VICTORY_RUSH_STOCK_PERCENT - 1;
+
     if ((spellInfo->SpellFamilyFlags[0] & MORTAL_STRIKE_FLAG) && FlatBonusBeforeWeaponPercent(spellInfo))
     {
         int32 const percent = spellInfo->Effects[EFFECT_2].BasePoints + 1;
         int32 const bonus = spellInfo->Effects[EFFECT_1].BasePoints + 1;
         spellInfo->Effects[EFFECT_1].BasePoints = int32(std::lround(bonus * 100.0 / percent)) - 1;
     }
-
-    if (std::find(IMPROVED_REVENGE.begin(), IMPROVED_REVENGE.end(), spellInfo->Id) != IMPROVED_REVENGE.end() &&
-        spellInfo->Effects[EFFECT_0].ApplyAuraName == SPELL_AURA_ADD_FLAT_MODIFIER &&
-        spellInfo->Effects[EFFECT_0].MiscValue == SPELLMOD_JUMP_TARGETS && spellInfo->Effects[EFFECT_0].BasePoints == 1)
-        spellInfo->Effects[EFFECT_0].BasePoints = 0;
 }
 
 void AddAscensionWarcraftRebornWarriorScripts()

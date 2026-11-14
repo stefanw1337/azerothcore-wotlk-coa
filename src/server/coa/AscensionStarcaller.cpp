@@ -104,7 +104,7 @@ bool DelayDamage(Player* player, uint32 amount)
     if (!aura)
         return false;
     State(player).stagger += amount;
-    aura->SetDuration(aura->GetMaxDuration());
+    aura->RefreshDuration();
     return true;
 }
 void PayDelayedDamage(Player* player, uint32 ticks)
@@ -214,12 +214,12 @@ void Stars(Player* player, Unit* target, uint32 count)
 }
 void StartConsume(Player* player, Unit* target)
 {
-    if (player && target && target->HasAura(804378, player->GetGUID()))
-        Cast(player, target, 804716);
+    if (player && target && player->IsInWorld() && target->HasAura(804378, player->GetGUID()))
+        player->CastSpell(target, 804716, true);
 }
 bool Consume(Player* player, Unit* target)
 {
-    if (!player || !target || !player->IsValidAttackTarget(target))
+    if (!player || !target || !player->IsValidAttackTarget(target, sSpellMgr->GetSpellInfo(804716)))
         return false;
     Aura* stars = target->GetAura(804378, player->GetGUID());
     if (!stars || !stars->GetStackAmount())
@@ -352,8 +352,18 @@ class starcaller_player : public PlayerScript
 {
   public:
     starcaller_player()
-        : PlayerScript("starcaller_player", {PLAYERHOOK_ON_UPDATE, PLAYERHOOK_ON_BEFORE_LOGOUT, PLAYERHOOK_ON_LOGOUT})
+        : PlayerScript("starcaller_player", {PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_UPDATE,
+                                              PLAYERHOOK_ON_BEFORE_LOGOUT, PLAYERHOOK_ON_LOGOUT})
     {
+    }
+    void OnPlayerLogin(Player* player) override
+    {
+        using namespace AscensionStarcaller;
+        if (!Owner(player))
+            return;
+        for (uint32 spellId : {573711u, 805527u})
+            if (!player->HasSpell(spellId) && sSpellMgr->GetSpellInfo(spellId))
+                player->learnSpell(spellId, false);
     }
     void OnPlayerBeforeLogout(Player* player) override
     {
@@ -362,6 +372,8 @@ class starcaller_player : public PlayerScript
         {
             PayDelayedDamage(player);
             player->RemoveAurasDueToSpell(954791);
+            player->RemoveAurasDueToSpell(572319);
+            player->RemoveAurasDueToSpell(572318);
         }
     }
     void OnPlayerUpdate(Player* player, uint32 diff) override

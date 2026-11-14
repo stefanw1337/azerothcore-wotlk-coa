@@ -41,6 +41,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <unordered_set>
 
 class Item;
 struct DungeonProgressionRequirements;
@@ -843,6 +844,11 @@ public:
         return nullptr;
     }
     [[nodiscard]] CreatureQuestItemMap const* GetCreatureQuestItemMap() const { return &_creatureQuestItemStore; }
+    [[nodiscard]] QuestTargetRespawn GetQuestTargetRespawn(uint32 entry) const
+    {
+        auto itr = _questTargetRespawnStore.find(entry);
+        return itr != _questTargetRespawnStore.end() ? itr->second : QuestTargetRespawn::None;
+    }
 
     [[nodiscard]] Quest const* GetQuestTemplate(uint32 quest_id) const
     {
@@ -965,6 +971,11 @@ public:
         return nullptr;
     }
 
+    [[nodiscard]] bool IsRaidEncounterKillCredit(uint32 creatureEntry) const
+    {
+        return _raidEncounterKillCreditStore.contains(creatureEntry);
+    }
+
     void LoadQuests();
     void LoadQuestMoneyRewards();
     void LoadQuestStartersAndEnders()
@@ -1042,6 +1053,8 @@ public:
     void LoadCreatureTemplate(Field* fields, bool triggerHook = false);
     void LoadCreatureTemplateModels();
     void LoadCreatureTemplateAddons();
+    void LoadAscensionNpcOverheadIcons();
+    void ApplyAscensionNpcOverheadIcon(Creature& creature) const;
     void LoadCreatureTemplateResistances();
     void LoadCreatureTemplateSpells();
     void LoadCreatureCustomIDs();
@@ -1049,6 +1062,7 @@ public:
     void CheckCreatureMovement(char const* table, uint64 id, CreatureMovementData& creatureMovement);
     void LoadGameObjectQuestItems();
     void LoadCreatureQuestItems();
+    void LoadQuestTargetRespawns();
     void LoadTempSummons();
     void LoadGameObjectSummons();
     void LoadSpawnGroupTemplates();
@@ -1423,6 +1437,7 @@ public:
     // profanity names
     void LoadProfanityNamesFromDB();
     void LoadProfanityNamesFromDBC();
+    void LoadCoANameFilter();
     [[nodiscard]] bool IsProfanityName(std::string_view name) const;
     void AddProfanityPlayerName(std::string const& name);
 
@@ -1576,6 +1591,7 @@ private:
     AreaTriggerScriptContainer _areaTriggerScriptStore;
     DungeonProgressionRequirementsContainer _accessRequirementStore;
     DungeonEncounterContainer _dungeonEncounterStore;
+    std::unordered_set<uint32> _raidEncounterKillCreditStore;
 
     RepRewardRateContainer _repRewardRateStore;
     RepOnKillContainer _repOnKillStore;
@@ -1599,6 +1615,7 @@ private:
     //character profanity names
     typedef std::set<std::wstring> ProfanityNamesContainer;
     ProfanityNamesContainer _profanityNamesStore;
+    std::set<std::string> _coaNameFilterStore;
 
     //chat filter (Aho-Corasick automaton; matches any banned word as substring of input)
     std::unique_ptr<Acore::AhoCorasick<wchar_t>> _chatFilterAutomaton;
@@ -1638,6 +1655,7 @@ private:
     PlayerClassInfo* _playerClassInfo[MAX_CLASSES];
 
     void BuildPlayerLevelInfo(uint8 race, uint8 class_, uint8 level, PlayerLevelInfo* plinfo) const;
+    void LoadAscensionRaceClassStats();
 
     std::vector<std::vector<PlayerInfo*>> _playerInfo;
 
@@ -1670,10 +1688,12 @@ private:
     CreatureModelContainer _creatureModelStore;
     CreatureAddonContainer _creatureAddonStore;
     CreatureAddonContainer _creatureTemplateAddonStore;
+    std::unordered_map<uint32, uint32> _ascensionNpcOverheadIcons;
     std::unordered_map<ObjectGuid::LowType, CreatureMovementData> _creatureMovementOverrides;
     GameObjectAddonContainer _gameObjectAddonStore;
     GameObjectQuestItemMap _gameObjectQuestItemStore;
     CreatureQuestItemMap _creatureQuestItemStore;
+    std::unordered_map<uint32, QuestTargetRespawn> _questTargetRespawnStore;
     EquipmentInfoContainer _equipmentInfoStore;
     LinkedRespawnContainer _linkedRespawnStore;
     CreatureLocaleContainer _creatureLocaleStore;

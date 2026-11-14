@@ -50,6 +50,13 @@ void Cast(Unit* caster, Unit* target, uint32 id)
         caster->CastSpell(target, id, true);
 }
 
+void Brand(Unit* caster, Unit* target)
+{
+    if (caster && target && target->IsAlive())
+        caster->CastSpell(target, SPELL_SHADOW_BRAND,
+            TriggerCastFlags(TRIGGERED_FULL_MASK | TRIGGERED_NO_PERIODIC_RESET));
+}
+
 void Reset(Player* player, uint32 id)
 {
     if (player)
@@ -97,6 +104,8 @@ void ApplyContracts(SpellInfo* info)
     if (!info || info->SpellFamilyName != 21)
         return;
     uint32 id = info->Id;
+    if (id == 500351 || id == 680517)
+        info->AttributesEx &= ~SPELL_ATTR1_NO_THREAT;
     if (id == 802272)
     {
         info->AttributesCu &= ~SPELL_ATTR0_CU_FORCE_AURA_SAVING;
@@ -132,6 +141,8 @@ void ApplyContracts(SpellInfo* info)
         info->Effects[EFFECT_1].ChainTarget = info->Effects[EFFECT_0].ChainTarget;
     if (id == 804194 && info->Effects[EFFECT_1].ApplyAuraName == SPELL_AURA_MOD_ARMOR_PENETRATION_PCT)
         info->Effects[EFFECT_1].ApplyAuraName = SPELL_AURA_ASCENSION_MOD_IGNORE_ARMOR_PCT;
+    if (id == 807733 && info->Effects[EFFECT_1].ApplyAuraName == SPELL_AURA_MOD_DAMAGE_PERCENT_TAKEN)
+        info->Effects[EFFECT_1].ApplyAuraName = SPELL_AURA_SCHOOL_ABSORB;
     if (id == 707535)
     {
         info->Effects[EFFECT_0].ApplyAuraName = SPELL_AURA_MOD_SPELL_DAMAGE_OF_STAT_PERCENT;
@@ -319,7 +330,8 @@ void ApplyContracts(SpellInfo* info)
                 effect.BonusMultiplier = 0.0f;
     if (id == 574335 || id == 574337 || id == 681270 || id == 680532 || id == 807262 || id == 567570)
     {
-        info->AttributesEx2 |= SPELL_ATTR2_CANT_CRIT;
+        if (id != 567570)
+            info->AttributesEx2 |= SPELL_ATTR2_CANT_CRIT;
         info->AttributesEx3 |= SPELL_ATTR3_IGNORE_CASTER_MODIFIERS;
         info->AttributesEx4 |= SPELL_ATTR4_IGNORE_DAMAGE_TAKEN_MODIFIERS;
         info->AttributesCu |= SPELL_ATTR0_CU_IGNORE_ARMOR;
@@ -334,6 +346,7 @@ void ApplyContracts(SpellInfo* info)
     {
         info->Effects[EFFECT_2].Effect = 0;
         info->AuraInterruptFlags |= AURA_INTERRUPT_FLAG_TAKE_DAMAGE | AURA_INTERRUPT_FLAG_DIRECT_DAMAGE;
+        info->AttributesCu |= SPELL_ATTR0_CU_POSITIVE_EFF1;
     }
     if (id == 805773 || id == 92093)
         for (SpellEffectInfo& effect : info->Effects)
@@ -367,7 +380,26 @@ class witch_hunter_resources : public PlayerScript
 class witch_hunter_scaling : public UnitScript
 {
   public:
-    witch_hunter_scaling() : UnitScript("witch_hunter_scaling", true, {UNITHOOK_MODIFY_SPELL_EFFECT_BASE_VALUE}) {}
+    witch_hunter_scaling()
+        : UnitScript("witch_hunter_scaling", true,
+                     {UNITHOOK_MODIFY_SPELL_EFFECT_BASE_VALUE, UNITHOOK_ON_BEFORE_ROLL_MELEE_OUTCOME_AGAINST})
+    {
+    }
+
+    void OnBeforeRollMeleeOutcomeAgainst(Unit const* attacker, Unit const*, WeaponAttackType, int32&, int32&, int32&,
+                                         int32&, int32& crit, int32& miss, int32& dodge, int32& parry, int32&) override
+    {
+        if (!attacker || (attacker->GetEntry() != 50124 && attacker->GetEntry() != 50224))
+            return;
+        Player* player = attacker->GetCharmerOrOwnerPlayerOrPlayerItself();
+        if (!player || player->getClass() != CLASS_WITCH_HUNTER)
+            return;
+        crit += int32(std::max(0.0f, player->GetFloatValue(PLAYER_RANGED_CRIT_PERCENTAGE) - 5.0f) * 100);
+        miss = std::max(0, miss - int32(std::max(0.0f, player->m_modRangedHitChance) * 100));
+        int32 expertise = int32(std::max(0.0f, player->GetExpertiseDodgeOrParryReduction(BASE_ATTACK)) * 100);
+        dodge = std::max(0, dodge - expertise);
+        parry = std::max(0, parry - expertise);
+    }
 
     void ModifySpellEffectBaseValue(Unit const* caster, SpellInfo const* info, uint8 index, float& value) override
     {
@@ -389,6 +421,30 @@ class witch_hunter_scaling : public UnitScript
             value += player->GetStat(STAT_STAMINA) * 2.0f;
         if (info->Id == 802138 && index == 2)
             value += player->GetStat(STAT_STAMINA) * 7.0f;
+    }
+};
+
+class witch_hunter_silver_bolts_shadow_trap : public UnitScript
+{
+  public:
+    witch_hunter_silver_bolts_shadow_trap()
+        : UnitScript("witch_hunter_silver_bolts_shadow_trap", true, {UNITHOOK_MODIFY_SPELL_DAMAGE_TAKEN})
+    {
+    }
+
+    void ModifySpellDamageTaken(Unit* target, Unit* attacker, int32& damage, SpellInfo const* spellInfo) override
+    {
+        Player* player = attacker ? Owner(attacker) : nullptr;
+        if (!player || !target || !spellInfo || !target->HasAura(SPELL_SHADOW_TRAPPED))
+            return;
+        for (AuraEffect* effect : player->GetAuraEffectsByType(SPELL_AURA_MOD_DAMAGE_DONE_VERSUS))
+            if (effect->GetId() == SPELL_SILVER_BOLTS && effect->IsAffectedOnSpell(spellInfo))
+            {
+                if (target->GetCreatureTypeMask() & effect->GetMiscValue())
+                    return;
+                AddPct(damage, effect->GetSpellInfo()->Effects[EFFECT_2].CalcValue(player));
+                return;
+            }
     }
 };
 
@@ -416,5 +472,6 @@ void AddAscensionWitchHunterCompletionScripts()
 {
     new witch_hunter_scaling();
     new witch_hunter_resources();
+    new witch_hunter_silver_bolts_shadow_trap();
     RegisterSpellScript(spell_ascension_witch_hunter_copy);
 }

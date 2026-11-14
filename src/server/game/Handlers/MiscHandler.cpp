@@ -261,6 +261,10 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPacket& recv_data)
         return;
     }
 
+    if (guid.IsPlayer() && HandleRecruitAFriendInviteResponse(menuId,
+        _player->PlayerTalkClass->GetGossipOptionAction(gossipListId)))
+        return;
+
     // remove fake death
     if (GetPlayer()->HasUnitState(UNIT_STATE_DIED))
         GetPlayer()->RemoveAurasByType(SPELL_AURA_FEIGN_DEATH);
@@ -1412,8 +1416,10 @@ void WorldSession::HandleQueryInstanceBindsOpcode(WorldPacket& /*recvData*/)
     if (Map* map = _player->FindMap(); _player->CustomData.Erase("InstanceWelcomePending") && map && map->IsDungeon())
     {
         Difficulty diff = _player->GetDifficulty(map->IsRaid());
-        if (InstanceSaveMgr::GetResetDelayFor(map->GetId(), diff))
-            if (time_t timeReset = sInstanceSaveMgr->GetResetTimeFor(map->GetId(), diff))
+        // A Normal dungeon has no reset of its own; it welcomes with the daily reset its Heroic shares.
+        Difficulty resetDiff = !map->IsRaid() && diff == DUNGEON_DIFFICULTY_NORMAL ? DUNGEON_DIFFICULTY_HEROIC : diff;
+        if (InstanceSaveMgr::GetResetDelayFor(map->GetId(), resetDiff))
+            if (time_t timeReset = sInstanceSaveMgr->GetResetTimeFor(map->GetId(), resetDiff))
                 _player->SendInstanceResetWarning(map->GetId(), diff, uint32(timeReset - GameTime::GetGameTime().count()), true);
     }
 }
@@ -1671,7 +1677,7 @@ void WorldSession::HandleCancelMountAuraOpcode(WorldPacket& /*recv_data*/)
         return;
 
     // The client sends this with every cast while mounted; these combat mounts are left through their auras.
-    if (_player->IsInTinkerMechsuit() ||
+    if (_player->IsInTinkerMechsuit() || _player->IsOnDivineSteed() ||
         (_player->getClass() == CLASS_STARCALLER && !_player->IsInFlight() &&
             _player->GetMountID() == 9991 && _player->HasAura(704772, _player->GetGUID())))
         return;
@@ -1757,8 +1763,13 @@ void WorldSession::HandleRequestPetInfo(WorldPackets::Pet::RequestPetInfo& /*pac
         recv_data.hexlike();
     */
 
-    if (_player->GetPet())
+    if (Pet* pet = _player->GetPet())
+    {
         _player->PetSpellInitialize();
+        // CoA: a UI reload also clears the client's pet talent points; send them again
+        if (pet->getPetType() == HUNTER_PET)
+            _player->SendTalentsInfoData(true);
+    }
     else if (Unit* charm = _player->GetCharm())
     {
         if (charm->HasUnitState(UNIT_STATE_POSSESSED))

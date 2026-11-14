@@ -249,7 +249,7 @@ class spell_dk_raise_ally : public SpellScript
                         AddPct(mod, spellInfo->Effects[EFFECT_1].CalcValue());                                              // Ravenous Dead edits the original scale
                     }
                     // Glyph of the Ghoul
-                    aurEff = GetCaster()->GetAuraEffect(SPELL_DK_GLYPH_OF_THE_GHOUL, EFFECT_0);
+                    aurEff = GetCaster()->GetAuraEffectOfRankedSpellOrTwin(SPELL_DK_GLYPH_OF_THE_GHOUL, EFFECT_0);
                     if (aurEff)
                         mod += CalculatePct(1.0f, aurEff->GetAmount());                                                    // Glyph of the Ghoul adds a flat value to the scale mod
 
@@ -351,7 +351,7 @@ class spell_dk_death_and_decay : public SpellScript
         if (AuraEffect* aurEff = caster->GetAuraEffectDummy(70650))
             AddPct(damage, aurEff->GetAmount());
         // Glyph of Death and Decay
-        if (AuraEffect* aurEff = caster->GetAuraEffect(58629, EFFECT_0))
+        if (AuraEffect* aurEff = caster->GetAuraEffectOfRankedSpellOrTwin(58629, EFFECT_0))
             AddPct(damage, aurEff->GetAmount());
 
         // Xinef: include AOE damage reducing auras
@@ -825,7 +825,7 @@ class spell_dk_pet_scaling : public AuraScript
             }
 
             // xinef: Glyph of the Ghoul
-            if (AuraEffect const* glyphEff = owner->GetAuraEffect(SPELL_DK_GLYPH_OF_THE_GHOUL, EFFECT_0))
+            if (AuraEffect const* glyphEff = owner->GetAuraEffectOfRankedSpellOrTwin(SPELL_DK_GLYPH_OF_THE_GHOUL, EFFECT_0))
                 modifier += glyphEff->GetAmount();
 
             amount = CalculatePct(std::max<int32>(0, owner->GetStat(stat)), modifier);
@@ -1557,13 +1557,15 @@ class spell_dk_death_grip : public SpellScript
                     target->InterruptNonMeleeSpells(true);
             }
         }
-        else
+        else if (baseTarget)
             baseTarget->CastSpell(caster, 49560, true);
     }
 
     void HandleDummy(SpellEffIndex /*effIndex*/)
     {
         float casterZ = GetCaster()->GetPositionZ(); // for Ring of Valor
+        if (!GetExplTargetDest())
+            return;
         WorldLocation gripPos = *GetExplTargetDest();
         if (Unit* target = GetHitUnit())
             if (!target->HasDetectSpellsAura() || target->HasUnitState(UNIT_STATE_STUNNED)) // Deterrence
@@ -1776,7 +1778,7 @@ class spell_dk_icebound_fortitude : public AuraScript
                 value -= int32((defValue - 400) * 0.15);
 
             // Glyph of Icebound Fortitude
-            if (AuraEffect const* aurEff = caster->GetAuraEffect(SPELL_DK_GLYPH_OF_ICEBOUND_FORTITUDE, EFFECT_0))
+            if (AuraEffect const* aurEff = caster->GetAuraEffectOfRankedSpellOrTwin(SPELL_DK_GLYPH_OF_ICEBOUND_FORTITUDE, EFFECT_0))
             {
                 int32 valMax = -aurEff->GetAmount();
                 if (value > valMax)
@@ -1942,18 +1944,18 @@ class spell_dk_pestilence : public SpellScript
         if (target != hitUnit)
         {
             // Blood Plague
-            if (target->GetAura(SPELL_DK_BLOOD_PLAGUE, caster->GetGUID()))
-                caster->CastSpell(hitUnit, SPELL_DK_BLOOD_PLAGUE, true);
+            if (Aura const* plague = target->GetAuraOfRankedSpell(SPELL_DK_BLOOD_PLAGUE, caster->GetGUID()))
+                caster->CastSpell(hitUnit, plague->GetId(), true);
 
             // Frost Fever
             if (target->GetAura(SPELL_DK_FROST_FEVER, caster->GetGUID()))
                 caster->CastSpell(hitUnit, SPELL_DK_FROST_FEVER, true);
         }
         // Refresh on target
-        else if (caster->GetAura(SPELL_DK_GLYPH_OF_DISEASE))
+        else if (caster->GetAuraOfRankedSpellOrTwin(SPELL_DK_GLYPH_OF_DISEASE))
         {
             // Blood Plague
-            if (Aura* disease = target->GetAura(SPELL_DK_BLOOD_PLAGUE, caster->GetGUID()))
+            if (Aura* disease = target->GetAuraOfRankedSpell(SPELL_DK_BLOOD_PLAGUE, caster->GetGUID()))
                 disease->RefreshDuration();
 
             // Frost Fever
@@ -2883,7 +2885,7 @@ class spell_dk_threat_of_thassarian : public AuraScript
         if (!target)
             return;
 
-        spellId = sSpellMgr->GetSpellWithRank(spellId, spellInfo->GetRank());
+        spellId = sSpellMgr->GetSpellWithRankFor(spellId, spellInfo->Id);
         caster->CastSpell(target, spellId, true, nullptr, aurEff);
     }
 

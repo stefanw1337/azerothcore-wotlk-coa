@@ -816,6 +816,11 @@ void AuthSession::RealmListCallback(PreparedQueryResult result)
     std::vector<std::pair<uint32, std::string>> listedRealms;
     for (auto const& [realmHandle, realm] : sRealmList->GetRealms())
     {
+        // Leave out realms the account cannot enter. Listed, the client keeps auto-connecting to one it
+        // remembers (realmName) and is refused every login; unlisted, it opens the realm list instead.
+        if (!realm.IsOpenTo(_accountInfo.SecurityLevel))
+            continue;
+
         // don't work with realms which not compatible with the client
         bool okBuild = ((_expversion & POST_BC_EXP_FLAG) && realm.Build == _build) || ((_expversion & PRE_BC_EXP_FLAG) && !AuthHelper::IsPreBCAcceptedClientBuild(realm.Build));
 
@@ -841,11 +846,9 @@ void AuthSession::RealmListCallback(PreparedQueryResult result)
             name = ss.str();
         }
 
-        uint8 lock = (realm.AllowedSecurityLevel > _accountInfo.SecurityLevel) ? 1 : 0;
-
         pkt << uint8(realm.Type);                           // realm type
         if (_expversion & POST_BC_EXP_FLAG)                 // only 2.x and 3.x clients
-            pkt << uint8(lock);                             // if 1, then realm locked
+            pkt << uint8(0);                                // if 1, then realm locked
 
         pkt << uint8(flag);                                 // RealmFlags
         pkt << name;
@@ -875,13 +878,15 @@ void AuthSession::RealmListCallback(PreparedQueryResult result)
     {
         RealmCardStyle const style{ sConfigMgr->GetOption<uint32>("RealmCards.Expansion", 2),
             sConfigMgr->GetOption<uint32>("RealmCards.GameMode", 11),
-            sConfigMgr->GetOption<std::string>("RealmCards.Image", "Default") };
+            sConfigMgr->GetOption<std::string>("RealmCards.Image", "Default"), 0 };
         uint8 const category = uint8(sConfigMgr->GetOption<uint32>("RealmCards.Category", 41));
         for (std::size_t order = 0; order < listedRealms.size(); ++order)
         {
+            std::string const realmKey = "RealmCards.Realm." + std::to_string(listedRealms[order].first);
             RealmCardStyle realmStyle = style;
-            realmStyle.GameMode = sConfigMgr->GetOption<uint32>(
-                "RealmCards.Realm." + std::to_string(listedRealms[order].first) + ".GameMode", style.GameMode, false);
+            realmStyle.GameMode = sConfigMgr->GetOption<uint32>(realmKey + ".GameMode", style.GameMode, false);
+            realmStyle.Image = sConfigMgr->GetOption<std::string>(realmKey + ".Image", style.Image, false);
+            realmStyle.DescriptionSpell = sConfigMgr->GetOption<uint32>(realmKey + ".DescriptionSpell", 0, false);
             pkt << uint8(REALM_TYPE_NORMAL);
             pkt << uint8(0);
             pkt << uint8(REALM_FLAG_OFFLINE);

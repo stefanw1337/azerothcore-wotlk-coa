@@ -17,6 +17,7 @@ class Spell;
 
 namespace AscensionNecromancer
 {
+constexpr uint32 SummonShield = 505224;
 struct MinionRecord
 {
     ObjectGuid guid;
@@ -95,6 +96,16 @@ inline uint32 OccupancyCreature(uint32 aura)
             return row.creature;
     return 0;
 }
+inline uint8 WardMinionEffectMask(SpellInfo const* info)
+{
+    uint8 mask = MAX_EFFECT_MASK;
+    if (!info)
+        return mask;
+    for (uint8 index = 0; index < MAX_SPELL_EFFECTS; ++index)
+        if (info->Effects[index].Effect == SPELL_EFFECT_ASCENSION_APPLY_AURA_TO_SUMMONS)
+            mask &= ~(1 << index);
+    return mask;
+}
 bool Named(SpellInfo const* info, uint32 root);
 Player* Owner(Unit const* unit);
 NecromancerState& State(Player* player);
@@ -113,6 +124,7 @@ bool IsMinion(Player* player, Unit const* unit, bool raisedOnly = false);
 uint32 Count(Player* player, std::initializer_list<uint32> entries = {});
 void BuffArmy(Player* player, uint32 spell, bool owner = false);
 void Scale(Player* player, Creature* minion, uint8 cost, float& inheritedSpeed);
+bool FollowsOwner(uint32 entry);
 bool Responds(uint32 entry, uint32 command);
 bool Summon(Player* player, uint32 spell, Unit* target, Position const& position, int32 duration = 0);
 void Order(Player* player, Unit* target, uint32 spell);

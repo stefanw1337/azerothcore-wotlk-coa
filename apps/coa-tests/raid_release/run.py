@@ -9,8 +9,11 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 method = runpy.run_path(str(HERE.parent / 'client_compat/run.py'))['method']
 
-EXPECTED_STAGES = {309: 1, 409: 2, 249: 3, 469: 4, 509: 5, 531: 6, 533: 7}
-UNGATED_MAPS = (0, 1, 36, 229, 230, 532, 535, 603, 880, 951)
+EXPECTED_STAGES = {309: 3, 880: 3, 409: 4, 889: 4, 890: 4, 249: 5, 469: 6, 509: 7, 531: 7}
+DIFFICULTY_STAGES = {0: 0, 1: 1, 2: 2}
+UNGATED_MAPS = (0, 1, 36, 229, 230, 532, 533, 535, 603, 883, 951)
+UNGATED_RAIDS = (532, 533, 535, 603)
+DUNGEONS = (36, 229, 230)
 
 
 def command(source, exe):
@@ -27,16 +30,40 @@ def command(source, exe):
 def harness(source):
     hook = method(source, 'bool OnPlayerCanEnterMap(').replace(' override', '')
     expected = ','.join(f'{{{map_id},{stage}}}' for map_id, stage in EXPECTED_STAGES.items())
+    difficulties = ','.join(f'{{{difficulty},{stage}}}' for difficulty, stage in DIFFICULTY_STAGES.items())
     ungated = ','.join(str(map_id) for map_id in UNGATED_MAPS)
+    raids = ','.join(str(map_id) for map_id in (*EXPECTED_STAGES, *UNGATED_RAIDS))
+    ungated_raids = ','.join(str(map_id) for map_id in UNGATED_RAIDS)
+    dungeons = ','.join(str(map_id) for map_id in DUNGEONS)
     return f'''#include "AscensionRaidReleasePolicy.h"
 #include <cassert>
 #include <cstdint>
 #include <utility>
 using uint32 = std::uint32_t;
 constexpr uint32 LANG_INSTANCE_CLOSED = 2010;
-struct MapEntry {{ uint32 MapID; }};
+enum Difficulty : uint32 {{ DUNGEON_DIFFICULTY_NORMAL, DUNGEON_DIFFICULTY_HEROIC, DUNGEON_DIFFICULTY_EPIC }};
+uint32 const raidMaps[] = {{{raids}}};
+struct MapEntry
+{{
+    uint32 MapID;
+    bool IsRaid() const
+    {{
+        for (uint32 raid : raidMaps)
+            if (raid == MapID)
+                return true;
+        return false;
+    }}
+}};
 struct InstanceTemplate {{ }};
 struct MapDifficulty {{ }};
+Difficulty g_mapTopDifficulty = DUNGEON_DIFFICULTY_EPIC;
+MapDifficulty const* GetDownscaledMapDifficultyData(uint32, Difficulty& difficulty)
+{{
+    static MapDifficulty const data;
+    if (difficulty > g_mapTopDifficulty)
+        difficulty = g_mapTopDifficulty;
+    return &data;
+}}
 struct WorldSession
 {{
     uint32 messages = 0;
@@ -45,48 +72,79 @@ struct WorldSession
 struct Player
 {{
     WorldSession session;
+    Difficulty dungeonDifficulty = DUNGEON_DIFFICULTY_NORMAL;
     WorldSession* GetSession() {{ return &session; }}
+    Difficulty GetDifficulty(bool isRaid) const {{ return isRaid ? DUNGEON_DIFFICULTY_NORMAL : dungeonDifficulty; }}
 }};
-uint32 g_raidReleaseStage = RaidRelease::AllRaidsReleased;
+uint32 g_raidReleaseStage = RaidRelease::AllReleased;
 struct Hook
 {{
 {hook}
 }};
 
+bool Enter(Hook& hook, uint32 mapId, Difficulty difficulty, bool login = false)
+{{
+    Player player;
+    player.dungeonDifficulty = difficulty;
+    MapEntry entry{{ mapId }};
+    bool const open = hook.OnPlayerCanEnterMap(&player, &entry, nullptr, nullptr, login);
+    assert(player.session.messages == (open ? 0u : 1u));
+    return open;
+}}
+
 int main()
 {{
     std::pair<uint32, uint32> const expected[] = {{{expected}}};
+    std::pair<uint32, uint32> const difficulties[] = {{{difficulties}}};
     uint32 const ungated[] = {{{ungated}}};
+    uint32 const ungatedRaids[] = {{{ungated_raids}}};
+    uint32 const dungeons[] = {{{dungeons}}};
     Hook hook;
-    static_assert(RaidRelease::AllRaidsReleased == 7);
-    for (uint32 stage = 0; stage <= 9; ++stage)
+    static_assert(RaidRelease::AllReleased == 8);
+    static_assert(RaidRelease::RaidLootStage(309) == RaidRelease::StageZulGurub);
+    static_assert(RaidRelease::RaidLootStage(533) == RaidRelease::StageNaxxramas);
+    static_assert(RaidRelease::RaidLootStage(36) == 0);
+    for (uint32 stage = 0; stage <= 10; ++stage)
     {{
         g_raidReleaseStage = stage;
         for (auto const& [mapId, raidStage] : expected)
-        {{
-            Player player;
-            MapEntry entry{{ mapId }};
-            bool const open = hook.OnPlayerCanEnterMap(&player, &entry, nullptr, nullptr, false);
-            assert(open == (raidStage <= stage));
-            assert(player.session.messages == (open ? 0u : 1u));
-            Player loginPlayer;
-            assert(hook.OnPlayerCanEnterMap(&loginPlayer, &entry, nullptr, nullptr, true) == open);
-        }}
+            for (Difficulty selected : {{ DUNGEON_DIFFICULTY_NORMAL, DUNGEON_DIFFICULTY_EPIC }})
+            {{
+                assert(Enter(hook, mapId, selected) == (raidStage <= stage));
+                assert(Enter(hook, mapId, selected, true) == (raidStage <= stage));
+            }}
         for (uint32 mapId : ungated)
-        {{
-            Player player;
-            MapEntry entry{{ mapId }};
-            assert(hook.OnPlayerCanEnterMap(&player, &entry, nullptr, nullptr, false));
-            assert(player.session.messages == 0);
-        }}
+            assert(Enter(hook, mapId, DUNGEON_DIFFICULTY_NORMAL));
+        for (uint32 mapId : ungatedRaids)
+            assert(Enter(hook, mapId, DUNGEON_DIFFICULTY_EPIC));
+        for (uint32 mapId : dungeons)
+            for (auto const& [difficulty, difficultyStage] : difficulties)
+            {{
+                assert(Enter(hook, mapId, Difficulty(difficulty)) == (difficultyStage <= stage));
+                assert(Enter(hook, mapId, Difficulty(difficulty), true) == (difficultyStage <= stage));
+            }}
     }}
-    g_raidReleaseStage = 2;
-    Player player;
-    MapEntry moltenCore{{ 409 }}, zulGurub{{ 309 }}, onyxia{{ 249 }}, naxxramas{{ 533 }};
-    assert(hook.OnPlayerCanEnterMap(&player, &moltenCore, nullptr, nullptr, false));
-    assert(hook.OnPlayerCanEnterMap(&player, &zulGurub, nullptr, nullptr, false));
-    assert(!hook.OnPlayerCanEnterMap(&player, &onyxia, nullptr, nullptr, false));
-    assert(!hook.OnPlayerCanEnterMap(&player, &naxxramas, nullptr, nullptr, false));
+
+    g_raidReleaseStage = RaidRelease::StageZulGurub;
+    assert(Enter(hook, 309, DUNGEON_DIFFICULTY_NORMAL));
+    assert(!Enter(hook, 409, DUNGEON_DIFFICULTY_NORMAL));
+    assert(!Enter(hook, 249, DUNGEON_DIFFICULTY_NORMAL));
+    assert(Enter(hook, 36, DUNGEON_DIFFICULTY_HEROIC));
+    assert(Enter(hook, 36, DUNGEON_DIFFICULTY_EPIC));
+
+    g_raidReleaseStage = RaidRelease::StageMythicDungeons;
+    assert(Enter(hook, 36, DUNGEON_DIFFICULTY_EPIC));
+    assert(!Enter(hook, 409, DUNGEON_DIFFICULTY_NORMAL));
+
+    g_raidReleaseStage = RaidRelease::StageHeroicDungeons;
+    assert(Enter(hook, 36, DUNGEON_DIFFICULTY_HEROIC));
+    assert(!Enter(hook, 36, DUNGEON_DIFFICULTY_EPIC));
+    g_mapTopDifficulty = DUNGEON_DIFFICULTY_HEROIC;
+    assert(Enter(hook, 36, DUNGEON_DIFFICULTY_EPIC));
+
+    g_raidReleaseStage = 0;
+    g_mapTopDifficulty = DUNGEON_DIFFICULTY_NORMAL;
+    assert(Enter(hook, 36, DUNGEON_DIFFICULTY_EPIC));
     return 0;
 }}
 '''
@@ -96,11 +154,19 @@ def main():
     source = (ROOT / 'src/server/coa/AscensionRaidRelease.cpp').read_text(encoding='utf-8')
     loader = (ROOT / 'src/server/coa/CoAScriptLoader.cpp').read_text(encoding='utf-8')
     config = (ROOT / 'src/server/coa/conf/coa.conf.dist').read_text(encoding='utf-8')
-    assert '{ PLAYERHOOK_CAN_ENTER_MAP }' in source
+    assert '{ PLAYERHOOK_CAN_ENTER_MAP })' in source
     assert '"Ascension.CallboardCache.ReleaseStage"' in source
     assert 'WORLDHOOK_ON_STARTUP, WORLDHOOK_ON_AFTER_CONFIG_LOAD' in source
     assert loader.count('AddSC_AscensionRaidRelease()') == 2
-    assert '\nAscension.CallboardCache.ReleaseStage = 7\n' in config
+    assert '\nAscension.CallboardCache.ReleaseStage = 3\n' in config
+    assert 'AutoAdvance' not in config and 'AutoAdvance' not in source
+    assert '\nAscension.PrestigiousCache.PreviousStageOnly = 0\n' in config
+    assert 'PLAYERHOOK_ON_CREATURE_KILL' not in source
+    assert '"raidphase"' in source and 'WorldStateStageOverride = 20120' in source
+    gear = (ROOT / 'src/server/coa/AscensionRaidGearData.h').read_text(encoding='utf-8')
+    for item, map_id in ((19866, 309), (17076, 409), (18549, 249), (19366, 469), (21392, 509), (21242, 531),
+                         (22812, 533)):
+        assert f'{{ {item}, {map_id} }}' in gear, item
     assert 'Ascension.RaidLock' not in config
     with tempfile.TemporaryDirectory(prefix='coa-raid-release-') as directory:
         out = Path(directory)
@@ -108,8 +174,10 @@ def main():
         cpp.write_text(harness(source), encoding='utf-8')
         subprocess.run(command(cpp, exe), cwd=out, check=True, timeout=60)
         subprocess.run([str(exe)], cwd=out, check=True, timeout=15)
-    print('PASS: Classic raids open up to the Callboard Cache release stage, closed ones refuse entry and login '
-          'with "Instance is closed", other maps stay open, and the default keeps every raid open')
+    print('PASS: Heroic and Mythic dungeon difficulties and the Classic raids open in release-stage order (Zul\'Gurub '
+          'before Molten Core, Setis with Zul\'Gurub and Korrim Snowgrave and Atal\'zul with Molten Core), each stage keeps the earlier ones open, closed content refuses entry and login with '
+          '"Instance is closed", normal dungeons, Wrath Naxxramas and other maps stay open, the default opens up to '
+          'Molten Core, and the stage comes only from the config or .raidphase, never from raid kills')
 
 
 if __name__ == '__main__':

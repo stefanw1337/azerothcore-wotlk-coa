@@ -235,7 +235,7 @@ class spell_sha_feral_spirit_scaling : public AuraScript
         if (Unit* owner = GetUnitOwner()->GetOwner())
         {
             int32 modifier = 30;
-            if (AuraEffect const* gofsEff = owner->GetAuraEffect(SPELL_SHAMAN_GLYPH_OF_FERAL_SPIRIT, EFFECT_0))
+            if (AuraEffect const* gofsEff = owner->GetAuraEffectOfRankedSpellOrTwin(SPELL_SHAMAN_GLYPH_OF_FERAL_SPIRIT, EFFECT_0))
                 modifier += gofsEff->GetAmount();
 
             amount = CalculatePct(std::max<int32>(0, owner->GetTotalAttackPowerValue(BASE_ATTACK)), modifier);
@@ -248,7 +248,7 @@ class spell_sha_feral_spirit_scaling : public AuraScript
         if (Unit* owner = GetUnitOwner()->GetOwner())
         {
             int32 modifier = 30;
-            if (AuraEffect const* gofsEff = owner->GetAuraEffect(SPELL_SHAMAN_GLYPH_OF_FERAL_SPIRIT, EFFECT_0))
+            if (AuraEffect const* gofsEff = owner->GetAuraEffectOfRankedSpellOrTwin(SPELL_SHAMAN_GLYPH_OF_FERAL_SPIRIT, EFFECT_0))
                 modifier += gofsEff->GetAmount();
 
             amount = CalculatePct(std::max<int32>(0, owner->GetTotalAttackPowerValue(BASE_ATTACK)), modifier);
@@ -601,7 +601,7 @@ class spell_sha_earth_shield : public AuraScript
             // Glyph of Earth Shield
             //! WORKAROUND
             //! this glyphe is a proc
-            if (AuraEffect* glyphe = caster->GetAuraEffect(SPELL_SHAMAN_GLYPH_OF_EARTH_SHIELD, EFFECT_0))
+            if (AuraEffect* glyphe = caster->GetAuraEffectOfRankedSpellOrTwin(SPELL_SHAMAN_GLYPH_OF_EARTH_SHIELD, EFFECT_0))
                 AddPct(amount, glyphe->GetAmount());
 
             // xinef: Improved Shields
@@ -730,7 +730,7 @@ class spell_sha_earthliving_weapon : public AuraScript
 
         if (SpellInfo const* spellInfo = eventInfo.GetSpellInfo())
         {
-            if (spellInfo->Id == SPELL_SHAMAN_EARTH_SHIELD_HEAL)
+            if (sSpellMgr->GetSpellTwinSource(spellInfo->Id) == SPELL_SHAMAN_EARTH_SHIELD_HEAL)
             {
                 return false;
             }
@@ -743,6 +743,11 @@ class spell_sha_earthliving_weapon : public AuraScript
                 chance += aurEff->GetAmount();
             }
         }
+
+        // the script rolls instead of the proc system, so the proc chance modifiers are applied here (Glyph of
+        // Earthliving Weapon: +10%)
+        if (Player* modOwner = caster->GetSpellModOwner())
+            modOwner->ApplySpellMod(GetId(), SPELLMOD_CHANCE_OF_SUCCESS, chance);
 
         return roll_chance_i(chance);
     }
@@ -1165,6 +1170,8 @@ class spell_sha_nature_guardian : public AuraScript
             return false;
 
         int32 healthpct = GetSpellInfo()->Effects[EFFECT_1].CalcValue();
+        if (!healthpct)
+            healthpct = sSpellMgr->AssertSpellInfo(sSpellMgr->GetSpellTwinSource(GetId()))->Effects[EFFECT_1].CalcValue();
         if (Unit* target = eventInfo.GetActionTarget())
             if (target->HealthBelowPctDamaged(healthpct, damageInfo->GetDamage()))
                 return true;
@@ -1226,6 +1233,8 @@ class spell_sha_stoneclaw_totem : public SpellScript
     void HandleScriptEffect(SpellEffIndex /*effIndex*/)
     {
         Unit* target = GetHitUnit();
+        // a Warcraft Reborn totem shields with its own absorb twin
+        uint32 const absorb = sSpellMgr->GetSpellTwinFor(SPELL_SHAMAN_STONECLAW_TOTEM, GetSpellInfo()->Id);
 
         // Cast Absorb on totems
         for (uint8 slot = SUMMON_SLOT_TOTEM_FIRE; slot < MAX_TOTEM_SLOT; ++slot)
@@ -1235,12 +1244,12 @@ class spell_sha_stoneclaw_totem : public SpellScript
 
             Creature* totem = target->GetMap()->GetCreature(target->m_SummonSlot[slot]);
             if (totem && totem->IsTotem())
-                GetCaster()->CastCustomSpell(SPELL_SHAMAN_STONECLAW_TOTEM, SPELLVALUE_BASE_POINT0, GetEffectValue(), totem, true);
+                GetCaster()->CastCustomSpell(absorb, SPELLVALUE_BASE_POINT0, GetEffectValue(), totem, true);
         }
 
         // Glyph of Stoneclaw Totem
         if (AuraEffect* aur = target->GetAuraEffect(SPELL_SHAMAN_GLYPH_OF_STONECLAW_TOTEM, 0))
-            GetCaster()->CastCustomSpell(SPELL_SHAMAN_STONECLAW_TOTEM, SPELLVALUE_BASE_POINT0, GetEffectValue() * aur->GetAmount(), target, true);
+            GetCaster()->CastCustomSpell(absorb, SPELLVALUE_BASE_POINT0, GetEffectValue() * aur->GetAmount(), target, true);
     }
 
     void Register() override
@@ -1257,7 +1266,7 @@ class spell_sha_thunderstorm : public SpellScript
     void HandleKnockBack(SpellEffIndex effIndex)
     {
         // Glyph of Thunderstorm
-        if (GetCaster()->HasAura(SPELL_SHAMAN_GLYPH_OF_THUNDERSTORM))
+        if (GetCaster()->HasAuraOrTwin(SPELL_SHAMAN_GLYPH_OF_THUNDERSTORM))
             PreventHitDefaultEffect(effIndex);
     }
 
@@ -1885,14 +1894,15 @@ class spell_sha_static_shock : public AuraScript
         if (!lightningShield)
             return;
 
-        uint32 spellId = sSpellMgr->GetSpellWithRank(SPELL_SHAMAN_LIGHTNING_SHIELD_DAMAGE_R1, lightningShield->GetSpellInfo()->GetRank());
+        uint8 const rank = sSpellMgr->GetSpellInfo(sSpellMgr->GetSpellTwinSource(lightningShield->GetId()))->GetRank();
+        uint32 spellId = sSpellMgr->GetSpellTwinFor(sSpellMgr->GetSpellWithRank(SPELL_SHAMAN_LIGHTNING_SHIELD_DAMAGE_R1, rank), lightningShield->GetId());
         eventInfo.GetActor()->CastSpell(eventInfo.GetActionTarget(), spellId, true, nullptr, aurEff);
         lightningShield->GetBase()->DropCharge();
     }
 
     void Register() override
     {
-        OnEffectProc += AuraEffectProcFn(spell_sha_static_shock::HandleProc, EFFECT_0, SPELL_AURA_DUMMY);
+        OnEffectProc += AuraEffectProcFn(spell_sha_static_shock::HandleProc, EFFECT_0, SPELL_AURA_ANY);
     }
 };
 
@@ -2027,7 +2037,7 @@ class spell_sha_t8_elemental_4p_bonus : public AuraScript
         // Do not proc from Lightning Overload (patch 3.1~)
         if (SpellInfo const* spellInfo = eventInfo.GetSpellInfo())
         {
-            if (spellInfo->Id == SPELL_SHAMAN_LIGHTNING_BOLT_OVERLOAD)
+            if (sSpellMgr->GetSpellTwinSource(spellInfo->Id) == SPELL_SHAMAN_LIGHTNING_BOLT_OVERLOAD)
                 return;
         }
 

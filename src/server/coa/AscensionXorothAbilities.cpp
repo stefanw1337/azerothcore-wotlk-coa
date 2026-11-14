@@ -138,6 +138,7 @@ void ConsumeSelected(Player* player, Spell* spell)
             }
 }
 constexpr char FlayedCorpseKey[] = "AscensionXoroth.FlayedCorpse";
+constexpr uint32 FLAYED_CORPSE_DISPLAY = 28209;
 struct FlayedCorpse : DataMap::Base
 {
 };
@@ -151,8 +152,13 @@ void MarkFlayed(WorldObject* object)
 {
     object->CustomData.GetDefault<FlayedCorpse>(FlayedCorpseKey);
     if (Corpse* corpse = object->ToCorpse())
+    {
+        corpse->SetUInt32Value(CORPSE_FIELD_DISPLAY_ID, FLAYED_CORPSE_DISPLAY);
         if (Player* owner = ObjectAccessor::FindConnectedPlayer(corpse->GetOwnerGUID()))
             owner->CustomData.GetDefault<FlayedCorpse>(FlayedCorpseKey);
+    }
+    if (Creature* creature = object->ToCreature())
+        creature->SetDisplayId(FLAYED_CORPSE_DISPLAY);
     if (Player* player = object->ToPlayer())
         if (Corpse* corpse = player->GetCorpse())
             corpse->CustomData.GetDefault<FlayedCorpse>(FlayedCorpseKey);
@@ -227,7 +233,10 @@ public:
     {
         if (Flayed(player))
             if (Corpse* corpse = player->GetCorpse())
+            {
                 corpse->CustomData.GetDefault<FlayedCorpse>(FlayedCorpseKey);
+                corpse->SetUInt32Value(CORPSE_FIELD_DISPLAY_ID, FLAYED_CORPSE_DISPLAY);
+            }
     }
 
     void OnPlayerReleasedGhost(Player* player) override
@@ -289,7 +298,7 @@ class xoroth_casts : public AllSpellScript
         if (!player)
             return;
         uint32 fire = State(player).fire, id = aura->GetId();
-        if (id == 801064 || id == 801063)
+        if (id == 801064)
             duration = Amount(500906, EFFECT_2, player) * int32(fire);
         if (id == 801017)
             duration *= 1 + fire;
@@ -431,7 +440,7 @@ class xoroth_casts : public AllSpellScript
         }
         if (Sever(info) && player->HasAura(300375))
             Cast(player, target, 681268);
-        if (player->HasAura(300388) && (Named(info, 800340) || id == 804353))
+        if (player->HasAura(300388) && (Named(info, 800340) || Named(info, 804353)))
             Cast(player, target, 800341);
         if (Named(info, 800340) && player->HasAura(704952))
             Cast(player, player, 553279);
@@ -484,7 +493,7 @@ class xoroth_casts : public AllSpellScript
             spell->SetScriptValue(802615, 1);
             Cast(player, player, 802617);
         }
-        if (id == 804353 && spell->GetScriptValue(680729))
+        if (Named(info, 804353) && spell->GetScriptValue(680729))
         {
             bool old = State(player).curseShield;
             State(player).curseShield = true;
@@ -578,6 +587,8 @@ class xoroth_casts : public AllSpellScript
                 if (Chance(player, 520296, 30000))
                     Reduce(player, SPELL_UNLEASH_PESTILENCE, INT32_MAX);
             }
+            if (Named(info, 520005))
+                Unleash(player, player);
             if (Pestilence(id) && player->HasAura(300398) && !State(player).timers.HasTimeUntilEvent(300398))
                 if (Pet* pet = player->GetPet(); pet && pet->GetEntry() == 510100)
                 {
@@ -632,8 +643,6 @@ class xoroth_casts : public AllSpellScript
                 Cast(player, target, 807522);
                 Cast(player, player, 808007);
             }
-            if (Named(info, 805671) && player->HasAura(707515) && player->HasAura(805696))
-                Reduce(player, 805671, INT32_MAX);
             ConsumeSelected(player, spell);
         }
         State(player).fire = spell->GetScriptValue(500907);

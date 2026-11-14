@@ -76,10 +76,10 @@ show 0 counted casts — only aura/health/damage-taken events are reliable for t
 | | Reality (CoA kit + evidence) | Before this branch | After this branch | Evidence | Open question |
 |---|---|---|---|---|---|
 | Shadow Bolt | 2105212→2105213, area, 5.3s/15.1s | ran, placeholder ~2 dmg | Damage Info wired, real per-difficulty damage (800/1600/2400/3200) | measured + exiles-kit | — |
-| Fierce Blow | 975011, tank, 8.4s/7.8s | ran | unchanged | measured | — |
+| Fierce Blow | 975011, tank, random first 6-10s then 6-10s | ran | unchanged | measured | — |
 | Curse of Lucifron | 2105206→2105207, area, 18.8s/79.9s | ran, placeholder dmg | Damage Info wired | measured | — |
 | Suppressing Shadows | 2105218, area, 29.2s/25.1s | ran; landing effect (2105219) missing | landing effect 2105219 added to the row | designed (row shape), measured (timers) | — |
-| Impending Doom | 2105201→2105205, area | absent — no schedule row at all | added, first 7s/period 20s | dbm (DBM-Warmane vanilla Doom, CD20/first7); no log ever recorded this cast | timer is a vanilla-CD borrow, not a measured Ascension interval |
+| Impending Doom | 2105201→2105205, area | absent — no schedule row at all | first 20.9-27.5s, every 22.2-22.6s (`rev_20261005_20`) | logs: 3 pulls (2026-08-09, 08-16, 08-23), 14 intervals of 22.2-22.6s, first cast derived from the first hits at 43.3/45.1/49.9s | first-cast window is a measured range from three pulls |
 
 Health: `coa_boss_flex` `hp_d0..d3` 588,759/785,012/1,181,513/1,722,727 (rebuilt from a direct CoA video
 reading at Ascended; d0-d2 from Lucifron's own prior shape anchored on it — see §5).
@@ -124,7 +124,7 @@ encounter).
 
 | | Reality | Before | After | Evidence | Open question |
 |---|---|---|---|---|---|
-| Body casts nothing (kept as stock melee/Frenzy/Panic); two head creatures (80642/80643) cast Enrage (2105307), Scorching Breath (2105360 dummy → hidden 2105361 → real hit 2105362-65), Lava Burst (2105357, Damage Info 2105351-54) and Lava Bomb ground fire (2105366 dummy → persistent-area 2105367-70) | stock `boss_magmadar` script only | new `boss_magmadar_coa.cpp`: on engage, `DoSummon`s both heads (`TEMPSUMMON_MANUAL_DESPAWN`, difficulty variant auto-resolved by `creature_template.difficulty_entry_1..3`) plus periodic Core Hound (11671) reinforcements | new head kit wired and cast on schedule; ground-fire puddle fixed (see below); heads share the body's health pool (see below) | exiles-kit (heads' spells) + measured (in-probe cast/damage confirmation, lm-validation.md) + MC_PV video ("PV = Magmadar") for the shared pool | Core Hound entry/count/cadence (2 hounds, first 45s/repeat 50s) is `designed`, not measured — see §8 |
+| Body casts Fierce Blow 975011 on his tank (first cast and every repeat drawn at random from 6-10s; medians 8.5s/7.7s, 8 pulls, 230 casts) beside stock melee/Frenzy/Panic; two head creatures (80642/80643) cast Enrage (2105307), Scorching Breath (2105360 dummy → hidden 2105361 → real hit 2105362-65), Lava Burst (2105357, Damage Info 2105351-54) and Lava Bomb ground fire (2105366 dummy → persistent-area 2105367-70) | stock `boss_magmadar` script only | new `boss_magmadar_coa.cpp`: on engage, `DoSummon`s both heads (`TEMPSUMMON_MANUAL_DESPAWN`, difficulty variant auto-resolved by `creature_template.difficulty_entry_1..3`) plus periodic Core Hound (11671) reinforcements | new head kit wired and cast on schedule; ground-fire puddle fixed (see below); heads share the body's health pool (see below) | exiles-kit (heads' spells) + measured (in-probe cast/damage confirmation, lm-validation.md) + MC_PV video ("PV = Magmadar") for the shared pool | Core Hound entry/count/cadence (2 hounds, first 45s/repeat 50s) is `designed`, not measured — see §8 |
 
 The two heads don't exist as a static spawn or a vehicle passenger anywhere in the export — they are summoned
 by the body's own script on engage, the same idiom already used for Garr's Firesworn. `Lava Burst`'s
@@ -146,21 +146,40 @@ replaced: Magmadar now has his own direct CoA video reading (§5), both heads ca
 
 | | Reality | Before | After | Evidence | Open question |
 |---|---|---|---|---|---|
-| Fierce Blow 975011, tank, 7.0s/8.5s | ran | unchanged | measured | — |
+| Fierce Blow 975011, tank, random first 6-10s then 6.8-10.4s | ran | unchanged | measured | — |
 | Rain of Fire 2105407, area, 8.5s/30s | ran, placeholder dmg | Damage Info wired | measured + exiles-kit | Unquenchable Flames (2105411-14) is the spell's own built-in `EffectTriggerSpell`, not a separate cast — confirmed no gap |
 | Incinerate 2105405→2105406, area, 9.5s/15.1s | ran, placeholder dmg | Damage Info wired | measured + exiles-kit | — |
 | Curse of Gehennas 2105415→2105416, area, 11.1s/39.9s | ran | unchanged | measured | Dispel-punish proc (2105423/24) needs a `SpellScript`, not a schedule row — not added |
 | Immolate 2105429→2105430, random non-tank, 15.4s/20s | ran, placeholder dmg | Damage Info wired | measured + exiles-kit | — |
-| Conjure Flame Orb 2105417, tank, 50.7s/78.1s | ran | unchanged | measured | — |
+| Conjure Flame Orb 2105417, distant, 50.7s/78.1s | cast produced nothing | fixed (summons + moves the orb) | measured + [designed] | Orb travel speed is [designed]: no position evidence exists in the combat logs |
 
 Health: `hp_d0..d3` 884,118/1,178,824/1,774,235/2,586,957 (rebuilt from a direct CoA video reading at
 Ascended — see §5).
+
+**Conjure Flame Orb (2105417), fixed.** EFFECT_0 is a plain dummy and EFFECT_1 only triggers 2180023
+"Cosmetic - Camera Shake Big" (a client-only visual, confirmed by parsing the live server-data Spell.dbc
+this session) — nothing in the spell's own kit ever created the orb, so the cast was silently a no-op.
+`spell_gehennas_conjure_flame_orb` (`boss_gehennas.cpp`) now summons the orb (creature 80644, db.exil.es
+export; carries the Flame Orb damage family 2105421/2105422) on Gehennas himself, moving it on a fixed
+`MovePoint` (not `MoveFollow`, so it never retargets a moving player) to the position its target held when
+the dummy effect fired, at `distance / 11000ms` (floored at 1 yd/s) — arriving as its measured 11000ms
+lifetime (12 orb instances across 3 archived fights, first-to-last-tick span 10.1-11.0s = 37-40 ticks of
+the DBC's 275ms amplitude) ends. The orb self-casts the periodic pulse 2105418 every tick regardless of its
+current position, so it burns anything it passes through on the way, not only its destination. Target
+selection also changed from the tank (`coa_boss_schedule`'s `target` column was 0) to a new CoaBossAI
+`TargetMode`, `TARGET_DISTANT` (4): candidates are players beyond 10 yards (within 100, reusing
+`boss_magmadar.cpp`'s own "beyond melee range" pair, since Spell.dbc carries no usable range index for
+2105417 to derive a threshold from), falling back to every alive player when none qualify. Among the
+candidates the orb goes for the one with the most other candidates within 20 yards of it (ties go to the
+one farthest from Gehennas) — a group, not a lone player, so Conjure Flame Orb's own AoE actually has to
+be played around. 20 yards is Conjure Flame Orb's own damage radius: 2105419-22 all share Spell.dbc
+RadiusIndex 9 = SpellRadius.dbc row 9 = 20 yards.
 
 ### Garr (12057)
 
 | | Reality | Before | After | Evidence | Open question |
 |---|---|---|---|---|---|
-| Fierce Blow 975011, tank, 12.0s/8.2s | only scheduled ability | unchanged | measured | Only 1 measured schedule row for Garr — sparsest of the 7 `coa_boss_ai` bosses; log-coverage gap or true current kit is unresolved |
+| Fierce Blow 975011, tank, random first 8-16.9s then 6-10s | only scheduled ability | unchanged | measured | Only 1 measured schedule row for Garr — sparsest of the 7 `coa_boss_ai` bosses; log-coverage gap or true current kit is unresolved |
 | Antimagic Pulse, Magma Shackles, Separation Anxiety/Mass Eruption (dead C++ kit) | unreachable (`coa_boss_ai` wins over `boss_garr.cpp`) | replaced by a new `boss_garr_coa.cpp` (own BossAI) | Harden (self-buff, 20s), Land Slide (self, 20s/30s, knockback AoE), Unstoppable Force (self, 45s/45s: drops Harden, applies Cracked+Earth Fury, summons an extra Firesworn, 20s recovery) | designed (all four timers; no log ever recorded them) | Harden/Cracked/Earth Fury's real stack-counting cycle was simplified to a flat crack-and-recover loop; Land Slide's "charge through" is a self-centered AoE, not pathing |
 | Firesworn respawn on wipe (#5391) | not respawned; instance script only had the Golemagg branch | fixed: `_garrFireswornGUIDs` tracked, respawned on `NOT_STARTED`/`FAIL` mirroring Golemagg | measured (code read) | — |
 | Firesworn Eruption damage (#5388) | 19497 (~3000 dmg) flat on Normal/Heroic, 350126 (~4600) on Mythic/Ascended — a real `SpellDifficulty.dbc` family, not an Ascended value leaking onto Normal | unchanged | unchanged | exiles-kit + dbc | Not flex-scaled by raid size/gear the way boss casts are — needs a decision on whether that's the actual defect (§8) |
@@ -177,7 +196,7 @@ proc buff) — treated as stale/recycled aura data, not a real Garr mechanic, an
 | | Reality | Before | After | Evidence | Open question |
 |---|---|---|---|---|---|
 | Arcane Explosion 2105601, tank, 3.6s/8.4s | ran | unchanged | measured | — |
-| Fierce Blow 975011, tank, 6.6s/9.2s | ran | unchanged | measured | — |
+| Fierce Blow 975011, tank, random first 6-10s then 7.6-12.8s | ran | unchanged | measured | — |
 | Dampen Magic (self) 2105607→608, 14.1s/30.2s | ran | unchanged | measured | — |
 | Blink 2105611, area, 14.6s/16.4s | ran as a plain teleport | Gate of Shazzrah's threat wipe (`ResetAllThreat`+`AddThreat`+`AttackStart`) bound via a new `SpellScript` | measured (timer) + measured (dead-code comparison to `boss_shazzrah.cpp`) | The wipe now always lands on the tank (`TARGET_AREA` resolves to the tank), not a random raid member as vanilla did |
 | Arcane Instability 2105605→606, area, 18.4s/65.2s | ran | unchanged | measured | — |
@@ -218,8 +237,8 @@ multi-target hit list for a single cast). Heroic, Mythic and Ascended were not r
 session (not yet run).
 
 Health: `hp_d0..d3` 775,397/1,033,863/1,556,054/2,267,615 (rebuilt from a Bronzebeard video reading at
-Ascended times the C=3.306 BB->CoA coefficient — see §5). Time Stop (2105618) and Mass Slow (2105619) exist in the kit with no schedule row and no
-corroborating log/addon evidence — left as needs-decision, not added.
+Ascended times the C=3.306 BB->CoA coefficient — see §5). Time Stop (2105618) and Mass Slow (2105619) ride every Blink: the archive logs (6 pulls, 77 Blinks) pair each Blink with a Time
+Stop on the player he lands on at the same instant and a Mass Slow on the raid 2s later; `spell_shazzrah_blink_coa` casts both.
 
 ### Baron Geddon (12056)
 
@@ -237,19 +256,32 @@ pulses 10× at 1s intervals for 875-1999 damage, Armageddon's 2105748 hits all 1
 Health: `hp_d0..d3` 884,285/1,179,047/1,774,570/2,586,957 (rebuilt from a direct CoA video reading at
 Ascended — see §5).
 
-**Living Bomb explosion (designed, not corpus-evidenced — see §8).** The carrier aura (2105702-05) applies
-`SPELL_AURA_PERIODIC_TRIGGER_SPELL_WITH_VALUE` (227) on effect 0, not `SPELL_AURA_PERIODIC_TRIGGER_SPELL` (23)
-as its own self-damage trigger id might suggest; `spell_geddon_living_bomb_explosion_coa`
-(`boss_geddon_coa.cpp`) originally registered its `AfterEffectRemove` hook against the wrong aura name (23),
-so `AuraScript::CheckEffect` filtered it on every expiry and the handler never ran on any difficulty — the
-carrier only ever saw its own periodic 2105706 ticks, confirmed in three live trials before the fix. Fixed by
-binding the hook to 227, confirmed against `Spell.dbc` directly. Live re-verification (grouped 5-bot raid,
-Ascended) after the fix: 3/3 natural expiries produced the explosion, each bystander within 5 yd took exactly
-one 3200-damage hit (Normal-ladder figure; the far bot stayed outside 5 yd and never did), the carrier alone
-took its own periodic ticks, and all 3 expiries knocked the actual carrier back (`SMSG_MOVE_KNOCK_BACK`, 3/3).
-An earlier verification attempt with ungrouped bots wrongly reported zero bystander hits post-fix: each
-ungrouped bot gets its own personal raid instance, so no bystander was ever on the same map — a harness
-defect, not a mechanic defect, fixed by grouping the bots into one raid before entering the instance.
+**Living Bomb explosion (corpus-evidenced, DBC-driven).** Ascension's combat logs (2026-05-28 Ascended, 08-09
+Normal, 08-16 and 08-23 Mythic) show one `Living Bomb Explosion` per carrier at the aura-removal millisecond,
+dealt to the carrier itself and to a pet inside 5 yd; no player bystander was ever caught in one. The carrier
+aura (2105702 N / 03 H / 04 M / 05 A) applies `SPELL_AURA_PERIODIC_TRIGGER_SPELL_WITH_VALUE` (227) on effect 0.
+`Spell.dbc` already holds the rest of the kit: the explosion 2105708/09/10/11 (its own damage: 1400-1600,
+1867-2133, 2334-2666, 2800-3200), 2105712 `Living Bomb - Knock Up` (vertical `KNOCK_BACK`, Feather Fall 3s),
+radius from the hidden hit trigger 2105707 (SpellRadius 8, 5 yd), and the ground fire 2105713/14/15/16
+`Burning Ground` (`SPELL_EFFECT_PERSISTENT_AREA_AURA`, `SpellRadius` 7 = 2 yd, `SPELL_AURA_PERIODIC_DAMAGE`
+every 1000 ms, DBC damage 800/1067/1333/1600). The same four logs show `Burning Ground` applied to the carrier
+at the same millisecond as the explosion (fight 317, 2026-05-28 Ascended: 2105716; fights 1630/1752, 08-16 and
+08-23 Mythic: 2105715). `spell_geddon_living_bomb_explosion_coa` (`boss_geddon_coa.cpp`) adds the missing
+trigger: on `AURA_REMOVE_BY_EXPIRE` (not dispel, not death) Geddon casts explosion
+`2105708 + (carrierAura - 2105702)` on every hostile unit within 5 yd of the carrier, the carrier included,
+then Knock Up on the carrier, then `2105713 + (carrierAura - 2105702)` `Burning Ground` at the carrier's exact
+position (a dynobject, so the fire patch persists on the ground after the carrier moves or dies). It had
+registered its `AfterEffectRemove` hook against aura name 23 instead of 227, so it never ran before
+`d8c078a7b`; an earlier version also invented a 3200 x difficulty ladder, logged under the tick id 2105706,
+spared the carrier and launched at speed 10 without Feather Fall.
+
+Knock Up's vertical launch speed (`EffectKnockBack`: `speedz = EffectBasePoints[0] * 0.1`, `MiscValue` 0 so no
+horizontal component) was the raw DBC value, `EffectBasePoints[0]` 499 -> damage 500 -> speedz 50.0 yd/s. With
+`Movement::gravity` 19.29110527038574 (`src/server/game/Movement/Spline/MovementUtil.cpp`), the apex
+(`speedz^2 / (2 * gravity)`) is about 64.8 yards, and the owner confirmed in-game that a player goes through
+the ceiling of Geddon's room (spawn `position_z` -178.401, map 409, guid 56655). The vmap ceiling height could
+not be measured without a server deploy. `SpellInfoCorrections.cpp` halves the apex instead
+(`speedz / sqrt(2)`): `EffectBasePoints[0]` 353 -> damage 354 -> speedz 35.4 yd/s -> apex about 32.5 yards.
 
 ### Sulfuron Harbinger (12098)
 
@@ -278,8 +310,8 @@ plain summon-and-buff) no longer carries a difficulty gate at all — the `min_d
 `CoaBossAI.cpp` check were dropped once removing Sulfuron's gate left every row wanting every difficulty.
 Each disciple runs a dummy→real-effect curse/self-heal pair read from `Spell.dbc`: Cull = Curse of Gehennas +
 Cauterize (real heal), Proxima = Dampen Magic + Arcane Instability (Shazzrah's own measured cadences), Ebon =
-Curse of Lucifron + Dark Mending (real heal); all three also carry a Shadow Bolt with no matching "- Damage
-Info" family, so it still deals DBC placeholder damage. Confirmed in-game (`verify-ABC.md`,
+Curse of Lucifron + Dark Mending (real heal); all three also carry a Shadow Bolt whose damage comes from the
+"Harbinger Priests - Damage Info" family (2105950-53, see §8 item 16). Confirmed in-game (`verify-ABC.md`,
 `impl-D-fixes.md`): d0 and d2 both now spawn 1 Corvus + the three disciples, all casting over a 90s window.
 Cadences are designed (every log entry reads `casts: 0`); Rapid Regeneration (804315) is left unwired, never
 observed.
@@ -363,7 +395,7 @@ players (not itself) and killing it removes the debuff from them.
 | Hand of Ragnaros | vanilla id 19780 shared with Sulfuron (whose own schedule already resolves it correctly via `SpellDifficulty.dbc`) | `boss_ragnaros.cpp` cast 19780 on self — would have silently broken Sulfuron's correct Heroic+ resolution if patched by id override | repointed to CoA's own 2108612 (own `SpellDifficulty` group 2213), cast changed self→victim to match the new spell's target field | measured (dbc group) + designed (call-site fix) | — |
 | Wrath of Ragnaros | exclusive caster (only `boss_ragnaros.cpp`) | 20566 | repointed to 2108623 (group 2215) | measured (exclusivity) + dbc | — |
 | Magma Blast | exclusive caster, dummy effect with no native trigger | 20565 | repointed to 2108607; new `SpellScript` casts the damage effect 2108608, already bound to Damage Info from rev_83 | measured + dbc | — |
-| Sulfuras Slam, both Super Nova groups, Magma Splash, Unbearable Heat, Magma Strike, Fire Strike/Fierce Fire Strike, Meteor | in the CoA kit, no stock choreography beat matches them | not wired | not wired | exiles-kit only | No safe mapping without a log or a maintainer ruling — listed in §8 |
+| Sulfuras Slam, Magma Splash, Unbearable Heat, Magma Strike, Fire Strike/Fierce Fire Strike, Meteor | in the CoA kit, no stock choreography beat matches them | not wired | not wired | exiles-kit only | No safe mapping without a log or a maintainer ruling — listed in §8 |
 | Submerge / Sons of Flame / knockback timers | stock, all vanilla, unchanged (180s submerge, 90s duration) | unchanged | unchanged | measured (stock file) | Whether the stock script's vanilla-id casts already resolve to the matching CoA ids via the core's own `SpellDifficulty` chain (as they do for Sulfuron) was not confirmed at runtime this session |
 
 Health: `hp_d0..d3` 2,394,118/3,192,157/4,747,960/7,058,824 — d0 and d3 are both direct CoA video readings
@@ -830,21 +862,24 @@ wowhead.com/classic/guide/majordomo-executus-molten-core-strategy-wow-classic, W
 5. **Gehennas procs.** Curse of Gehennas's dispel-punish mana-burn (2105423/24) needs a `SpellScript`
    triggered on dispel, which the timer-based schedule engine has no hook for. Not added; needs either a new
    engine hook or acceptance that this proc is out of scope for the data-driven path.
-6. **Ragnaros abilities not wired**: Sulfuras Slam, both Super Nova groups (2108627-30 and 2108662-65 — which
-   is "base" vs. a variant is itself unresolved), Magma Splash, Unbearable Heat, Magma Strike, Fire
+6. **Ragnaros abilities not wired**: Sulfuras Slam, Magma Splash, Unbearable Heat, Magma Strike, Fire
    Strike/Fierce Fire Strike, and Meteor timing (2108762, already bound to Damage Info via §6 but nothing
    casts it). None have a stock choreography beat to attach to without inventing one; needs a combat log or an
-   explicit maintainer ruling per ability.
+   explicit maintainer ruling per ability. Both Super Nova groups are wired (2108627-30 first at 10s, 2108662-65
+   first at 15s, each every 12s while emerged: the logs show two groups, not a base and a variant). Their last
+   phase differs in the logs (group B every 10.5-10.6s in the Mythic pulls only, group A rare) and is not modelled.
 7. **~~Lucifron's Flamewaker Protectors vs. a player's memory.~~ Resolved: removed, by player decision
    (`rev_20260930_98`).** This item previously read the export's own static placement (2 adds ~4 yd from
    Lucifron) as outweighing a "no adds" report. On a direct, later in-game account of the correct spot and "no
    adds", the player's memory is the decision: Flamewaker Protector (12119, guids 56606/56607) is removed
    outright, not relocated with Lucifron to his corrected alcove position (also `rev_20260930_98`, see §3).
-8. **Shadow of Lucifron (12268) timing.** The 5s summon delay and its Shadow Bolt/Cleave/Dark Sundering
-   cadences are still `designed`, not measured — no static spawn or summon-spell evidence exists for this
-   creature anywhere in the export. Its health is no longer designed (§5: a Bronzebeard video reading × the
-   BB→CoA coefficient, replacing the old 25%-of-Lucifron placeholder). Awaiting the player's own logs for the
-   remaining timings.
+8. **Shadow of Lucifron (12268) timing.** Combat logs 294, 1289, 1602 and 1734 (`coa-log-history`) bound the
+   summon: players first hit the Shadow 10.08, 10.20, 10.07 and 10.06 s after Lucifron's first log line, so it
+   exists within about 10 s of the pull; the logs do not record the spawn itself. The 5s `coa_boss_summon`
+   delay fits that bound but stays `designed`, as do its Shadow Bolt/Cleave/Dark Sundering cadences — no static
+   spawn or summon-spell evidence exists for this creature anywhere in the export. Its health is no longer
+   designed (§5: a Bronzebeard video reading × the BB→CoA coefficient, replacing the old 25%-of-Lucifron
+   placeholder).
 9. **Magmadar's Core Hound cadence.** The Core Hound (11671) reinforcement cadence (first 45s, repeat 50s) is
    still `designed` — no CoA log or export evidence places it. The head/body health split is resolved: the
    heads now mirror the body's own health (§3/§5) instead of holding a designed fraction of it.
@@ -871,11 +906,15 @@ wowhead.com/classic/guide/majordomo-executus-molten-core-strategy-wow-classic, W
     7).** It had confirmed firing on a flat 5s SmartAI cooldown against a random non-top-threat target, with
     two Protectors per pull doing this simultaneously. The open question of whether the ability belonged on
     Lucifron himself instead no longer applies — it left with the add, not moved.
-15. **Heating Up (Baron Geddon, 2105746) is not wired.** A `MOD_DAMAGE_PERCENT_DONE` self-stack aura with no
-    `EffectTriggerSpell` anywhere pointing at it and no roll on its own base points — the DBC gives no
-    evidence of what triggers it or by how much. Left unimplemented rather than inventing a stack/percentage.
-16. **Harbinger Priests' Damage Info is unmapped.** No "Harbinger Priest" info-aura family (2105950-53, seen
-    in inventory) was matched to a live cast; not one of the 12 pairs wired in §6, left unmapped.
+15. **Heating Up (Baron Geddon, 2105746) follows Inferno.** The DBC names no trigger, but the logs do: in all four
+    pulls the aura (first wave) or a dose (later waves) lands 1-3ms after every Inferno damage wave, ten per
+    Inferno cast, 60.0s apart, 50 charges after a 285s pull. `spell_geddon_inferno_damage_coa` (AfterCast on the four
+    wave spells) adds one charge per wave. The per-charge percentage is the DBC's own (not measured).
+16. **Harbinger Priests' Damage Info maps the three disciples' Shadow Bolts.** The info-aura family 2105950-53
+    (base points 1600/2128/2656/3200, "Sulfuron Harbinger's Priests pull their base spells BASE DAMAGE from this
+    Aura") now drives Cull 2105961, Proxima 2105957 and Ebon 2105959 (rev_20261004_92). Corvus's own Shadow Bolt
+    (2105954/2105955) is not cast by the stock Flamewaker Priest script and stays unmapped. The log corpus does
+    not record the pulls' difficulty, so the d0..d3 assignment rests on the aura family, not on a per-tier reading.
 17. **Sulfuron's own Dark Strike (19777) is dead code** — never `cast_start`s from Sulfuron himself; the
     Flamewaker Priest add casts the identical id instead. Not changed, flagged in case that was unintended.
 18. **Magmadar's CoA/BB health-coefficient outlier: accepted.** Every other boss with both readings lands the
@@ -986,6 +1025,29 @@ clean single-pull session at the expected health; a Ghost-harness artifact, not 
 combat on a chained multi-tier session's 2nd/3rd pull). No repository bugs found; the one bug found
 (Majordomo-pull facing) was in the throwaway test, fixed in the scratchpad, not committed.
 
+### Automated Lucifron encounter
+
+`apps/coa-gameplay-test/scenarios/molten-core-lucifron-encounter.json` fights the real Lucifron spawn
+(guid 56605) with ten CoA-class level-60 bots of the in-process gameplay harness (1 tank, 2 healers, 4 melee,
+3 ranged), without a client or a human. The bots form one raid before entering Molten Core, so they share the
+leader's instance; a fresh group gets a fresh instance, which the scenario checks by requiring an undamaged
+Lucifron before the pull. After 80 s of fighting it asserts on the recorded encounter timeline:
+
+- Shadow of Lucifron (12268) appears within 11 s of the engage (combat logs 294, 1289, 1602 and 1734: players
+  first hit it 10.06-10.20 s after Lucifron's first line; the designed 5000 ms summon row is context only).
+- Shadow Bolt (2105212) completes its first 1.5 s cast 5.8-7.8 s after the engage and repeats every
+  14.0-16.2 s (combat logs 294, 1289, 1602 and 1734: cast start 5.93-5.98 s, then every 15.0-15.1 s).
+- Fierce Blow (975011) is cast at least five times, only on the tank (tank-only in all four logs).
+- Nothing evades, and the killing blow marks the boss state `DONE`.
+
+Recorded without assertion, because the expectation is still uncertain: Curse of Lucifron (schedule 79.9 s;
+the logs repeat it every 66.6-70.7 s, 79.9 s only in fight 1289), Suppressing Shadows (cast every 25.0-25.1 s
+in the logs, matching the schedule; only its per-target aura events recur every 1-5 s) and Impending Doom
+(schedule first 20.9-27.5 s, every 22.2-22.6 s, `rev_20261005_20`, from its 2105205 hits in fights 1289, 1602
+and 1734; fight 1289 alone logs its 2105201 aura, first at 13.3 s and then every 26.5-27.7 s, so the two readings
+disagree). Each run's result keeps their casts in its `timeline`. Health fixtures keep the raid alive through the window, and
+the tank's threat floor is a harness fixture, so the scenario does not measure Lucifron's damage or threat.
+
 ## 9. Batch G mechanics (2026-10-01)
 
 Confirmed defects from `.agents/plans/mc-restoration/diag-G1.md`, `diag-G2.md` and `diag-G3.md` (combat-log
@@ -1086,12 +1148,8 @@ evidence + source reads), fixed individually below. See `impl-G-mechanics.md` fo
    once the sons die) is unchanged, only the trigger condition and the 90s->60s safety-ceiling
    duration. Both thresholds rest on only 2 independent kills -- a strong first estimate, not a final
    number.
-10. **Baron Geddon's Living Bomb explodes on natural expiry.** 2105702-05 (the carrier aura) had no
-    explosion anywhere in the DBC kit. Per the user's own memory, on `AURA_REMOVE_BY_EXPIRE` only
-    (not dispel, not the carrier's death) the carrier now gets a light vertical launch and everyone
-    else within 5 yd takes fire damage, based on vanilla Living Bomb's own explosion (20476, 3200)
-    scaled by the same 1/1.44/1.88/2.32 ladder used everywhere else in this instance -- the user's
-    coefficient choice, not a measured value for this spell.
+10. **Baron Geddon's Living Bomb explodes on natural expiry.** Superseded by the corpus-evidenced
+    reading above: the explosion and Knock Up spells are DBC spells, not a designed ladder.
 11. **A portal to Ragnaros' lair appears once Majordomo is defeated.** `go_ragnaros_portal_coa`
     reuses the existing "Molten Core Instance Portal" template (181623, display 6450) rather than a
     new one; a static spawn at the room-center point (same point as the Sacrificial Chains,
@@ -1199,8 +1257,8 @@ evidence + source reads), fixed individually below. See `impl-G-mechanics.md` fo
    script: `SPELL_PANIC_COA` is 2105309 and the body's `EVENT_PANIC_COA` repeats on a flat 40s (first cast
    still at the previous, unmeasured 9500ms offset), on every difficulty (Normal through Ascended, the body
    script is shared). Not the "Bellowing Roar"/"Ancient Dread/
-   Fury/Despair/Hysteria" family (2105308/2105310-13) the task brief initially named, which exist as catalog
-   ids but never fire in any of the 54 logs. The hound's own kit has no fear anywhere: its action-type-88
+   Fury/Despair/Hysteria" family (2105308/2105310-13) the task brief initially named, which the body does cast
+   in the archive logs as a 66.6-70.2s raid cycle (not a fear; see the Ancient cycle in `boss_magmadar_coa.cpp`). The hound's own kit has no fear anywhere: its action-type-88
    random pool (now decoded, see the trash table above) is Ground Stomp/Cauterizing Flames/Withering Heat/
    Ancient Despair/Ancient Hysteria/Ancient Dread — stun, resistance and stat effects, not fear — confirmed
    both by static decoding and by the corpus (no Panic or any `MOD_FEAR` aura ever recorded on the hound, any
@@ -1537,3 +1595,21 @@ Verification: `codestyle-cpp.py --files` on every touched file passed; `tools/ve
 --base origin/main` passed except the pre-existing `tools/test_comments.py` self-test failure (documented in
 every prior session on this branch, unrelated to any file this change touched). See `impl-AH-chain-immovable.md`
 for the live evidence.
+
+## 16. Batch E (2026-10-05): Fierce Blow on every Molten Core creature that cast it
+
+Fierce Blow (975011, a next-swing hit) was a generic Ascension mechanic: 78744 lines across the archive logs show it on
+the Molten Core bosses and trash. Each creature now casts it on its tank with the first cast and every repeat drawn at
+random from a window, so neither players nor boss-timer addons can predict it. The windows come from the logged
+intervals per creature guid (de-duplicated, first cast measured from the creature's first damage event with a player).
+
+- Repeat window 6-10s for every creature except Gehennas (6.8-10.4s) and Shazzrah (7.6-12.8s), whose own
+  distributions leave 6-10s (52% and 49% inside). Creatures with fewer than 15 repeats (Flame Imp, Firewalker,
+  Lava Reaver, Flameguard) use the shared window as a default, not a measurement.
+- First-cast window 6-10s except where a creature's own distribution leaves it: Core Hound 6.9-13s, Firesworn 7.6-17s,
+  Firelord 8.1-12.6s, Lava Elemental 7.5-12.4s, Lava Reaver 5.7-8s (interquartile ranges), Golemagg 6.9-14.6s,
+  Garr 8-16.9s, Cindermaw 3.5-5.6s, Flamewaker 6.7-21.1s (min-max of fewer than 15 first casts).
+- Data: SmartAI rows for the 13 SmartAI trash entries (`rev_20261005_11`), `first_max_ms`/`period_max_ms` on
+  `coa_boss_schedule` for the `coa_boss_ai` bosses (`rev_20261005_10`). C++: Magmadar, Garr, Majordomo, Core Hound,
+  Cindermaw and Firesworn draw their own timers.
+- Fierce Blow replaces the next melee swing, so its damage follows each creature's melee scale (section 10.1).

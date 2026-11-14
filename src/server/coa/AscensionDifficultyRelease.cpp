@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AscensionDifficultyRelease.h"
+#include "AscensionRaidReleasePolicy.h"
 #include "Player.h"
 #include "PlayerScript.h"
 
@@ -22,29 +23,44 @@ WorldPacket BuildActiveEvent(uint16 eventId)
     return data;
 }
 
-void SendReleasedDifficulties(Player* player)
+std::vector<uint16> ReleasedEvents(uint32 releasedStage)
 {
-    for (auto const& events : { HeroicDungeonEvents, MythicDungeonEvents })
-        for (uint16 eventId : events)
-        {
-            WorldPacket data = BuildActiveEvent(eventId);
-            player->SendDirectMessage(&data);
-        }
+    std::vector<uint16> released;
+    if (RaidRelease::IsDungeonDifficultyReleased(RaidRelease::DungeonDifficultyHeroic, releasedStage))
+        released.insert(released.end(), HeroicDungeonEvents.begin(), HeroicDungeonEvents.end());
+    if (RaidRelease::IsDungeonDifficultyReleased(RaidRelease::DungeonDifficultyMythic, releasedStage))
+        released.insert(released.end(), MythicDungeonEvents.begin(), MythicDungeonEvents.end());
+    return released;
 }
 
-class LoginAnnouncer : public PlayerScript
+void SendReleasedDifficulties(Player* player)
+{
+    for (uint16 eventId : ReleasedEvents(RaidRelease::ReleasedStage()))
+    {
+        WorldPacket data = BuildActiveEvent(eventId);
+        player->SendDirectMessage(&data);
+    }
+}
+
+class ReleaseAnnouncer : public PlayerScript
 {
 public:
-    LoginAnnouncer() : PlayerScript("AscensionDifficultyRelease", {PLAYERHOOK_ON_LOGIN}) { }
+    ReleaseAnnouncer() : PlayerScript("AscensionDifficultyRelease", {PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_MAP_CHANGED}) { }
 
     void OnPlayerLogin(Player* player) override
     {
         SendReleasedDifficulties(player);
+    }
+
+    void OnPlayerMapChanged(Player* player) override
+    {
+        if (!player->GetSession()->IsHeadlessBot())
+            SendReleasedDifficulties(player);
     }
 };
 }
 
 void AddSC_AscensionDifficultyRelease()
 {
-    new AscensionDifficultyRelease::LoginAnnouncer();
+    new AscensionDifficultyRelease::ReleaseAnnouncer();
 }

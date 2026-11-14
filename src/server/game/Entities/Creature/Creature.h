@@ -141,6 +141,9 @@ public:
     bool isCanInteractWithBattleMaster(Player* player, bool msg) const;
     bool CanResetTalents(Player* player) const;
     bool CanCreatureAttack(Unit const* victim, bool skipDistCheck = false) const;
+    bool IsWithinLeashArea() const;
+    bool IsNpcFightingMe(Unit const* who) const;
+    void EndCombatWithUnitsLeftBehind();
     bool IsImmunedToSpell(SpellInfo const* spellInfo, Spell const* spell = nullptr) override;
 
     [[nodiscard]] bool HasMechanicTemplateImmunity(uint64 mask) const;
@@ -272,6 +275,7 @@ public:
     [[nodiscard]] Group* GetLootRecipientGroup() const;
     [[nodiscard]] bool hasLootRecipient() const { return m_lootRecipient || m_lootRecipientGroup; }
     bool IsSharedQuestTarget() const;
+    [[nodiscard]] uint32 GetQuestTargetRespawnCap() const;
     void RegisterSharedQuestContributor(Unit* attacker);
     void FinalizeSharedQuestParticipants();
     void RewardSharedQuestParticipants(ObjectGuid rewardedPlayer, ObjectGuid rewardedGroup);
@@ -428,6 +432,8 @@ public:
     void ResetPlayerDamageReq();
     [[nodiscard]] uint32 GetPlayerDamageReq() const;
     [[nodiscard]] uint8 GetHighestPlayerAttackerLevel() const { return _highestPlayerAttackerLevel; }
+    void AddDirectPlayerAttacker(ObjectGuid guid) { _directPlayerAttackers.insert(guid); }
+    [[nodiscard]] bool WasAttackedDirectlyBy(ObjectGuid guid) const { return _directPlayerAttackers.contains(guid); }
 
     [[nodiscard]] uint32 GetOriginalEntry() const { return m_originalEntry; }
     void SetOriginalEntry(uint32 entry) { m_originalEntry = entry; }
@@ -607,6 +613,7 @@ private:
     uint32 _playerDamageReq;
     bool _damagedByPlayer;
     uint8 _highestPlayerAttackerLevel;
+    GuidUnorderedSet _directPlayerAttackers;
     bool _isCombatMovementAllowed;
 };
 

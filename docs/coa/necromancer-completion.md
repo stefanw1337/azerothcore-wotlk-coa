@@ -24,8 +24,13 @@ No minion grants experience, and an owned corpse cannot grant Frozen Bodies to i
 Necromancy's exact official stat formula was not recovered. The local policy uses weight
 `max(1, Life Force cost)` for each creature, including a unit weight for temporary summons:
 
-* Base Stamina: `(3 × owner level + 0.30 × owner Stamina) × weight`, with native Stamina modifiers.
-* Health: `50 × owner level × weight + 10 × resulting Stamina`, then native health modifiers.
+* Base Stamina: `0.2714 × owner Stamina × Life Force cost`, with native Stamina modifiers. Animates inherit none.
+* Health: `b × owner's naked health + 10 × Stamina above the creature's own` (5 for the Ghoul), then native
+  health modifiers. Naked health is the owner's class base health plus the health from base Stamina. `b` is 0.54
+  for Skeletal Warriors, 0.66 for the Ghoul and Skeletal Mage, 0.79 for the Decaying Colossus, 0.94 for the Crypt
+  Fiend, 1.38 for the Abomination, 1.44 for the Rotting Frost Giant, 2.53 for the Frost Wyrm and 4 for the
+  Champions; other minions use 0.54, 0.94 or 1.38 by Life Force cost and 1 when free. These values come from live
+  combat logs and a live owner-Stamina A/B test; the Champions' value is a lower bound.
 * Mana: `30 × owner level + 5 × owner Intellect × weight`, then native power modifiers.
 * Attack Power: `0.40 × (owner Intellect + max(Frost SP, Shadow SP)) × weight`.
 * Generic spell power: `0.20 × (owner Intellect + max(Frost SP, Shadow SP)) × weight`.
@@ -81,9 +86,11 @@ requires an actual successful interrupt by Heartchill itself.
 Other local choices where exact behavior is absent:
 
 * Harvest Plague increases linearly with missing target health, from 1× to 2×.
-* Resilient Constitution uses 10% baseline PvP damage reduction plus its explicit 20% critical reduction.
-  Existing native resilience then applies. Only the existing player-controlled damage path invokes it;
-  ordinary NPC damage does not gain a new reduction.
+* Resilient Constitution reduces damage from players and their pets by `CoA.ResilientConstitution.DamageReductionPct`
+  (default 50%) and critical hits by a further `CriticalReductionPct` (default 20%). A player's pet gets
+  `PetSharePct` (default 85%) of both through its owner's aura, as in Ascension's changelog. Existing native
+  resilience then applies. Only the existing player-controlled damage path invokes it; ordinary NPC damage does
+  not gain a new reduction.
 * Life For Power converts 20% of healing remaining after earlier healing absorbs into a ten-second
   accumulating shield. It does not consume its passive as a finite twenty-point absorb.
 

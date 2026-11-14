@@ -4,9 +4,13 @@
 #include "AscensionFreepickRules.h"
 #include "AscensionCoATalentState.h"
 #include "AscensionWildcard.h"
+#include "AscensionSpecialization.h"
 #include "Battleground.h"
 #include "Chat.h"
+#include "ChatCommand.h"
+#include "CommandScript.h"
 #include "Config.h"
+#include "DBCStores.h"
 #include "GameEventMgr.h"
 #include "Item.h"
 #include "Log.h"
@@ -22,6 +26,7 @@
 #include "Tokenize.h"
 #include "World.h"
 #include <algorithm>
+#include <array>
 #include <string_view>
 #include <unordered_set>
 
@@ -126,15 +131,20 @@ void RestoreActionBars(Player* player, std::uint32_t specialization)
     player->SendActionButtons(1);
 }
 
+void SendKnownEntries(Player* player)
+{
+    std::vector<uint8> const body = AscensionCoATalentState::KnownEntriesPayload(KnownEntries(player));
+    WorldPacket known(SMSG_CHARACTER_ADVANCEMENT_KNOWN_ENTRIES, body.size());
+    known.append(body.data(), body.size());
+    player->SendDirectMessage(&known);
+}
+
 void SendSpecializationState(Player* player)
 {
     WorldPacket active(SMSG_CHARACTER_ADVANCEMENT_ACTIVE_SPEC, sizeof(uint32) * 2);
     active << ActiveSpecialization(player) << uint32(AscensionWildcard::SPECIALIZATION_COUNT);
     player->SendDirectMessage(&active);
-    std::vector<uint8> const body = AscensionCoATalentState::KnownEntriesPayload(KnownEntries(player));
-    WorldPacket known(SMSG_CHARACTER_ADVANCEMENT_KNOWN_ENTRIES, body.size());
-    known.append(body.data(), body.size());
-    player->SendDirectMessage(&known);
+    SendKnownEntries(player);
 }
 
 UnitCheck UnitRules(Player const* player)
@@ -303,6 +313,22 @@ UploadResult ApplyEntries(Player* player, Build const& base, std::vector<Entry> 
 }
 }
 
+std::uint32_t PrestigeSpecialization(Player* player)
+{
+    if (!HasFreepickBuild(player))
+        return 0;
+    std::vector<Entry> const before = StoredEntries(player);
+    std::vector<Entry> kept;
+    for (Entry const& entry : before)
+        if (Row const* row = Loaded.Find(entry.EntryId); row && (row->Group == 1 || row->Has(ROW_RETAINED)))
+            kept.push_back(entry);
+    Store(player, kept);
+    Store(player, kept, SpecializationBuildSetting(ActiveSpecialization(player)));
+    SyncSpells(player, before, kept);
+    SendSpecializationState(player);
+    return uint32(before.size() - kept.size());
+}
+
 UploadResult ApplyUpload(Player* player, std::vector<AscensionCoATalentState::KnownEntry> const& upload)
 {
     std::vector<Entry> wanted;
@@ -328,6 +354,43 @@ UploadResult ApplyGuide(Player* player, std::vector<GuideSpell> const& spells, s
     return result;
 }
 
+bool GmSetEntry(Player* player, std::uint32_t entryId, bool learn, std::string& error)
+{
+    Row const* row = Loaded.Find(entryId);
+    if (!HasFreepickBuild(player))
+        error = "That character has no free-pick build.";
+    else if (!row || !row->MaxRank())
+        error = "That is not a Character Advancement entry.";
+    else if (!learn && row->Has(ROW_AUTOMATIC) && !row->AECost && !row->TECost)
+        error = "That entry is granted automatically and cannot be removed.";
+    if (!error.empty())
+        return false;
+
+    std::vector<Entry> const before = StoredEntries(player);
+    std::vector<Entry> after;
+    for (Entry const& entry : before)
+    {
+        Row const* other = Loaded.Find(entry.EntryId);
+        bool const sameGroup = learn && row->Group && other && other->Group == row->Group;
+        if (entry.EntryId != entryId && !sameGroup)
+            after.push_back(entry);
+    }
+    if (learn)
+        after.push_back({ entryId, row->MaxRank() });
+    else if (after.size() == before.size())
+    {
+        error = "That character does not know that entry.";
+        return false;
+    }
+
+    Store(player, after);
+    SyncSpells(player, before, after);
+    SendKnownEntries(player);
+    LOG_INFO("coa", "GM {} free-pick entry {} for {} ({} entries)", learn ? "learned" : "unlearned", entryId,
+        player->GetName(), after.size());
+    return true;
+}
+
 std::uint32_t ActiveSpecialization(Player const* player)
 {
     PlayerSettingVector const* stored = player->FindPlayerSettings(ACTIVE_SPECIALIZATION_SETTING);
@@ -337,7 +400,7 @@ std::uint32_t ActiveSpecialization(Player const* player)
 
 bool SwitchSpecialization(Player* player, std::uint32_t index, std::string& error)
 {
-    if (!IsFreepickHero(player) || index >= AscensionWildcard::SPECIALIZATION_COUNT ||
+    if (!HasFreepickBuild(player) || index >= AscensionWildcard::SPECIALIZATION_COUNT ||
         !player->HasSpell(AscensionWildcard::SPECIALIZATION_SWAP_SPELLS[index]))
     {
         error = "That specialization slot is not unlocked.";
@@ -347,8 +410,13 @@ bool SwitchSpecialization(Player* player, std::uint32_t index, std::string& erro
     if (index == previous)
         return true;
 
+    error = AscensionSpecializationSwitchRefusal(player, previous + 1, index + 1);
+    if (!error.empty())
+        return false;
+
     std::vector<Entry> const before = StoredEntries(player);
-    Build next(Loaded, CurrentRealm, player->GetLevel(), StoredEntries(player, SpecializationBuildSetting(index)));
+    Build next(Loaded, CurrentRealm, player->GetLevel(), StoredEntries(player, SpecializationBuildSetting(index)),
+        player->getClass());
     next.AutoLearn(UnitRules(player));
     Store(player, before, SpecializationBuildSetting(previous));
     StoreActionBars(player, previous);
@@ -380,7 +448,7 @@ class spell_ascension_freepick_specialization_swap : public SpellScript
         Player* player = GetCaster()->ToPlayer();
         auto const& spells = AscensionWildcard::SPECIALIZATION_SWAP_SPELLS;
         auto const found = std::find(spells.begin(), spells.end(), GetSpellInfo()->Id);
-        if (!player || !IsFreepickHero(player) || found == spells.end())
+        if (!player || !HasFreepickBuild(player) || found == spells.end())
             return false;
         _index = std::uint32_t(found - spells.begin());
         return true;
@@ -420,13 +488,10 @@ void Synchronize(Player* player)
 {
     if (!HasFreepickBuild(player))
         return;
-    if (IsFreepickHero(player))
-    {
-        if (player->GetActiveSpec())
-            player->ActivateSpec(0);
-        if (!player->HasSpell(AscensionWildcard::SPECIALIZATION_SWAP_SPELLS[0]))
-            player->learnSpell(AscensionWildcard::SPECIALIZATION_SWAP_SPELLS[0]);
-    }
+    if (player->GetActiveSpec())
+        player->ActivateSpec(0);
+    if (!player->HasSpell(AscensionWildcard::SPECIALIZATION_SWAP_SPELLS[0]))
+        player->learnSpell(AscensionWildcard::SPECIALIZATION_SWAP_SPELLS[0]);
     std::vector<Entry> const stored = StoredEntries(player);
     Build build(Loaded, CurrentRealm, player->GetLevel(), stored, player->getClass());
     if (build.AutoLearn(UnitRules(player)))
@@ -453,14 +518,48 @@ std::uint32_t InvestedEssence(Player const* player, std::uint32_t classType, std
     return talent ? build.TabTE(classType, tab, 0) : build.TabAE(classType, tab, 0);
 }
 
+constexpr std::array<uint32, 1> SKILL_COMPANION_SPELLS = { 56815 };
+
+void LearnSkillCompanions(Player* player, uint32 spellId)
+{
+    SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellId);
+    if (!spellInfo)
+        return;
+    SkillLineAbilityMapBounds const bounds = sSpellMgr->GetSkillLineAbilityMapBounds(spellId);
+    for (auto itr = bounds.first; itr != bounds.second; ++itr)
+    {
+        uint32 const skill = itr->second->SkillLine;
+        if (player->HasSkill(skill))
+            continue;
+        for (SkillLineAbilityEntry const* ability : GetSkillLineAbilitiesBySkillLine(skill))
+        {
+            if (ability->Spell == spellId || ability->AcquireMethod != SKILL_LINE_ABILITY_LEARNED_ON_SKILL_LEARN ||
+                player->HasSpell(ability->Spell))
+                continue;
+            SpellInfo const* companion = sSpellMgr->GetSpellInfo(ability->Spell);
+            if (companion && std::string_view(companion->SpellName[0]) == spellInfo->SpellName[0])
+                player->learnSpell(ability->Spell);
+        }
+    }
+}
+
 class AscensionFreepickPlayer final : public PlayerScript
 {
 public:
-    AscensionFreepickPlayer() : PlayerScript("AscensionFreepickPlayer", { PLAYERHOOK_ON_LOGIN }) { }
+    AscensionFreepickPlayer() : PlayerScript("AscensionFreepickPlayer", { PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_LEARN_SPELL })
+    { }
 
     void OnPlayerLogin(Player* player) override
     {
         Synchronize(player);
+        for (uint32 spellId : SKILL_COMPANION_SPELLS)
+            if (player->HasSpell(spellId))
+                LearnSkillCompanions(player, spellId);
+    }
+
+    void OnPlayerLearnSpell(Player* player, uint32 spellId) override
+    {
+        LearnSkillCompanions(player, spellId);
     }
 };
 
@@ -480,6 +579,57 @@ public:
             sGameEventMgr->StartInternalEvent(COA_CLASS_TRAINERS_EVENT);
         if ((Classless || Reborn) && !LoadCatalog(Loaded))
             LOG_ERROR("coa", "Free-pick Character Advancement is unavailable: its client DBCs did not load");
+    }
+};
+
+class AscensionFreepickCommands final : public CommandScript
+{
+public:
+    AscensionFreepickCommands() : CommandScript("AscensionFreepickCommands") { }
+
+    Acore::ChatCommands::ChatCommandTable GetCommands() const override
+    {
+        using namespace Acore::ChatCommands;
+        static ChatCommandTable playerTable = {
+            { "addentry", HandleAddEntry, SEC_GAMEMASTER, Console::Yes },
+            { "removeentry", HandleRemoveEntry, SEC_GAMEMASTER, Console::Yes },
+        };
+        static ChatCommandTable advancementTable = {
+            { "player", playerTable },
+        };
+        static ChatCommandTable commandTable = {
+            { "ca2", advancementTable },
+        };
+        return commandTable;
+    }
+
+    static bool HandleAddEntry(ChatHandler* handler, Acore::ChatCommands::PlayerIdentifier target, uint32 entryId)
+    {
+        return SetEntry(handler, target, entryId, true);
+    }
+
+    static bool HandleRemoveEntry(ChatHandler* handler, Acore::ChatCommands::PlayerIdentifier target, uint32 entryId)
+    {
+        return SetEntry(handler, target, entryId, false);
+    }
+
+    static bool SetEntry(ChatHandler* handler, Acore::ChatCommands::PlayerIdentifier const& target, uint32 entryId,
+        bool learn)
+    {
+        Player* player = target.GetConnectedPlayer();
+        if (!player)
+        {
+            handler->SendErrorMessage("{} must be online.", target.GetName());
+            return false;
+        }
+        std::string error;
+        if (!GmSetEntry(player, entryId, learn, error))
+        {
+            handler->SendErrorMessage("Entry {}: {}", entryId, error);
+            return false;
+        }
+        handler->PSendSysMessage("{} entry {} for {}.", learn ? "Learned" : "Unlearned", entryId, player->GetName());
+        return true;
     }
 };
 }
@@ -565,6 +715,7 @@ void AddAscensionFreepickScripts()
 {
     new AscensionFreepick::AscensionFreepickPlayer();
     new AscensionFreepick::AscensionFreepickWorld();
+    new AscensionFreepick::AscensionFreepickCommands();
     new ghostly_strike_contracts();
     RegisterSpellScript(spell_ascension_ghostly_strike);
     RegisterSpellScriptWithArgs(AscensionFreepick::spell_ascension_freepick_specialization_swap,

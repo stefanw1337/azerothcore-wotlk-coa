@@ -7,7 +7,10 @@
 #include "AllGameObjectScript.h"
 #include "AllSpellScript.h"
 #include "AscensionAverageItemLevel.h"
+#include "AscensionBuildCreatorRules.h"
 #include "AscensionItemPower.h"
+#include "AscensionMysticEnchant.h"
+#include "AscensionWildcard.h"
 #include "AuctionHouseMgr.h"
 #include "Battleground.h"
 #include "Config.h"
@@ -152,6 +155,28 @@ namespace PathToAscension
                     CompleteVerifiedTutorial(player, tutorialId);
         }
 
+        void CompleteGameModeTutorial(Player* player, uint32 tutorialId)
+        {
+            Tutorial const* tutorial = catalog.Find(tutorialId);
+            if (tutorial && MatchesGameModes(player, *tutorial))
+                CompleteVerifiedTutorial(player, tutorialId);
+        }
+
+        void CompletePrestigeTutorials(Player* player)
+        {
+            CompleteGameModeTutorial(player, 40);
+            CompleteGameModeTutorial(player, 241);
+        }
+
+        bool KnowsPrimaryStatPath(Player const* player)
+        {
+            return std::any_of(AscensionWildcard::PRIMARY_STAT_PATHS.begin(),
+                AscensionWildcard::PRIMARY_STAT_PATHS.end(), [player](AscensionWildcard::PrimaryStatPath const& path)
+            {
+                return player->HasSpell(path.SpellId);
+            });
+        }
+
         struct StarterMount
         {
             uint32 race;
@@ -168,66 +193,19 @@ namespace PathToAscension
             {11, 119, 29744, 35710}
         };
 
+        bool StarterMountQuestRewarded(Player const* player, StarterMount const& mount)
+        {
+            Tutorial const* tutorial = GetCatalog().Find(mount.tutorial);
+            return tutorial && tutorial->QuestId() && player->GetQuestRewardStatus(tutorial->QuestId());
+        }
+
         void CheckStarterMountTutorial(Player* player)
         {
             uint32 const delivered = SettingValue(player, RidingSetting, 0);
-            if (!delivered)
-                return;
-
             for (StarterMount const& mount : StarterMounts)
-                if (mount.race == player->getRace() && delivered == mount.item && player->HasSpell(mount.spell))
+                if (mount.race == player->getRace() && player->HasSpell(mount.spell)
+                    && (delivered == mount.item || StarterMountQuestRewarded(player, mount)))
                     CompleteVerifiedTutorial(player, mount.tutorial);
-        }
-
-        bool IsRidingTrainer(uint32 entry)
-        {
-            switch (entry)
-            {
-                case 3690: case 4732: case 4752: case 4753: case 4772: case 4773:
-                case 7953: case 16280: case 20500: case 20511: case 20914:
-                case 35093: case 35100: case 35133: case 35135:
-                    return true;
-                default:
-                    return false;
-            }
-        }
-
-        void VisitStarterMountTrainer(Player* player, Creature* trainer)
-        {
-            if (!settings.starterMountBridge || !CountsForPlayer(player) || !trainer
-                || !trainer->HasNpcFlag(UNIT_NPC_FLAG_TRAINER) || !player->IsAlive()
-                || !player->IsWithinDistInMap(trainer, INTERACTION_DISTANCE) || !IsRidingTrainer(trainer->GetEntry()))
-                return;
-
-            if (!player->HasSpell(33379) && !player->HasSpell(33388) && !player->HasSpell(33391))
-                return;
-
-            if (SettingValue(player, RidingSetting, 0))
-                return;
-
-            for (StarterMount const& mount : StarterMounts)
-            {
-                if (mount.race != player->getRace())
-                    continue;
-
-                ItemPosCountVec positions;
-                InventoryResult const result = player->CanStoreNewItem(NULL_BAG, NULL_SLOT, positions, mount.item, 1);
-                if (result != EQUIP_ERR_OK)
-                {
-                    player->SendEquipError(result, nullptr, nullptr, mount.item);
-                    return;
-                }
-
-                Item* item = player->StoreNewItem(positions, mount.item, true);
-                if (!item)
-                    return;
-
-                player->UpdatePlayerSetting(RidingSetting, 0, mount.item);
-                player->SendNewItem(item, 1, true, false);
-                player->SaveToDB(false, false);
-                CheckStarterMountTutorial(player);
-                return;
-            }
         }
 
         void CheckStateTutorials(Player* player)
@@ -261,6 +239,16 @@ namespace PathToAscension
             // Item 106954 teaches Specialization II (979994).
             if (player->HasSpell(979994) || player->GetSpecsCount() >= 2)
                 CompleteVerifiedTutorial(player, 28);
+
+            constexpr uint32 FirstPrestigeAchievement = 13100;
+            if (player->HasAchieved(FirstPrestigeAchievement))
+                CompletePrestigeTutorials(player);
+
+            if (KnowsPrimaryStatPath(player))
+                CompleteGameModeTutorial(player, 50);
+
+            if (player->GetLevel() >= 10)
+                CompleteGameModeTutorial(player, 239);
 
             if (SettingValue(player, VerifiedSetting, 89) != 1)
             {
@@ -560,6 +548,93 @@ namespace PathToAscension
                 return !player->HasAura(aura.first, aura.second);
             });
         }
+
+        namespace Mystic = AscensionMysticEnchant;
+
+        constexpr uint32 MysticReforgeGoal = 10;
+        constexpr uint32 GoldenAbilityPack = 778998;
+
+        // Tutorials 3 and 275 share one objective list: buy, reforge ten times, earn an extract.
+        void RecordMysticExtracting(Player* player, uint32 bit)
+        {
+            RecordTutorialEvent(player, 3, bit);
+            if ((SettingValue(player, EventSetting, 3) & 7u) != 7u)
+                return;
+
+            CompleteGameModeTutorial(player, 3);
+            CompleteGameModeTutorial(player, 275);
+        }
+
+        void RecordMysticReforge(Player* player)
+        {
+            if (!CountsForPlayer(player) || player->IsGameMaster())
+                return;
+
+            uint32 const reforges = SettingValue(player, CountSetting, 3);
+            if (reforges < MysticReforgeGoal)
+                player->UpdatePlayerSetting(CountSetting, 3, reforges + 1);
+            if (reforges + 1 >= MysticReforgeGoal)
+                RecordMysticExtracting(player, 2);
+        }
+
+        void CheckMysticCollection(Player* player)
+        {
+            std::optional<Mystic::Collection> const collection = Mystic::Summarize(player);
+            if (!collection)
+                return;
+
+            if (collection->Known[Mystic::QUALITY_EPIC] >= 3)
+                CompleteGameModeTutorial(player, 11);
+            if (collection->Known[Mystic::QUALITY_LEGENDARY])
+                CompleteGameModeTutorial(player, 12);
+            if (collection->KnownTotal >= 10)
+                CompleteGameModeTutorial(player, 26);
+            if (collection->KnownWorldforged)
+                CompleteGameModeTutorial(player, 63);
+
+            // Every quality the player's class can find on a scroll on this realm.
+            bool offered = false;
+            bool everyQuality = true;
+            for (uint32 quality = 0; quality < Mystic::QUALITY_MAX; ++quality)
+                if (collection->Offered[quality])
+                {
+                    offered = true;
+                    everyQuality &= collection->Known[quality] != 0;
+                }
+            if (offered && everyQuality)
+                CompleteGameModeTutorial(player, 273);
+        }
+
+        void CheckMysticSlots(Player* player)
+        {
+            std::optional<Mystic::Collection> const collection = Mystic::Summarize(player);
+            if (!collection)
+                return;
+
+            if (collection->OpenSlots && collection->FilledSlots == collection->OpenSlots)
+                CompleteGameModeTutorial(player, 59);
+            if (collection->Active[Mystic::QUALITY_LEGENDARY])
+                CompleteGameModeTutorial(player, 60);
+            if (collection->Active[Mystic::QUALITY_EPIC] >= 3)
+                CompleteGameModeTutorial(player, 61);
+        }
+
+        void RecordArchitect(Player* player, uint32 bit)
+        {
+            RecordTutorialEvent(player, 75, bit);
+            if ((SettingValue(player, EventSetting, 75) & 3u) == 3u)
+                CompleteGameModeTutorial(player, 75);
+        }
+
+        void RecordBuildActivation(Player* player, uint32 progress)
+        {
+            constexpr uint32 featured = AscensionBuildCreator::ACTIVATION_FEATURED;
+            constexpr uint32 featuredEndGame = featured | AscensionBuildCreator::ACTIVATION_END_GAME;
+            if ((progress & featuredEndGame) == featuredEndGame)
+                CompleteGameModeTutorial(player, 7);
+            if (progress & featured)
+                RecordArchitect(player, 2);
+        }
     }
 
     Settings const& GetSettings()
@@ -596,9 +671,15 @@ namespace PathToAscension
         return !classes || (playerClass && playerClass <= 64 && (classes & (uint64(1) << (playerClass - 1))));
     }
 
-    std::optional<uint32> GameModeMask(Player const* player)
+    bool MatchesGameModes(Player const* player, Tutorial const& tutorial)
     {
-        return sScriptMgr->OnPlayerGetGameModeMask(player);
+        uint32 const required = tutorial.fields[TutorialField::RequiredGameModes];
+        uint32 const excluded = tutorial.fields[TutorialField::ExcludedGameModes];
+        if (!required && !excluded)
+            return true;
+
+        std::optional<uint32> const modes = sScriptMgr->OnPlayerGetGameModeMask(player);
+        return modes && (!required || (required & *modes)) && !(excluded & *modes);
     }
 
     bool IsCallBoard(uint32 entry)
@@ -688,25 +769,30 @@ namespace PathToAscension
             && (expansion == settings.expansion || IsLegacyAvailable(tutorial.Id()));
     }
 
-    bool IsStarterMountTutorial(uint32 tutorialId)
+    bool IsStarterMountQuest(uint32 questId)
     {
-        return std::any_of(std::begin(StarterMounts), std::end(StarterMounts),
-            [tutorialId](StarterMount const& mount) { return mount.tutorial == tutorialId; });
+        return std::any_of(std::begin(StarterMounts), std::end(StarterMounts), [questId](StarterMount const& mount)
+        {
+            Tutorial const* tutorial = GetCatalog().Find(mount.tutorial);
+            return tutorial && tutorial->QuestId() == questId;
+        });
     }
 
     bool IsCallbackImplemented(uint32 tutorialId)
     {
         static constexpr uint32 ids[] =
         {
-            2, 5, 6, 8, 9, 10, 13, 14, 15, 16, 18, 19, 22, 24, 27, 28, 29, 30, 31, 32,
-            33, 36, 41, 51, 56, 57, 58, 64, 65, 74, 76, 78, 80, 82, 83, 84, 89, 90, 91, 92,
-            93, 101, 104, 105, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 121, 122, 124, 125,
+            2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 19, 22, 23, 24, 26, 27, 28, 29, 30,
+            31, 32, 33, 36, 39, 40, 41, 50, 51, 52, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 74, 75, 76,
+            78, 80, 82, 83, 84, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 100, 101, 104, 105, 110, 111,
+            112, 113, 114, 115, 116, 117, 118, 119, 121, 122, 124, 125,
             126, 128, 129, 131, 132, 133, 135, 136, 138, 139, 140, 142, 143, 145, 146, 147, 149, 150,
             151, 152, 153, 154, 155, 156, 157, 158, 159, 160, 161, 162, 163, 164, 165, 166, 167, 168,
             169, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 184, 193, 200,
             201, 202, 203, 204, 205, 206, 207, 208, 209, 210, 211, 212, 213, 214, 215, 216, 217, 218,
-            219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 237, 245,
-            249, 250, 251, 258, 259, 260, 261, 265, 266, 267, 268, 269, 270, 271
+            219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 234, 237, 238, 239,
+            240, 241, 242, 244, 245, 247, 249, 250, 251, 258, 259, 260, 261, 265, 266, 267, 268, 269, 270,
+            271, 273, 275, 276, 277
         };
         return std::binary_search(std::begin(ids), std::end(ids), tutorialId);
     }
@@ -749,7 +835,6 @@ public:
         settings.rewards = sConfigMgr->GetOption<bool>("PathToAscension.Rewards.Enable", true);
         settings.tracking = sConfigMgr->GetOption<bool>("PathToAscension.Tracking.Enable", true);
         settings.legacyContent = sConfigMgr->GetOption<bool>("PathToAscension.LegacyContent.Enable", false);
-        settings.starterMountBridge = sConfigMgr->GetOption<bool>("PathToAscension.StarterMountBridge.Enable", false);
         settings.browser = true;
         loaded = true;
         ConfigureRewards();
@@ -769,7 +854,8 @@ public:
           PLAYERHOOK_ON_AFTER_STORE_OR_EQUIP_NEW_ITEM, PLAYERHOOK_ON_REWARD_KILL_REWARDER,
           PLAYERHOOK_ON_BEFORE_CRITERIA_PROGRESS, PLAYERHOOK_ON_SEND_LIST_INVENTORY,
           PLAYERHOOK_ON_PLAYER_COMPLETE_QUEST, PLAYERHOOK_ON_LEARN_PET_TALENT, PLAYERHOOK_ON_LEARN_TRAINER_SPELL,
-          PLAYERHOOK_ON_TAKE_MAIL_ITEM, PLAYERHOOK_ON_COA_PROGRESS }) { }
+          PLAYERHOOK_ON_TAKE_MAIL_ITEM, PLAYERHOOK_ON_COA_PROGRESS, PLAYERHOOK_ON_PLAYER_QUEST_ACCEPT,
+          PLAYERHOOK_ON_COA_PRESTIGE_SAVED }) { }
 
     void OnPlayerLogin(Player* player) override
     {
@@ -897,6 +983,19 @@ public:
             CompleteVerifiedTutorial(player, 56);
     }
 
+    void OnPlayerQuestAccept(Player* player, Quest const* quest) override
+    {
+        constexpr uint32 NoviceRidingCredit = 445303;
+        if (loaded && IsStarterMountQuest(quest->GetQuestId()) && player->GetSkillValue(SKILL_RIDING))
+            player->KilledMonsterCredit(NoviceRidingCredit);
+    }
+
+    void OnPlayerCoAPrestigeSaved(Player* player) override
+    {
+        if (loaded)
+            CompletePrestigeTutorials(player);
+    }
+
     void OnPlayerTakeMailItem(Player* player, Mail const* mail, uint32 itemEntry) override
     {
         if (loaded && CountsForPlayer(player))
@@ -949,6 +1048,7 @@ public:
                 break;
             case CoAProgressEvent::VanityDelivered:
                 CompleteVerifiedTutorial(player, 51);
+                CompleteVerifiedTutorial(player, 244);
                 break;
             case CoAProgressEvent::VanityCollected:
                 if (value == 339041)
@@ -959,6 +1059,70 @@ public:
                 break;
             case CoAProgressEvent::ExperimentalTeleporter:
                 CompleteVerifiedTutorial(player, 31);
+                break;
+            case CoAProgressEvent::OutfitSaved:
+                CompleteVerifiedTutorial(player, 247);
+                break;
+            case CoAProgressEvent::MysticScrollPurchased:
+                RecordMysticExtracting(player, 1);
+                break;
+            case CoAProgressEvent::MysticScrollReforged:
+                RecordMysticReforge(player);
+                break;
+            case CoAProgressEvent::MysticExtractEarned:
+                RecordMysticExtracting(player, 4);
+                break;
+            case CoAProgressEvent::MysticEnchantExtracted:
+                CompleteGameModeTutorial(player, 4);
+                CompleteGameModeTutorial(player, 276);
+                CheckMysticCollection(player);
+                break;
+            case CoAProgressEvent::MysticCollectionApplied:
+                CompleteGameModeTutorial(player, 39);
+                CompleteGameModeTutorial(player, 277);
+                CheckMysticSlots(player);
+                break;
+            case CoAProgressEvent::MysticScrollApplied:
+                CompleteGameModeTutorial(player, 52);
+                CheckMysticSlots(player);
+                break;
+            case CoAProgressEvent::MysticPresetActivated:
+                CompleteGameModeTutorial(player, 62);
+                CheckMysticSlots(player);
+                break;
+            case CoAProgressEvent::ArchitectOpened:
+                RecordArchitect(player, 1);
+                break;
+            case CoAProgressEvent::BuildActivated:
+                RecordBuildActivation(player, value);
+                break;
+            case CoAProgressEvent::SoloArenaQueued:
+                if (value == ARENA_TYPE_2v2)
+                    CompleteGameModeTutorial(player, 23);
+                break;
+            case CoAProgressEvent::WildcardScrollUnlearned:
+                CompleteGameModeTutorial(player, value ? 95 : 94);
+                break;
+            case CoAProgressEvent::WildcardEntryLocked:
+                CompleteGameModeTutorial(player, 96);
+                break;
+            case CoAProgressEvent::WildcardCardPackOpened:
+                CompleteGameModeTutorial(player, 97);
+                if (value == GoldenAbilityPack)
+                    CompleteGameModeTutorial(player, 98);
+                break;
+            case CoAProgressEvent::WildcardStarterCardSet:
+                if (player->GetLevel() < 10)
+                    CompleteGameModeTutorial(player, 100);
+                break;
+            case CoAProgressEvent::WildcardScrollsClaimed:
+                CompleteGameModeTutorial(player, 238);
+                break;
+            case CoAProgressEvent::WildcardScrollsRepurchased:
+                CompleteGameModeTutorial(player, 240);
+                break;
+            case CoAProgressEvent::WildcardRapidRolled:
+                CompleteGameModeTutorial(player, 242);
                 break;
         }
     }
@@ -1060,10 +1224,7 @@ public:
     bool CanCreatureGossipHello(Player* player, Creature* creature) override
     {
         if (loaded)
-        {
             RecordNpcVisit(player, creature);
-            VisitStarterMountTrainer(player, creature);
-        }
         return false;
     }
 };

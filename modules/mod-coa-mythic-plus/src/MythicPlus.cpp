@@ -18,8 +18,6 @@
  *     forces are down. Finishing within 40 % / 55 % / 100 % of the limit gives
  *     +3 / +2 / +1 and that many caches; the new key points at a random
  *     dungeon.
- *  5. The key drops one level the moment a run starts and gets its new level
- *     at the end, so a run that is abandoned leaves a key one level lower.
  *
  * The first key: killing the final boss of a Mythic dungeon hands every
  * player without a keystone a random +1 key.
@@ -44,13 +42,18 @@
 #include "Field.h"
 #include "GameTime.h"
 #include "GlobalScript.h"
+#include "GroupScript.h"
 #include "DungeonHealth.h"
 #include "ItemScript.h"
 #include "ScriptedGossip.h"
+#include <atomic>
 #include <cmath>
+#include "GameObject.h"
 #include "Group.h"
 #include "InstanceScript.h"
 #include "Item.h"
+#include "LootMgr.h"
+#include "MiscScript.h"
 #include "LFGMgr.h"
 #include "Log.h"
 #include "Map.h"
@@ -64,12 +67,16 @@
 #include "SpellInfo.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
+#include "AscensionBattleResurrection.h"
 #include "AscensionCompatOpcodes.h"
 #include "AscensionDungeonRelease.h"
 #include "AscensionSpecLoot.h"
 #include "CoADungeonCompletion.h"
+#include "SpellAuras.h"
 #include "SpellMgr.h"
+#include "SpellScript.h"
 #include "TemporarySummon.h"
+#include "TypeContainerVisitor.h"
 #include "Timer.h"
 
 #include <algorithm>
@@ -124,11 +131,19 @@ namespace
         STATE_OVERTIME  = 5,
     };
 
+    enum class BrickCause : uint8
+    {
+        NONE,
+        OWNER_LEFT_INSTANCE,
+        MEMBER_LEFT_GROUP,
+    };
+
     constexpr uint32 COUNTDOWN_MS = 10 * IN_MILLISECONDS;
     constexpr uint32 TIMER_PACKET_MS = IN_MILLISECONDS;
     constexpr uint32 BASE_ENTRY_STEP = 100000;   // E, E+100000 Heroic, E+200000 Mythic, ...
     constexpr uint32 MYTHIC_DIFFICULTY = 2;      // DungeonEncounter.dbc difficulty of Mythic
     constexpr uint32 SPELL_ACTIVATE_KEYSTONE = 161;
+    constexpr uint32 SPELL_MYTHIC_PLUS_PREPARATION = 9931349;
 
     // Affix spells as MythicAffixes.dbc names them. Most go on the enemies as
     // they are. Pack Tactics is a player affix (its tooltip says so). Avenger
@@ -168,6 +183,7 @@ namespace
         uint32 champions = 0;           // Mythic Champions killed
         uint32 championsPlaced = 0;
         uint32 championsRequired = 0;
+        BrickCause brick = BrickCause::NONE;
 
         bool Active() const { return state == STATE_COUNTDOWN || state == STATE_RUNNING; }
         bool Scaled() const { return state != STATE_NONE && state != STATE_INACTIVE; }
@@ -183,6 +199,14 @@ namespace
     };
 
     std::recursive_mutex g_lock;
+    std::unordered_map<ObjectGuid, uint32> g_pendingKeystones;
+    std::atomic<bool> g_anyPendingKeystone { false };
+
+    void QueueKeystone(ObjectGuid owner, uint32 item)
+    {
+        g_pendingKeystones[owner] = item;
+        g_anyPendingKeystone = true;
+    }
     std::unordered_map<uint32, Run> g_runs;             // by instance id
     std::unordered_map<uint32, uint32> g_forces;        // creature entry -> enemy forces
     std::vector<Reward> g_rewards;
@@ -473,7 +497,8 @@ namespace
     // MythicPlus.Forces.WingFactor: "lfgId:factor" pairs that correct single wings to what live runs showed.
     float WingForcesFactor(uint32 lfgId)
     {
-        std::istringstream in(sConfigMgr->GetOption<std::string>("MythicPlus.Forces.WingFactor", "3320:0.626"));
+        std::istringstream in(sConfigMgr->GetOption<std::string>("MythicPlus.Forces.WingFactor",
+            "3320:0.626 2038:1.333"));
         std::string pair;
         while (in >> pair)
         {
@@ -931,6 +956,78 @@ namespace
 
     // ---------------------------------------------------------------- run flow
 
+    void ClearRunSpawns(Map* map)
+    {
+        for (auto const& [spawnId, creature] : map->GetCreatureBySpawnIdStore())
+            if (creature->GetEntry() == 80215)
+                creature->SetVisible(false);
+        std::vector<Creature*> champions;
+        for (auto const& [guid, path] : g_championPaths)
+            if (Creature* champion = map->GetCreature(guid))
+                champions.push_back(champion);
+        for (Creature* champion : champions)
+        {
+            g_championPaths.erase(champion->GetGUID());
+            if (champion->IsAlive())
+                champion->DespawnOrUnsummon();
+        }
+    }
+
+    bool Finished(Run const& run)
+    {
+        return run.state == STATE_TIMED || run.state == STATE_OVERTIME;
+    }
+
+    void RefuseToFight(Creature* creature)
+    {
+        if (!creature || !creature->IsInWorld() || !creature->IsAlive() || !TakesAffixes(creature))
+            return;
+        creature->SetReactState(REACT_PASSIVE);
+        creature->SetUnitFlag(UNIT_FLAG_PACIFIED);
+        creature->SetUnitFlag(UNIT_FLAG_SILENCED);
+        creature->SetHomePosition(creature->GetPosition());
+        creature->InterruptNonMeleeSpells(true);
+        creature->AttackStop();
+        creature->CombatStop(true);
+        creature->GetThreatMgr().ClearAllThreat();
+        creature->GetMotionMaster()->Clear();
+        creature->GetMotionMaster()->MoveIdle();
+        creature->StopMoving();
+        creature->SetControlled(true, UNIT_STATE_ROOT);
+    }
+
+    struct MapCreatureCollector
+    {
+        std::vector<Creature*> creatures;
+
+        void Visit(std::unordered_map<ObjectGuid, Creature*>& store)
+        {
+            for (auto const& [guid, creature] : store)
+                creatures.push_back(creature);
+        }
+
+        template<class T>
+        void Visit(std::unordered_map<ObjectGuid, T*>&) { }
+    };
+
+    void RefuseToFight(Map* map)
+    {
+        MapCreatureCollector collector;
+        TypeContainerVisitor<MapCreatureCollector, MapStoredObjectTypesContainer> visitor(collector);
+        visitor.Visit(map->GetObjectsStore());
+        for (Creature* creature : collector.creatures)
+            RefuseToFight(creature);
+    }
+
+    bool RefusesToFight(Unit const* unit)
+    {
+        Creature const* creature = unit ? unit->ToCreature() : nullptr;
+        if (!creature || !creature->HasUnitFlag(UNIT_FLAG_PACIFIED) || !creature->HasReactState(REACT_PASSIVE))
+            return false;
+        Run const* run = RunFor(creature->GetMap());
+        return run && Finished(*run);
+    }
+
     void Complete(Map* map, Run& run)
     {
         uint32 limit = run.dungeon.timeLimitMs;
@@ -945,9 +1042,9 @@ namespace
         }
 
         run.state = timed ? STATE_TIMED : STATE_OVERTIME;
-        // Out of time: still one cache, but no coins.
-        uint32 caches = timed ? upgrade : sConfigMgr->GetOption<uint32>("MythicPlus.OvertimeCaches", 1);
-        uint32 newLevel = run.level + upgrade;
+        // Out of time: no cache and no coins.
+        uint32 caches = upgrade;
+        uint32 const newLevel = timed ? run.level + upgrade : std::max<uint32>(1, run.level - 1);
         float const timeLeft = limit && timed ? float(limit - run.elapsedMs) / limit : 0.0f;
         bool const firstTime = timed && run.level > GetBestLevel(run.owner);
         uint32 const bonusPercent = firstTime ? FirstTimeBonusPercent(timeLeft) : 0;
@@ -958,19 +1055,11 @@ namespace
             run.instanceId, run.mapId, run.level, run.elapsedMs / 1000, limit / 1000, upgrade);
 
         CoAResurrectDeadPlayers(map);
-        for (auto const& [spawnId, creature] : map->GetCreatureBySpawnIdStore())
-            if (creature->GetEntry() == 80215)
-                creature->SetVisible(false);
-        std::vector<Creature*> champions;
-        for (auto const& [guid, path] : g_championPaths)
-            if (Creature* champion = map->GetCreature(guid))
-                champions.push_back(champion);
-        for (Creature* champion : champions)
-        {
-            g_championPaths.erase(champion->GetGUID());
-            if (champion->IsAlive())
-                champion->DespawnOrUnsummon();
-        }
+        ClearRunSpawns(map);
+        RefuseToFight(map);
+
+        uint32 const nextKey = RandomKeystone(newLevel);
+        bool ownerHere = false;
 
         ForEachPlayer(map, [&](Player* player)
         {
@@ -985,21 +1074,31 @@ namespace
             if (caches)
                 Give(player, CacheForLevel(run.level), caches);
             if (timed)
+            {
+                SetBestLevel(player->GetGUID(), run.level);
                 GiveCoins(player, run.level, bonusPercent, run.dungeon.expansion);
+            }
 
             if (player->GetGUID() == run.owner)
             {
-                // The key went down one level at the start; replace it with
-                // the new one, pointing at a random dungeon.
-                uint32 depleted = Data::Instance().GetKeystoneItem(run.lfgId, std::max<uint32>(1, run.level - 1));
-                uint32 next = RandomKeystone(newLevel);
-                if (next)
-                    ReplaceKeystone(player, depleted, next);
-                ChatHandler(player->GetSession()).PSendSysMessage(timed
-                    ? "Mythic+: keystone upgraded +{}, now level {}."
-                    : "Mythic+: out of time, keystone stays at level {}.", timed ? upgrade : newLevel, newLevel);
+                ownerHere = true;
+                if (!nextKey)
+                    ChatHandler(player->GetSession()).PSendSysMessage(
+                        "Mythic+: no dungeon has a level {} keystone, your keystone stays as it is.", newLevel);
+                else
+                {
+                    ReplaceKeystone(player, run.keystoneItem, nextKey);
+                    if (timed)
+                        ChatHandler(player->GetSession()).PSendSysMessage(
+                            "Mythic+: keystone upgraded +{}, now level {}.", upgrade, newLevel);
+                    else
+                        ChatHandler(player->GetSession()).PSendSysMessage(
+                            "Mythic+: out of time, keystone drops to level {}.", newLevel);
+                }
             }
         });
+        if (!ownerHere && nextKey)
+            QueueKeystone(run.owner, nextKey);
     }
 
     void CheckComplete(Map* map, Run& run)
@@ -1013,6 +1112,61 @@ namespace
         if (run.champions < run.championsRequired)
             return;
         Complete(map, run);
+    }
+
+    void Deplete(Run const& run)
+    {
+        if (uint32 const item = Data::Instance().GetKeystoneItem(run.lfgId, std::max<uint32>(1, run.level - 1)))
+            QueueKeystone(run.owner, item);
+    }
+
+    void ApplyDepletion(Player* player)
+    {
+        if (!g_anyPendingKeystone)
+            return;
+        std::lock_guard<std::recursive_mutex> guard(g_lock);
+        auto itr = g_pendingKeystones.find(player->GetGUID());
+        if (itr == g_pendingKeystones.end())
+            return;
+        uint32 const item = itr->second;
+        g_pendingKeystones.erase(itr);
+        g_anyPendingKeystone = !g_pendingKeystones.empty();
+        if (!CarriedKeystones(player).empty())
+            ReplaceKeystone(player, 0, item);
+    }
+
+    void Brick(Map* map, Run& run)
+    {
+        bool const countdown = run.state == STATE_COUNTDOWN;
+        char const* const message = run.brick == BrickCause::MEMBER_LEFT_GROUP
+            ? "Mythic+: a group member left, the keystone is depleted."
+            : "Mythic+: the keystone's owner left, the keystone is depleted.";
+        run.state = STATE_INACTIVE;
+        ClearRunSpawns(map);
+        Deplete(run);
+        LOG_INFO("module", "Mythic+: instance {} map {} +{} bricked after {} s: {}",
+            run.instanceId, run.mapId, run.level, run.elapsedMs / 1000, message);
+        ForEachPlayer(map, [&](Player* player)
+        {
+            if (countdown)
+            {
+                player->SetControlled(false, UNIT_STATE_ROOT);
+                player->RemoveAurasDueToSpell(SPELL_MYTHIC_PLUS_PREPARATION);
+            }
+            RemovePlayerAffixes(player, run);
+            SendState(player, run, STATE_INACTIVE);
+            ChatHandler(player->GetSession()).SendSysMessage(message);
+        });
+    }
+
+    // A run belongs to the group its owner is in: the owner is either the one
+    // leaving or still a member of the group the leaver left (or disbanded).
+    void GroupMemberLeft(Group* group, ObjectGuid leaver)
+    {
+        std::lock_guard<std::recursive_mutex> guard(g_lock);
+        for (auto& [instanceId, run] : g_runs)
+            if (run.Active() && run.brick == BrickCause::NONE && (run.owner == leaver || group->IsMember(run.owner)))
+                run.brick = BrickCause::MEMBER_LEFT_GROUP;
     }
 
     // Returns an error for the player, or nullptr when the run started.
@@ -1053,10 +1207,9 @@ namespace
         run.affixes = Data::Instance().GetAffixes(run.rotation, key->level);
         run.state = STATE_COUNTDOWN;
         run.countdownMs = COUNTDOWN_MS;
+        Ascension::BattleResurrection::StartMythicPlusRun(map);
         ScaleForces(map->GetId(), uint32(map->GetDifficulty()), run);
 
-        // The key loses a level now and gets its real new level at the end.
-        ReplaceKeystone(player, item, Data::Instance().GetKeystoneItem(run.lfgId, std::max<uint32>(1, run.level - 1)));
 
         for (auto const& [spawnId, creature] : map->GetCreatureBySpawnIdStore())
         {
@@ -1088,12 +1241,12 @@ namespace
             CoASetDungeonReleaseStart(map, *wingStart);
         ForEachPlayer(map, [&](Player* p)
         {
-            SendWindow(p, false);
             if (wingStart)
                 p->NearTeleportTo(wingStart->GetPositionX(), wingStart->GetPositionY(), wingStart->GetPositionZ(),
                     wingStart->GetOrientation());
             ApplyPlayerAffixes(p, run);
             p->SetControlled(true, UNIT_STATE_ROOT);
+            p->AddAura(SPELL_MYTHIC_PLUS_PREPARATION, p);
             SendInstanceInfo(p, run.instanceId);
             SendState(p, run, STATE_COUNTDOWN);
             SendProgress(p, run);
@@ -1209,7 +1362,11 @@ public:
         if (run->Active())
             ApplyPlayerAffixes(player, *run);
         if (run->state == STATE_COUNTDOWN)
+        {
             player->SetControlled(true, UNIT_STATE_ROOT);
+            if (Aura* preparation = player->AddAura(SPELL_MYTHIC_PLUS_PREPARATION, player))
+                preparation->SetDuration(int32(run->countdownMs));
+        }
     }
 
     void OnPlayerLeaveAll(Map* map, Player* player) override
@@ -1220,8 +1377,14 @@ public:
         g_socketed.erase(player->GetGUID());
         if (Run* run = RunFor(map))
         {
+            if (run->Active() && run->brick == BrickCause::NONE && run->owner == player->GetGUID()
+                && !player->GetSession()->PlayerLogout())
+                run->brick = BrickCause::OWNER_LEFT_INSTANCE;
             if (run->state == STATE_COUNTDOWN)
+            {
                 player->SetControlled(false, UNIT_STATE_ROOT);
+                player->RemoveAurasDueToSpell(SPELL_MYTHIC_PLUS_PREPARATION);
+            }
             RemovePlayerAffixes(player, *run);
             SendState(player, *run, STATE_INACTIVE);
         }
@@ -1236,6 +1399,12 @@ public:
         if (!run || !run->Active())
             return;
 
+        if (run->brick != BrickCause::NONE)
+        {
+            Brick(map, *run);
+            return;
+        }
+
         if (run->state == STATE_COUNTDOWN)
         {
             if (run->countdownMs > diff)
@@ -1247,6 +1416,7 @@ public:
             ForEachPlayer(map, [run](Player* p)
             {
                 p->SetControlled(false, UNIT_STATE_ROOT);
+                p->RemoveAurasDueToSpell(SPELL_MYTHIC_PLUS_PREPARATION);
                 SendState(p, *run, STATE_RUNNING);
                 SendTimer(p, *run);
             });
@@ -1268,11 +1438,35 @@ public:
         g_runs.erase(map->GetInstanceId());    }
 };
 
+class coa_mythic_plus_group : public GroupScript
+{
+public:
+    coa_mythic_plus_group() : GroupScript("coa_mythic_plus_group", { GROUPHOOK_ON_REMOVE_MEMBER, GROUPHOOK_ON_DISBAND })
+    { }
+
+    void OnRemoveMember(Group* group, ObjectGuid guid, RemoveMethod /*method*/, ObjectGuid /*kicker*/,
+        char const* /*reason*/) override
+    {
+        GroupMemberLeft(group, guid);
+    }
+
+    void OnDisband(Group* group) override
+    {
+        GroupMemberLeft(group, ObjectGuid::Empty);
+    }
+};
+
 // Death takes the player affixes; a resurrection inside a running key brings them back.
 class coa_mythic_plus_player : public PlayerScript
 {
 public:
-    coa_mythic_plus_player() : PlayerScript("coa_mythic_plus_player", { PLAYERHOOK_ON_PLAYER_RESURRECT, PLAYERHOOK_ON_LOGIN }) { }
+    coa_mythic_plus_player() : PlayerScript("coa_mythic_plus_player",
+        { PLAYERHOOK_ON_PLAYER_RESURRECT, PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_UPDATE }) { }
+
+    void OnPlayerUpdate(Player* player, uint32) override
+    {
+        ApplyDepletion(player);
+    }
 
     // What Ascension's server told the client and this one would not otherwise: the strings for Mythic its
     // GlobalStrings lack, the champion count per dungeon, and the affix rows this realm changed
@@ -1325,6 +1519,53 @@ public:
     }
 };
 
+class coa_mythic_plus_chest_loot : public MiscScript
+{
+public:
+    coa_mythic_plus_chest_loot() : MiscScript("coa_mythic_plus_chest_loot", { MISCHOOK_ON_AFTER_LOOT_TEMPLATE_PROCESS })
+    { }
+
+    void OnAfterLootTemplateProcess(Loot* loot, LootTemplate const*, LootStore const& store, Player* owner, bool, bool,
+        uint16) override
+    {
+        if (!loot || !owner || &store != &LootTemplates_Gameobject
+            || !sConfigMgr->GetOption<bool>("MythicPlus.NoCreatureLoot", true))
+            return;
+        GameObject* chest = ObjectAccessor::GetGameObject(*owner, loot->sourceWorldObjectGUID);
+        if (!chest || chest->GetGoType() != GAMEOBJECT_TYPE_CHEST || IsGathered(chest))
+            return;
+        std::lock_guard<std::recursive_mutex> guard(g_lock);
+        Run const* run = RunFor(owner->GetMap());
+        if (!run || !run->Active())
+            return;
+        loot->items.clear();
+        loot->quest_items.clear();
+        loot->unlootedCount = 0;
+        loot->gold = 0;
+    }
+
+private:
+    static bool IsGathered(GameObject const* chest)
+    {
+        LockEntry const* lock = sLockStore.LookupEntry(chest->GetGOInfo()->GetLockId());
+        if (!lock)
+            return false;
+        for (uint8 i = 0; i < MAX_LOCK_CASE; ++i)
+            if (lock->Type[i] == LOCK_KEY_SKILL)
+                switch (lock->Index[i])
+                {
+                    case LOCKTYPE_PICKLOCK:
+                    case LOCKTYPE_HERBALISM:
+                    case LOCKTYPE_MINING:
+                    case LOCKTYPE_FISHING:
+                        return true;
+                    default:
+                        break;
+                }
+        return false;
+    }
+};
+
 class coa_mythic_plus_creature : public AllCreatureScript
 {
 public:
@@ -1346,6 +1587,33 @@ public:
         }
     }
 
+    void OnAllCreatureUpdate(Creature* creature, uint32 /*diff*/) override
+    {
+        if (!creature->HasUnitFlag(UNIT_FLAG_PACIFIED) || !creature->HasReactState(REACT_PASSIVE)
+            || creature->IsInEvadeMode() || !creature->IsAlive())
+            return;
+        bool const unattacked = creature->IsInCombat() && creature->getAttackers().empty();
+        if (creature->HasUnitState(UNIT_STATE_ROOT) && !unattacked)
+            return;
+        Map* map = creature->FindMap();
+        if (!map || !map->IsDungeon())
+            return;
+        std::lock_guard<std::recursive_mutex> guard(g_lock);
+        if (!RefusesToFight(creature))
+            return;
+        if (unattacked)
+        {
+            creature->CombatStop(true);
+            creature->GetThreatMgr().ClearAllThreat();
+            return;
+        }
+        creature->SetHomePosition(creature->GetPosition());
+        creature->GetMotionMaster()->Clear();
+        creature->GetMotionMaster()->MoveIdle();
+        creature->StopMoving();
+        creature->SetControlled(true, UNIT_STATE_ROOT);
+    }
+
     // Summons and creatures spawned during a run get the week's affixes too.
     void OnCreatureAddWorld(Creature* creature) override
     {
@@ -1356,9 +1624,19 @@ public:
         Run* run = RunFor(map);
         // Mythical Boons (80215) exist only for a keystone.
         if (creature->GetEntry() == 80215)
+        {
             creature->SetVisible(run && run->Active());
+            creature->SetFloatValue(UNIT_FIELD_COMBATREACH, 10.0f);
+        }
         if (run && run->Active())
             ApplyCreatureAffixes(creature, *run);
+        if (run && Finished(*run))
+            creature->m_Events.AddEventAtOffset([creature]
+            {
+                std::lock_guard<std::recursive_mutex> guard(g_lock);
+                if (Run* current = RunFor(creature->GetMap()); current && Finished(*current))
+                    RefuseToFight(creature);
+            }, 1ms);
     }
 };
 
@@ -1368,24 +1646,47 @@ public:
     coa_mythic_plus_unit() : UnitScript("coa_mythic_plus_unit", true,
         { UNITHOOK_MODIFY_MELEE_DAMAGE, UNITHOOK_MODIFY_SPELL_DAMAGE_TAKEN, UNITHOOK_MODIFY_PERIODIC_DAMAGE_AURAS_TICK, UNITHOOK_ON_UNIT_DEATH }) { }
 
-    void ModifyMeleeDamage(Unit* /*target*/, Unit* attacker, uint32& damage) override
+    void ModifyMeleeDamage(Unit* target, Unit* attacker, uint32& damage) override
     {
+        if (Refuses(target))
+        {
+            damage = 0;
+            return;
+        }
         if (float f = Factor(attacker, true); f != 1.0f)
             damage = uint32(damage * f);
     }
 
-    void ModifySpellDamageTaken(Unit* /*target*/, Unit* attacker, int32& damage, SpellInfo const* spellInfo) override
+    void ModifySpellDamageTaken(Unit* target, Unit* attacker, int32& damage, SpellInfo const* spellInfo) override
     {
+        if (Refuses(target))
+        {
+            damage = 0;
+            return;
+        }
         if (IsHealthShare(spellInfo))
             return;
         if (float f = Factor(attacker, IsPhysical(spellInfo)); f != 1.0f)
             damage = int32(damage * f);
     }
 
-    void ModifyPeriodicDamageAurasTick(Unit* /*target*/, Unit* attacker, uint32& damage, SpellInfo const* spellInfo) override
+    void ModifyPeriodicDamageAurasTick(Unit* target, Unit* attacker, uint32& damage, SpellInfo const* spellInfo) override
     {
+        if (Refuses(target))
+        {
+            damage = 0;
+            return;
+        }
         if (float f = Factor(attacker, IsPhysical(spellInfo)); f != 1.0f)
             damage = uint32(damage * f);
+    }
+
+    static bool Refuses(Unit const* target)
+    {
+        if (!target || !target->IsCreature() || !target->HasUnitFlag(UNIT_FLAG_PACIFIED))
+            return false;
+        std::lock_guard<std::recursive_mutex> guard(g_lock);
+        return RefusesToFight(target);
     }
 
     void OnUnitDeath(Unit* unit, Unit* /*killer*/) override
@@ -1423,6 +1724,7 @@ public:
             run->encounters.insert(boss->id);
             if (boss->final)
                 run->finalKilled = true;
+            StayDead(creature);
         }
         else if (!encounter)
         {
@@ -1435,6 +1737,15 @@ public:
     }
 
 private:
+    // A wing boss stays dead for the rest of the keystone's instance: rare
+    // bosses such as Ironspine keep their open-world respawn timer otherwise.
+    static void StayDead(Creature* creature)
+    {
+        creature->SetRespawnDelay(WEEK);
+        creature->SetRespawnTime(WEEK);
+        creature->SaveRespawnTime();
+    }
+
     static bool IsPhysical(SpellInfo const* spellInfo)
     {
         return !spellInfo || (spellInfo->GetSchoolMask() & SPELL_SCHOOL_MASK_NORMAL);
@@ -1549,6 +1860,47 @@ public:
 // Using a keystone casts "Activate Keystone" (161). The client does not open the socket by itself; the
 // server opens it only when this very key can be started here: its dungeon (any wing), Mythic difficulty,
 // the group leader, no run and no dead boss in the instance yet.
+class spell_coa_mythic_life_steal : public SpellScript
+{
+    PrepareSpellScript(spell_coa_mythic_life_steal);
+
+    void PreventSelfHeal(SpellEffIndex effIndex)
+    {
+        PreventHitDefaultEffect(effIndex);
+    }
+
+    void HealCaster()
+    {
+        Unit* caster = GetCaster();
+        int32 const drained = GetHitDamage();
+        if (!caster || !caster->IsAlive() || drained <= 0)
+            return;
+        HealInfo healInfo(caster, caster, uint32(drained), GetSpellInfo(), GetSpellInfo()->GetSchoolMask());
+        caster->HealBySpell(healInfo);
+    }
+
+    void Register() override
+    {
+        OnEffectHitTarget += SpellEffectFn(spell_coa_mythic_life_steal::PreventSelfHeal, EFFECT_1, SPELL_EFFECT_APPLY_AURA);
+        AfterHit += SpellHitFn(spell_coa_mythic_life_steal::HealCaster);
+    }
+};
+
+class spell_coa_mythic_horde : public AuraScript
+{
+    PrepareAuraScript(spell_coa_mythic_horde);
+
+    bool CheckAreaTarget(Unit* target)
+    {
+        return target != GetUnitOwner();
+    }
+
+    void Register() override
+    {
+        DoCheckAreaTarget += AuraCheckAreaTargetFn(spell_coa_mythic_horde::CheckAreaTarget);
+    }
+};
+
 class coa_mythic_plus_keystone_use : public AllSpellScript
 {
 public:
@@ -2023,11 +2375,16 @@ private:
     {
         ClearGossipMenuFor(player);
         AddInfo(player);
-        AddGossipItemFor(player, GOSSIP_ICON_MONEY_BAG, Opt("INV_Misc_Bag_07", "You can MASS recycle items by selling them to me.", 24), MENU_RECYCLE, 0);
+        uint32 sellList = 1;
+        for (; sellList < 16; ++sellList)
+            if (VendorItemData const* items = sObjectMgr->GetNpcVendorItemList(EDRIM_VENDOR_BASE + sellList); items && !items->Empty())
+                break;
+        AddGossipItemFor(player, GOSSIP_ICON_MONEY_BAG, Opt("INV_Misc_Bag_07", "You can MASS recycle items by selling them to me.", 24), DO_BUY, sellList);
         ForEachOwnedItem(player, false, [&](Item* item)
         {
             auto itr = g_chainOf.find(item->GetEntry());
-            if (itr == g_chainOf.end() || !itr->second.second)
+            if (itr == g_chainOf.end() || !itr->second.second ||
+                player->PlayerTalkClass->GetGossipMenu().GetMenuItemCount() >= GOSSIP_MAX_MENU_ITEMS - 1)
                 return;
             std::string const name = item->GetTemplate()->Name1;
             std::string const level = LevelName(itr->second.second);
@@ -2168,15 +2525,19 @@ public:
     }
 };
 
-// Mythical Boon (80215): right-click gives a random Mythical Boon and the boon vanishes. It shows only during a
-// running keystone; the boon items work only there too.
+// Mythical Boon (80215): right-click puts a random Mythical Boon item in the bags of every player within 50 yards in
+// line of sight of the clicker, with Mythical Blessing's Holy Nova visual, and the boon vanishes. It shows only during
+// a running keystone; boon items work only there too.
 constexpr uint32 NPC_MYTHICAL_BOON = 80215;
+constexpr uint32 SPELL_MYTHICAL_BLESSING = 2104919;
 
 bool InRunningKey(Map* map)
 {
     Run* run = RunFor(map);
     return run && run->state == STATE_RUNNING;
 }
+
+std::vector<Player*> BoonTargets(Player* user);
 
 class npc_coa_mythic_boon : public CreatureScript
 {
@@ -2191,7 +2552,13 @@ public:
         std::lock_guard<std::recursive_mutex> guard(g_lock);
         if (!InRunningKey(creature->GetMap()))
             return true;
-        Give(player, BOONS[urand(0, BOONS.size() - 1)], 1);
+        player->CastSpell(player, SPELL_MYTHICAL_BLESSING, true);
+        for (Player* target : BoonTargets(player))
+        {
+            uint32 const boon = BOONS[urand(0, BOONS.size() - 1)];
+            if (!target->AddItem(boon, 1))
+                target->SendItemRetrievalMail(boon, 1);
+        }
         creature->DespawnOrUnsummon(0ms, 7 * 24h);
         return true;
     }
@@ -2201,18 +2568,23 @@ public:
 // 50 yards in line of sight of the user, so the script applies it to each of them and uses up the item.
 constexpr float BOON_RANGE = 50.0f;
 
-void ApplyBoon(Player* user, uint32 spellId)
+std::vector<Player*> BoonTargets(Player* user)
 {
-    SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
-    if (!info)
-        return;
     std::vector<Player*> targets;
     user->GetMap()->DoForAllPlayers([&](Player* target)
     {
         if (target->IsAlive() && (target == user || (target->IsWithinDistInMap(user, BOON_RANGE) && user->IsWithinLOSInMap(target))))
             targets.push_back(target);
     });
-    for (Player* target : targets)
+    return targets;
+}
+
+void ApplyBoon(Player* user, uint32 spellId)
+{
+    SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+    if (!info)
+        return;
+    for (Player* target : BoonTargets(user))
     {
         bool aura = false;
         for (SpellEffectInfo const& effect : info->GetEffects())
@@ -2250,7 +2622,8 @@ public:
         return true;
     }
 };
-// Selling a Mythic item to Edrim recycles it instead (45 + level Mythic Coins).
+// Selling a Mythic 1 or higher item to Edrim recycles it instead (45 + level Mythic Coins); any other item,
+// a plain Mythic Dungeon item included, sells for gold as at any vendor.
 class coa_mythic_plus_recycle : public PlayerScript
 {
 public:
@@ -2261,11 +2634,9 @@ public:
         if (!creature || creature->GetEntry() != NPC_EDRIM)
             return true;
         std::lock_guard<std::recursive_mutex> guard(g_lock);
-        if (!g_chainOf.count(item->GetEntry()))
-        {
-            ChatHandler(player->GetSession()).SendSysMessage("Edrim Skysong only takes Mythic items.");
-            return false;
-        }
+        auto itr = g_chainOf.find(item->GetEntry());
+        if (itr == g_chainOf.end() || !itr->second.second)
+            return true;
         Recycle(player, item);
         return false;
     }
@@ -2621,6 +2992,7 @@ public:
             { "reload",   HandleReload,   SEC_ADMINISTRATOR, Console::Yes },
             { "wings",    HandleWings,    SEC_ADMINISTRATOR, Console::Yes },
             { "setbest",  HandleSetBest,  SEC_ADMINISTRATOR, Console::Yes },
+            { "elapsed",  HandleElapsed,  SEC_ADMINISTRATOR, Console::Yes },
         };
         static ChatCommandTable commandTable =
         {
@@ -2763,6 +3135,25 @@ public:
         return true;
     }
 
+    // .mythic elapsed <seconds> [name]: how long the running key in the player's instance has been going, e.g. to
+    // finish a run out of time. Without a name the selected player or yourself.
+    static bool HandleElapsed(ChatHandler* handler, uint32 seconds, Optional<PlayerIdentifier> name)
+    {
+        Player* target = name ? name->GetConnectedPlayer() : handler->getSelectedPlayerOrSelf();
+        if (!target)
+            return false;
+        std::lock_guard<std::recursive_mutex> guard(g_lock);
+        Run* run = RunFor(target->GetMap());
+        if (!run || run->state != STATE_RUNNING)
+        {
+            handler->SendSysMessage("No Mythic+ run is under way there.");
+            return true;
+        }
+        run->elapsedMs = seconds * IN_MILLISECONDS;
+        handler->PSendSysMessage("Mythic+: {} s of {} s elapsed.", seconds, run->dungeon.timeLimitMs / IN_MILLISECONDS);
+        return true;
+    }
+
     // .mythic keyrandom: your keystone moves to another random dungeon at the same level, free of charge.
     static bool HandleKeyRandom(ChatHandler* handler)
     {
@@ -2890,7 +3281,9 @@ void AddCoaMythicPlusScripts()
 {
     new coa_mythic_plus_world();
     new coa_mythic_plus_map();
+    new coa_mythic_plus_group();
     new coa_mythic_plus_creature();
+    new coa_mythic_plus_chest_loot();
     new coa_mythic_plus_player();
     new coa_mythic_plus_unit();
     new coa_mythic_plus_command();
@@ -2906,4 +3299,6 @@ void AddCoaMythicPlusScripts()
     new coa_mythic_plus_boss_casts();
     new coa_mythic_plus_boss_kills();
     new coa_mythic_plus_keystone_use();
+    RegisterSpellScript(spell_coa_mythic_life_steal);
+    RegisterSpellScript(spell_coa_mythic_horde);
 }

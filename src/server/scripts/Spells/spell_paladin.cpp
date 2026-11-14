@@ -239,7 +239,7 @@ class spell_pal_seal_of_command : public SpellScript
 
     void Register() override
     {
-        if (m_scriptSpellId == 20424)
+        if (sSpellMgr->GetSpellTwinSource(m_scriptSpellId) == 20424)
             OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(spell_pal_seal_of_command::FilterTargets, EFFECT_0, TARGET_UNIT_TARGET_ENEMY);
     }
 };
@@ -834,7 +834,7 @@ class spell_pal_hand_of_sacrifice_aura : public AuraScript
 
         if (remainingAmount <= 0)
         {
-            GetTarget()->RemoveAura(SPELL_PALADIN_HAND_OF_SACRIFICE);
+            Remove();
         }
     }
 
@@ -874,7 +874,7 @@ class spell_pal_hand_of_salvation : public AuraScript
         {
             // Glyph of Salvation
             if (caster->GetGUID() == GetUnitOwner()->GetGUID())
-                if (AuraEffect const* aurEff = caster->GetAuraEffect(SPELL_PALADIN_GLYPH_OF_SALVATION, EFFECT_0))
+                if (AuraEffect const* aurEff = caster->GetAuraEffectOfRankedSpellOrTwin(SPELL_PALADIN_GLYPH_OF_SALVATION, EFFECT_0))
                     amount -= aurEff->GetAmount();
         }
     }
@@ -901,8 +901,8 @@ class spell_pal_holy_shock : public SpellScript
         if (!stockInfo || !stockInfo->IsRankOf(firstRankSpellInfo))
             return false;
 
-        uint8 rank = spellInfo->GetRank();
-        if (!sSpellMgr->GetSpellWithRank(SPELL_PALADIN_HOLY_SHOCK_R1_DAMAGE, rank, true) || !sSpellMgr->GetSpellWithRank(SPELL_PALADIN_HOLY_SHOCK_R1_HEALING, rank, true))
+        if (!sSpellMgr->GetSpellWithRankFor(SPELL_PALADIN_HOLY_SHOCK_R1_DAMAGE, spellInfo->Id, true) ||
+            !sSpellMgr->GetSpellWithRankFor(SPELL_PALADIN_HOLY_SHOCK_R1_HEALING, spellInfo->Id, true))
             return false;
 
         return true;
@@ -913,10 +913,8 @@ class spell_pal_holy_shock : public SpellScript
         Unit* caster = GetCaster();
         if (Unit* unitTarget = GetHitUnit())
         {
-            uint8 rank = GetSpellInfo()->GetRank();
-            uint32 const stockSpell = sSpellMgr->GetSpellWithRank(caster->IsFriendlyTo(unitTarget) ?
-                SPELL_PALADIN_HOLY_SHOCK_R1_HEALING : SPELL_PALADIN_HOLY_SHOCK_R1_DAMAGE, rank);
-            caster->CastSpell(unitTarget, sSpellMgr->GetSpellTwinFor(stockSpell, GetSpellInfo()->Id), true);
+            caster->CastSpell(unitTarget, sSpellMgr->GetSpellWithRankFor(caster->IsFriendlyTo(unitTarget) ?
+                SPELL_PALADIN_HOLY_SHOCK_R1_HEALING : SPELL_PALADIN_HOLY_SHOCK_R1_DAMAGE, GetSpellInfo()->Id), true);
         }
     }
 
@@ -1102,7 +1100,7 @@ class spell_pal_lay_on_hands : public SpellScript
             caster->CastSpell(caster, SPELL_PALADIN_IMMUNE_SHIELD_MARKER, true);
         }
         // Xinef: Glyph of Divinity
-        else if (target && caster->HasAura(54939) && GetSpellInfo()->Id != 633 && _manaAmount > 0) // excluding first rank
+        else if (target && caster->HasAuraOrTwin(54939) && sSpellMgr->GetSpellTwinSource(GetSpellInfo()->Id) != 633 && _manaAmount > 0) // excluding first rank
         {
             _manaAmount = target->GetPower(POWER_MANA) - _manaAmount;
             if (_manaAmount > 0)
@@ -1928,7 +1926,7 @@ class spell_pal_seal_of_vengeance_aura : public AuraScript
     bool Load() override
     {
         // Seal of Vengeance = 31801, Seal of Corruption = 53736
-        _isVengeance = GetSpellInfo()->Id == 31801;
+        _isVengeance = sSpellMgr->GetSpellTwinSource(GetSpellInfo()->Id) == 31801;
         return true;
     }
 
@@ -1962,7 +1960,7 @@ class spell_pal_seal_of_vengeance_aura : public AuraScript
                 return;
         }
 
-        uint32 dotSpell = _isVengeance ? SPELL_PALADIN_HOLY_VENGEANCE : SPELL_PALADIN_BLOOD_CORRUPTION;
+        uint32 dotSpell = sSpellMgr->GetSpellTwinFor(_isVengeance ? SPELL_PALADIN_HOLY_VENGEANCE : SPELL_PALADIN_BLOOD_CORRUPTION, GetId());
         eventInfo.GetActor()->CastSpell(eventInfo.GetActionTarget(), dotSpell, true, nullptr, aurEff);
     }
 
@@ -1980,7 +1978,7 @@ class spell_pal_seal_of_vengeance_aura : public AuraScript
         uint8 stacks = sealDot->GetBase()->GetStackAmount();
         uint8 maxStacks = sealDot->GetSpellInfo()->StackAmount;
 
-        uint32 damageSpell = _isVengeance ? SPELL_PALADIN_SEAL_OF_VENGEANCE_EFFECT : SPELL_PALADIN_SEAL_OF_CORRUPTION_EFFECT;
+        uint32 damageSpell = sSpellMgr->GetSpellTwinFor(_isVengeance ? SPELL_PALADIN_SEAL_OF_VENGEANCE_EFFECT : SPELL_PALADIN_SEAL_OF_CORRUPTION_EFFECT, GetId());
 
         // Scale weapon damage % by stacks (6.6% per stack, up to 33% at 5 stacks)
         SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(damageSpell);
@@ -2028,7 +2026,7 @@ class spell_pal_illumination : public AuraScript
 
             // if proc comes from the Holy Shock heal, need to get mana cost of original spell - else it's the original heal itself
             if (eventInfo.GetHealInfo()->GetSpellInfo()->SpellFamilyFlags[1] & 0x00010000)
-                originalSpell = sSpellMgr->GetSpellInfo(sSpellMgr->GetSpellWithRank(SPELL_PALADIN_HOLY_SHOCK_R1, eventInfo.GetHealInfo()->GetSpellInfo()->GetRank()));
+                originalSpell = sSpellMgr->GetSpellInfo(sSpellMgr->GetSpellWithRankFor(SPELL_PALADIN_HOLY_SHOCK_R1, eventInfo.GetHealInfo()->GetSpellInfo()->Id));
             else
                 originalSpell = eventInfo.GetHealInfo()->GetSpellInfo();
 
@@ -2252,9 +2250,9 @@ class spell_pal_light_s_beacon : public AuraScript
             return;
 
         uint32 healSpellId;
-        if (procSpell->IsRankOf(sSpellMgr->AssertSpellInfo(SPELL_PALADIN_HOLY_LIGHT_R1)))
+        if (sSpellMgr->GetSpellTwinSource(procSpell->GetFirstRankSpell()->Id) == SPELL_PALADIN_HOLY_LIGHT_R1)
             healSpellId = SPELL_PALADIN_BEACON_OF_LIGHT_HL;
-        else if (procSpell->IsRankOf(sSpellMgr->AssertSpellInfo(SPELL_PALADIN_FLASH_OF_LIGHT_R1)))
+        else if (sSpellMgr->GetSpellTwinSource(procSpell->GetFirstRankSpell()->Id) == SPELL_PALADIN_FLASH_OF_LIGHT_R1)
             healSpellId = SPELL_PALADIN_BEACON_OF_LIGHT_FOL;
         else
             healSpellId = SPELL_PALADIN_BEACON_OF_LIGHT_HS;

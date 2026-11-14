@@ -460,7 +460,7 @@ void WorldSession::HandleCastSpellOpcode(WorldPacket& recvPacket)
         // not have spell in spellbook or spell passive and not casted by client
         if (!(spellInfo->Targets & TARGET_FLAG_GAMEOBJECT_ITEM) && (!mover->ToPlayer()->HasActiveSpell(spellId) || spellInfo->IsPassive()))
         {
-            bool allow = false;
+            bool allow = spellId == 45927 && mover == _player && (IsARecruiter() || GetRecruiterId());
 
             // allow casting of unknown spells for special lock cases
             if (GameObject* go = targets.GetGOTarget())
@@ -609,8 +609,12 @@ void WorldSession::HandleCancelAuraOpcode(WorldPacket& recvPacket)
     {
         if (Spell* curSpell = _player->GetCurrentSpell(CURRENT_CHANNELED_SPELL))
             if (curSpell->m_spellInfo->Id == spellId)
+            {
                 _player->InterruptSpell(CURRENT_CHANNELED_SPELL);
-        return;
+                return;
+            }
+        // No matching channel is running: fall through so a lingering
+        // channeled aura can still be removed by the rules below.
     }
 
     // non channeled case:

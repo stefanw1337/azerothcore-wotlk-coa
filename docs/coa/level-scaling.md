@@ -53,13 +53,28 @@ authored level. The band is the `TargetLevelMin`-`MaxLevel` of the dungeon's `LF
 merged per map; entries with placeholder levels (100/100 for Wailing Caverns, Gnomeregan and Uldaman)
 use 15-59.
 
+A scaled dungeon scales only for a Dungeon Finder group inside the dungeon it was assigned, as on
+Ascension (#11184). Every member of that group sees their own version, whatever their own choice or their
+leader's: a level-60 leader with the switch off would otherwise hold a level-20 finder party to
+Maraudon's level-45 creatures. A character who walked in, alone or in an ordinary group, keeps the
+authored creatures and loot whatever the Destiny Weaver's switch says; the switch is open-world scaling,
+as its menu row and its messages say. A challenge rule (`ScalingBlocksFor`) keeps even a finder group's
+character on the authored dungeon.
+
 #### Where a creature scales
 
 | scope | rule |
 |---|---|
 | open world | the maps in `DestinyWeaver.Scaling.WorldMaps` (default `0 1`) |
-| dungeons | regular difficulty of the dungeon finder entries in `DestinyWeaver.Scaling.DungeonIds` (default the 19 classic entries: 1 4 6 8 10 12 14 16 18 20 22 24 26 28 163 164 165 272 273) |
+| dungeons | regular difficulty of the dungeon finder entries listed below |
 | never | raids, battlegrounds, arenas, scripted private instances, Heroic/Mythic dungeons |
+
+Scaled dungeon finder entries:
+
+- the defaults: 1 2 4 6 8 10 12 14 16 18 20 22 24 26 28 30 32 34 36 38 40 44 51 54 163 164 165 272 273 274 276
+  601 402 401 45
+- any entry `DestinyWeaver.Scaling.DungeonIds` adds
+- any entry `DestinyWeaver.Scaling.DungeonBands` gives a band
 
 A creature on a scaled map still keeps its authored level when it is a pet, guardian, totem, trigger,
 critter, non-combat pet, world boss, has an owner or charmer, has `unit_class` 0, serves (any
@@ -88,13 +103,15 @@ owners feed it.
 
 | owner | what it blocks | where |
 |---|---|---|
-| challenge rules (`ChallengeBlocksOwner`, `mod-coa-challenges`) | `NO_CREATURE_LEVEL_SCALING` → creatures, `NO_QUEST_LEVEL_SCALING` → quests, read from `ChallengeRuleTypes.dbc` for the character's active challenges | any map |
+| challenge rules (`ChallengeBlocksOwner`, `mod-coa-challenges`) | `NO_CREATURE_LEVEL_SCALING` → creatures, `NO_QUEST_LEVEL_SCALING` → quests, `NO_PLAYER_LEVEL_SCALING` → both, read from `ChallengeRuleTypes.dbc` for the character's active challenges | any map |
 | rulesets (`RulesetBlocksOwner`, `AscensionRulesets.cpp`) | both, while the character carries High-Risk (1004019), or War Mode (1004119) without PvE Mode (9931032) | the open world only (not an instanceable map) |
 
 Ironman - Overwhelming Odds (71) and its twin (285) carry only the creature rule; Hardcore - Inn-Sane
-(76, 290) carries both, and also `NO_PLAYER_LEVEL_SCALING`, which has nothing to block here because
-this realm has no player level sync. The ruleset block is what the live tooltips of the two auras
-say: "Level scaling is disabled while in High-Risk." and "Level scaling is disabled while in War
+(76, 290) carries both, and also `NO_PLAYER_LEVEL_SCALING`. That rule is mapped to both bits
+(`CoAParse::LevelScalingBlockBits`). No source gives its meaning on Ascension live, and both trials
+that carry it already set both bits through the other two rules, so the mapping changes no behavior
+today; it matters only for a challenge that carries the player rule alone. The ruleset block is what
+the live tooltips of the two auras say: "Level scaling is disabled while in High-Risk." and "Level scaling is disabled while in War
 Mode."; PvE Mode's tooltip has no such line. `CoA.Ruleset.DisableLevelScaling` (default 1) turns the
 ruleset block off.
 
@@ -158,7 +175,7 @@ already changed it, takes the ratio of its place in the real range.
 ### Groups: the leader sets the switch, never the level
 
 While a character is grouped, `DestinyWeaver::LevelScalingEnabled` answers with the **leader's**
-switch — on, or off, for every member. It answers with nothing else of the leader's, and that is
+switch — on, or off, for every member, in the open world and for quests; a scaled dungeon ignores it. It answers with nothing else of the leader's, and that is
 load-bearing rather than incidental:
 
 - the level a creature is shown at is `ScaleCreatureLevelForViewer(original, viewer->GetLevel(), offset)` —
@@ -261,16 +278,21 @@ exception: it is dispatched to every registered unit script.
 Not scaled, deliberately, and matching the reference implementation: the creature's **resistance values**
 (template-based and level-independent there too; only the level terms above follow the view) and **loot
 tables**, which are one corpse shared by everyone who tagged it. Scaling gear on that corpse takes the level
-of whoever loots it or wins the roll, a master looter's pick the receiver's. Scaling gear from loot or a
-quest reward scales only for a character whose scaling is on, by the same answer the creature view asks
-(their choice, or their leader's in a group, and no challenge or open-world ruleset holding them to the
-authored world); everyone else receives the authored item, and their corpse and roll frame preview none.
+of whoever loots it or wins the roll, a master looter's pick the receiver's. Inside a Dungeon Finder group's
+scaled dungeon loot scales for every member, whatever their own or their leader's switch, up or down: the item takes the
+looter's level, with that ladder row's stats, armor and required level, as the corpse and roll frame
+preview it. In a scaled dungeon entered on foot loot keeps its authored stats like the creatures. Elsewhere,
+scaling gear from loot or a quest reward scales only for a
+character whose scaling is on, by the same answer the creature view asks (their choice, or their leader's
+in a group, and no challenge or open-world ruleset holding them to the authored world); everyone else
+receives the authored item, and their corpse and roll frame preview none.
 
-With `CoA.ItemScaling.Native.LevelKeys` the stored level is the client's own item key for that level
+The stored level is the client's own item key for that level
 (level + 2 up to 20, + 3 up to 30, + 4 up to 50, + 5 up to 60, the client's table above 60), and a quest
 reward takes the level the quest's `QuestTemplateScaling.dbc` row puts it at, or the key of the
-character's level for a quest without one. `CoA.ItemScaling.Native.Preview` (needs LevelKeys; both off by
-default and read at startup) lets each character see the version they would receive before it is theirs:
+character's level for a quest without one. Items stored before keys were used keep their plain level, which
+the client reads as a key three to five levels low; only items acquired afterwards store keys.
+The preview lets each character see the version they would receive before it is theirs:
 
 | Where | What the server sends |
 |---|---|
@@ -283,6 +305,11 @@ default and read at startup) lets each character see the version they would rece
 
 An item whose key equals its own item level is the authored item: the server answers the client's
 `0x6FF` query for that key with the authored stats instead of a ladder row.
+
+A stat query carries only `(item ID, level)`. Carried, banked and mailed items resolve the ambiguity between
+a stored key that equals the item level and an unowned preview by asking whether the character owns an
+instance stored at that key. Inspect, trade and auction queries cannot be tied to the viewer's own items, so
+for them a key equal to the item level is still answered with the authored item.
 
 ### Many characters, one creature
 
@@ -339,6 +366,15 @@ trails the character by that point's offset, held between the row's minimum and 
 
 `Player::GetQuestLevel` answers with `EffectiveQuestLevel`, so the level never goes below the authored
 one, and a character with scaling off (or blocked) plays every quest at its authored level.
+
+A few client rows are corrected after loading (`CorrectKnownRows`): quest 45 "Discover Rolf's Fate" is an
+Elwynn Forest quest whose row caps it at 20, while the other 61 quests of the zone and every quest in
+its chain (35, 37, 40, 71, 59) cap at 60. Elwynn proper scales to 60; only the starting hubs stop at
+20, and this quest is not in one, so its maximum is raised to 60. The same applies to the Three Totems
+narrative chain in Mulgore (1660030-1660035, 1660043, "Death and Tribute" through "To Whom I Devote"):
+not a starting-hub errand, so its row's 20 cap is raised to 60 too. The client keeps its own row, which
+it uses only to scale a reward item's stats (`FUN_10213cd0`); the level the server sends is what the
+quest log, the quest giver window and the reward use.
 
 ## 3. Quest experience
 

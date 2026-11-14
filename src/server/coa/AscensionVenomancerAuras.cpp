@@ -31,6 +31,8 @@ class aura_ascension_venomancer_lifecycle : public AuraScript
         uint32 id = GetId();
         Unit* target = GetTarget();
         GetAura()->SetScriptValue(Brood,++State(player).sequence);
+        if (id == Weaver)
+            target->ApplySpellImmune(id,IMMUNITY_MECHANIC,MECHANIC_POLYMORPH,true);
         if (id == 504737 || id == 505203 || id == 808083 || id == 504341)
         {
             if (mode & AURA_EFFECT_HANDLE_REAPPLY)
@@ -38,14 +40,17 @@ class aura_ascension_venomancer_lifecycle : public AuraScript
             GetAura()->SetUsingCharges(false);
         }
         if (Named(GetSpellInfo(),804983) && (mode & AURA_EFFECT_HANDLE_REAPPLY))
-            GetAura()->GetEffect(EFFECT_2)->SetAmount(0);
+            if (AuraEffect* effect = GetAura()->GetEffect(EFFECT_2))
+                effect->SetAmount(0);
         if (Named(GetSpellInfo(),706962))
         {
             if (mode & AURA_EFFECT_HANDLE_REAPPLY)
-                GetAura()->GetEffect(EFFECT_2)->SetAmount(0);
+                if (AuraEffect* effect = GetAura()->GetEffect(EFFECT_2))
+                    effect->SetAmount(0);
             if (AuraEffect* base = GetAura()->GetEffect(EFFECT_1))
-                if (!base->GetAmount() || (mode & AURA_EFFECT_HANDLE_REAPPLY))
-                    base->SetAmount(GetAura()->GetEffect(EFFECT_0)->GetAmount());
+                if (AuraEffect* source = GetAura()->GetEffect(EFFECT_0))
+                    if (!base->GetAmount() || (mode & AURA_EFFECT_HANDLE_REAPPLY))
+                        base->SetAmount(source->GetAmount());
             if (player->HasAura(805104) && player->HasAura(Spider))
                 player->CastSpell(target->GetPositionX(),target->GetPositionY(),target->GetPositionZ(),570208,true);
         }
@@ -134,7 +139,7 @@ class aura_ascension_venomancer_lifecycle : public AuraScript
         if (Named(GetSpellInfo(),800901) && slot > 0)
             amount = player->HasAura(706014) ? Amount(800903) : 0;
         if (Named(GetSpellInfo(),800926) && slot == 1 && player->HasAura(504356))
-            if (Aura* stacks = GetTarget()->GetAura(806454,player->GetGUID()))
+            if (Aura* stacks = GetUnitOwner()->GetAura(806454,player->GetGUID()))
                 AddPct(amount,stacks->GetStackAmount() * Amount(504356,1));
         if (id == 803216 && slot == 1)
             amount = int32(5 * (player->GetStat(STAT_INTELLECT) + player->GetStat(STAT_AGILITY)));
@@ -158,6 +163,8 @@ class aura_ascension_venomancer_lifecycle : public AuraScript
         uint32 id = GetId();
         Unit* target = GetTarget();
         bool expired = GetTargetApplication()->GetRemoveMode() == AURA_REMOVE_BY_EXPIRE;
+        if (id == Weaver)
+            target->ApplySpellImmune(id,IMMUNITY_MECHANIC,MECHANIC_POLYMORPH,false);
         if (id == 681291 && expired && !GetAura()->GetScriptValue(681301))
         {
             GetAura()->SetScriptValue(681301,1);
@@ -215,10 +222,10 @@ class aura_ascension_venomancer_lifecycle : public AuraScript
             player->RemoveAurasDueToSpell(520890);
         if ((id == Spider || id == Beetle) && !player->HasAura(Spider) && !player->HasAura(Beetle))
             player->RemoveAurasDueToSpell(803184);
+        if (id == Spider && !player->HasAura(Spider))
+            player->RemoveAurasDueToSpell(Skulk);
         if (id == 800892)
             player->RemoveAurasDueToSpell(800960);
-        if (id == 800848 && expired && GetAura()->GetStackAmount() < 3)
-            player->AddSpellCooldown(800848, 0, 40 * IN_MILLISECONDS, true);
         if (id == Spider || id == Beetle || id == 804980 || id == 800912 || id == 705970 ||
             id == 805104 || id == 805140 || id == 704264 || id == 630932)
             Refresh(player);

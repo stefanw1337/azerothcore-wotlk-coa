@@ -7,9 +7,13 @@
 #     CoA.ClientBooleanConfigs = "CONFIG_LEGACY_CHARACTER_ADVANCEMENT_ENABLED=0"
 #     CoA.ClassModel = "hero"
 #     CoA.MapClass10ToWarrior = 0
-#     CoA.RealmType = "live seasonal"
+#     CoA.RealmType = "league"
 #     PlayerStart.CustomSpells = 1
 #     AlwaysMaxSkillForLevel = 1
+#
+# "league" is the realm type whose Character Advancement rows the Wildcard pool draws from: the
+# Wildcard-only entries are flagged league (and PTR/development) only, so on a live or seasonal realm
+# the client hides entries the server still rolls, and Rapid Rolling cannot list them.
 #
 
 [worldserver]
@@ -99,3 +103,14 @@ Wildcard.Synergy.TalentsNeedTarget = 1
 #                     0 - (Disabled)
 
 Wildcard.Synergy.LogRolls = 1
+
+#    Wildcard.FreeScrolls
+#        Description: Spawn Pete Arr <Plunder Trade Representative (PTR)> beside Silas Darkmoon in
+#                     Stormwind and Orgrimmar. He gives Wildcard Heroes 10 Scrolls of Fortune of
+#                     their active specialization and the Tome of Specialization of their first
+#                     locked specialization for free. For test realms (PTR); keep it off on a live
+#                     realm.
+#        Default:     0 - (Disabled)
+#                     1 - (Enabled)
+
+Wildcard.FreeScrolls = 0

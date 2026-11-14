@@ -60,6 +60,9 @@ void ApplyContracts(SpellInfo* info)
             info->Effects[0].TargetA = SpellImplicitTargetInfo(heal ? TARGET_UNIT_TARGET_ALLY : TARGET_UNIT_TARGET_ENEMY);
             info->Effects[0].TargetB = SpellImplicitTargetInfo();
         }
+    if (id == 520307 || id == 803212)
+        info->AuraInterruptFlags |=
+            AURA_INTERRUPT_FLAG_CAST | AURA_INTERRUPT_FLAG_SPELL_ATTACK | AURA_INTERRUPT_FLAG_MELEE_ATTACK;
     if (id == 504796 || id == 504803)
         info->Effects[1].Effect = 0;
     if (id == Brood)
@@ -141,7 +144,10 @@ void ApplyContracts(SpellInfo* info)
         dummy(1);
     }
     if (id == 706032)
-        info->Effects[1].Effect = 0;
+    {
+        aura(1, SPELL_AURA_ADD_PCT_MODIFIER, -100, SPELLMOD_COST);
+        info->Effects[1].SpellClassMask = info->Effects[0].SpellClassMask;
+    }
     if (id == 681321)
         info->Effects[0].Effect = 0;
     if (id == 706038 || id == 804984 || id == 503852 || id == 504704 || id == 574353 || id == 706015)
@@ -301,6 +307,8 @@ void ApplyContracts(SpellInfo* info)
                 effect.Effect = SPELL_EFFECT_DUMMY;
     if (id == 800848)
         info->StackAmount = 3;
+    if (id == 805777 || id == 805778)
+        info->StackAmount = 1;
     if (id == 706014)
         for (uint8 slot = 0; slot < MAX_SPELL_EFFECTS; ++slot)
             dummy(slot);
@@ -345,11 +353,21 @@ public:
     {
         if (attacker && attacker->HasAura(800921))
             return false;
-        return (info && info->IsAffectingArea()) || !CrossesLair(attacker,target);
+        return !info || info->IsAffectingArea() || !CrossesLair(attacker,target);
     }
     void ModifySpellEffectBaseValue(Unit const* caster, SpellInfo const* info, uint8 index, float& value) override
     {
         Player* player = Owner(caster);
+        if (!player && caster && info && info->Id == EnvenomedJet && std::isfinite(value))
+        {
+            Unit* ally = const_cast<Unit*>(caster);
+            for (auto const& row : VenomancerCoefficients)
+                if (row.spell == EnvenomedJet && row.effect == index)
+                    value += row.sp * std::max(0,ally->SpellBaseDamageBonusDone(SpellSchoolMask(row.school))) +
+                        row.ap * ally->GetTotalAttackPowerValue(BASE_ATTACK);
+            value = std::clamp(value,float(INT32_MIN / 2),float(INT32_MAX / 2));
+            return;
+        }
         if (!player || !info || info->SpellFamilyName != 35 || Derived(info) || !std::isfinite(value))
             return;
         for (uint32 curved : {503929,504543,503925,503857,705985,570208,707234,807342,807611})

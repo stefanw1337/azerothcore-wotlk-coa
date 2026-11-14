@@ -24,6 +24,7 @@
 #include "Player.h"
 #include "Random.h"
 #include "ScriptMgr.h"
+#include "ScriptedGossip.h"
 #include "Spell.h"
 #include "SpellAuraEffects.h"
 #include "SpellScript.h"
@@ -165,6 +166,20 @@ constexpr uint32 SKILL_CARD_ITEM_SPELL = 92657;
 constexpr uint32 SPECIALIZATION_CACHE_ITEM = 2977359;
 constexpr std::array<std::pair<uint32, uint32>, 5> SPECIALIZATION_CACHE_CONTENTS = { {
     { 106954, 1 }, { 134980, 1 }, { 134981, 1 }, { 134982, 1 }, { 134983, 1 } } };
+constexpr uint32 PETE_ARR_CREATURE = 642829;
+constexpr uint32 PETE_ARR_TEXT = 642829;
+
+struct PeteArrSpawn
+{
+    uint32 Map;
+    float X;
+    float Y;
+    float Z;
+    float O;
+};
+
+constexpr std::array<PeteArrSpawn, 2> PETE_ARR_SPAWNS = { {
+    { 0, -8849.42f, 631.99f, 95.23f, 0.23f }, { 1, 1664.87f, -4430.04f, 17.66f, 1.99f } } };
 constexpr char DICE_OF_DESTINY_USED[] = "DICE_OF_DESTINY_USED";
 constexpr char SKILL_CARD_COLLECTION_ITEM_USED[] = "SKILL_CARD_COLLECTION_ITEM_USED";
 constexpr char WILDCARD_ROLL_READY[] = "WILDCARD_ROLL_READY";
@@ -670,23 +685,44 @@ void RememberTrainedRank(Player* player, uint32 spellId)
     player->UpdatePlayerSetting(TRAINED_RANKS_SETTING, free, spellId);
 }
 
+uint32 RankLevel(SpellInfo const* info)
+{
+    SpellEntry const* entry = sSpellStore.LookupEntry(info->Id);
+    uint32 const baseLevel = entry ? entry->BaseLevel : info->BaseLevel;
+    uint32 const spellLevel = entry ? entry->SpellLevel : info->SpellLevel;
+    return std::clamp<uint32>(baseLevel ? baseLevel : spellLevel, 1, 255);
+}
+
 void RestoreTrainedRanks(Player* player, uint32 firstSpellId)
 {
     PlayerSettingVector const* stored = player->FindPlayerSettings(TRAINED_RANKS_SETTING);
-    if (!stored)
+    if (!stored || !player->HasSpell(firstSpellId))
         return;
-    std::vector<uint32> remembered;
+    std::unordered_map<uint32, uint32> remembered;
     for (uint32 index = 0; index < stored->size(); ++index)
         if (uint32 const spellId = (*stored)[index].value)
             if (auto const root = Loaded.RankRoots.find(spellId); root != Loaded.RankRoots.end() && root->second == firstSpellId)
-            {
-                remembered.push_back(spellId);
-                player->UpdatePlayerSetting(TRAINED_RANKS_SETTING, index, 0);
-            }
+                remembered.emplace(spellId, index);
+    if (remembered.empty())
+        return;
     for (uint32 rankSpellId : Loaded.RankLadders.at(firstSpellId))
-        if (rankSpellId && std::find(remembered.begin(), remembered.end(), rankSpellId) != remembered.end() &&
-            !player->HasSpell(rankSpellId) && sSpellMgr->GetSpellInfo(rankSpellId))
+    {
+        SpellInfo const* info = rankSpellId && rankSpellId != firstSpellId ? sSpellMgr->GetSpellInfo(rankSpellId) : nullptr;
+        if (!info)
+            continue;
+        auto const slot = remembered.find(rankSpellId);
+        if (slot == remembered.end())
+        {
+            if (!player->HasSpell(rankSpellId))
+                return;
+            continue;
+        }
+        if (RankLevel(info) > player->GetLevel())
+            return;
+        player->UpdatePlayerSetting(TRAINED_RANKS_SETTING, slot->second, 0);
+        if (!player->HasSpell(rankSpellId))
             player->learnSpell(rankSpellId);
+    }
 }
 
 void AppendUInt32(std::vector<std::uint8_t>& out, std::uint32_t value)
@@ -1249,6 +1285,7 @@ char const* ClaimScrollRewards(Player* player, Request const& request)
     if (cost)
         player->DestroyItemCount(RUNE_OF_ASCENSION_ITEM, cost, true);
     player->UpdatePlayerSetting(source, track, claimed + request.Count);
+    sScriptMgr->OnPlayerCoAProgress(player, CoAProgressEvent::WildcardScrollsClaimed, request.Count);
     LOG_INFO("coa", "Wildcard {} scrolls {} to {} of spec {} claimed by {} for {} runes",
         leveling ? "leveling" : "endgame", claimed + 1, claimed + request.Count, spec + 1, player->GetName(), cost);
     return result;
@@ -1277,6 +1314,7 @@ char const* RepurchaseScrolls(Player* player, Scroll kind, uint32 count, bool go
         player->DestroyItemCount(RUNE_OF_ASCENSION_ITEM, price.Runes * count, true);
     player->UpdatePlayerSetting(SpecSettingSource(REPURCHASE_SETTING, spec), uint32(kind), available[kind] - count);
     SendRerollCounts(player, SMSG_WILDCARD_REROLL_COUNT);
+    sScriptMgr->OnPlayerCoAProgress(player, CoAProgressEvent::WildcardScrollsRepurchased, count);
     LOG_INFO("coa", "Wildcard scrolls of kind {} repurchased by {}: {} for {}", uint32(kind), player->GetName(), count,
         gold ? "gold" : "runes");
     return result;
@@ -1391,7 +1429,12 @@ char const* PurchaseSealedCards(Player* player, Request const& request)
     auto const pack = std::find_if(CARD_PACKS.begin(), CARD_PACKS.end(),
         [&request](CardPack const& candidate) { return request.CardType == candidate.PurchaseType; });
     if (pack != CARD_PACKS.end())
-        return OpenCardPacks(player, *pack, request.Count);
+    {
+        char const* result = OpenCardPacks(player, *pack, request.Count);
+        if (std::string_view(result) == PURCHASE_SEALED_CARD_OK)
+            sScriptMgr->OnPlayerCoAProgress(player, CoAProgressEvent::WildcardCardPackOpened, pack->Item);
+        return result;
+    }
     auto const sealed = std::find_if(SEALED_CARD_TYPE_NAMES.begin(), SEALED_CARD_TYPE_NAMES.end(),
         [&request](char const* name) { return request.CardType == name; });
     return BuySealedCards(player, std::size_t(sealed - SEALED_CARD_TYPE_NAMES.begin()), request.Count);
@@ -1607,6 +1650,7 @@ char const* RapidRollAbilities(Player* player, Request const& request)
     RevealLearnedEntry(player, *rapid.Rolled, rapid.StopCode);
     Save(player, slots);
     SendKnownEntries(player, slots);
+    sScriptMgr->OnPlayerCoAProgress(player, CoAProgressEvent::WildcardRapidRolled, rapid.Rolled->EntryId);
     LOG_INFO("coa", "Wildcard rapid roll of {}: {} after {} rerolls, {}{}", player->GetName(), rapid.Rolled->EntryId,
         rapid.Spent.size(), rapid.StopCode, reason);
     return nullptr;
@@ -1679,9 +1723,11 @@ char const* UnlearnWithScroll(Player* player, uint32 entryId)
     for (uint32 spellId : spells)
         player->removeSpell(spellId, SPEC_MASK_ALL, false);
     RemoveFromActionBars(player, spells);
+    bool const talent = slot->Talent;
     *slot = {};
     player->UpdatePlayerSetting(SpecSource(player, UNLEARNED_SETTING), 0, entryId);
     Save(player, slots);
+    sScriptMgr->OnPlayerCoAProgress(player, CoAProgressEvent::WildcardScrollUnlearned, talent ? 1 : 0);
     if (std::size_t(std::count_if(slots.begin(), slots.end(),
             [](Slot const& known) { return known.EntryId && !known.Talent; })) > STARTING_ABILITY_COUNT)
         SendKnownEntries(player, slots);
@@ -1723,6 +1769,7 @@ char const* SetSkillCard(Player* player, Request const& request)
     cards[*position] = { request.Card, false };
     SaveStarterCards(player, cards);
     SendStarterCard(player, *position, cards[*position]);
+    sScriptMgr->OnPlayerCoAProgress(player, CoAProgressEvent::WildcardStarterCardSet, request.Card);
     return result;
 }
 
@@ -1739,6 +1786,8 @@ char const* SetLocked(Player* player, uint32 entryId, bool locked)
     slot->Locked = locked;
     Save(player, slots);
     SendKnownEntries(player, slots);
+    if (locked)
+        sScriptMgr->OnPlayerCoAProgress(player, CoAProgressEvent::WildcardEntryLocked, entryId);
     return "OK";
 }
 
@@ -1972,10 +2021,7 @@ std::vector<Trainer::Spell> RankTrainerRows(Player const* player)
                 Trainer::Spell row;
                 row.SpellId = info->Id;
                 row.ReqAbility[0] = previous;
-                SpellEntry const* entry = sSpellStore.LookupEntry(info->Id);
-                uint32 const baseLevel = entry ? entry->BaseLevel : info->BaseLevel;
-                uint32 const spellLevel = entry ? entry->SpellLevel : info->SpellLevel;
-                row.ReqLevel = uint8(std::clamp<uint32>(baseLevel ? baseLevel : spellLevel, 1, 255));
+                row.ReqLevel = uint8(RankLevel(info));
                 row.MoneyCost = TrainerPrice(info->Id, row.ReqLevel);
                 rows.push_back(row);
             }
@@ -2133,6 +2179,7 @@ void SendLoginState(Player* player)
 }
 
 bool RealmPlaysWildcard = false;
+bool FreeScrolls = false;
 
 bool IsRealmHero(Player const* player)
 {
@@ -2187,7 +2234,7 @@ public:
             PLAYERHOOK_ON_SEND_INITIAL_PACKETS_BEFORE_ADD_TO_MAP, PLAYERHOOK_ON_CREATURE_KILL,
             PLAYERHOOK_ON_CREATURE_KILLED_BY_PET, PLAYERHOOK_ON_LEARN_SPELL, PLAYERHOOK_ON_FORGOT_SPELL,
             PLAYERHOOK_ON_PLAYER_HAS_ACTIVE_POWER_TYPE, PLAYERHOOK_ON_PLAYER_IS_CLASS,
-            PLAYERHOOK_ON_BEFORE_GUARDIAN_INIT_STATS_FOR_LEVEL })
+            PLAYERHOOK_ON_BEFORE_GUARDIAN_INIT_STATS_FOR_LEVEL, PLAYERHOOK_ON_LEVEL_CHANGED })
     {
     }
 
@@ -2233,6 +2280,14 @@ public:
             GrantEntrySpells(player);
         if ((IsRealmHero(player) || IsWildcardHero(player)) && Loaded.RankLadders.contains(spellId))
             RestoreTrainedRanks(player, spellId);
+    }
+
+    void OnPlayerLevelChanged(Player* player, uint8) override
+    {
+        if (!IsRealmHero(player) && !IsWildcardHero(player))
+            return;
+        for (auto const& [firstSpellId, ladder] : Loaded.RankLadders)
+            RestoreTrainedRanks(player, firstSpellId);
     }
 
     void OnPlayerForgotSpell(Player* player, uint32 spellId) override
@@ -2420,6 +2475,72 @@ class aura_wildcard_victorious_state : public AuraScript
     }
 };
 
+std::vector<uint32> PeteArrWaresFor(Player const* player)
+{
+    if (!FreeScrolls || !IsWildcardHero(player))
+        return {};
+    return PeteArrWares(ActiveSpec(player), [player](uint32 spec) { return SpecializationUnlocked(player, spec); });
+}
+
+void SendPeteArrWares(Player* player, Creature const* pete)
+{
+    std::vector<ItemTemplate const*> wares;
+    for (uint32 item : PeteArrWaresFor(player))
+        if (ItemTemplate const* ware = sObjectMgr->GetItemTemplate(item))
+            wares.push_back(ware);
+
+    WorldPacket inventory(SMSG_LIST_INVENTORY, 8 + 1 + wares.size() * 8 * 4);
+    inventory << pete->GetGUID() << uint8(wares.size());
+    for (std::size_t slot = 0; slot < wares.size(); ++slot)
+        inventory << uint32(slot + 1) << wares[slot]->ItemId << wares[slot]->DisplayInfoID << int32(-1) << uint32(0)
+                  << wares[slot]->MaxDurability << uint32(1) << uint32(0);
+    if (wares.empty())
+        inventory << uint8(0);
+    player->SendDirectMessage(&inventory);
+}
+
+class AscensionWildcardPeteArr final : public CreatureScript
+{
+public:
+    AscensionWildcardPeteArr() : CreatureScript("npc_wildcard_pete_arr") { }
+
+    bool OnGossipHello(Player* player, Creature* creature) override
+    {
+        ClearGossipMenuFor(player);
+        AddGossipItemFor(player, GOSSIP_ICON_VENDOR, "Show me yer plunder.", GOSSIP_SENDER_MAIN, GOSSIP_ACTION_TRADE);
+        SendGossipMenuFor(player, PETE_ARR_TEXT, creature);
+        return true;
+    }
+
+    bool OnGossipSelect(Player* player, Creature* creature, uint32, uint32 action) override
+    {
+        CloseGossipMenuFor(player);
+        if (action == GOSSIP_ACTION_TRADE)
+            SendPeteArrWares(player, creature);
+        return true;
+    }
+};
+
+class AscensionWildcardPeteArrSale final : public PlayerScript
+{
+public:
+    AscensionWildcardPeteArrSale() : PlayerScript("AscensionWildcardPeteArrSale",
+        { PLAYERHOOK_ON_BEFORE_BUY_ITEM_FROM_VENDOR }) { }
+
+    void OnPlayerBeforeBuyItemFromVendor(Player* player, ObjectGuid vendorGuid, uint32, uint32& item, uint8 count,
+        uint8, uint8) override
+    {
+        if (vendorGuid.GetEntry() != PETE_ARR_CREATURE)
+            return;
+        std::vector<uint32> const wares = PeteArrWaresFor(player);
+        uint32 const amount = std::max<uint8>(count, 1);
+        if (player->GetNPCIfCanInteractWith(vendorGuid, UNIT_NPC_FLAG_VENDOR) &&
+            std::find(wares.begin(), wares.end(), item) != wares.end() && player->AddItem(item, amount))
+            LOG_INFO("coa", "Pete Arr gave {} x {} to {}", item, amount, player->GetName());
+        item = 0;
+    }
+};
+
 class AscensionWildcardWorld final : public WorldScript
 {
 public:
@@ -2429,6 +2550,7 @@ public:
     void OnAfterConfigLoad(bool) override
     {
         LoadSynergySettings();
+        FreeScrolls = sConfigMgr->GetOption<bool>("Wildcard.FreeScrolls", false);
     }
 
     void OnStartup() override
@@ -2437,6 +2559,9 @@ public:
         RealmPlaysWildcard = PlaysWildcard(sConfigMgr->GetOption<std::string>("CoAChallenges.GameModes.Realm", ""));
         if (RealmPlaysWildcard)
             sGameEventMgr->StartInternalEvent(WILDCARD_SEASON_EVENT);
+        if (RealmPlaysWildcard && FreeScrolls)
+            for (PeteArrSpawn const& spawn : PETE_ARR_SPAWNS)
+                sObjectMgr->AddCreData(PETE_ARR_CREATURE, spawn.Map, spawn.X, spawn.Y, spawn.Z, spawn.O);
     }
 };
 }
@@ -3130,6 +3255,15 @@ std::vector<StoreCard> DarkmoonPrizeStore()
     return offers;
 }
 
+std::vector<std::uint32_t> PeteArrWares(std::uint32_t spec, std::function<bool(std::uint32_t)> const& unlocked)
+{
+    std::vector<std::uint32_t> wares = { ScrollItem(spec, SCROLL_GENERIC) };
+    for (std::uint32_t locked = 1; locked < SPECIALIZATION_COUNT; ++locked)
+        if (!unlocked(locked))
+            wares.push_back(SPECIALIZATION_TOME_ITEMS[locked]);
+    return wares;
+}
+
 std::vector<StoreCard> SkillCardStore(Tables const& tables, std::uint32_t store)
 {
     std::vector<StoreCard> offers;
@@ -3505,6 +3639,8 @@ void AddAscensionWildcardScripts()
     new AscensionWildcard::AscensionWildcardItemSpells();
     new AscensionWildcard::AscensionWildcardItems();
     new AscensionWildcard::AscensionWildcardSpecializationCache();
+    new AscensionWildcard::AscensionWildcardPeteArr();
+    new AscensionWildcard::AscensionWildcardPeteArrSale();
     RegisterSpellScriptWithArgs(AscensionWildcard::spell_wildcard_specialization_swap,
         "spell_wildcard_specialization_swap");
     RegisterSpellScriptWithArgs(AscensionWildcard::aura_wildcard_victorious_state, "aura_wildcard_victorious_state");

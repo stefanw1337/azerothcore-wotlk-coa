@@ -36,6 +36,7 @@ enum PriestSpells
     SPELL_PRIEST_GLYPH_OF_LIGHTWELL                 = 55673,
     SPELL_PRIEST_GLYPH_OF_PRAYER_OF_HEALING_HEAL    = 56161,
     SPELL_PRIEST_GUARDIAN_SPIRIT_HEAL               = 48153,
+    SPELL_PRIEST_GLYPH_OF_GUARDIAN_SPIRIT           = 63231,
     SPELL_PRIEST_ITEM_EFFICIENCY                    = 37595,
     SPELL_PRIEST_LIGHTWELL_CHARGES                  = 59907,
     SPELL_PRIEST_MANA_LEECH_PROC                    = 34650,
@@ -183,7 +184,7 @@ class spell_pri_circle_of_healing : public SpellScript
     {
         targets.remove_if(Acore::RaidCheck(GetCaster(), false));
 
-        uint32 const maxTargets = GetCaster()->HasAura(SPELL_PRIEST_GLYPH_OF_CIRCLE_OF_HEALING) ? 6 : 5; // Glyph of Circle of Healing
+        uint32 const maxTargets = GetCaster()->HasAuraOrTwin(SPELL_PRIEST_GLYPH_OF_CIRCLE_OF_HEALING) ? 6 : 5; // Glyph of Circle of Healing
 
         if (targets.size() > maxTargets)
         {
@@ -327,10 +328,24 @@ class spell_pri_guardian_spirit : public AuraScript
         absorbAmount = dmgInfo.GetDamage();
     }
 
+    // Glyph of Guardian Spirit: lasting the entire duration without being triggered resets the cooldown to the
+    // glyph's amount (60 sec)
+    void HandleRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    {
+        if (GetTargetApplication()->GetRemoveMode() != AURA_REMOVE_BY_EXPIRE)
+            return;
+        Player* caster = GetCaster() ? GetCaster()->ToPlayer() : nullptr;
+        if (!caster)
+            return;
+        if (AuraEffect const* glyph = caster->GetAuraEffectOfRankedSpellOrTwin(SPELL_PRIEST_GLYPH_OF_GUARDIAN_SPIRIT, EFFECT_0))
+            caster->AddSpellCooldown(GetId(), 0, uint32(std::max(glyph->GetAmount(), 0)) * IN_MILLISECONDS, true);
+    }
+
     void Register() override
     {
         DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_pri_guardian_spirit::CalculateAmount, EFFECT_1, SPELL_AURA_SCHOOL_ABSORB);
         OnEffectAbsorb += AuraEffectAbsorbFn(spell_pri_guardian_spirit::Absorb, EFFECT_1);
+        AfterEffectRemove += AuraEffectRemoveFn(spell_pri_guardian_spirit::HandleRemove, EFFECT_1, SPELL_AURA_SCHOOL_ABSORB, AURA_EFFECT_HANDLE_REAL);
     }
 };
 
@@ -411,7 +426,7 @@ class spell_pri_lightwell_renew : public AuraScript
         if (Unit* caster = GetCaster())
         {
             // Bonus from Glyph of Lightwell
-            if (AuraEffect* modHealing = caster->GetAuraEffect(SPELL_PRIEST_GLYPH_OF_LIGHTWELL, EFFECT_0))
+            if (AuraEffect* modHealing = caster->GetAuraEffectOfRankedSpellOrTwin(SPELL_PRIEST_GLYPH_OF_LIGHTWELL, EFFECT_0))
                 AddPct(amount, modHealing->GetAmount());
         }
     }
@@ -631,7 +646,7 @@ class spell_pri_penance : public SpellScript
 };
 
 // -17 - Power Word: Shield
-static int32 CalculateSpellAmount(Unit* caster, int32 amount, SpellInfo const* spellInfo, AuraEffect const* aurEff)
+static int32 CalculateSpellAmount(Unit* caster, Unit* target, int32 amount, SpellInfo const* spellInfo, AuraEffect const* aurEff)
 {
     // +80.68% from sp bonus
     float bonus = 0.8068f;
@@ -668,6 +683,9 @@ static int32 CalculateSpellAmount(Unit* caster, int32 amount, SpellInfo const* s
         AddPct(amount, bgDampening->GetAmount());
     }
 
+    if (target && target->HealthBelowPct(75) && caster->HasAura(270561))
+        AddPct(amount, 75);
+
     return amount;
 };
 
@@ -684,7 +702,7 @@ class spell_pri_power_word_shield_aura : public AuraScript
     {
         canBeRecalculated = false;
         if (Unit* caster = GetCaster())
-            amount = CalculateSpellAmount(caster, amount, GetSpellInfo(), aurEff);
+            amount = CalculateSpellAmount(caster, GetTarget(), amount, GetSpellInfo(), aurEff);
     }
 
     void ReflectDamage(AuraEffect* aurEff, DamageInfo& dmgInfo, uint32& absorbAmount)
@@ -698,7 +716,7 @@ class spell_pri_power_word_shield_aura : public AuraScript
             {
                 int32 bp = CalculatePct(absorbAmount, talentAurEff->GetAmount());
                 // xinef: prevents infinite loop!
-                if (!dmgInfo.GetSpellInfo() || dmgInfo.GetSpellInfo()->Id != SPELL_PRIEST_REFLECTIVE_SHIELD_TRIGGERED)
+                if (!dmgInfo.GetSpellInfo() || sSpellMgr->GetSpellTwinSource(dmgInfo.GetSpellInfo()->Id) != SPELL_PRIEST_REFLECTIVE_SHIELD_TRIGGERED)
                     target->CastCustomSpell(dmgInfo.GetAttacker(), SPELL_PRIEST_REFLECTIVE_SHIELD_TRIGGERED, &bp, nullptr, nullptr, true, nullptr, aurEff);
             }
     }
@@ -724,7 +742,7 @@ class spell_pri_power_word_shield : public SpellScript
         if (AuraEffect* aurEff = target->GetAuraEffect(SPELL_AURA_SCHOOL_ABSORB, (SpellFamilyNames)GetSpellInfo()->SpellFamilyName, GetSpellInfo()->SpellIconID, EFFECT_0))
         {
             int32 newAmount = GetSpellInfo()->Effects[EFFECT_0].CalcValue(caster, nullptr, nullptr);
-            newAmount = CalculateSpellAmount(caster, newAmount, GetSpellInfo(), aurEff);
+            newAmount = CalculateSpellAmount(caster, target, newAmount, GetSpellInfo(), aurEff);
 
             if (aurEff->GetAmount() > newAmount)
                 return SPELL_FAILED_AURA_BOUNCED;
@@ -733,8 +751,15 @@ class spell_pri_power_word_shield : public SpellScript
         return SPELL_CAST_OK;
     }
 
+    void ConsumeDominantShield()
+    {
+        if (GetHitAura())
+            GetCaster()->RemoveAurasDueToSpell(270634);
+    }
+
     void Register() override
     {
+        AfterHit += SpellHitFn(spell_pri_power_word_shield::ConsumeDominantShield);
         OnCheckCast += SpellCheckCastFn(spell_pri_power_word_shield::CheckCast);
     }
 };
@@ -1099,7 +1124,7 @@ class spell_pri_body_and_soul : public AuraScript
             return false;
 
         SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
-        return spellInfo && spellInfo->Id == 552;
+        return spellInfo && sSpellMgr->GetSpellTwinSource(spellInfo->Id) == 552;
     }
 
     void HandleProcDummy(AuraEffect const* aurEff, ProcEventInfo& eventInfo)
@@ -1211,10 +1236,10 @@ class spell_pri_improved_spirit_tap : public AuraScript
     {
         if (SpellInfo const* spellInfo = eventInfo.GetSpellInfo())
         {
-            if (spellInfo->IsRankOf(sSpellMgr->AssertSpellInfo(SPELL_PRIEST_SHADOW_WORD_DEATH_R1)) ||
-                spellInfo->IsRankOf(sSpellMgr->AssertSpellInfo(SPELL_PRIEST_MIND_BLAST_R1)))
+            if (sSpellMgr->GetSpellTwinSource(spellInfo->GetFirstRankSpell()->Id) == SPELL_PRIEST_SHADOW_WORD_DEATH_R1 ||
+                sSpellMgr->GetSpellTwinSource(spellInfo->GetFirstRankSpell()->Id) == SPELL_PRIEST_MIND_BLAST_R1)
                 return true;
-            else if (spellInfo->Id == SPELL_PRIEST_MIND_FLAY_DAMAGE)
+            else if (sSpellMgr->GetSpellTwinSource(spellInfo->Id) == SPELL_PRIEST_MIND_FLAY_DAMAGE)
                 return roll_chance_i(50);
         }
 

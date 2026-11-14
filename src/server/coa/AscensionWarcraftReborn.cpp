@@ -1,6 +1,8 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionWarcraftReborn.h"
 #include "AscensionFreepick.h"
+#include "AscensionMysticEnchantRules.h"
 #include "AscensionWarcraftRebornRules.h"
 #include "DBCStores.h"
 #include "Log.h"
@@ -57,6 +59,52 @@ std::optional<SpellLayout> LayoutOf(std::uint32_t spellId)
 
 std::vector<std::pair<uint32, uint32>> BaseTwins;
 
+bool SameValues(SpellInfo const* a, SpellInfo const* b)
+{
+    for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
+        if (a->Effects[i].BasePoints != b->Effects[i].BasePoints || a->Effects[i].MiscValue != b->Effects[i].MiscValue ||
+            a->Effects[i].SpellClassMask != b->Effects[i].SpellClassMask)
+            return false;
+    return true;
+}
+
+std::vector<std::pair<uint32, uint32>> EnchantTwins()
+{
+    constexpr std::size_t SEASONAL = 1;
+    AscensionMysticEnchant::Catalog catalog;
+    if (!AscensionMysticEnchant::LoadCatalog(catalog))
+        return {};
+    std::unordered_map<std::string, std::vector<uint32>> stockByName;
+    for (uint32 spellId = 1; spellId < BLIZZARD_SPELL_END && spellId < sSpellMgr->GetSpellInfoStoreSize(); ++spellId)
+        if (SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellId))
+            stockByName[spellInfo->SpellName[0]].push_back(spellId);
+
+    std::vector<std::pair<uint32, uint32>> twins;
+    for (AscensionMysticEnchant::Enchant const& enchant : catalog.Rows)
+    {
+        if (!enchant.Realms[SEASONAL] || !AscensionMysticEnchant::ClassAllowed(enchant, AscensionMysticEnchant::HERO_CLASS) ||
+            !enchant.Taught.empty() || enchant.Spell < BLIZZARD_SPELL_END)
+            continue;
+        SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(enchant.Spell);
+        std::optional<SpellLayout> const layout = LayoutOf(enchant.Spell);
+        auto const stock = layout ? stockByName.find(layout->Name) : stockByName.end();
+        if (stock == stockByName.end())
+            continue;
+        uint32 source = 0;
+        for (uint32 candidate : stock->second)
+        {
+            if (LayoutOf(candidate) != layout)
+                continue;
+            source = candidate;
+            if (SameValues(sSpellMgr->GetSpellInfo(candidate), spellInfo))
+                break;
+        }
+        if (source)
+            twins.emplace_back(source, enchant.Spell);
+    }
+    return twins;
+}
+
 std::vector<std::pair<uint32, uint32>> LoadNamesakes()
 {
     if (!AscensionFreepick::ReadRealm().WarcraftReborn)
@@ -71,7 +119,11 @@ std::vector<std::pair<uint32, uint32>> LoadTwins(bool ranked)
         BaseTwins.clear();
         if (AscensionFreepick::ReadRealm().WarcraftReborn)
             BaseTwins = SpellTwins(sSpellMgr->GetSpellInfoStoreSize(), &LayoutOf);
-        return BaseTwins;
+        std::vector<std::pair<uint32, uint32>> twins = BaseTwins;
+        if (AscensionFreepick::ReadRealm().Seasonal)
+            for (auto const& pair : EnchantTwins())
+                twins.push_back(pair);
+        return twins;
     }
     if (!RebornRealm)
         return {};
@@ -87,6 +139,16 @@ std::vector<std::pair<uint32, uint32>> LoadTwins(bool ranked)
         [](std::uint32_t spellId) { return sSpellMgr->GetFirstSpellInChain(spellId); }, &LayoutOf);
 }
 
+void ApplyStockProficiencies()
+{
+    for (SkillLineAbilityEntry const* ability : sSkillLineAbilityStore)
+        if (uint32 const classMask = ProficiencyClassMask(ability->Spell, ability->ClassMask); classMask != ability->ClassMask)
+            const_cast<SkillLineAbilityEntry*>(ability)->ClassMask = classMask;
+    for (SkillRaceClassInfoEntry const* info : sSkillRaceClassInfoStore)
+        if (uint32 const classMask = SkillClassMask(info->SkillID, info->ClassMask); classMask != info->ClassMask)
+            const_cast<SkillRaceClassInfoEntry*>(info)->ClassMask = classMask;
+}
+
 std::vector<std::vector<uint32>> LoadRankChains()
 {
     CurrentRealm = AscensionFreepick::ReadRealm();
@@ -99,6 +161,7 @@ std::vector<std::vector<uint32>> LoadRankChains()
         RebornRealm = false;
         return {};
     }
+    ApplyStockProficiencies();
     return RankChains(Loaded);
 }
 
@@ -189,6 +252,22 @@ void LearnClassSkills(Player* player)
         SkillLineEntry const* skill = sSkillLineStore.LookupEntry(skillId);
         if (skill && skill->categoryId == SKILL_CATEGORY_CLASS && !player->HasSkill(skillId))
             player->LearnDefaultSkill(skillId, 0);
+    }
+}
+
+void LearnOutfitSkills(Player* player)
+{
+    CharStartOutfitEntry const* outfit = GetCharStartOutfitEntry(player->getRace(), player->getClass(), player->getGender());
+    if (!outfit)
+        return;
+    for (int32 itemId : outfit->ItemId)
+    {
+        ItemTemplate const* proto = itemId > 0 ? sObjectMgr->GetItemTemplate(uint32(itemId)) : nullptr;
+        if (!proto)
+            continue;
+        uint32 const skill = proto->GetSkill();
+        if (skill && !player->HasSkill(skill) && StockClassUses(player->getClass(), proto->Class, proto->SubClass))
+            player->LearnDefaultSkill(skill, 0);
     }
 }
 
@@ -305,6 +384,7 @@ public:
         if (!IsRebornPlayer(player))
             return;
         LearnClassSkills(player);
+        LearnOutfitSkills(player);
         LearnMissing(player, StartingSpells(Loaded, CurrentRealm, player->getClass(), StartLevel(player)));
         LearnMissing(player, AutomaticSpells(Loaded, CurrentRealm, player->getClass(), player->GetLevel()));
         LearnGrantedSpells(player);
@@ -345,6 +425,58 @@ public:
     }
 };
 }
+
+bool IsRebornCharacter(Player const* player)
+{
+    return player && IsRebornPlayer(player);
+}
+
+uint32 ResetActiveTalents(Player* player)
+{
+    if (!IsRebornCharacter(player))
+        return 0;
+    uint32 const before = player->GetFreeTalentPoints();
+    player->resetTalents(true);
+    return player->GetFreeTalentPoints() - std::min(before, player->GetFreeTalentPoints());
+}
+
+std::unordered_set<uint32> ForgetClassSpellsAbove(Player* player, uint8 level)
+{
+    std::unordered_set<uint32> chains;
+    if (!IsRebornCharacter(player))
+        return chains;
+
+    std::vector<uint32> const classSkills = ClassSkillLines(Loaded, CurrentRealm, player->getClass());
+    auto const onClassSkill = [&classSkills](uint32 spellId)
+    {
+        for (uint32 id : { spellId, sSpellMgr->GetFirstSpellInChain(spellId) })
+            if (auto const lines = Loaded.SkillLines.find(id); lines != Loaded.SkillLines.end())
+                for (uint32 skill : lines->second)
+                    if (std::find(classSkills.begin(), classSkills.end(), skill) != classSkills.end())
+                        return true;
+        return false;
+    };
+
+    std::vector<uint32> forget;
+    for (auto const& [spellId, spell] : player->GetSpellMap())
+    {
+        SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+        if (spell->State != PLAYERSPELL_REMOVED && info && info->SpellLevel > level && !GetTalentSpellPos(spellId) &&
+            player->HasSpell(spellId) && onClassSkill(spellId))
+            forget.push_back(spellId);
+    }
+    for (uint32 spellId : forget)
+    {
+        uint32 const firstRank = sSpellMgr->GetFirstSpellInChain(spellId);
+        if (firstRank != spellId)
+            chains.insert(firstRank);
+        player->removeSpell(spellId, SPEC_MASK_ALL, false);
+    }
+
+    LearnMissing(player, StartingSpells(Loaded, CurrentRealm, player->getClass(), StartLevel(player)));
+    LearnMissing(player, AutomaticSpells(Loaded, CurrentRealm, player->getClass(), level));
+    return chains;
+}
 }
 
 class spell_ascension_reborn_proc_trigger_spell : public AuraScript
@@ -366,8 +498,31 @@ class spell_ascension_reborn_proc_trigger_spell : public AuraScript
     }
 };
 
+class AscensionWarcraftRebornScriptTwinCasts : public UnitScript
+{
+public:
+    AscensionWarcraftRebornScriptTwinCasts() : UnitScript("AscensionWarcraftRebornScriptTwinCasts", true,
+        { UNITHOOK_RESOLVE_SPELL_CAST }) { }
+
+    void ResolveSpellCast(Unit*, SpellInfo const*& spellInfo, AuraEffect const* triggeredByAura) override
+    {
+        if (!spellInfo)
+            return;
+        uint32 twin = triggeredByAura ? 0 : sSpellMgr->GetRunningScriptTwin();
+        if (triggeredByAura && sSpellMgr->GetSpellTwinSource(triggeredByAura->GetId()) != triggeredByAura->GetId())
+            twin = triggeredByAura->GetId();
+        if (!twin)
+            return;
+        uint32 const resolved = sSpellMgr->GetSpellTwinFor(spellInfo->Id, twin);
+        if (resolved != spellInfo->Id)
+            if (SpellInfo const* info = sSpellMgr->GetSpellInfo(resolved))
+                spellInfo = info;
+    }
+};
+
 void AddAscensionWarcraftRebornScripts()
 {
+    new AscensionWarcraftRebornScriptTwinCasts();
     RegisterSpellScript(spell_ascension_reborn_proc_trigger_spell);
     new AscensionWarcraftReborn::AscensionWarcraftRebornPlayer();
     new AscensionWarcraftReborn::AscensionWarcraftRebornWorld();

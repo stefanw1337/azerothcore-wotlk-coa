@@ -65,11 +65,17 @@ class aura_ascension_starcaller_lifecycle : public AuraScript
             State(player).chargeDistance = 0;
         }
         if (id == 802681)
+        {
+            if (player->GetSpellMap().find(801125) == player->GetSpellMap().end())
+                player->learnSpell(801125, true);
             Replace(player, 800496, 801125);
+        }
         if (id == 572319)
+        {
+            if (player->GetSpellMap().find(802682) == player->GetSpellMap().end())
+                player->learnSpell(802682, true);
             Replace(player, 801978, 802682);
-        if (id == 803573)
-            Replace(player, 801978, 801975);
+        }
         if (id == 704171)
             GetAura()->SetScriptValue(704171, 5);
         if (id == 805439 && player->HasAura(680772))
@@ -122,9 +128,15 @@ class aura_ascension_starcaller_lifecycle : public AuraScript
                 FinishCharge(player);
         }
         if (id == 802681)
+        {
             Replace(player, 800496, 0);
-        if (id == 572319 || id == 803573)
-            Replace(player, 801978, player->HasAura(803573) ? 801975 : player->HasAura(572319) ? 802682 : 0);
+            player->removeSpell(801125, SPEC_MASK_ALL, true);
+        }
+        if (id == 572319)
+        {
+            Replace(player, 801978, 0);
+            player->removeSpell(802682, SPEC_MASK_ALL, true);
+        }
         if (id == 300256)
             player->RemoveAurasDueToSpell(301328);
         if (id == 954791)
@@ -132,7 +144,7 @@ class aura_ascension_starcaller_lifecycle : public AuraScript
         if (id == 704171)
             player->RemoveAurasDueToSpell(805436);
     }
-    void Tick(AuraEffect const* effect)
+    void Tick(AuraEffect const*)
     {
         Player* player = Owner(GetCaster());
         if (!player || !player->IsAlive())
@@ -169,24 +181,6 @@ class aura_ascension_starcaller_lifecycle : public AuraScript
             Cast(player, GetTarget(), 680214);
             if (++_ticks == 2)
                 GetAura()->Remove();
-        }
-        if (id == 807992)
-        {
-            uint32 remaining = 5;
-            for (Unit* ally : Nearby(GetTarget(), 10))
-                if (player->IsValidAssistTarget(ally) && (ally == player || player->IsInRaidWith(ally)))
-                {
-                    uint32 amount = player->SpellHealingBonusDone(ally, GetSpellInfo(),
-                                                                  std::max(0, effect->GetAmount()), DOT, EFFECT_0);
-                    amount = ally->SpellHealingBonusTaken(player, GetSpellInfo(), amount, DOT);
-                    HealInfo heal(player, ally, amount, GetSpellInfo(), SPELL_SCHOOL_MASK_ARCANE);
-                    player->HealBySpell(heal);
-                    Unit::ProcSkillsAndAuras(player, ally, PROC_FLAG_DONE_PERIODIC, PROC_FLAG_TAKEN_PERIODIC,
-                                             PROC_EX_NORMAL_HIT | PROC_EX_INTERNAL_HOT, amount, BASE_ATTACK,
-                                             GetSpellInfo(), nullptr, EFFECT_0, nullptr, nullptr, &heal);
-                    if (!--remaining)
-                        break;
-                }
         }
     }
     uint8 _ticks = 0;

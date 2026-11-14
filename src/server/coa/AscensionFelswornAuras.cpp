@@ -199,6 +199,8 @@ class aura_ascension_felsworn_lifecycle : public AuraScript
             RefreshUnphased(player);
             player->UpdateArmor();
         }
+        if (id == 806109 && mode != AURA_REMOVE_BY_EXPIRE)
+            player->RemoveAurasDueToSpell(807235, player->GetGUID());
         if (id == 806109 && alive)
             Cast(player, player, 806128);
         if (Named(GetSpellInfo(), 705129) && player->HasAura(560822) && alive)
@@ -287,8 +289,8 @@ class aura_ascension_felsworn_stagger : public AuraScript
         {
             auto& state = State(player);
             state.debt.push_back({amount, 5});
-            if (!state.timers.HasTimeUntilEvent(807727))
-                state.timers.ScheduleEvent(807727, 1s);
+            if (!state.timers.HasTimeUntilEvent(StaggerTick))
+                state.timers.ScheduleEvent(StaggerTick, 1s);
         }
     }
     void Register() override

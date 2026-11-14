@@ -21,9 +21,10 @@ struct TalentReplacement
     std::uint32_t OriginalSpellId;
     std::array<ReplacementRank, 9> Ranks;
     bool RequiresAura = false;
+    std::uint8_t MinAuraStacks = 0;
 };
 
-inline constexpr std::array<TalentReplacement, 26> TalentReplacements =
+inline constexpr std::array<TalentReplacement, 29> TalentReplacements =
 {{
     { 14, 9, 520853, 500028, {{ { 500610, 0 } }} },
     { 17, 18, 570727, 801059, {{
@@ -35,6 +36,7 @@ inline constexpr std::array<TalentReplacement, 26> TalentReplacements =
         { 806872, 42 }, { 806873, 50 }, { 806874, 58 }
     }} },
     { 17, 17, 706755, 804883, {{ { 707666, 0 } }} },
+    { 17, 17, 807587, 801059, {{ { 520292, 0 } }} },
     { 16, 13, 707615, 800227, {{
         { 802354, 0 }, { 570161, 18 }, { 570162, 26 }, { 570163, 34 },
         { 570164, 42 }, { 570165, 50 }, { 570166, 58 }
@@ -62,6 +64,7 @@ inline constexpr std::array<TalentReplacement, 26> TalentReplacements =
     { 22, 33, 804478, 804418, {{
         { 561284, 0 }, { 561354, 22 }, { 561355, 32 }, { 561356, 42 }, { 561357, 52 }
     }} },
+    { 12, 1, 707661, 804136, {{ { 504217, 0 } }} },
     { 30, 56, 805708, 500376, {{ { 572382, 0 } }} },
     { 30, 56, 504269, 803985, {{ { 807234, 0 } }} },
     { 32, 0, 713003, 800732, {{ { 712668, 0 } }}, true },
@@ -69,6 +72,7 @@ inline constexpr std::array<TalentReplacement, 26> TalentReplacements =
     { 32, 0, 718040, 800732, {{ { 713002, 0 } }}, true },
     { 32, 0, 721085, 800732, {{ { 712404, 0 } }}, true },
     { 32, 0, 805742, 800732, {{ { 805794, 0 } }}, true },
+    { 32, 0, 572358, 707141, {{ { 803736, 0 } }}, true, 3 },
     { 15, 0, 802272, 680238, {{ { 680376, 0 } }}, true },
     { 15, 0, 802272, 681445, {{ { 681562, 0 } }}, true },
     { 15, 0, 802272, 681450, {{ { 681563, 0 } }}, true },

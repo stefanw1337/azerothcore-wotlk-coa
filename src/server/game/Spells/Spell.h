@@ -25,7 +25,9 @@
 #include "SharedDefines.h"
 #include "SpellInfo.h"
 #include "Unit.h"
+#include <array>
 #include <map>
+#include <vector>
 #include <optional>
 
 class Unit;
@@ -296,6 +298,8 @@ struct TriggeredByAuraSpellData
     uint32 tickNumber;
 };
 
+void ModifyAscensionCooldown(Player* player, uint32 spellId, int32 delta, bool resetCategory);
+
 class Spell
 {
     friend void Unit::SetCurrentCastedSpell(Spell* pSpell);
@@ -310,15 +314,24 @@ public:
     void EffectAscensionRestoreBaseManaPct(SpellEffIndex effIndex);
     void EffectAscensionHealthPctDamage(SpellEffIndex effIndex);
     void EffectDelayedTriggerSpell(SpellEffIndex effIndex);
+    void EffectAscensionPlayMovie(SpellEffIndex effIndex);
     void EffectAscensionPlaySpellVisualKit(SpellEffIndex effIndex);
+    void EffectAscensionSpreadAura(SpellEffIndex effIndex);
+    void EffectAscensionSpellFanout(SpellEffIndex effIndex);
     void EffectAscensionRefreshAura(SpellEffIndex effIndex);
+    void EffectAscensionModifyFamilyDotDuration(SpellEffIndex effIndex);
     void EffectAscensionModifyAuraStacks(SpellEffIndex effIndex);
     void EffectAscensionModifyAuraStacksBySpell(SpellEffIndex effIndex);
     void EffectAscensionModifyAuraDuration(SpellEffIndex effIndex);
+    void EffectAscensionModifyAuraCharges(SpellEffIndex effIndex);
+    void EffectAscensionTriggerSpellWithDuration(SpellEffIndex effIndex);
+    void EffectAscensionModifyCooldownPct(SpellEffIndex effIndex);
     void EffectAscensionRestoreBaseHealthPct(SpellEffIndex effIndex);
     void EffectAscensionPctDamage(SpellEffIndex effIndex);
+    void EffectAscensionFaceNearestPlayer(SpellEffIndex effIndex);
     void EffectAscensionTriggerSpellDelayed(SpellEffIndex effIndex);
     void EffectAscensionResetCooldown(SpellEffIndex effIndex);
+    void EffectAscensionModifyFamilyCooldown(SpellEffIndex effIndex);
     void EffectAscensionRestoreSpellCharges(SpellEffIndex effIndex);
     void EffectDistract(SpellEffIndex effIndex);
     void EffectPull(SpellEffIndex effIndex);
@@ -698,6 +711,8 @@ public:
     uint8 m_spellFlags;                                 // for spells whose target was changed in cast i.e. due to reflect
     mutable uint32 m_scriptEventMask;                   // per-cast bookkeeping, including read-only proc callbacks
     std::map<uint32, uint64> m_scriptValues;
+    std::array<std::vector<ObjectGuid>, MAX_SPELL_EFFECTS> m_ascensionSpreadTargets;
+    std::array<bool, MAX_SPELL_EFFECTS> m_ascensionSpreadSelectionReady{};
     std::optional<float> m_jumpFinalOrientation;
     uint32 m_scriptHealthLeechDamage = 0;
     uint32 m_scriptHealingIncludingOverheal = 0;

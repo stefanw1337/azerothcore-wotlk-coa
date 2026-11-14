@@ -169,6 +169,12 @@ bool ScriptMgr::OnPlayerHasNoBonusExperience(Player* player)
     return suppress;
 }
 
+bool ScriptMgr::OnPlayerHoldsTankOrHealerRole(Player const* player)
+{
+    CALL_ENABLED_BOOLEAN_HOOKS_WITH_DEFAULT_FALSE(PlayerScript, PLAYERHOOK_ON_HOLDS_TANK_OR_HEALER_ROLE,
+        script->OnPlayerHoldsTankOrHealerRole(player));
+}
+
 void ScriptMgr::OnPlayerHonorableKillingBlow(Player* killer, Player* victim)
 {
     CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_HONORABLE_KILLING_BLOW, script->OnPlayerHonorableKillingBlow(killer, victim));
@@ -282,6 +288,11 @@ bool ScriptMgr::OnPlayerCreateInitialItems(Player* player, bool& handled)
 void ScriptMgr::OnPlayerSave(Player* player)
 {
     CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_SAVE, script->OnPlayerSave(player));
+}
+
+void ScriptMgr::OnPlayerSaveInventory(Player* player, CharacterDatabaseTransaction trans)
+{
+    CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_SAVE_INVENTORY, script->OnPlayerSaveInventory(player, trans));
 }
 
 void ScriptMgr::OnPlayerDelete(ObjectGuid guid, uint32 accountId)
@@ -835,6 +846,11 @@ bool ScriptMgr::OnPlayerCanJoinLfg(Player* player, uint8 roles, lfg::LfgDungeonS
     CALL_ENABLED_BOOLEAN_HOOKS(PlayerScript, PLAYERHOOK_CAN_JOIN_LFG, !script->OnPlayerCanJoinLfg(player, roles, dungeons, comment));
 }
 
+bool ScriptMgr::OnPlayerCanLfgTeleport(Player* player)
+{
+    CALL_ENABLED_BOOLEAN_HOOKS(PlayerScript, PLAYERHOOK_CAN_LFG_TELEPORT, !script->OnPlayerCanLfgTeleport(player));
+}
+
 bool ScriptMgr::OnPlayerCanEnterMap(Player* player, MapEntry const* entry, InstanceTemplate const* instance, MapDifficulty const* mapDiff, bool loginCheck)
 {
     CALL_ENABLED_BOOLEAN_HOOKS(PlayerScript, PLAYERHOOK_CAN_ENTER_MAP, !script->OnPlayerCanEnterMap(player, entry, instance, mapDiff, loginCheck));
@@ -1053,6 +1069,11 @@ void ScriptMgr::OnPlayerGetShapeshiftModel(Player* player, uint8 form, uint32 sp
 {
     CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_GET_SHAPESHIFT_MODEL,
         script->OnPlayerGetShapeshiftModel(player, form, spellId, modelId));
+}
+
+void ScriptMgr::OnPlayerGetNameQueryRace(Player* player, uint8& race)
+{
+    CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_GET_NAME_QUERY_RACE, script->OnPlayerGetNameQueryRace(player, race));
 }
 
 void ScriptMgr::OnPlayerNormalizeActionButtonSpell(Player* player, uint32& action, bool loading)

@@ -29,12 +29,6 @@ void Immunity(Player* player, uint32 source, std::initializer_list<uint32> mecha
 class aura_ascension_cultist_lifecycle : public AuraScript
 {
     PrepareAuraScript(aura_ascension_cultist_lifecycle);
-    void ScaleHerald(AuraEffect const*, AuraEffectHandleModes)
-    {
-        constexpr uint32 HeraldDisplay = 28844;
-        if (GetTarget()->GetDisplayId() == HeraldDisplay && GetTarget()->getTransForm() == Herald)
-            GetTarget()->SetObjectScale(0.25f);
-    }
     void ScaleBlackEmpire(AuraEffect const*, AuraEffectHandleModes)
     {
         constexpr uint32 BlackEmpireDisplay = 28844;
@@ -291,7 +285,8 @@ class aura_ascension_cultist_lifecycle : public AuraScript
             int32 previous = player->GetAuraEffect(681067, EFFECT_0) ? player->GetAuraEffect(681067, EFFECT_0)->GetAmount() : 0;
             Copy(player, player, 681067, std::max(0, previous) + CalculatePct(amount, Amount(681088, 1)));
         }
-        if (Named(GetSpellInfo(), 500715) && GetTarget() != player && player->HasAura(525060) && damage.GetAttacker())
+        if (Named(GetSpellInfo(), 500715) && player->HasAura(525060) && damage.GetAttacker() &&
+            damage.GetAttacker() != player)
             Copy(player, damage.GetAttacker(), 525062, CalculatePct(amount, Amount(525060)));
         State(player).event = old;
     }
@@ -305,9 +300,6 @@ class aura_ascension_cultist_lifecycle : public AuraScript
         SpellInfo const* info = sSpellMgr->GetSpellInfo(m_scriptSpellId);
         if (!info)
             return;
-        if (info->Id == Herald)
-            AfterEffectApply += AuraEffectApplyFn(aura_ascension_cultist_lifecycle::ScaleHerald,
-                EFFECT_0, SPELL_AURA_TRANSFORM, AURA_EFFECT_HANDLE_SEND_FOR_CLIENT_MASK);
         if (info->Id == 680556)
             AfterEffectApply += AuraEffectApplyFn(aura_ascension_cultist_lifecycle::ScaleBlackEmpire,
                 EFFECT_0, SPELL_AURA_TRANSFORM, AURA_EFFECT_HANDLE_SEND_FOR_CLIENT_MASK);

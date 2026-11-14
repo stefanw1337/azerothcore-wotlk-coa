@@ -521,6 +521,13 @@ public:
     // (loopback or CoA.AllowRemoteClients, and CoA.Enable).
     bool IsAscensionCompatEnabled() const { return _ascensionCompatEnabled; }
     void SetAscensionCompatEnabled(bool enabled) { _ascensionCompatEnabled = enabled; }
+    // The client behind this connection holds the streamed spell visual and sound rows.
+    bool HasAscensionSpellVisualRows() const { return _ascensionSpellVisualRows; }
+    void SetAscensionSpellVisualRows() { _ascensionSpellVisualRows = true; }
+    // The character whose display patch rows this connection's client received (0: none). A reconnect to a
+    // character still in the world gets a new session, so its client is streamed again.
+    uint32 GetAscensionPatchStreamGuid() const { return _ascensionPatchStreamGuid; }
+    void SetAscensionPatchStreamGuid(uint32 guid) { _ascensionPatchStreamGuid = guid; }
     void SetPlayer(Player* player);
     uint8 Expansion() const { return m_expansion; }
 
@@ -691,6 +698,19 @@ public:
     // Recruit-A-Friend Handling
     uint32 GetRecruiterId() const { return recruiterId; }
     bool IsARecruiter() const { return isRecruiter; }
+    bool InviteRecruitAFriend(Player* target);
+    bool HandleRecruitAFriendInviteResponse(uint32 menuId, uint32 action);
+    void RefreshRecruitAFriendFlags();
+    SpellCastResult CheckRecruitAFriendSummon(Player const* target) const;
+    void SetRecruitAFriendSummoner(ObjectGuid guid) { _rafSummoner = guid; }
+    bool ValidateRecruitAFriendSummon(ObjectGuid guid, bool agree);
+    void ClearRecruitAFriendRequests();
+    void UpdateRecruitAFriendRewards(bool force = false);
+    bool RecordRecoveryItem(Item* item, uint32 count = 0);
+    bool HandleRecruitAFriendRewardsCommand(std::string const& command);
+    void UpdateRecruitMilestoneRewards();
+    void RecoverRecruitAFriendRewards(bool recruit = false);
+    void DeliverRecruitAFriendRewards(PreparedQueryResult rows, bool recruit);
 
     // Packets cooldown
     time_t GetCalendarEventCreationCooldown() const { return _calendarEventCreationCooldown; }
@@ -999,6 +1019,7 @@ public:                                                 // opcodes handlers
     void HandleQuestgiverCancel(WorldPacket& recvData);
     void HandleQuestLogSwapQuest(WorldPackets::Quest::QuestLogSwapQuest& packet);
     void HandleQuestLogRemoveQuest(WorldPackets::Quest::QuestLogRemoveQuest& packet);
+    void AbandonQuestLogSlot(uint16 slot);
     void HandleQuestConfirmAccept(WorldPackets::Quest::QuestConfirmAcceptClient& packet);
     void HandleQuestgiverCompleteQuest(WorldPacket& recvData);
     void HandleQuestgiverQuestAutoLaunch(WorldPackets::Quest::QuestGiverQuestAutoLaunch& packet);
@@ -1274,6 +1295,11 @@ public:                                                 // opcodes handlers
         return _isBot;
     }
 
+    [[nodiscard]] bool IsHeadlessBot() const
+    {
+        return _isBot && !m_Socket && !_socketlessPacketObserver;
+    }
+
 private:
     void ProcessQueryCallbacks();
 
@@ -1318,8 +1344,6 @@ private:
 
     bool CanUseBank(ObjectGuid bankerGUID = ObjectGuid::Empty) const;
 
-    bool recoveryItem(Item* pItem);
-
     // logging helper
     void LogUnexpectedOpcode(WorldPacket* packet, char const* status, char const* reason);
     void LogUnprocessedTail(WorldPacket* packet);
@@ -1340,6 +1364,8 @@ private:
     std::function<void(WorldPacket const&)> _socketlessPacketObserver;
     std::string m_Address;
     bool _ascensionCompatEnabled = false;
+    bool _ascensionSpellVisualRows = false;
+    uint32 _ascensionPatchStreamGuid = 0;
 
     AccountTypes _security;
     bool _skipQueue;
@@ -1374,6 +1400,17 @@ private:
     std::vector<std::string> m_clientAddonNames;
     uint32 recruiterId;
     bool isRecruiter;
+    ObjectGuid _rafGrantFrom;
+    ObjectGuid _rafGrantRecipient;
+    uint8 _rafGrantLevel = 0;
+    uint8 _rafGrantDonorLevel = 0;
+    time_t _rafGrantExpiry = 0;
+    ObjectGuid _rafInviter;
+    time_t _rafInviteExpiry = 0;
+    time_t _rafInviteCooldown = 0;
+    time_t _rafRewardsNextUpdate = 0;
+    uint64 _rafRewardSession = 0;
+    ObjectGuid _rafSummoner;
     LockedQueue<WorldPacket*> _recvQueue;
     std::atomic<uint64> _scriptPacketToken{0};
     uint32 m_currentVendorEntry;

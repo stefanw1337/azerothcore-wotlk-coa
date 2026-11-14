@@ -1,14 +1,20 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionFelCommutation.h"
+#include "AscensionFelCommutationPolicy.h"
+#include "AscensionHighRisk.h"
 #include "AscensionHighRiskPolicy.h"
 #include "AscensionBloodforging.h"
+#include "AscensionRulesets.h"
 #include "Bag.h"
 #include "Chat.h"
 #include "Config.h"
 #include "DatabaseEnv.h"
 #include "Errors.h"
 #include "GameObject.h"
+#include "Group.h"
 #include "Item.h"
+#include "LFGMgr.h"
 #include "LootMgr.h"
 #include "Map.h"
 #include "ObjectMgr.h"
@@ -24,6 +30,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <vector>
 
 namespace HighRisk
 {
@@ -63,6 +70,26 @@ std::atomic_bool enabled{false};
 std::atomic<float> gearChance{50.0f};
 std::atomic<float> resourceChance{50.0f};
 std::atomic<float> goldChance{50.0f};
+std::vector<LootGuard> lootGuards;
+
+void RegisterLootGuard(LootGuard guard)
+{
+    if (guard)
+        lootGuards.push_back(guard);
+}
+
+bool CanLoot(Player* looter, uint32 chestOwner)
+{
+    for (LootGuard guard : lootGuards)
+        if (!guard(looter, chestOwner))
+            return false;
+    return true;
+}
+
+bool LootAllowed(Player* player, Chest const& chest)
+{
+    return chest.owner == player->GetGUID().GetCounter() || CanLoot(player, chest.owner);
+}
 
 bool OpenWorld(Player const* player)
 {
@@ -82,6 +109,47 @@ std::string SelectItemInstance(uint64 chestId, uint8 slot)
 bool InHighRisk(Player const* player)
 {
     return player->HasAura(HighRiskAura);
+}
+
+bool CannotQueue(Player const* player)
+{
+    return QueueBlocked(InHighRisk(player) || AscensionRulesets::HighRiskSuspended(player), OpenWorld(player),
+        player->HasPlayerFlag(PLAYER_FLAGS_RESTING), player->GetSession()->IsBot());
+}
+
+bool RefuseOutsideRest(Player* player, bool wholeGroup, std::string_view action)
+{
+    Player* blocked = CannotQueue(player) ? player : nullptr;
+    if (Group* group = wholeGroup ? player->GetGroup() : nullptr)
+        for (GroupReference* member = group->GetFirstMember(); member && !blocked; member = member->next())
+            if (Player* source = member->GetSource(); source && CannotQueue(source))
+                blocked = source;
+    if (!blocked)
+        return false;
+
+    ChatHandler(player->GetSession()).SendSysMessage(Acore::StringFormat(
+        "{} must be in a city or inn to {} while in High-Risk.", blocked == player ? "You" : blocked->GetName(),
+        action));
+    return true;
+}
+
+bool RefuseFinder(Player* player, bool wholeGroup, std::string_view action)
+{
+    auto const highRisk = [](Player const* member)
+    {
+        return (InHighRisk(member) || AscensionRulesets::HighRiskSuspended(member)) && !member->GetSession()->IsBot();
+    };
+    Player* blocked = highRisk(player) ? player : nullptr;
+    if (Group* group = wholeGroup ? player->GetGroup() : nullptr)
+        for (GroupReference* member = group->GetFirstMember(); member && !blocked; member = member->next())
+            if (Player* source = member->GetSource(); source && highRisk(source))
+                blocked = source;
+    if (!blocked)
+        return false;
+
+    ChatHandler(player->GetSession()).SendSysMessage(Acore::StringFormat(
+        "{} cannot {} while in High-Risk.", blocked == player ? "You" : blocked->GetName(), action));
+    return true;
 }
 
 void Commit(CharacterDatabaseTransaction transaction)
@@ -220,6 +288,11 @@ void Open(Player* player, GameObject* object)
         player->SendLootRelease(object->GetGUID());
         return;
     }
+    if (!LootAllowed(player, *chest))
+    {
+        player->SendLootError(object->GetGUID(), LOOT_ERROR_DIDNT_KILL);
+        return;
+    }
     player->RemoveAurasByType(SPELL_AURA_MOD_STEALTH);
     player->RemoveAurasByType(SPELL_AURA_MOD_INVISIBILITY);
     player->RemoveAurasByType(SPELL_AURA_FEIGN_DEATH);
@@ -243,6 +316,11 @@ void ClaimItem(Player* player, GameObject* object, uint8 slot)
     Chest* chest = Find(object);
     if (!chest)
         return;
+    if (!LootAllowed(player, *chest))
+    {
+        Close(player, object);
+        return;
+    }
     auto found = chest->items.find(slot);
     if (found == chest->items.end() || found->second.claimed)
         return;
@@ -303,6 +381,11 @@ void ClaimGold(Player* player, GameObject* object)
     Chest* chest = Find(object);
     if (!chest || !chest->gold)
         return;
+    if (!LootAllowed(player, *chest))
+    {
+        Close(player, object);
+        return;
+    }
     if (uint64(player->GetMoney()) + chest->gold > MAX_MONEY_AMOUNT)
     {
         ChatHandler(player->GetSession()).SendSysMessage("You cannot carry any more gold.");
@@ -340,6 +423,7 @@ void Drop(Player* player)
 
     std::vector<Item*> gear;
     std::vector<Item*> resources;
+    std::vector<Item*> insurable;
     auto add = [&](Item* item)
     {
         if (!Transferable(item))
@@ -347,7 +431,11 @@ void Drop(Player* player)
         if (item->GetTemplate()->Class == ITEM_CLASS_TRADE_GOODS)
             resources.push_back(item);
         else
+        {
             gear.push_back(item);
+            if (item->IsEquipped() && FelCommutation::Insurable(item->GetSlot() + 1))
+                insurable.push_back(item);
+        }
     };
     for (uint8 slot = EQUIPMENT_SLOT_START; slot < INVENTORY_SLOT_ITEM_END; ++slot)
         add(player->GetItemByPos(INVENTORY_SLOT_BAG_0, slot));
@@ -370,31 +458,34 @@ void Drop(Player* player)
             choose(gear);
     if (roll_chance_f(resourceChance.load()))
         choose(resources);
-    uint32 gold = roll_chance_f(goldChance.load()) ? GoldLoss(player->GetMoney(), urand(1, 5)) : 0;
-    if (losses.empty() && !gold)
+    uint32 insuranceFee = FelCommutation::Shield(player, insurable, losses);
+    uint32 const carried = player->GetMoney() > insuranceFee ? player->GetMoney() - insuranceFee : 0;
+    uint32 gold = roll_chance_f(goldChance.load()) ? GoldLoss(carried, urand(1, 5)) : 0;
+    if (losses.empty() && !gold && !insuranceFee)
     {
         std::vector<unsigned> available;
         if (!gear.empty() && gearChance > 0.0f)
             available.push_back(0);
         if (!resources.empty() && resourceChance > 0.0f)
             available.push_back(1);
-        if (player->GetMoney() && goldChance > 0.0f)
+        if (carried && goldChance > 0.0f)
             available.push_back(2);
         if (!available.empty())
             switch (available[urand(0, available.size() - 1)])
             {
                 case 0:
                     choose(gear);
+                    insuranceFee = FelCommutation::Shield(player, insurable, losses);
                     break;
                 case 1:
                     choose(resources);
                     break;
                 case 2:
-                    gold = std::max(uint32(1), GoldLoss(player->GetMoney(), urand(1, 5)));
+                    gold = std::max(uint32(1), GoldLoss(carried, urand(1, 5)));
                     break;
             }
     }
-    if (losses.empty() && !gold)
+    if (losses.empty() && !gold && !insuranceFee)
     {
         ChatHandler(player->GetSession()).SendSysMessage(
             "No High-Risk chest was created: you have no eligible items or money to lose.");
@@ -403,6 +494,7 @@ void Drop(Player* player)
         return;
     }
 
+    FelCommutation::ReportLoss(player, insuranceFee, gold);
     std::lock_guard<std::mutex> lock(mutex);
     Chest chest;
     chest.id = ++nextId;
@@ -410,13 +502,13 @@ void Drop(Player* player)
     chest.map = player->GetMapId();
     chest.phase = player->GetPhaseMask();
     chest.position.Relocate(player);
-    chest.gold = gold;
+    chest.gold = gold + insuranceFee;
     auto transaction = CharacterDatabase.BeginTransaction();
     transaction->Append(
         "INSERT INTO highrisk_chest (id,owner,map,phase,x,y,z,o,gold,original_gold) "
         "VALUES ({},{},{},{},{},{},{},{},{},{})", chest.id, chest.owner, chest.map, chest.phase,
         chest.position.GetPositionX(), chest.position.GetPositionY(), chest.position.GetPositionZ(),
-        chest.position.GetOrientation(), gold, gold);
+        chest.position.GetOrientation(), chest.gold, chest.gold);
 
     uint8 slot = 0;
     for (Item* item : losses)
@@ -435,7 +527,7 @@ void Drop(Player* player)
             chest.id, uint32(slot), stored.guid, stored.entry, stored.count);
         chest.items.emplace(slot++, stored);
     }
-    player->ModifyMoney(-int32(gold));
+    player->ModifyMoney(-int32(chest.gold));
     player->SaveInventoryAndGoldToDB(transaction);
     Commit(transaction);
     for (Item* item : losses)
@@ -445,7 +537,7 @@ void Drop(Player* player)
     ChatHandler(player->GetSession()).SendSysMessage(
         "Your High-Risk losses are in a chest at your death location. Any High-Risk player can recover them.");
     LOG_INFO("server.worldserver", "High Risk chest {} created for {}: {} items, {} copper",
-        found->first, player->GetGUID().ToString(), losses.size(), gold);
+        found->first, player->GetGUID().ToString(), losses.size(), chest.gold);
 }
 
 class RiskWorld final : public WorldScript
@@ -532,6 +624,56 @@ public:
         WorldPacket query(CMSG_GAMEOBJECT_QUERY, 12);
         query << uint32(ChestEntry) << ObjectGuid::Empty;
         player->GetSession()->HandleGameObjectQueryOpcode(query);
+    }
+};
+
+class RiskQueues final : public PlayerScript
+{
+public:
+    RiskQueues() : PlayerScript("highrisk_queues", {PLAYERHOOK_CAN_JOIN_LFG, PLAYERHOOK_CAN_LFG_TELEPORT,
+        PLAYERHOOK_CAN_JOIN_IN_BATTLEGROUND_QUEUE, PLAYERHOOK_CAN_JOIN_IN_ARENA_QUEUE,
+        PLAYERHOOK_CAN_BATTLEFIELD_PORT}) { }
+
+    bool OnPlayerCanJoinLfg(Player* player, uint8, lfg::LfgDungeonSet&, std::string const&) override
+    {
+        if (!RefuseFinder(player, true, "use the Dungeon Finder"))
+            return true;
+        player->GetSession()->SendLfgJoinResult(lfg::LfgJoinResultData(
+            player->GetGroup() ? lfg::LFG_JOIN_PARTY_NOT_MEET_REQS : lfg::LFG_JOIN_NOT_MEET_REQS));
+        return false;
+    }
+
+    bool OnPlayerCanJoinInBattlegroundQueue(Player* player, ObjectGuid, BattlegroundTypeId, uint8 joinAsGroup,
+        GroupJoinBattlegroundResult& err) override
+    {
+        return !Refuse(player, joinAsGroup, err);
+    }
+
+    bool OnPlayerCanJoinInArenaQueue(Player* player, ObjectGuid, uint8, BattlegroundTypeId, uint8 joinAsGroup,
+        uint8, GroupJoinBattlegroundResult& err) override
+    {
+        return !Refuse(player, joinAsGroup, err);
+    }
+
+    bool OnPlayerCanLfgTeleport(Player* player) override
+    {
+        return !RefuseFinder(player, false, "teleport into a Dungeon Finder dungeon");
+    }
+
+    bool OnPlayerCanBattleFieldPort(Player* player, uint8, BattlegroundTypeId, uint8 action) override
+    {
+        return action != BattlefieldPortEnter || !RefuseOutsideRest(player, false, "enter");
+    }
+
+private:
+    static constexpr uint8 BattlefieldPortEnter = 1;
+
+    static bool Refuse(Player* player, uint8 joinAsGroup, GroupJoinBattlegroundResult& err)
+    {
+        if (!RefuseOutsideRest(player, joinAsGroup, "queue"))
+            return false;
+        err = ERR_BATTLEGROUND_NONE;
+        return true;
     }
 };
 
@@ -626,6 +768,7 @@ void AddSC_AscensionHighRisk()
 {
     new HighRisk::RiskWorld();
     new HighRisk::RiskPlayer();
+    new HighRisk::RiskQueues();
     new HighRisk::RiskMaps();
     new HighRisk::RiskChest();
     new HighRisk::RiskPackets();

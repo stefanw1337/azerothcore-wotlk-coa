@@ -16,6 +16,11 @@
 namespace
 {
 using namespace AscensionVenomancer;
+bool HasPowerCost(SpellInfo const* info)
+{
+    return info && (info->ManaCost || info->ManaCostPerlevel || info->ManaCostPercentage ||
+        info->ManaPerSecond || info->ManaPerSecondPerLevel);
+}
 bool Select(uint32 id, SpellInfo const* info)
 {
     switch (id)
@@ -28,7 +33,7 @@ bool Select(uint32 id, SpellInfo const* info)
         case 681321: case 706032: return Named(info,800946);
         case 706272: return Any(info,{800880,504705});
         case 800906: return Any(info,{800880,504705});
-        case 504341: return info != nullptr;
+        case 504341: return HasPowerCost(info);
         case 806602: return Any(info,{804977,706962,800871});
         default: return false;
     }
@@ -323,7 +328,7 @@ class spell_ascension_venomancer_ability : public SpellScript
                 aura->SetDuration(Amount(704235,2));
         }
         if (Named(GetSpellInfo(),504342))
-            ExtendOwned(player,target,800870,Amount(id,1));
+            ExtendOwned(player,target,800870,Amount(id,1),true);
         if (id == 680767)
             for (Unit* ally : Allies(player,player,Radius(id)))
                 for (uint32 root : {800901,800899})
@@ -350,6 +355,7 @@ class spell_ascension_venomancer_ability : public SpellScript
             for (uint32 n = 0; n < 12; ++n)
                 Mushroom(player,player->GetRandomPoint(*player,Radius(680764)));
             player->CastSpell(player->GetPositionX(),player->GetPositionY(),player->GetPositionZ(),681291,true);
+            player->SendClearCooldown(681291, player);
         }
         if (id == 806217 && GetExplTargetDest())
         {

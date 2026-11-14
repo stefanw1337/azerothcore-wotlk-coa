@@ -125,6 +125,7 @@ class spell_mage_burning_determination : public AuraScript
             return false;
 
         Unit* target = eventInfo.GetActionTarget();
+        uint32 const buff = sSpellMgr->GetSpellTwinFor(54748, GetId());
 
         // This hook runs while the proc engine iterates the target's aura map; removing an
         // aura inline would invalidate the live iterator (aura containers are flat_multimaps).
@@ -132,13 +133,13 @@ class spell_mage_burning_determination : public AuraScript
         // Xinef: immuned effect should just eat charge
         if (eventInfo.GetHitMask() & PROC_EX_IMMUNE)
         {
-            target->m_Events.AddEventAtOffset([target]() { target->RemoveAurasDueToSpell(54748); }, 1ms);
+            target->m_Events.AddEventAtOffset([target, buff]() { target->RemoveAurasDueToSpell(buff); }, 1ms);
             return false;
         }
-        if (Aura* aura = target->GetAura(54748))
+        if (Aura* aura = target->GetAura(buff))
         {
             if (aura->GetDuration() < aura->GetMaxDuration())
-                target->m_Events.AddEventAtOffset([target]() { target->RemoveAurasDueToSpell(54748); }, 1ms);
+                target->m_Events.AddEventAtOffset([target, buff]() { target->RemoveAurasDueToSpell(buff); }, 1ms);
             return false;
         }
 
@@ -382,7 +383,7 @@ class spell_mage_brain_freeze : public AuraScript
 
         // xinef: Improved Blizzard, generic chilled check
         if (spellInfo->SpellFamilyFlags[0] & 0x100000)
-            return spellInfo->Id == SPELL_MAGE_IMPROVED_BLIZZARD_CHILLED;
+            return sSpellMgr->GetSpellTwinSource(spellInfo->Id) == SPELL_MAGE_IMPROVED_BLIZZARD_CHILLED;
 
         return true;
     }
@@ -472,7 +473,7 @@ class spell_mage_blast_wave : public SpellScript
 
     void HandleKnockBack(SpellEffIndex effIndex)
     {
-        if (GetCaster()->HasAura(SPELL_MAGE_GLYPH_OF_BLAST_WAVE))
+        if (GetCaster()->HasAuraOrTwin(SPELL_MAGE_GLYPH_OF_BLAST_WAVE))
             PreventHitDefaultEffect(effIndex);
     }
 
@@ -501,7 +502,7 @@ class spell_mage_cold_snap : public SpellScript
         for (PlayerSpellMap::const_iterator itr = spellMap.begin(); itr != spellMap.end(); ++itr)
         {
             SpellInfo const* spellInfo = sSpellMgr->AssertSpellInfo(itr->first);
-            if (spellInfo->SpellFamilyName == SPELLFAMILY_MAGE && (spellInfo->GetSchoolMask() & SPELL_SCHOOL_MASK_FROST) && spellInfo->Id != SPELL_MAGE_COLD_SNAP && spellInfo->GetRecoveryTime() > 0)
+            if (spellInfo->SpellFamilyName == SPELLFAMILY_MAGE && (spellInfo->GetSchoolMask() & SPELL_SCHOOL_MASK_FROST) && spellInfo->Id != GetSpellInfo()->Id && spellInfo->GetRecoveryTime() > 0)
             {
                 SpellCooldowns::iterator citr = caster->GetSpellCooldownMap().find(spellInfo->Id);
                 if (citr != caster->GetSpellCooldownMap().end() && citr->second.needSendToClient)
@@ -846,9 +847,8 @@ class spell_mage_master_of_elements : public AuraScript
             && spellInfo->SpellIconID == MAGE_ICON_LIVING_BOMB
             && !spellInfo->ManaCost && !spellInfo->ManaCostPercentage)
         {
-            uint8 rank = sSpellMgr->GetSpellRank(spellInfo->Id);
             spellInfo = sSpellMgr->GetSpellInfo(
-                sSpellMgr->GetSpellWithRank(SPELL_MAGE_LIVING_BOMB_R1, rank));
+                sSpellMgr->GetSpellWithRankFor(SPELL_MAGE_LIVING_BOMB_R1, spellInfo->Id, true));
             if (!spellInfo)
                 return;
         }
@@ -939,7 +939,7 @@ class spell_mage_summon_water_elemental : public SpellScript
                 pet->ToTempSummon()->UnSummon();
 
         // Glyph of Eternal Water
-        if (caster->HasAura(SPELL_MAGE_GLYPH_OF_ETERNAL_WATER))
+        if (caster->HasAuraOrTwin(SPELL_MAGE_GLYPH_OF_ETERNAL_WATER))
             caster->CastSpell(caster, SPELL_MAGE_SUMMON_WATER_ELEMENTAL_PERMANENT, true);
         else
             caster->CastSpell(caster, SPELL_MAGE_SUMMON_WATER_ELEMENTAL_TEMPORARY, true);
@@ -1064,9 +1064,10 @@ class spell_mage_combustion : public AuraScript
             // it (this hook runs from Aura::GetProcEffectMask); defer it so the insert can't
             // invalidate the live iterator (aura containers are flat_multimaps).
             Unit* actor = eventInfo.GetActor();
-            actor->m_Events.AddEventAtOffset([actor]()
+            uint32 const proc = sSpellMgr->GetSpellTwinFor(SPELL_MAGE_COMBUSTION_PROC, GetId());
+            actor->m_Events.AddEventAtOffset([actor, proc]()
             {
-                actor->CastSpell(static_cast<Unit*>(nullptr), SPELL_MAGE_COMBUSTION_PROC, true);
+                actor->CastSpell(static_cast<Unit*>(nullptr), proc, true);
             }, 1ms);
             return false;
         }
@@ -1097,7 +1098,7 @@ class spell_mage_empowered_fire : public AuraScript
             return false;
 
         // Only proc on Ignite
-        return spellInfo->Id == SPELL_MAGE_IGNITE;
+        return sSpellMgr->GetSpellTwinSource(spellInfo->Id) == SPELL_MAGE_IGNITE;
     }
 
     void HandleProc(AuraEffect const* /*aurEff*/, ProcEventInfo& /*eventInfo*/)
@@ -1137,7 +1138,7 @@ class spell_mage_gen_extra_effects : public AuraScript
     {
         Unit* caster = eventInfo.GetActor();
         // T8 4P bonus: prevent double proc on Arcane Missiles
-        if (GetSpellInfo()->Id == SPELL_MAGE_HOT_STREAK_PROC && caster->HasAura(SPELL_MAGE_T8_4P_BONUS))
+        if (sSpellMgr->GetSpellTwinSource(GetSpellInfo()->Id) == SPELL_MAGE_HOT_STREAK_PROC && caster->HasAura(SPELL_MAGE_T8_4P_BONUS))
         {
             SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
             if (spellInfo && spellInfo->SpellFamilyName == SPELLFAMILY_MAGE &&
@@ -1375,6 +1376,8 @@ class spell_mage_missile_barrage : public AuraScript
 
     bool CheckProc(ProcEventInfo& eventInfo)
     {
+        if (GetTarget()->HasAura(276693))
+            return false;
         SpellInfo const* spellInfo = eventInfo.GetSpellInfo();
         if (!spellInfo)
             return false;
@@ -1565,9 +1568,23 @@ class spell_mage_clearcasting : public AuraScript
         return true;
     }
 
+    void SpellSlinger(ProcEventInfo& eventInfo)
+    {
+        Unit* owner = GetTarget();
+        if (!owner || !owner->IsPlayer() || !owner->HasAura(270804) || GetAura()->GetCharges() != 1)
+            return;
+        Spell const* spell = eventInfo.GetProcSpell();
+        Unit* target = spell ? spell->m_targets.GetUnitTarget() : eventInfo.GetActionTarget();
+        if (!target || !owner->IsValidAttackTarget(target))
+            target = owner->ToPlayer()->GetSelectedUnit();
+        if (target && owner->IsValidAttackTarget(target) && sSpellMgr->GetSpellInfo(270806))
+            owner->CastSpell(target, 270806, true);
+    }
+
     void Register() override
     {
         DoCheckProc += AuraCheckProcFn(spell_mage_clearcasting::CheckProc);
+        AfterProc += AuraProcFn(spell_mage_clearcasting::SpellSlinger);
     }
 };
 

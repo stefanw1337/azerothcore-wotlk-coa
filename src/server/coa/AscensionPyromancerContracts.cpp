@@ -13,7 +13,11 @@ namespace AscensionPyromancer
 {
 void ApplyContracts(SpellInfo* info)
 {
-    if (!info || info->SpellFamilyName != 30)
+    if (!info)
+        return;
+    if ((info->Id == 680369 || info->Id == 280586) && info->Effects[EFFECT_1].IsAura(SPELL_AURA_MOD_ROOT))
+        info->AttributesCu &= ~SPELL_ATTR0_CU_NEGATIVE;
+    if (info->SpellFamilyName != 30)
         return;
     uint32 id = info->Id;
     auto dummy = [info](uint8 slot)
@@ -128,8 +132,8 @@ void ApplyContracts(SpellInfo* info)
         info->DurationEntry = sSpellDurationStore.LookupEntry(21);
     if (id == 806783)
         info->Effects[0].SpellClassMask = flag96(2, 0, 1048576);
-    if (id == 525059)
-        info->Effects[1].SpellClassMask = flag96(0, 0, 2048);
+    if (id == 802804)
+        info->Effects[0].Effect = info->Effects[1].Effect = info->Effects[2].Effect = 0;
     if (id == 520823)
     {
         info->Effects[1].Effect = 0;

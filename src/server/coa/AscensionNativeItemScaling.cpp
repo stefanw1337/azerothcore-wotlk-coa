@@ -2,8 +2,10 @@
 
 #include "AscensionNativeItemScaling.h"
 #include "AscensionCompatOpcodes.h"
+#include "AscensionItemAddonFile.h"
 #include "AscensionItemLadder.h"
 #include "AscensionItemScaling.h"
+#include "AscensionPendingStatQueries.h"
 #include "Bag.h"
 #include "Config.h"
 #include "Creature.h"
@@ -29,6 +31,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace NativeItemScaling
@@ -41,8 +44,37 @@ constexpr uint32 ScanChunkRecords = 8192;
 std::atomic<bool> enabled{false};
 std::atomic<int32> lootLevelOffset{0};
 std::atomic<bool> questRewards{true};
-std::atomic<bool> levelKeys{false};
 std::atomic<bool> preview{false};
+std::atomic<bool> rebornArmor{false};
+
+std::vector<std::pair<uint32, uint32>> authoredRebornArmor;
+
+bool LoadAuthoredRebornArmor(std::filesystem::path const& path)
+{
+    std::vector<std::pair<uint32, uint32>> armor;
+    bool const scanned = ItemAddonFile::Scan(path, [&armor](uint8 const* record)
+    {
+        uint32 const reborn = ItemAddonFile::Field(record, ItemAddonFile::RebornArmorField);
+        if (reborn)
+            armor.emplace_back(ItemAddonFile::Field(record, ItemAddonFile::EntryField), reborn);
+    });
+    if (!scanned)
+        return false;
+
+    std::sort(armor.begin(), armor.end());
+    armor.erase(std::unique(armor.begin(), armor.end(),
+        [](auto const& a, auto const& b) { return a.first == b.first; }), armor.end());
+    authoredRebornArmor = std::move(armor);
+    return true;
+}
+
+uint32 AuthoredRebornArmor(ItemTemplate const& proto)
+{
+    auto const found = std::lower_bound(authoredRebornArmor.begin(), authoredRebornArmor.end(),
+        std::pair<uint32, uint32>(proto.ItemId, 0));
+    bool const listed = found != authoredRebornArmor.end() && found->first == proto.ItemId;
+    return ItemLadder::AuthoredRebornArmor(listed ? found->second : 0, proto.Armor);
+}
 
 class LadderStore
 {
@@ -163,6 +195,7 @@ std::unordered_map<ObjectGuid::LowType, uint8> instanceLevels;
 
 std::mutex templatesMutex;
 std::unordered_map<uint64, ItemTemplate> scaledTemplates;
+std::unordered_map<ItemTemplate const*, uint32> scaledRebornArmor;
 
 uint8 StoredLevel(Item const* item)
 {
@@ -202,7 +235,7 @@ ItemTemplate const* InstanceTemplate(Item const* item)
 
     uint8 const level = StoredLevel(item);
     ItemTemplate const* base = level ? item->GetTemplate() : nullptr;
-    if (!base || (PreviewOn() && level == base->ItemLevel))
+    if (!base)
         return nullptr;
 
     ItemLadder::Row const* row = LadderStore::Instance().Row(base->ItemId, level);
@@ -215,8 +248,22 @@ ItemTemplate const* InstanceTemplate(Item const* item)
     {
         ItemLadder::ApplyRow(scaled->second, *row);
         ItemScaling::RebracketDisenchant(scaled->second, *base, row->Level);
+        scaledRebornArmor.emplace(&scaled->second, row->ArmorReborn);
     }
     return &scaled->second;
+}
+
+uint32 WornArmor(Player const* player, ItemTemplate const* proto, uint32 armor)
+{
+    if (!armor || !rebornArmor.load(std::memory_order_relaxed) || !ItemLadder::WearsRebornArmor(player->getClass()))
+        return armor;
+
+    {
+        std::lock_guard lock(templatesMutex);
+        if (auto const scaled = scaledRebornArmor.find(proto); scaled != scaledRebornArmor.end())
+            return scaled->second;
+    }
+    return sObjectMgr->GetItemTemplate(proto->ItemId) == proto ? AuthoredRebornArmor(*proto) : armor;
 }
 
 void SendLevel(Player* player, Item const* item)
@@ -228,23 +275,44 @@ void SendLevel(Player* player, Item const* item)
     }
 }
 
-void SendAllLevels(Player* player)
+template <typename Visitor>
+void ForEachCarriedItem(Player const* player, Visitor&& visit)
 {
     for (uint8 slot = EQUIPMENT_SLOT_START; slot < PLAYER_SLOT_END; ++slot)
         if (Item const* item = player->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
-            SendLevel(player, item);
+            visit(item);
 
-    auto sendBag = [player](uint8 slot)
+    auto visitBag = [&](uint8 slot)
     {
         if (Bag const* bag = player->GetBagByPos(slot))
             for (uint32 index = 0; index < bag->GetBagSize(); ++index)
                 if (Item const* item = bag->GetItemByPos(uint8(index)))
-                    SendLevel(player, item);
+                    visit(item);
     };
     for (uint8 slot = INVENTORY_SLOT_BAG_START; slot < INVENTORY_SLOT_BAG_END; ++slot)
-        sendBag(slot);
+        visitBag(slot);
     for (uint8 slot = BANK_SLOT_BAG_START; slot < BANK_SLOT_BAG_END; ++slot)
-        sendBag(slot);
+        visitBag(slot);
+}
+
+void SendAllLevels(Player* player)
+{
+    ForEachCarriedItem(player, [player](Item const* item) { SendLevel(player, item); });
+}
+
+bool OwnsStoredKey(Player* player, uint32 itemId, uint32 key)
+{
+    bool owns = false;
+    auto check = [&](Item const* item)
+    {
+        owns = owns || (item->GetEntry() == itemId && StoredLevel(item) == key);
+    };
+    ForEachCarriedItem(player, check);
+    for (Mail const* mail : player->GetMails())
+        for (MailItemInfo const& info : mail->items)
+            if (Item const* item = player->GetMItem(info.item_guid))
+                check(item);
+    return owns;
 }
 
 void ItemArrived(Player* player, Item* item)
@@ -264,10 +332,16 @@ bool ScalingChosenBy(Player const* player)
         !(LocalLevelScaling::ScalingBlocksFor(player) & LocalLevelScaling::ChallengeBlocksCreatureScaling);
 }
 
+uint32 DropKey(Player const* looter, uint32 base)
+{
+    if (!base)
+        base = DropBase(looter);
+    return ItemLadder::ClientKey(base);
+}
+
 void AssignLevel(Player* owner, Item* item, uint32 key)
 {
-    if (!enabled.load(std::memory_order_relaxed) || !owner || !item || item->IsEquipped() ||
-        !ScalingChosenBy(owner))
+    if (!enabled.load(std::memory_order_relaxed) || !owner || !item || item->IsEquipped())
         return;
 
     ItemTemplate const* proto = item->GetTemplate();
@@ -285,14 +359,27 @@ void AssignLevel(Player* owner, Item* item, uint32 key)
     SendLevel(owner, item);
 }
 
+bool LootScalesFor(Player const* player)
+{
+    if (LocalLevelScaling::DungeonLootScales(player))
+        return true;
+    return LocalLevelScaling::DungeonScalingFor(player) != LocalLevelScaling::DungeonScaling::WalkedIn &&
+        ScalingChosenBy(player);
+}
+
 void AssignDropLevel(Player* looter, Item* item, uint32 base = 0)
 {
-    if (!looter)
+    if (!looter || !item)
         return;
 
-    if (!base)
-        base = DropBase(looter);
-    AssignLevel(looter, item, levelKeys.load(std::memory_order_relaxed) ? ItemLadder::ClientKey(base) : base);
+    if (LootScalesFor(looter))
+        AssignLevel(looter, item, DropKey(looter, base));
+}
+
+void AssignQuestRewardLevel(Player* player, Item* item)
+{
+    if (player && ScalingChosenBy(player))
+        AssignLevel(player, item, DropKey(player, 0));
 }
 
 void MasterLooted(Player* receiver, Item* item)
@@ -302,7 +389,7 @@ void MasterLooted(Player* receiver, Item* item)
 
 void QuestRewardStored(Player* player, Item* item, Quest const* quest)
 {
-    if (!levelKeys.load(std::memory_order_relaxed) || !questRewards.load(std::memory_order_relaxed))
+    if (!questRewards.load(std::memory_order_relaxed) || !ScalingChosenBy(player))
         return;
 
     LocalLevelScaling::QuestCurve const* curve = LocalLevelScaling::QuestCurveFor(quest->GetQuestId());
@@ -313,7 +400,7 @@ void QuestRewardStored(Player* player, Item* item, Quest const* quest)
 
 uint32 RollLevel(Player* roller)
 {
-    if (IsBot(roller) || !ScalingChosenBy(roller))
+    if (IsBot(roller) || !LootScalesFor(roller))
         return 0;
 
     uint32 const base = DropBase(roller);
@@ -325,7 +412,7 @@ uint32 RollLevel(Player* roller)
 uint32 CorpseLevel(Player* viewer, Creature const* corpse)
 {
     if (IsBot(viewer) || corpse->IsAlive() || !corpse->HasDynamicFlag(UNIT_DYNFLAG_LOOTABLE) ||
-        !viewer->isAllowedToLoot(corpse) || !ScalingChosenBy(viewer))
+        !viewer->isAllowedToLoot(corpse) || !LootScalesFor(viewer))
         return 0;
     return std::min<uint32>(DropBase(viewer), 255);
 }
@@ -378,6 +465,40 @@ void SendPreviewFlag(Player* player)
     player->SendDirectMessage(&data);
 }
 
+void SendClientState(Player* player)
+{
+    if (!enabled.load(std::memory_order_relaxed) || !player)
+        return;
+
+    SendPreviewFlag(player);
+    SendAllLevels(player);
+}
+
+PendingStatQueries pendingStatQueries;
+
+void SendStatReply(WorldSession* session, uint32 itemId, uint32 level, ItemTemplate const* proto, bool stock)
+{
+    bool const reborn = rebornArmor.load(std::memory_order_relaxed);
+    if (stock)
+    {
+        ItemLadder::Row const stockRow =
+            ItemLadder::StockRow(*proto, reborn ? AuthoredRebornArmor(*proto) : proto->Armor);
+        WorldPacket reply = ItemLadder::BuildItemStatResponse(itemId, level, stockRow, proto);
+        session->SendPacket(&reply);
+        return;
+    }
+
+    ItemLadder::Row const* found = LadderStore::Instance().Row(itemId, level);
+    if (!found)
+        return;
+
+    ItemLadder::Row row = *found;
+    if (!reborn)
+        row.ArmorReborn = row.Armor;
+    WorldPacket reply = ItemLadder::BuildItemStatResponse(itemId, level, row, proto);
+    session->SendPacket(&reply);
+}
+
 bool HandleItemStatQuery(WorldSession* session, WorldPacket const& packet)
 {
     if (!session || packet.size() < 2 * sizeof(uint32) || !enabled.load(std::memory_order_relaxed))
@@ -391,18 +512,30 @@ bool HandleItemStatQuery(WorldSession* session, WorldPacket const& packet)
 
     if (PreviewOn() && level == proto->ItemLevel)
     {
-        WorldPacket stock = ItemLadder::BuildItemStatResponse(itemId, level, ItemLadder::StockRow(*proto), proto);
-        session->SendPacket(&stock);
+        pendingStatQueries.Add(session->GetAccountId(), itemId);
         return true;
     }
 
-    ItemLadder::Row const* row = LadderStore::Instance().Row(itemId, level);
-    if (!row)
-        return true;
-
-    WorldPacket reply = ItemLadder::BuildItemStatResponse(itemId, level, *row, proto);
-    session->SendPacket(&reply);
+    SendStatReply(session, itemId, level, proto, false);
     return true;
+}
+
+void AnswerPendingStatQueries(Player* player)
+{
+    WorldSession* session = player->GetSession();
+    if (!session)
+        return;
+
+    for (uint32 const itemId : pendingStatQueries.Take(session->GetAccountId()))
+        if (ItemTemplate const* proto = sObjectMgr->GetItemTemplate(itemId))
+            SendStatReply(session, itemId, proto->ItemLevel, proto,
+                !OwnsStoredKey(player, itemId, proto->ItemLevel));
+}
+
+void DiscardPendingStatQueries(Player* player)
+{
+    if (WorldSession* session = player->GetSession())
+        static_cast<void>(pendingStatQueries.Take(session->GetAccountId()));
 }
 
 void LoadInstanceLevels()
@@ -445,15 +578,7 @@ public:
         if (reload)
             return;
 
-        levelKeys.store(sConfigMgr->GetOption<bool>("CoA.ItemScaling.Native.LevelKeys", false),
-            std::memory_order_relaxed);
-        _previewRequested = sConfigMgr->GetOption<bool>("CoA.ItemScaling.Native.Preview", false);
-        if (_previewRequested && !levelKeys.load(std::memory_order_relaxed))
-        {
-            LOG_ERROR("server.loading", "CoA.ItemScaling.Native.Preview needs CoA.ItemScaling.Native.LevelKeys; "
-                "the loot preview stays off");
-            _previewRequested = false;
-        }
+        _rebornArmorRequested = sConfigMgr->GetOption<bool>("CoA.ItemScaling.Native.RebornArmor", true);
     }
 
     void OnStartup() override
@@ -472,33 +597,60 @@ public:
 
         LoadInstanceLevels();
         enabled.store(true, std::memory_order_relaxed);
-        if (_previewRequested)
-        {
-            preview.store(true, std::memory_order_relaxed);
-            LocalLevelScaling::ItemPreviewOwner.store(&PreviewHooks, std::memory_order_relaxed);
-        }
+        preview.store(true, std::memory_order_relaxed);
+        LocalLevelScaling::ItemPreviewOwner.store(&PreviewHooks, std::memory_order_relaxed);
+        if (_rebornArmorRequested)
+            LoadRebornArmor();
         LOG_INFO("server.loading", ">> Indexed {} native item scaling ladders in {} ms",
             LadderStore::Instance().Items(), GetMSTimeDiffToNow(started));
     }
 
 private:
+    static void LoadRebornArmor()
+    {
+        std::filesystem::path const path = std::filesystem::path(sWorld->GetDataPath()) / "dbc" / "ItemAddon.dbc";
+        if (!LoadAuthoredRebornArmor(path))
+        {
+            LOG_ERROR("server.loading", "Reborn armor is off: {} is missing or not an ItemAddon table",
+                path.string());
+            return;
+        }
+
+        rebornArmor.store(true, std::memory_order_relaxed);
+        LocalLevelScaling::WornArmorOwner.store(&WornArmor, std::memory_order_relaxed);
+        LOG_INFO("server.loading", ">> Loaded reborn armor for {} authored items", authoredRebornArmor.size());
+    }
+
     bool _requested = false;
-    bool _previewRequested = false;
+    bool _rebornArmorRequested = true;
 };
 
 class Acquisition : public PlayerScript
 {
 public:
     Acquisition() : PlayerScript("NativeItemScalingAcquisition", { PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_LOOT_ITEM,
-        PLAYERHOOK_ON_GROUP_ROLL_REWARD_ITEM, PLAYERHOOK_ON_QUEST_REWARD_ITEM, PLAYERHOOK_ON_STORE_NEW_ITEM }) { }
+        PLAYERHOOK_ON_GROUP_ROLL_REWARD_ITEM, PLAYERHOOK_ON_QUEST_REWARD_ITEM, PLAYERHOOK_ON_STORE_NEW_ITEM,
+        PLAYERHOOK_ON_UPDATE, PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_ON_MAP_CHANGED }) { }
 
     void OnPlayerLogin(Player* player) override
     {
-        if (!enabled.load(std::memory_order_relaxed))
-            return;
+        SendClientState(player);
+    }
 
-        SendPreviewFlag(player);
-        SendAllLevels(player);
+    void OnPlayerMapChanged(Player* player) override
+    {
+        SendClientState(player);
+    }
+
+    void OnPlayerUpdate(Player* player, uint32) override
+    {
+        if (pendingStatQueries.Size())
+            AnswerPendingStatQueries(player);
+    }
+
+    void OnPlayerLogout(Player* player) override
+    {
+        DiscardPendingStatQueries(player);
     }
 
     void OnPlayerStoreNewItem(Player* player, Item* item, uint32) override
@@ -525,7 +677,7 @@ public:
     void OnPlayerQuestRewardItem(Player* player, Item* item, uint32) override
     {
         if (questRewards.load(std::memory_order_relaxed))
-            AssignDropLevel(player, item);
+            AssignQuestRewardLevel(player, item);
     }
 };
 }

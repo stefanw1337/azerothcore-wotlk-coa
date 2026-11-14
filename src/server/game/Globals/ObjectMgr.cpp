@@ -20,6 +20,7 @@
 #include "ArenaTeamMgr.h"
 #include "CharacterCache.h"
 #include "Chat.h"
+#include "CoANameFilter.h"
 #include "Common.h"
 #include "Config.h"
 #include "Containers.h"
@@ -912,6 +913,113 @@ void ObjectMgr::LoadCreatureTemplateSpells()
 
     LOG_INFO("server.loading", ">> Loaded {} Creature Template Spells in {} ms", count, GetMSTimeDiffToNow(oldMSTime));
     LOG_INFO("server.loading", " ");
+}
+
+void ObjectMgr::LoadAscensionRaceClassStats()
+{
+    WorldDatabasePreparedStatement* statement =
+        WorldDatabase.GetPreparedStatement(WORLD_SEL_ASCENSION_RACE_CLASS_STATS);
+    PreparedQueryResult result = WorldDatabase.Query(statement);
+    if (!result)
+        return;
+
+    uint32 const maxLevel = sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL);
+    uint32 count = 0;
+    do
+    {
+        Field* fields = result->Fetch();
+        uint8 const race = fields[0].Get<uint8>();
+        uint8 const playerClass = fields[1].Get<uint8>();
+        uint8 const level = fields[2].Get<uint8>();
+        if (race >= _playerInfo.size() || playerClass >= MAX_CLASSES || !level)
+        {
+            LOG_ERROR("sql.sql", "ascension_race_class_stats: invalid race {} class {} level {}",
+                race, playerClass, level);
+            continue;
+        }
+
+        if (level > maxLevel)
+            continue;
+
+        PlayerInfo* info = _playerInfo[race][playerClass];
+        if (!info || !info->levelInfo || !info->levelInfo[level - 1].stats[STAT_STRENGTH])
+        {
+            LOG_ERROR("sql.sql", "ascension_race_class_stats: race {} class {} level {} has no base stats",
+                race, playerClass, level);
+            continue;
+        }
+
+        PlayerLevelInfo& levelInfo = info->levelInfo[level - 1];
+
+        for (uint8 stat = STAT_STRENGTH; stat < MAX_STATS; ++stat)
+        {
+            int32 const adjusted = int32(levelInfo.stats[stat]) + fields[3 + stat].Get<int16>();
+            levelInfo.stats[stat] = uint32(std::max<int32>(adjusted, 0));
+        }
+
+        ++count;
+    } while (result->NextRow());
+
+    LOG_INFO("server.loading", ">> Loaded {} Ascension race and class stat adjustments", count);
+}
+
+void ObjectMgr::LoadAscensionNpcOverheadIcons()
+{
+    _ascensionNpcOverheadIcons.clear();
+    WorldDatabasePreparedStatement* statement =
+        WorldDatabase.GetPreparedStatement(WORLD_SEL_ASCENSION_NPC_OVERHEAD_ICONS);
+    if (PreparedQueryResult result = WorldDatabase.Query(statement))
+    {
+        do
+        {
+            Field* fields = result->Fetch();
+            uint32 const entry = fields[0].Get<uint32>();
+            uint32 const spellId = fields[1].Get<uint32>();
+            if (!GetCreatureTemplate(entry))
+            {
+                LOG_ERROR("sql.sql", "ascension_npc_overhead_icons: missing creature template {}", entry);
+                continue;
+            }
+
+            SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(spellId);
+            if (!spellInfo)
+            {
+                LOG_ERROR("sql.sql", "ascension_npc_overhead_icons: creature {} has missing spell {}", entry, spellId);
+                continue;
+            }
+
+            bool visualAura = spellInfo->GetDuration() == -1 &&
+                (spellInfo->SpellVisual[0] || spellInfo->SpellVisual[1]);
+            bool hasAura = false;
+            for (SpellEffectInfo const& effect : spellInfo->GetEffects())
+            {
+                if (!effect.IsEffect())
+                    continue;
+                if (!effect.IsEffect(SPELL_EFFECT_APPLY_AURA) || effect.ApplyAuraName != SPELL_AURA_NONE)
+                    visualAura = false;
+                else
+                    hasAura = true;
+            }
+            if (!visualAura || !hasAura)
+            {
+                LOG_ERROR("sql.sql", "ascension_npc_overhead_icons: creature {} spell {} is not a permanent visual aura",
+                    entry, spellId);
+                continue;
+            }
+
+            _ascensionNpcOverheadIcons.emplace(entry, spellId);
+        } while (result->NextRow());
+    }
+    LOG_INFO("server.loading", ">> Loaded {} Ascension NPC overhead icon mappings", _ascensionNpcOverheadIcons.size());
+}
+
+void ObjectMgr::ApplyAscensionNpcOverheadIcon(Creature& creature) const
+{
+    if (!creature.IsAlive())
+        return;
+    auto const found = _ascensionNpcOverheadIcons.find(creature.GetEntry());
+    if (found != _ascensionNpcOverheadIcons.end() && !creature.HasAura(found->second))
+        creature.AddAura(found->second, &creature);
 }
 
 void ObjectMgr::LoadCreatureTemplateAddons()
@@ -4853,8 +4961,14 @@ void ObjectMgr::LoadPlayerInfo()
 
         } while (raceStatsResult->NextRow());
 
+        bool const ascensionClassStats = sConfigMgr->GetOption<bool>("CoA.ClassLevelSixtyStats.Enable", false);
         //                                                 0      1       2         3        4         5        6       7        8
-        QueryResult result = WorldDatabase.Query("SELECT Class, Level, Strength, Agility, Stamina, Intellect, Spirit, BaseHP, BaseMana FROM player_class_stats");
+        QueryResult result = WorldDatabase.Query(ascensionClassStats
+            ? "SELECT s.Class, s.Level, COALESCE(a.Strength, s.Strength), COALESCE(a.Agility, s.Agility), "
+              "COALESCE(a.Stamina, s.Stamina), COALESCE(a.Intellect, s.Intellect), COALESCE(a.Spirit, s.Spirit), "
+              "COALESCE(a.BaseHP, s.BaseHP), COALESCE(a.BaseMana, s.BaseMana) FROM player_class_stats s "
+              "LEFT JOIN ascension_class_stats a ON a.Class = s.Class AND a.Level = s.Level"
+            : "SELECT Class, Level, Strength, Agility, Stamina, Intellect, Spirit, BaseHP, BaseMana FROM player_class_stats");
 
         if (!result)
         {
@@ -4914,6 +5028,9 @@ void ObjectMgr::LoadPlayerInfo()
 
             ++count;
         } while (result->NextRow());
+
+        if (ascensionClassStats)
+            LoadAscensionRaceClassStats();
 
         // Fill gaps and check integrity
         for (int race = RACE_HUMAN; race < sRaceMgr->GetMaxRaces(); ++race)
@@ -6736,7 +6853,13 @@ void ObjectMgr::LoadInstanceEncounters()
                         LOG_ERROR("sql.sql", "Table `instance_encounters` has an invalid creature (entry {}) linked to the encounter {} ({}), skipped!", creditEntry, entry, dungeonEncounter->encounterName[0]);
                         continue;
                     }
-                    const_cast<CreatureTemplate*>(creatureInfo)->flags_extra |= CREATURE_FLAG_EXTRA_DUNGEON_BOSS;
+                    // Raid bosses get encounter credit without the dungeon-boss flag, which also drives
+                    // 5-man rewards and mechanics.
+                    MapEntry const* mapEntry = sMapStore.LookupEntry(dungeonEncounter->mapId);
+                    if (mapEntry && mapEntry->IsRaid())
+                        _raidEncounterKillCreditStore.insert(creditEntry);
+                    else
+                        const_cast<CreatureTemplate*>(creatureInfo)->flags_extra |= CREATURE_FLAG_EXTRA_DUNGEON_BOSS;
                     break;
                 }
             case ENCOUNTER_CREDIT_CAST_SPELL:
@@ -7634,6 +7757,10 @@ AreaTriggerTeleport const* ObjectMgr::GetGoBackTrigger(uint32 Map) const
  */
 AreaTriggerTeleport const* ObjectMgr::GetMapEntranceTrigger(uint32 Map) const
 {
+    // Exits from linked instances (e.g. Blackwing Lair into Blackrock Spire) also target this map, and the store is
+    // unordered: prefer triggers placed outside instances, then the lowest trigger id.
+    AreaTriggerTeleport const* best = nullptr;
+    std::pair<bool, uint32> bestRank;
     for (AreaTriggerTeleportContainer::const_iterator itr = _areaTriggerTeleportStore.begin(); itr != _areaTriggerTeleportStore.end(); ++itr)
     {
         if (itr->second.target_mapId == Map) // Id is used to determine correct Scarlet Monastery instance
@@ -7641,10 +7768,17 @@ AreaTriggerTeleport const* ObjectMgr::GetMapEntranceTrigger(uint32 Map) const
             // xinef: no need to check, already done at loading
             //AreaTriggerEntry const* atEntry = sAreaTriggerStore.LookupEntry(itr->first);
             //if (atEntry)
-            return &itr->second;
+            AreaTrigger const* source = GetAreaTrigger(itr->first);
+            MapEntry const* sourceMap = source ? sMapStore.LookupEntry(source->map) : nullptr;
+            std::pair<bool, uint32> rank(!sourceMap || sourceMap->Instanceable(), itr->first);
+            if (!best || rank < bestRank)
+            {
+                best = &itr->second;
+                bestRank = rank;
+            }
         }
     }
-    return nullptr;
+    return best;
 }
 
 void ObjectMgr::SetHighestGuids()
@@ -9172,12 +9306,44 @@ void ObjectMgr::LoadProfanityNamesFromDBC()
         boost::algorithm::replace_all(wstr, "\\<", "");
         boost::algorithm::replace_all(wstr, "\\>", "");
 
+        if (wstr == L"damn" || wstr == L"crap" || wstr == L"butt" || wstr == L"poop")
+            continue;
+
         _profanityNamesStore.insert(wstr);
         count++;
     }
 
     LOG_INFO("server.loading", ">> Loaded {} profanity names from DBC in {} ms", count, GetMSTimeDiffToNow(oldMSTime));
     LOG_INFO("server.loading", " ");
+}
+
+void ObjectMgr::LoadCoANameFilter()
+{
+    uint32 oldMSTime = getMSTime();
+    _coaNameFilterStore.clear();
+
+    WorldDatabasePreparedStatement* stmt = WorldDatabase.GetPreparedStatement(WORLD_SEL_COA_NAME_FILTER);
+    PreparedQueryResult result = WorldDatabase.Query(stmt);
+    if (!result)
+    {
+        LOG_WARN("server.loading", ">> Loaded 0 CoA name filter terms. DB table `coa_name_filter` is empty!");
+        return;
+    }
+
+    do
+    {
+        std::string term = CoANameFilter::Normalize(result->Fetch()[0].Get<std::string>());
+        if (term.empty())
+        {
+            LOG_ERROR("sql.sql", "Table `coa_name_filter` contains a term with no normalized letters");
+            continue;
+        }
+
+        _coaNameFilterStore.insert(term);
+    } while (result->NextRow());
+
+    LOG_INFO("server.loading", ">> Loaded {} CoA name filter terms in {} ms",
+        _coaNameFilterStore.size(), GetMSTimeDiffToNow(oldMSTime));
 }
 
 bool ObjectMgr::IsProfanityName(std::string_view name) const
@@ -9192,7 +9358,12 @@ bool ObjectMgr::IsProfanityName(std::string_view name) const
 
     wstrToLower(wstr);
 
-    return _profanityNamesStore.find(wstr) != _profanityNamesStore.end();
+    if (_profanityNamesStore.find(wstr) != _profanityNamesStore.end())
+        return true;
+
+    std::string normalized = CoANameFilter::Normalize(name);
+    return std::any_of(_coaNameFilterStore.begin(), _coaNameFilterStore.end(),
+        [&normalized](std::string const& term) { return normalized.find(term) != std::string::npos; });
 }
 
 void ObjectMgr::AddProfanityPlayerName(std::string const& name)
@@ -11220,6 +11391,79 @@ void ObjectMgr::LoadGameObjectQuestItems()
     } while (result->NextRow());
 
     LOG_INFO("server.loading", ">> Loaded {} Gameobject Quest Items in {} ms", count, GetMSTimeDiffToNow(oldMSTime));
+    LOG_INFO("server.loading", " ");
+}
+
+void ObjectMgr::LoadQuestTargetRespawns()
+{
+    uint32 oldMSTime = getMSTime();
+    _questTargetRespawnStore.clear();
+
+    std::unordered_set<uint32> questLootIds;
+    if (QueryResult result = WorldDatabase.Query("SELECT DISTINCT `Entry` FROM `creature_loot_template` "
+        "WHERE `QuestRequired` = 1 AND `Reference` = 0"))
+    {
+        do
+            questLootIds.insert(result->Fetch()[0].Get<uint32>());
+        while (result->NextRow());
+    }
+
+    std::unordered_set<uint32> killObjectives;
+    for (auto const& [questId, quest] : _questTemplates)
+        for (uint8 i = 0; i < QUEST_OBJECTIVES_COUNT; ++i)
+            if (quest->RequiredNpcOrGo[i] > 0)
+                killObjectives.insert(uint32(quest->RequiredNpcOrGo[i]));
+
+    // Spawn points per entry on open-world maps; a spawn pool counts once because only one member is up at a time.
+    std::unordered_map<uint32, std::unordered_set<uint64>> openWorldSpawnPoints;
+    for (auto const& [spawnId, data] : _creatureDataStore)
+    {
+        MapEntry const* mapEntry = sMapStore.LookupEntry(data.mapid);
+        if (!mapEntry || !mapEntry->IsWorldMap())
+            continue;
+
+        uint32 const poolId = sPoolMgr->IsPartOfAPool<Creature>(spawnId);
+        uint64 const spawnPoint = poolId ? (uint64(1) << 32) | poolId : uint64(spawnId);
+        for (uint32 entry : { data.id, data.id2, data.id3 })
+            if (entry)
+                openWorldSpawnPoints[entry].insert(spawnPoint);
+    }
+
+    uint32 named = 0;
+    uint32 general = 0;
+    for (auto const& [entry, creatureTemplate] : _creatureTemplateStore)
+    {
+        if (creatureTemplate.rank == CREATURE_ELITE_RARE || creatureTemplate.rank == CREATURE_ELITE_RAREELITE)
+            continue;
+
+        bool const questBoss = creatureTemplate.type_flags & CREATURE_TYPE_FLAG_QUEST_BOSS;
+        if (questBoss)
+        {
+            auto spawnPoints = openWorldSpawnPoints.find(entry);
+            if (spawnPoints == openWorldSpawnPoints.end() || spawnPoints->second.size() <= 1)
+            {
+                _questTargetRespawnStore[entry] = QuestTargetRespawn::Named;
+                ++named;
+                continue;
+            }
+        }
+
+        bool questNeeded = questBoss || killObjectives.contains(entry);
+        for (uint32 credit : creatureTemplate.KillCredit)
+            questNeeded = questNeeded || (credit && killObjectives.contains(credit));
+        questNeeded = questNeeded || (creatureTemplate.lootid && questLootIds.contains(creatureTemplate.lootid));
+        if (CreatureQuestItemList const* questItems = GetCreatureQuestItemList(entry))
+            questNeeded = questNeeded || !questItems->empty();
+
+        if (questNeeded)
+        {
+            _questTargetRespawnStore[entry] = QuestTargetRespawn::General;
+            ++general;
+        }
+    }
+
+    LOG_INFO("server.loading", ">> Loaded {} Named And {} General Quest Target Respawn Classes in {} ms",
+        named, general, GetMSTimeDiffToNow(oldMSTime));
     LOG_INFO("server.loading", " ");
 }
 

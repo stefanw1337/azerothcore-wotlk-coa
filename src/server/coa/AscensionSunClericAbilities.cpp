@@ -10,6 +10,7 @@
 #include "SpellAuras.h"
 #include "SpellMgr.h"
 #include "SpellScript.h"
+#include "Unit.h"
 #include <algorithm>
 namespace
 {
@@ -83,7 +84,7 @@ public:
         if (!player || info->SpellFamilyName != 33 || spell->IsTriggered() || result != SPELL_CAST_OK)
             return;
         if (info->Id == DawnCast && !player->HasAura(Dawn) && Count(player, SolarPower) < 20)
-            result = SPELL_FAILED_NO_POWER;
+            result = SPELL_FAILED_CASTER_AURASTATE;
         if (info->Id == 680630 && !player->HasAura(Dawn))
             result = SPELL_FAILED_CANT_DO_THAT_RIGHT_NOW;
         if (info->Id == 805629 && !player->HasAura(Dawn))
@@ -250,8 +251,14 @@ public:
             allies.remove(player);
             if (allies.size() > 5)
                 allies.resize(5);
+            bool const appraised = player->HasAura(HolyForm) && player->HasAura(300353);
+            uint32 const shared = CalculatePct(healing, Amount(301011));
             for (Unit* ally : allies)
-                Copy(player, ally, 301012, CalculatePct(healing, Amount(301011)));
+            {
+                Copy(player, ally, 301012, shared);
+                if (appraised)
+                    Copy(player, ally, 805489, shared);
+            }
         }
         if (Derived(info) || State(player).event)
             return;
@@ -263,6 +270,10 @@ public:
         if (Named(info, 500154))
         {
             Cast(player, target, 572050);
+            if (!spell->IsTriggered())
+                for (Unit* enemy : Nearby(player, 8))
+                    if (enemy != target && player->IsValidAttackTarget(enemy) && player->isInFrontInMap(enemy, 8))
+                        Cast(player, enemy, 572050);
             if (damage && player->HasAura(680656))
                 Cast(player,player,1257670);
         }
@@ -289,12 +300,19 @@ public:
                     uint32 count = 0;
                     for (Unit* enemy : Nearby(target, 8))
                         if (enemy != target && player->IsValidAttackTarget(enemy) && count++ < 5)
-                            Cast(player, enemy, info->Id);
+                        {
+                            SpellNonMeleeDamage extra(player, enemy, info, info->GetSchoolMask());
+                            player->CalculateSpellDamageTaken(&extra, int32(damage), info);
+                            Unit::DealDamageMods(enemy, extra.damage, &extra.absorb);
+                            player->SendSpellNonMeleeDamageLog(&extra);
+                            player->DealSpellDamage(&extra, true);
+                        }
                 }
             }
         }
-        if ((info->Id == 800691 || info->Id == 802566) && damage && player->HasAura(807451))
-            Mana(player, CalculatePct(damage, Amount(807451)));
+        if (info->Id == 800691 || info->Id == 802566)
+            if (uint32 const dealt = spell->GetScriptHealthLeechDamage())
+                Mana(player, CalculatePct(dealt, Amount(807451)), 807552);
         if (healing && player->HasAura(300344) && target->HasAura(Bless, player->GetGUID()) &&
             !spell->IsTriggered() && !spell->GetScriptValue(300344))
         {
@@ -389,7 +407,8 @@ class spell_ascension_sun_cleric_ability : public SpellScript
         uint32 id = GetSpellInfo()->Id;
         if (id == 807064 && index == EFFECT_1)
             PreventHitDefaultEffect(index);
-        if (id == DawnCast || id == 680630 || id == 802161 || id == 520024 || id == 520026 || id == 807441)
+        if (id == DawnCast || id == RadiantConversion || id == 680630 || id == 802161 || id == 520024 || id == 520026 ||
+            id == 807441)
             PreventHitDefaultEffect(index);
         if (id == 800764 && index == 1)
             PreventHitDefaultEffect(index);
@@ -403,12 +422,18 @@ class spell_ascension_sun_cleric_ability : public SpellScript
             else
                 ActivateDawn(player);
         }
+        if (id == RadiantConversion)
+        {
+            done = true;
+            if (Aura* dawn = player->GetAura(Dawn))
+                dawn->Remove(AURA_REMOVE_BY_CANCEL);
+        }
         if (id == 680630)
         {
             done = true;
             if (Aura* aura = player->GetAura(Dawn))
             {
-                aura->SetCharges(10);
+                aura->SetCharges(aura->CalcMaxCharges());
                 aura->SetDuration(aura->GetMaxDuration());
             }
         }

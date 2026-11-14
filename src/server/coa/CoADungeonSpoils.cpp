@@ -22,6 +22,8 @@
 #include "UnitScript.h"
 #include "WorldScript.h"
 #include <algorithm>
+#include <iterator>
+#include <limits>
 #include <unordered_set>
 #include <vector>
 
@@ -31,20 +33,37 @@ namespace
     constexpr uint32 DungeonSpoils = 2021814;
     constexpr uint32 DungeonSpoilsHeroic = 1202039;
     constexpr uint32 DungeonSpoilsMythic = 1027965;
-    constexpr uint32 SpoilsLevelWindow = 5;
+    constexpr uint32 SpoilsLevelWindow = 3;
 
     std::unordered_set<uint32> MarkBosses;
 
-    bool IsHeroicOrMythicVanillaDungeon(Map const* map)
+    bool IsHeroicVanillaDungeon(Map const* map)
     {
         return map && map->IsNonRaidDungeon() && DungeonHealth::IsVanillaDungeon(map->GetId()) &&
-            (map->GetSpawnMode() == 1 || map->GetSpawnMode() == 2);
+            map->GetSpawnMode() == 1;
     }
 
     bool PlayerCanWear(Player const* player, ItemTemplate const* item)
     {
         return player->CanUseItem(item) == EQUIP_ERR_OK &&
             (!item->GetSkill() || player->GetSkillValue(item->GetSkill()));
+    }
+
+    uint32 BestArmorClass(Player const* player)
+    {
+        if (player->HasSkill(SKILL_PLATE_MAIL))
+            return ITEM_SUBCLASS_ARMOR_PLATE;
+        if (player->HasSkill(SKILL_MAIL))
+            return ITEM_SUBCLASS_ARMOR_MAIL;
+        if (player->HasSkill(SKILL_LEATHER))
+            return ITEM_SUBCLASS_ARMOR_LEATHER;
+        return ITEM_SUBCLASS_ARMOR_CLOTH;
+    }
+
+    bool IsLowerArmorClass(ItemTemplate const* item, uint32 bestArmorClass)
+    {
+        return item->Class == ITEM_CLASS_ARMOR && item->InventoryType != INVTYPE_CLOAK &&
+            item->SubClass >= ITEM_SUBCLASS_ARMOR_CLOTH && item->SubClass < bestArmorClass;
     }
 
     bool AlreadyDropped(Loot const& loot, LootStoreItem const* entry)
@@ -55,16 +74,26 @@ namespace
         });
     }
 
+    uint32 SpoilsLevelCap(Player const* player, std::list<LootStoreItem*> const& entries)
+    {
+        uint32 lowestLevel = std::numeric_limits<uint32>::max();
+        for (LootStoreItem const* entry : entries)
+            if (ItemTemplate const* item = sObjectMgr->GetItemTemplate(entry->itemid); item && !entry->reference)
+                lowestLevel = std::min(lowestLevel, item->RequiredLevel);
+        return std::max<uint32>(player->GetLevel(), lowestLevel);
+    }
+
     std::vector<LootStoreItem*> SpoilsFor(Player const* player, std::list<LootStoreItem*> const& entries,
         Loot const& loot, bool levelScaled, bool wearableOnly)
     {
         std::vector<LootStoreItem*> spoils;
+        uint32 const levelCap = levelScaled ? SpoilsLevelCap(player, entries) : 0;
         uint32 bestLevel = 0;
         for (LootStoreItem* entry : entries)
         {
             ItemTemplate const* item = sObjectMgr->GetItemTemplate(entry->itemid);
             if (!item || entry->reference || AlreadyDropped(loot, entry) ||
-                (levelScaled && item->RequiredLevel > player->GetLevel()) ||
+                (levelScaled && item->RequiredLevel > levelCap) ||
                 (wearableOnly && !PlayerCanWear(player, item)))
                 continue;
             spoils.push_back(entry);
@@ -76,9 +105,61 @@ namespace
             {
                 return sObjectMgr->GetItemTemplate(entry->itemid)->RequiredLevel + SpoilsLevelWindow < bestLevel;
             });
-        return AscensionSpecLoot::PreferSpecialization(player, spoils, [](LootStoreItem const* entry)
+
+        if (wearableOnly)
         {
-            return sObjectMgr->GetItemTemplate(entry->itemid);
+            uint32 const bestArmorClass = BestArmorClass(player);
+            std::vector<LootStoreItem*> bestArmor;
+            std::copy_if(spoils.begin(), spoils.end(), std::back_inserter(bestArmor),
+                [bestArmorClass](LootStoreItem const* entry)
+            {
+                return !IsLowerArmorClass(sObjectMgr->GetItemTemplate(entry->itemid), bestArmorClass);
+            });
+            if (!bestArmor.empty())
+                spoils = std::move(bestArmor);
+        }
+        return spoils;
+    }
+
+    bool IsMainStat(uint32 stat)
+    {
+        return stat == ITEM_MOD_STRENGTH || stat == ITEM_MOD_AGILITY || stat == ITEM_MOD_INTELLECT;
+    }
+
+    uint32 SpecMainStat(Player const* player)
+    {
+        for (uint32 stat : AscensionSpecLoot::ActivePrimaryStats(player))
+            if (IsMainStat(stat))
+                return stat;
+        return 0;
+    }
+
+    double SpoilsWeight(uint32 specMainStat, ItemTemplate const* item)
+    {
+        if (!specMainStat)
+            return 1.0;
+        int32 own = 0;
+        int32 biggest = 0;
+        for (auto const& [type, value] : AscensionSpecLoot::TemplateStats(item))
+        {
+            if (!IsMainStat(type) || value <= 0)
+                continue;
+            if (type == specMainStat)
+                own += value;
+            biggest = std::max(biggest, value);
+        }
+        if (!own)
+            return 1.0;
+        return own >= biggest ? 3.0 : 2.0;
+    }
+
+    LootStoreItem* PickSpoils(Player const* player, std::vector<LootStoreItem*> const& spoils)
+    {
+        uint32 const specMainStat = SpecMainStat(player);
+        return *Acore::Containers::SelectRandomWeightedContainerElement(spoils,
+            [specMainStat](LootStoreItem const* entry)
+        {
+            return SpoilsWeight(specMainStat, sObjectMgr->GetItemTemplate(entry->itemid));
         });
     }
 
@@ -169,7 +250,7 @@ public:
         if (spoils.empty())
             spoils = SpoilsFor(player, entries, loot, levelScaled, false);
         if (!spoils.empty())
-            loot.AddItem(*Acore::Containers::SelectRandomContainerElement(spoils));
+            loot.AddItem(*PickSpoils(player, spoils));
         return false;
     }
 
@@ -209,7 +290,6 @@ private:
             case 0:
                 return DungeonSpoils;
             case 1:
-            case 2:
                 return MarkOfTriumph;
             default:
                 return 0;
@@ -232,7 +312,7 @@ public:
                 MarkBosses.insert(result->Fetch()[0].Get<uint32>());
             } while (result->NextRow());
         }
-        LOG_INFO("server.loading", ">> Loaded {} CoA dungeon bosses that give a Mark of Triumph on Heroic and Mythic", MarkBosses.size());
+        LOG_INFO("server.loading", ">> Loaded {} CoA dungeon bosses that give a Mark of Triumph on Heroic", MarkBosses.size());
     }
 };
 
@@ -244,7 +324,7 @@ public:
     void OnUnitDeath(Unit* unit, Unit*) override
     {
         Creature const* boss = unit ? unit->ToCreature() : nullptr;
-        if (!boss || !MarkBosses.count(boss->GetEntry()) || !IsHeroicOrMythicVanillaDungeon(boss->GetMap()))
+        if (!boss || !MarkBosses.count(boss->GetEntry()) || !IsHeroicVanillaDungeon(boss->GetMap()))
             return;
         boss->GetMap()->DoForAllPlayers([](Player* player)
         {

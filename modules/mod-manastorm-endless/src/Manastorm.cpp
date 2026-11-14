@@ -1,10 +1,12 @@
 #include "ManastormModuleConfig.h"
 #include "ManastormClientBridge.h"
+#include "ManastormClientUIFixes.h"
 #include "ManastormMobilityClient.h"
 #include "ManastormPotionClient.h"
 #include "ManastormMgr.h"
 
 #include "AllCreatureScript.h"
+#include "GlobalScript.h"
 #include "AllSpellScript.h"
 #include "DBCStructure.h"
 #include "UnitScript.h"
@@ -15,6 +17,8 @@
 #include "QuestDef.h"
 #include "ScriptMgr.h"
 #include "PlayerScript.h"
+#include "LocalLevelScaling.h"
+#include "DatabaseEnv.h"
 #include <algorithm>
 #include <limits>
 #include "Language.h"
@@ -129,10 +133,7 @@ namespace
                 return SPELL_CAST_OK;
             }
 
-            //
-            // The baseline combat/survival tools are active-stage only.
-            //
-            if (!mgr.IsPlayerInActiveEndlessStage(
+            if (!mgr.IsPlayerInUsableEndlessStage(
                 player))
             {
                 return SPELL_FAILED_NOT_HERE;
@@ -359,6 +360,38 @@ namespace
         }
     };
 
+class manastorm_safety_spells : public GlobalScript
+{
+public:
+    manastorm_safety_spells() : GlobalScript("manastorm_safety_spells", {GLOBALHOOK_ON_LOAD_SPELL_CUSTOM_ATTR}) { }
+
+    void OnLoadSpellCustomAttr(SpellInfo* spell) override
+    {
+        if (!ManastormModuleConfig::Enabled() || !spell)
+            return;
+
+        if (spell->Id == 93306)
+        {
+            spell->AuraInterruptFlags = 0;
+            return;
+        }
+
+        if (spell->Id != 93307)
+            return;
+
+        spell->Effects[EFFECT_0].Effect = SPELL_EFFECT_APPLY_AURA;
+        spell->Effects[EFFECT_0].ApplyAuraName = SPELL_AURA_SCHOOL_IMMUNITY;
+        spell->Effects[EFFECT_0].MiscValue = SPELL_SCHOOL_MASK_ALL;
+        spell->Effects[EFFECT_0].BasePoints = 0;
+        spell->Effects[EFFECT_1].Effect = SPELL_EFFECT_APPLY_AURA;
+        spell->Effects[EFFECT_1].ApplyAuraName = SPELL_AURA_MOD_UNATTACKABLE;
+        spell->Attributes |= SPELL_ATTR0_NO_AURA_CANCEL;
+        spell->AttributesEx3 &= ~SPELL_ATTR3_ONLY_ON_PLAYER;
+        spell->AttributesCu |= SPELL_ATTR0_CU_POSITIVE;
+        spell->AuraInterruptFlags = 0;
+    }
+};
+
 class manastorm_worldscript : public WorldScript
 {
 public:
@@ -374,6 +407,11 @@ public:
 
     void OnStartup() override
     {
+        LocalLevelScaling::PersonalInstanceScalingOwner.store([](Map const* map, Player const* viewer)
+        {
+            return ManastormModuleConfig::Enabled() &&
+                ManastormMgr::Instance().HasPersonalLevelScaling(map, viewer);
+        }, std::memory_order_relaxed);
         ManastormModuleConfig::LogConfiguration();
 
         if (!ManastormModuleConfig::Enabled())
@@ -397,6 +435,11 @@ public:
                 "Apply the world SQL before using `.manastorm start`.");
         }
     }
+    void OnShutdown() override
+    {
+        LocalLevelScaling::PersonalInstanceScalingOwner.store(nullptr, std::memory_order_relaxed);
+    }
+
     void OnUpdate(uint32 diff) override
     {
         if (!ManastormModuleConfig::Enabled())
@@ -512,7 +555,7 @@ public:
                 ManastormMobilityClient::OnMixtureRemoved(player);
     }
 
-    void ResolveSpellCast(Unit* caster, SpellInfo const*& spellInfo) override
+    void ResolveSpellCast(Unit* caster, SpellInfo const*& spellInfo, AuraEffect const* /*triggeredByAura*/) override
     {
         if (!ManastormModuleConfig::Enabled() || !spellInfo ||
             spellInfo->Id == 93378 || spellInfo->Id == 93380 || spellInfo->Id == 93412)
@@ -711,6 +754,8 @@ public:
             "manastorm_playerscript",
             {
                 PLAYERHOOK_ON_LOGIN,
+                PLAYERHOOK_ON_DELETE_FROM_DB,
+                PLAYERHOOK_ON_LOGOUT,
                 PLAYERHOOK_ON_MAP_CHANGED,
                 PLAYERHOOK_ON_LEVEL_CHANGED,
                 PLAYERHOOK_ON_GIVE_EXP,
@@ -718,6 +763,7 @@ public:
                 PLAYERHOOK_PASSED_QUEST_KILLED_MONSTER_CREDIT,
                 PLAYERHOOK_ON_BEFORE_CRITERIA_PROGRESS,
                 PLAYERHOOK_ON_SEND_SPELL_CHARGE_STATES,
+                PLAYERHOOK_ON_PLAYER_ENVIRONMENTAL_DAMAGE,
                 PLAYERHOOK_CAN_REPOP_AT_GRAVEYARD
             })
     {
@@ -725,18 +771,41 @@ public:
 
     void OnPlayerLogin(Player* player) override
     {
+        ManastormClientUIFixes::ResetObjectiveHighlight(player);
         if (ManastormModuleConfig::Enabled())
             ManastormMgr::Instance().OnPlayerLogin(player);
         // Native mode publishes false flags when disabled; Mode 1 sends no native configs.
         ManastormClientBridge::Instance().Login(player);
         ManastormMobilityClient::Sync(player);
         ManastormMgr::Instance().SyncManastormPotionCharges(player);
+        ManastormClientUIFixes::ScheduleLoginPush(player);
+    }
+
+    void OnPlayerLogout(Player* player) override
+    {
+        ManastormClientUIFixes::ResetObjectiveHighlight(player);
+    }
+
+    void OnPlayerDeleteFromDB(CharacterDatabaseTransaction transaction, uint32 guid) override
+    {
+        for (auto index : {CHAR_DEL_MANASTORM_COA_TOKEN_WINDOW, CHAR_DEL_MANASTORM_COA_TOKEN_CLEARS})
+        {
+            auto* statement = CharacterDatabase.GetPreparedStatement(index);
+            statement->SetData(0, guid);
+            transaction->Append(statement);
+        }
     }
 
     void OnPlayerMapChanged(Player* player) override
     {
         ManastormMobilityClient::SyncAuras(player);
         ManastormMgr::Instance().SyncManastormPotionCharges(player);
+    }
+
+    bool OnPlayerEnvironmentalDamage(Player* player, uint32 /*type*/, uint32 /*damage*/) override
+    {
+        return !ManastormModuleConfig::Enabled() ||
+            !ManastormMgr::Instance().IsPlayerProtectedDuringTransition(player);
     }
 
     bool OnPlayerCanRepopAtGraveyard(Player* player) override
@@ -1034,8 +1103,7 @@ public:
         bool /*strict*/,
         SpellCastResult& result) override
     {
-        if (!ManastormModuleConfig::Enabled() ||
-            !spell ||
+        if (!spell ||
             !spell->GetCaster())
         {
             return;
@@ -1046,6 +1114,19 @@ public:
 
         if (!player)
             return;
+
+        if (spell->GetSpellInfo()->Id ==
+            ManastormBaseline::SpellPotionChargeSystem)
+        {
+            if (!ManastormMgr::Instance()
+                    .IsPlayerInUsableEndlessStage(player))
+            {
+                result =
+                    SPELL_FAILED_NOT_HERE;
+            }
+
+            return;
+        }
 
         Ascension::Manastorm::Gadget const* gadget =
             nullptr;
@@ -1176,6 +1257,7 @@ public:
 
 void AddSC_manastorm()
 {
+    new manastorm_safety_spells();
     new manastorm_worldscript();
     new manastorm_creaturescript();
     new manastorm_unitscript();

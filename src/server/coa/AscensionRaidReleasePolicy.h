@@ -13,8 +13,22 @@ constexpr std::uint32_t MapBlackwingLair = 469;
 constexpr std::uint32_t MapRuinsOfAhnQiraj = 509;
 constexpr std::uint32_t MapTempleOfAhnQiraj = 531;
 constexpr std::uint32_t MapNaxxramas = 533;
+constexpr std::uint32_t MapSetis = 880;
+constexpr std::uint32_t MapKorrimSnowgrave = 889;
+constexpr std::uint32_t MapAtalzul = 890;
 
-constexpr std::uint32_t AllRaidsReleased = 7;
+constexpr std::uint32_t StageHeroicDungeons = 1;
+constexpr std::uint32_t StageMythicDungeons = 2;
+constexpr std::uint32_t StageZulGurub = 3;
+constexpr std::uint32_t StageMoltenCore = 4;
+constexpr std::uint32_t StageOnyxiasLair = 5;
+constexpr std::uint32_t StageBlackwingLair = 6;
+constexpr std::uint32_t StageAhnQiraj = 7;
+constexpr std::uint32_t StageNaxxramas = 8;
+constexpr std::uint32_t AllReleased = StageNaxxramas;
+
+constexpr std::uint32_t DungeonDifficultyHeroic = 1;
+constexpr std::uint32_t DungeonDifficultyMythic = 2;
 
 struct RaidStage
 {
@@ -22,14 +36,16 @@ struct RaidStage
     std::uint32_t stage;
 };
 
-constexpr std::array<RaidStage, 7> RaidStages = {{
-    { MapZulGurub, 1 },
-    { MapMoltenCore, 2 },
-    { MapOnyxiasLair, 3 },
-    { MapBlackwingLair, 4 },
-    { MapRuinsOfAhnQiraj, 5 },
-    { MapTempleOfAhnQiraj, 6 },
-    { MapNaxxramas, 7 }
+constexpr std::array<RaidStage, 9> RaidStages = {{
+    { MapZulGurub, StageZulGurub },
+    { MapSetis, StageZulGurub },
+    { MapMoltenCore, StageMoltenCore },
+    { MapKorrimSnowgrave, StageMoltenCore },
+    { MapAtalzul, StageMoltenCore },
+    { MapOnyxiasLair, StageOnyxiasLair },
+    { MapBlackwingLair, StageBlackwingLair },
+    { MapRuinsOfAhnQiraj, StageAhnQiraj },
+    { MapTempleOfAhnQiraj, StageAhnQiraj }
 }};
 
 constexpr bool IsRaidReleased(std::uint32_t mapId, std::uint32_t releasedStage)
@@ -39,6 +55,35 @@ constexpr bool IsRaidReleased(std::uint32_t mapId, std::uint32_t releasedStage)
             return raid.stage <= releasedStage;
     return true;
 }
+
+constexpr bool IsDungeonDifficultyReleased(std::uint32_t difficulty, std::uint32_t releasedStage)
+{
+    if (difficulty == DungeonDifficultyHeroic)
+        return StageHeroicDungeons <= releasedStage;
+    if (difficulty >= DungeonDifficultyMythic)
+        return StageMythicDungeons <= releasedStage;
+    return true;
+}
+
+constexpr std::array<RaidStage, 7> RaidLootStages = {{
+    { MapZulGurub, StageZulGurub },
+    { MapMoltenCore, StageMoltenCore },
+    { MapOnyxiasLair, StageOnyxiasLair },
+    { MapBlackwingLair, StageBlackwingLair },
+    { MapRuinsOfAhnQiraj, StageAhnQiraj },
+    { MapTempleOfAhnQiraj, StageAhnQiraj },
+    { MapNaxxramas, StageNaxxramas }
+}};
+
+constexpr std::uint32_t RaidLootStage(std::uint32_t mapId)
+{
+    for (RaidStage const& raid : RaidLootStages)
+        if (raid.mapId == mapId)
+            return raid.stage;
+    return 0;
+}
+
+[[nodiscard]] std::uint32_t ReleasedStage();
 }
 
 #endif

@@ -1,0 +1,260 @@
+{
+  "schema": 1,
+  "name": "Brill has no CoA class trainers and Veylin stands clear of the inn",
+  "contract": [
+    "The 21 CoA class trainer posts of #6552 were inferred against the vanilla Brill square and several stood inside the buildings of the rebuilt CoA town (patch-WB1); no archive gives a real post, so they were removed.",
+    "With the CoA class trainer event 195 running, no trainer of the 21 CoA classes 12-32 stands within 60 yards of the centre of the Brill town square, while the stock Deathguard Burgess does.",
+    "Destiny Weaver Veylin's post stands on the ground, 1.5 yd or more from the nearest wall or prop of the CoA town's vmap models at body height, with no roof within 3 yd above."
+  ],
+  "timeout_ms": 240000,
+  "location": {
+    "map": 0,
+    "x": 2266.0,
+    "y": 284.0,
+    "z": 35.0,
+    "o": 0.0
+  },
+  "players": [
+    {
+      "id": "p",
+      "race": 5,
+      "class": 29,
+      "level": 10
+    }
+  ],
+  "steps": [
+    {
+      "action": "set_phase",
+      "actor": "p",
+      "value": 1
+    },
+    {
+      "action": "game_event",
+      "label": "The CoA class trainer event 195 is running, as on a CoA realm",
+      "event": 195,
+      "active": true
+    },
+    {
+      "action": "teleport",
+      "actor": "p",
+      "map": 0,
+      "x": 2266.0,
+      "y": 284.0,
+      "z": 35.0,
+      "o": 0.0
+    },
+    {
+      "action": "wait",
+      "ms": 2000
+    },
+    {
+      "action": "assert",
+      "label": "Brill: stock Deathguard Burgess stands on the square, so the grid is loaded",
+      "actor": "p",
+      "metric": "nearby_creature_count",
+      "entry": 1652,
+      "equals": 1,
+      "within_ms": 10000
+    },
+    {
+      "action": "assert",
+      "label": "Brill: no Barbarian trainer Ray'chelle Greenhill",
+      "actor": "p",
+      "metric": "nearby_creature_count",
+      "entry": 602951,
+      "equals": 0
+    },
+    {
+      "action": "assert",
+      "label": "Brill: no Witch Doctor trainer Zerin'dai",
+      "actor": "p",
+      "metric": "nearby_creature_count",
+      "entry": 650296,
+      "equals": 0
+    },
+    {
+      "action": "assert",
+      "label": "Brill: no Felsworn trainer Thimakria Dilanore",
+      "actor": "p",
+      "metric": "nearby_creature_count",
+      "entry": 650276,
+      "equals": 0
+    },
+    {
+      "action": "assert",
+      "label": "Brill: no Witch Hunter trainer Phineas the Fervent",
+      "actor": "p",
+      "metric": "nearby_creature_count",
+      "entry": 650275,
+      "equals": 0
+    },
+    {
+      "action": "assert",
+      "label": "Brill: no Stormbringer trainer Harold Garett",
+      "actor": "p",
+      "metric": "nearby_creature_count",
+      "entry": 602773,
+      "equals": 0
+    },
+    {
+      "action": "assert",
+      "label": "Brill: no Knight of Xoroth trainer Galgrimorth",
+      "actor": "p",
+      "metric": "nearby_creature_count",
+      "entry": 602781,
+      "equals": 0
+    },
+    {
+      "action": "assert",
+      "label": "Brill: no Guardian trainer Deathguard Solor",
+      "actor": "p",
+      "metric": "nearby_creature_count",
+      "entry": 650279,
+      "equals": 0
+    },
+    {
+      "action": "assert",
+      "label": "Brill: no Templar trainer Benjamin the Sinless",
+      "actor": "p",
+      "metric": "nearby_creature_count",
+      "entry": 602803,
+      "equals": 0
+    },
+    {
+      "action": "assert",
+      "label": "Brill: no Bloodmage trainer Belinaros Cicero",
+      "actor": "p",
+      "metric": "nearby_creature_count",
+      "entry": 602922,
+      "equals": 0
+    },
+    {
+      "action": "assert",
+      "label": "Brill: no Ranger trainer Sigi Mikayla",
+      "actor": "p",
+      "metric": "nearby_creature_count",
+      "entry": 650281,
+      "equals": 0
+    },
+    {
+      "action": "assert",
+      "label": "Brill: no Chronomancer trainer Nyrmedormi",
+      "actor": "p",
+      "metric": "nearby_creature_count",
+      "entry": 602822,
+      "equals": 0
+    },
+    {
+      "action": "assert",
+      "label": "Brill: no Necromancer trainer Kobidus the Lich",
+      "actor": "p",
+      "metric": "nearby_creature_count",
+      "entry": 503930,
+      "equals": 0
+    },
+    {
+      "action": "assert",
+      "label": "Brill: no Pyromancer trainer Ridley of Lordaeron",
+      "actor": "p",
+      "metric": "nearby_creature_count",
+      "entry": 650293,
+      "equals": 0
+    },
+    {
+      "action": "assert",
+      "label": "Brill: no Cultist trainer Vytalas the Dreamer",
+      "actor": "p",
+      "metric": "nearby_creature_count",
+      "entry": 602833,
+      "equals": 0
+    },
+    {
+      "action": "assert",
+      "label": "Brill: no Starcaller trainer Fal'ador Yanille",
+      "actor": "p",
+      "metric": "nearby_creature_count",
+      "entry": 602850,
+      "equals": 0
+    },
+    {
+      "action": "assert",
+      "label": "Brill: no Sun Cleric trainer Lightspeaker Shaylan",
+      "actor": "p",
+      "metric": "nearby_creature_count",
+      "entry": 650327,
+      "equals": 0
+    },
+    {
+      "action": "assert",
+      "label": "Brill: no Tinker trainer Ol' Jimbles",
+      "actor": "p",
+      "metric": "nearby_creature_count",
+      "entry": 602873,
+      "equals": 0
+    },
+    {
+      "action": "assert",
+      "label": "Brill: no Venomancer trainer Wun'zujek",
+      "actor": "p",
+      "metric": "nearby_creature_count",
+      "entry": 650288,
+      "equals": 0
+    },
+    {
+      "action": "assert",
+      "label": "Brill: no Reaper trainer Sidus the Soul-Collector",
+      "actor": "p",
+      "metric": "nearby_creature_count",
+      "entry": 602891,
+      "equals": 0
+    },
+    {
+      "action": "assert",
+      "label": "Brill: no Primalist trainer Thako Maz",
+      "actor": "p",
+      "metric": "nearby_creature_count",
+      "entry": 650290,
+      "equals": 0
+    },
+    {
+      "action": "assert",
+      "label": "Brill: no Runemaster trainer Thalen Mackenzie",
+      "actor": "p",
+      "metric": "nearby_creature_count",
+      "entry": 602913,
+      "equals": 0
+    },
+    {
+      "action": "teleport_to_spawn",
+      "actor": "p",
+      "guid": 9000022
+    },
+    {
+      "action": "assert",
+      "label": "Destiny Weaver Veylin post 9000022 stands on the ground (z 34.47)",
+      "actor": "p",
+      "metric": "ground_height",
+      "min": 33.72,
+      "max": 35.22,
+      "within_ms": 5000
+    },
+    {
+      "action": "assert",
+      "label": "Barbarian trainer post 9005000 keeps 1.5 yd from every wall and prop of the CoA town",
+      "actor": "p",
+      "metric": "spawn_clearance",
+      "guid": 9005000,
+      "spawn_type": "creature",
+      "min": 1.5
+    },
+    {
+      "action": "assert",
+      "label": "Barbarian trainer post 9005000 has no roof within 3 yd above it",
+      "actor": "p",
+      "metric": "spawn_headroom",
+      "guid": 9005000,
+      "spawn_type": "creature",
+      "min": 3
+    }
+  ]
+}

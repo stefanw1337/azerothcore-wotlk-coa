@@ -50,6 +50,8 @@ public:
 
     void OpenClientUI(Player* player) const;
 
+    bool IsPlayerInUsableEndlessStage(Player const* player) const;
+
     bool IsPlayerInActiveEndlessStage(
         Player const* player) const;
 
@@ -102,6 +104,8 @@ public:
         Unit* attacker,
         Unit* victim,
         uint32& damage);
+    bool IsPlayerProtectedDuringTransition(Player const* player) const;
+    bool HasPersonalLevelScaling(Map const* map, Player const* viewer);
 
     void OnMeleeDamage(
         Unit* attacker,
@@ -175,6 +179,9 @@ private:
         ObjectGuid::LowType externalDepartureGuid = 0,
         ManastormFailureExit failureExit =
             ManastormFailureExit::SavedLocation);
+
+    bool LeaveRunMember(ManastormRun& run, Player* player, bool returnToSavedLocation,
+        ManastormFailureExit exit, std::string& error);
 
     void GrantBaselineRunItems(
         Player* player);

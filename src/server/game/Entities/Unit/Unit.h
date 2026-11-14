@@ -1248,7 +1248,8 @@ public:
     void KillSelf(bool durabilityLoss = true, WeaponAttackType attackType = BASE_ATTACK, SpellInfo const* spellProto = nullptr, Spell const* spell = nullptr) { Kill(this, this, durabilityLoss, attackType, spellProto, spell); };
 
     // Calculate methods
-    uint32 CalculateDamage(WeaponAttackType attType, bool normalized, bool addTotalPct, uint8 itemDamagesMask = 0);
+    uint32 CalculateDamage(WeaponAttackType attType, bool normalized, bool addTotalPct, uint8 itemDamagesMask = 0,
+        Unit* victim = nullptr);
     virtual void CalculateMinMaxDamage(WeaponAttackType attType, bool normalized, bool addTotalPct, float& minDamage, float& maxDamage, uint8 damageIndex = 0) = 0;
     void CalculateMeleeDamage(Unit* victim, CalcDamageInfo* damageInfo, WeaponAttackType attackType = BASE_ATTACK, const bool sittingVictim = false);
     void CalculateSpellDamageTaken(SpellNonMeleeDamage* damageInfo, int32 damage, SpellInfo const* spellInfo, WeaponAttackType attackType = BASE_ATTACK, bool crit = false);
@@ -1517,6 +1518,7 @@ public:
     [[nodiscard]] bool HasAuraTypeWithCaster(AuraType auratype, ObjectGuid caster) const;
     [[nodiscard]] bool HasAuraTypeWithMiscvalue(AuraType auratype, int32 miscvalue) const;
     bool HasAuraTypeWithAffectMask(AuraType auratype, SpellInfo const* affectedSpell) const;
+    [[nodiscard]] bool HasDurationShorteningPeriodicHaste(SpellInfo const* affectedSpell) const;
     [[nodiscard]] bool HasAuraTypeWithValue(AuraType auratype, int32 value) const;
     [[nodiscard]] bool HasAuraTypeWithTriggerSpell(AuraType auratype, uint32 triggerSpell) const;
     bool HasNegativeAuraWithInterruptFlag(uint32 flag, ObjectGuid guid = ObjectGuid::Empty);
@@ -1615,8 +1617,10 @@ public:
     // set withDelayed to true to account delayed spells as casted
     // delayed+channeled spells are always accounted as casted
     // we can skip channeled or delayed checks using flags
-    [[nodiscard]] bool IsNonMeleeSpellCast(bool withDelayed, bool skipChanneled = false, bool skipAutorepeat = false, bool isAutoshoot = false, bool skipInstant = true) const;
+    [[nodiscard]] bool IsNonMeleeSpellCast(bool withDelayed, bool skipChanneled = false, bool skipAutorepeat = false, bool isAutoshoot = false, bool skipInstant = true, bool skipGeneric = false) const;
     [[nodiscard]] bool HasManastormMovementGrace() const;
+    void GrantFormLandingGrace(Milliseconds duration);
+    [[nodiscard]] bool HasFormLandingGrace() const;
 
     // set withDelayed to true to interrupt delayed spells too
     // delayed+channeled spells are always interrupted
@@ -1753,7 +1757,8 @@ public:
     [[nodiscard]] bool CanCastSpellWhileMoving(SpellInfo const* info) const;
     [[nodiscard]] bool IsActionPreventedByCasting() const;
     [[nodiscard]] bool CanCastDuringChannel(SpellInfo const* info) const;
-    [[nodiscard]] bool CanDefendDuringChannel() const;
+    [[nodiscard]] bool CanDefendDuringChannel(Unit const* attacker = nullptr) const;
+    [[nodiscard]] bool CanDefendDuringCast(Unit const* attacker = nullptr) const;
 
     [[nodiscard]] virtual bool CanEnterWater() const = 0;
     [[nodiscard]] virtual bool CanSwim() const;
@@ -1919,6 +1924,7 @@ public:
     // Mount methods
     [[nodiscard]] bool IsMounted() const { return HasUnitFlag(UNIT_FLAG_MOUNT); }
     [[nodiscard]] uint32 GetMountID() const { return GetUInt32Value(UNIT_FIELD_MOUNTDISPLAYID); }
+    [[nodiscard]] bool IsOnDivineSteed() const;
     void Mount(uint32 mount, uint32 vehicleId = 0, uint32 creatureEntry = 0);
     void Dismount();
     [[nodiscard]] bool IsInDisallowedMountForm() const;
@@ -2285,6 +2291,7 @@ private:
     uint32 _oldFactionId;           ///< faction before charm
     bool _isWalkingBeforeCharm;     ///< Are we walking before we were charmed?
     bool _isCombatDisallowed;
+    Milliseconds _formLandingGraceEnd{0};
 
     uint32 _lastExtraAttackSpell;
     std::unordered_map<ObjectGuid /*guid*/, uint32 /*count*/> extraAttacksTargets;

@@ -30,8 +30,8 @@ namespace
 
     std::atomic<bool> enabled{ false };
     std::atomic<bool> dataReady{ false };
-    std::atomic<float> dropChance{ 0.5f };
-    std::atomic<uint32> stopDropLevel{ 60 };
+    std::atomic<float> dropChance{ DefaultDropChance };
+    std::atomic<uint32> stopPowerLevel{ DefaultStopPowerLevel };
     std::atomic<uint32> configVersion{ 0 };
 
     struct PlayerState : DataMap::Base
@@ -74,7 +74,7 @@ namespace
         for (uint32 entry : state.equippedEntries)
             if (auto variant = DecodeEntry(entry))
                 if (FitsClass(Catalog[variant->design], player->getClass()) &&
-                    variant->requiredLevel <= player->GetLevel())
+                    GrantsPower(variant->requiredLevel, player->GetLevel(), stopPowerLevel.load()))
                     levels[variant->design] = std::max(levels[variant->design], uint8(variant->requiredLevel));
         return levels;
     }
@@ -201,8 +201,8 @@ namespace
             return false;
 
         uint32 const level = creature->getLevelForTarget(owner);
-        if (!CanDrop(owner->getClass(), owner->GetLevel(), level, stopDropLevel.load(),
-            owner->isHonorOrXPTarget(creature)) || !roll_chance_f(dropChance.load()))
+        if (!CanDrop(owner->getClass(), owner->GetLevel(), level, owner->isHonorOrXPTarget(creature)) ||
+            !roll_chance_f(dropChance.load()))
             return false;
 
         std::array<uint32, 4> candidates{};
@@ -230,10 +230,11 @@ namespace
         void OnAfterConfigLoad(bool) override
         {
             enabled.store(sConfigMgr->GetOption<bool>("CoALegendaryItems.Enable", false));
-            float const configuredChance = sConfigMgr->GetOption<float>("CoALegendaryItems.DropChance", 0.5f);
+            float const configuredChance = sConfigMgr->GetOption<float>("CoALegendaryItems.DropChance",
+                DefaultDropChance);
             dropChance.store(std::isfinite(configuredChance) ? std::clamp(configuredChance, 0.0f, 100.0f) : 0.0f);
-            stopDropLevel.store(std::clamp(
-                sConfigMgr->GetOption<uint32>("CoALegendaryItems.StopDropLevel", 60), 1u, MaximumCreatureLevel + 1));
+            stopPowerLevel.store(sConfigMgr->GetOption<uint32>("CoALegendaryItems.StopPowerLevel",
+                DefaultStopPowerLevel));
             ++configVersion;
         }
 
@@ -254,8 +255,9 @@ namespace
                     ItemTemplate const* item = sObjectMgr->GetItemTemplate(EntryForLevel(index, level));
                     uint32 const tooltipId = TooltipForLevel(index, level);
                     if (!item || item->RequiredLevel != level || item->ItemLevel != ItemLevel(level) ||
-                        item->Quality != ITEM_QUALITY_LEGENDARY || item->ItemSet ||
-                        item->InventoryType != design.inventoryType || !item->Description.empty() ||
+                        item->Quality != ITEM_QUALITY_RARE || !item->HasFlag(ITEM_FLAG_IS_BOUND_TO_ACCOUNT) ||
+                        item->ItemSet ||
+                        item->InventoryType != design.inventoryType || item->Description != TooltipTag ||
                         item->Spells[0].SpellId != int32(tooltipId) ||
                         item->Spells[0].SpellTrigger != ITEM_SPELLTRIGGER_ON_EQUIP)
                         ++invalid;
@@ -326,8 +328,9 @@ namespace
                 LOG_ERROR("module", "CoA Legendary Items: {} missing or invalid records; apply the module world "
                     "migration. Drops and powers are disabled until the data is available.", invalid);
             else
-                LOG_INFO("module", "CoA Legendary Items: {} designs, {} level variants; drop chance {}%, cutoff {}.",
-                    DesignCount, DesignCount * MaximumCreatureLevel, dropChance.load(), stopDropLevel.load());
+                LOG_INFO("module", "CoA Legendary Items: {} designs, {} level variants; drop chance {}%, "
+                    "power cutoff {}.", DesignCount, DesignCount * MaximumCreatureLevel,
+                    dropChance.load(), stopPowerLevel.load());
         }
     };
 

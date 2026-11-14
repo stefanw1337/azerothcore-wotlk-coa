@@ -55,6 +55,7 @@ enum UnitHook
     UNITHOOK_SPELL_MAGNET_TARGET,
     UNITHOOK_RESOLVE_SPELL_CAST,
     UNITHOOK_ON_HEALTH_CHANGED,
+    UNITHOOK_MODIFY_MELEE_DAMAGE_RANGE,
     UNITHOOK_END
 };
 
@@ -71,7 +72,7 @@ protected:
 
 public:
     // Resolve metadata before Spell construction, preserving targets, flags and forwarded values.
-    virtual void ResolveSpellCast(Unit* /*caster*/, SpellInfo const*& /*spellInfo*/) { }
+    virtual void ResolveSpellCast(Unit* /*caster*/, SpellInfo const*& /*spellInfo*/, AuraEffect const* /*triggeredByAura*/) { }
 
     // Called when a unit deals healing to another unit
     virtual void OnHeal(Unit* /*healer*/, Unit* /*reciever*/, uint32& /*gain*/) { }
@@ -99,6 +100,9 @@ public:
 
     // Called when Melee Damage is being Dealt
     virtual void ModifyMeleeDamage(Unit* /*target*/, Unit* /*attacker*/, uint32& /*damage*/) { }
+
+    // Called with a melee swing's damage range before the roll
+    virtual void ModifyMeleeDamageRange(Unit* /*target*/, Unit* /*attacker*/, float& /*minDamage*/, float& /*maxDamage*/) { }
 
     // Called when Spell Damage is being Dealt
     virtual void ModifySpellDamageTaken(Unit* /*target*/, Unit* /*attacker*/, int32& /*damage*/, SpellInfo const* /*spellInfo*/) { }

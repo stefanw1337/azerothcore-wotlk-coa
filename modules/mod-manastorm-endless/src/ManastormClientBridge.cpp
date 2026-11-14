@@ -6,6 +6,7 @@
 #include "GroupScript.h"
 #include "Log.h"
 #include "ManastormModuleConfig.h"
+#include "ManastormClientUIFixes.h"
 #include "ManastormNativeProtocol.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
@@ -155,7 +156,7 @@ namespace
         // Reuse AzerothCore's normal item-query response serializer to warm
         // the client cache. This changes no client files and no DBCs.
         //
-        static constexpr std::array<uint32, 7>
+        static constexpr std::array<uint32, 8>
             potentialRewardItems =
             {
                 97884,
@@ -164,7 +165,8 @@ namespace
                 1278049,
                 1278048,
                 97886,
-                97885
+                97885,
+                ManastormCoALoot::TokenItem
             };
 
         WorldSession* session =
@@ -173,6 +175,9 @@ namespace
         for (uint32 itemEntry :
             potentialRewardItems)
         {
+            if (itemEntry == ManastormCoALoot::TokenItem &&
+                !ManastormRewards::Instance().IsCoALootMode(player->GetGUID().GetCounter()))
+                continue;
             if (!sObjectMgr->GetItemTemplate(
                     itemEntry))
             {
@@ -239,8 +244,7 @@ namespace
                 || member->IsBeingTeleported())
                 return "ENTER_MANASTORM_UNKNOWN";
             bool const other = member != player;
-            if (other && (!player->IsWithinDistInMap(member, 100.0f)
-                || ManastormMgr::Instance().GetRunFor(member)))
+            if (other && ManastormMgr::Instance().GetRunFor(member))
                 return "ENTER_MANASTORM_BAD_GROUP_SIZE";
             if (member->GetLevel() < 10)
                 return other ? "ENTER_MANASTORM_GROUP_TOO_LOW_PLAYER_LEVEL" : "ENTER_MANASTORM_TOO_LOW_PLAYER_LEVEL";
@@ -406,6 +410,13 @@ void ManastormClientBridge::SendState(Player* player, ManastormRun const* run) c
         }
     }
 
+    if (ManastormRewards::Instance().IsCoALootMode(player->GetGUID().GetCounter()))
+    {
+        cacheChancePct = 0.0f;
+        if (!guaranteedCaches)
+            cacheItem = 0;
+    }
+
     WorldPacket packet(
         ManastormNativeOpcode::ActiveState,
         48);
@@ -432,6 +443,7 @@ void ManastormClientBridge::SendState(Player* player, ManastormRun const* run) c
 
     player->SendDirectMessage(
         &packet);
+    ManastormClientUIFixes::SendObjectiveHighlight(player);
 
     SendChaoticLink(
         player,
@@ -461,10 +473,19 @@ void ManastormClientBridge::SendState(Player* player, ManastormRun const* run) c
     // Sending all seven native Potential Reward identities also causes the
     // native MANASTORM_REWARD_VISIBILITY_UPDATED path to refresh the queue.
     //
+    bool endgameRewards = active ? run->IsEndgame() :
+        player->GetLevel() >= std::max(60u, sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL));
+    if (!active)
+        if (Group* group = player->GetGroup())
+            for (auto const& slot : group->GetMemberSlots())
+                if (Player* member = ObjectAccessor::FindConnectedPlayer(slot.guid))
+                    endgameRewards = endgameRewards ||
+                        member->GetLevel() >= std::max(60u, sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL));
+
     std::vector<ManastormRewardVisibilityRecord> const
         records =
             ManastormRewards::Instance()
-                .BuildVisibilityRecords(player->GetGUID().GetCounter());
+                .BuildVisibilityRecords(player->GetGUID().GetCounter(), endgameRewards, guaranteedCaches);
 
     WorldPacket visibility(
         ManastormNativeOpcode::RewardVisibility,
@@ -506,6 +527,7 @@ void ManastormClientBridge::SendState(Player* player, ManastormRun const* run) c
 
     player->SendDirectMessage(
         &visibility);
+    ManastormClientUIFixes::SendCoALootState(player, active ? run : nullptr);
 }
 
 void ManastormClientBridge::SendProgression(Player* player) const
