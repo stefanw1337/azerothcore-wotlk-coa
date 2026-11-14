@@ -1922,11 +1922,21 @@ void Group::SendUpdateToPlayer(ObjectGuid playerGUID, MemberSlot* slot)
         data << uint32(sLFGMgr->GetDungeon(m_guid));
     }
 
-    // two heads sharing a body take one place in the list: others see the body, the rider sees itself
+    // two heads sharing a body take one place in the list: others see the body, the rider sees itself; a head
+    // played by a bot stays listed to the other head, whose bot controls need it
+    auto const botPartner = [&](MemberSlot const& member)
+    {
+        if (BodyOfRider(member.guid) != slot->guid && BodyOfRider(slot->guid) != member.guid)
+            return false;
+        Player const* partner = ObjectAccessor::FindConnectedPlayer(member.guid);
+        return partner && partner->GetSession() && partner->GetSession()->IsBot();
+    };
     auto const listed = [&](MemberSlot const& member)
     {
         if (slot->guid == member.guid)
             return false;
+        if (botPartner(member))
+            return true;
         ObjectGuid const body = BodyOfRider(member.guid);
         if (body && IsMember(body))
             return false;
