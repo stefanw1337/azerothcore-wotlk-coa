@@ -224,7 +224,6 @@ local function BarButton(bar)
     barButton = CreateFrame("Button", "CoACBotPlanBarButton", bar)
     barButton:SetWidth(34)
     barButton:SetHeight(34)
-    barButton:SetPoint("TOPLEFT", bar, "TOPRIGHT", 3, 0)
     barButton.icon = barButton:CreateTexture(nil, "ARTWORK")
     barButton.icon:SetAllPoints()
     barButton.icon:SetTexture("Interface\\Icons\\INV_Misc_Map_01")
@@ -250,6 +249,35 @@ local function BarButton(bar)
     barButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
 end
 
+local function PlaceBarButton(bar)
+    local places = {}
+    for _, child in ipairs({ bar:GetChildren() }) do
+        if child ~= barButton and child.caption and child:IsShown() then
+            local point, _, _, x = child:GetPoint()
+            if point == "TOPLEFT" and x then
+                places[#places + 1] = x
+            end
+        end
+    end
+    if #places < 2 then
+        return
+    end
+    table.sort(places)
+    local step
+    for index = 2, #places do
+        local gap = places[index] - places[index - 1]
+        if gap > 0 and (not step or gap < step) then
+            step = gap
+        end
+    end
+    local x = places[#places] + (step or 0)
+    if barButton.x ~= x then
+        barButton.x = x
+        barButton:ClearAllPoints()
+        barButton:SetPoint("TOPLEFT", bar, "TOPLEFT", x, 0)
+    end
+end
+
 local barWatch = CreateFrame("Frame")
 barWatch.wait = 0
 barWatch:SetScript("OnUpdate", function(self, elapsed)
@@ -258,9 +286,11 @@ barWatch:SetScript("OnUpdate", function(self, elapsed)
         return
     end
     self.wait = 1
-    if SquidBotsLiteBar and SquidBotsLiteBar.last then
+    if not barButton and SquidBotsLiteBar and SquidBotsLiteBar.last then
         BarButton(SquidBotsLiteBar)
-        self:SetScript("OnUpdate", nil)
+    end
+    if barButton then
+        PlaceBarButton(SquidBotsLiteBar)
     end
 end)
 
