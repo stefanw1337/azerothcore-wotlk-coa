@@ -1379,6 +1379,16 @@ MapUpdate.Threads = 1
 MoveMaps.Enable = 1
 
 #
+#    MoveMaps.Bots.MaxSlope
+#        Description: Steepest ground, in degrees, that player bots path across. The mmaps mark no slope as
+#                     steep, so without this bots climb mountainsides a player slides down.
+#                     Read once at startup.
+#        Default:     0  - (Off, the mmaps decide)
+#                     50 - (What a player's client can walk up)
+
+MoveMaps.Bots.MaxSlope = 0
+
+#
 #    vmap.enableLOS
 #    vmap.enableHeight
 #        Description: VMmap support for line of sight and height calculation.

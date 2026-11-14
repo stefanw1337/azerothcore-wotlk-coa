@@ -1,7 +1,7 @@
 ---
-area: bots
-type: fixed
-audience: players
-title: Bots no longer walk up slopes too steep for players
+area: server
+type: added
+audience: admins
+title: New option to keep bots off slopes too steep for players
 ---
-Bots now skip ground steeper than the 50 degrees a player can walk up when they plan a path, so they keep off mountainsides you would slide down.
+MoveMaps.Bots.MaxSlope in worldserver.conf (degrees, 0 = off) makes bots plan paths only over ground up to that slope; players can walk up to 50. Off by default while it is being tested.

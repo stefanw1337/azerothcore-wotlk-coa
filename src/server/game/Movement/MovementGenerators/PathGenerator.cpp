@@ -16,6 +16,7 @@
  */
 
 #include "PathGenerator.h"
+#include "Config.h"
 #include "Creature.h"
 #include "DetourCommon.h"
 #include "Geometry.h"
@@ -871,16 +872,18 @@ void PathGenerator::CreateFilter()
     else // assume Player
     {
 #ifdef MOD_PLAYERBOTS
-        // Bots navigate with a stricter filter: include ground + water but exclude lava/slime and ground
-        // steeper than the 50 degrees a player's client can walk up (cos 50 = 0.64278764, as the client
-        // checks it), so they keep off steep mountainsides. The current mmaps generator tags no polygon
-        // NAV_GROUND_STEEP, so the slope is read from each polygon. Real players are unchanged.
+        // Bots navigate with a stricter filter: include ground + water but exclude lava/slime and
+        // NAV_GROUND_STEEP. The current mmaps generator tags no polygon steep, so MoveMaps.Bots.MaxSlope
+        // (degrees, 0 = off; a player's client walks up to 50) can read the slope from each polygon instead.
+        // Real players are unchanged.
         Player const* player = _source->ToPlayer();
         if (player && player->GetSession() && player->GetSession()->IsBot())
         {
             includeFlags |= (NAV_GROUND | NAV_WATER);
             excludeFlags |= (NAV_MAGMA | NAV_SLIME | NAV_GROUND_STEEP);
-            _filter.setMinGroundNormalUp(0.64278764f);
+            static float const maxSlope = sConfigMgr->GetOption<float>("MoveMaps.Bots.MaxSlope", 0.0f);
+            if (maxSlope > 0.0f)
+                _filter.setMinGroundNormalUp(std::cos(maxSlope * float(M_PI) / 180.0f));
             isBot = true;
         }
         else
