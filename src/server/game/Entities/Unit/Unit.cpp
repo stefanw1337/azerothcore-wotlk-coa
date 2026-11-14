@@ -12195,7 +12195,8 @@ bool Unit::_IsValidAssistTarget(Unit const* target, SpellInfo const* bySpell) co
         return false;
 
     // can't assist own vehicle or passenger
-    if (m_vehicle)
+    // A player carrying players (a shared body or a passenger mount) stays a friendly player to them.
+    if (m_vehicle && !m_vehicle->GetBase()->IsPlayer())
         if (IsOnVehicle(target) || m_vehicle->GetBase()->IsOnVehicle(target))
             return false;
 
