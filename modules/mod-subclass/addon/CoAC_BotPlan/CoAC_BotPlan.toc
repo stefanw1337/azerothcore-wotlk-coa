@@ -2,5 +2,6 @@
 ## Title: CoAC Bot Plan
 ## Notes: Works alongside SquidBots Lite without changing it.
 ## OptionalDeps: SquidBotsLite
+## SavedVariables: CoACBotPlanIgnored
 BotChat.lua
 BotPlan.lua

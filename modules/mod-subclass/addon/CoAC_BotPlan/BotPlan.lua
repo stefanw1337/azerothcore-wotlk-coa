@@ -48,6 +48,17 @@ local function Send(message)
     SendAddonMessage(PREFIX, message, "WHISPER", UnitName("player"))
 end
 
+local function IgnoredOf(name)
+    CoACBotPlanIgnored = CoACBotPlanIgnored or {}
+    CoACBotPlanIgnored[name] = CoACBotPlanIgnored[name] or {}
+    return CoACBotPlanIgnored[name]
+end
+
+local function Choose(command, name, id)
+    IgnoredOf(name)[id] = command == "BOTPLANIGNORE" or nil
+    Send(command .. " " .. name .. " " .. id)
+end
+
 local function ActionButton(line, width)
     local button = CreateFrame("Button", nil, line, "UIPanelButtonTemplate")
     button:SetWidth(width or 44)
@@ -111,9 +122,9 @@ local function Render()
             local id = quest.id
             SetLine(index, "    " .. position .. ". " .. quest.title,
                 (position > 1 or id ~= plan.doingId) and "Now" or nil,
-                function() Send("BOTPLANNOW " .. name .. " " .. id) end,
+                function() Choose("BOTPLANNOW", name, id) end,
                 position > 1 and "Up" or nil, function() Send("BOTPLANUP " .. name .. " " .. id) end,
-                "Ignore", function() Send("BOTPLANIGNORE " .. name .. " " .. id) end)
+                "Ignore", function() Choose("BOTPLANIGNORE", name, id) end)
         end
         if #plan.route == 0 then
             index = index + 1
@@ -124,11 +135,10 @@ local function Render()
             local id = quest.id
             local text = "    |cff999999- " .. quest.title .. " (" .. quest.reason .. ")|r"
             if quest.reason == "ignored" then
-                SetLine(index, text, nil, nil, nil, nil, "Allow",
-                    function() Send("BOTPLANALLOW " .. name .. " " .. id) end)
+                SetLine(index, text, nil, nil, nil, nil, "Allow", function() Choose("BOTPLANALLOW", name, id) end)
             else
-                SetLine(index, text, "Now", function() Send("BOTPLANNOW " .. name .. " " .. id) end, nil, nil,
-                    "Ignore", function() Send("BOTPLANIGNORE " .. name .. " " .. id) end)
+                SetLine(index, text, "Now", function() Choose("BOTPLANNOW", name, id) end, nil, nil,
+                    "Ignore", function() Choose("BOTPLANIGNORE", name, id) end)
             end
         end
     end
@@ -165,9 +175,37 @@ local function Read(name, rest)
     incoming[#incoming + 1] = plan
 end
 
+local function RestoreIgnored()
+    for _, plan in ipairs(plans) do
+        local saved, inLog, listed = IgnoredOf(plan.name), {}, 0
+        for _, quest in ipairs(plan.route) do
+            inLog[quest.id], listed = "planned", listed + 1
+        end
+        for _, quest in ipairs(plan.later) do
+            inLog[quest.id], listed = quest.reason == "ignored" and "ignored" or "planned", listed + 1
+        end
+        if plan.doingId then
+            inLog[plan.doingId] = inLog[plan.doingId] or "planned"
+        end
+        for id in pairs(saved) do
+            if inLog[id] == "planned" then
+                Send("BOTPLANIGNORE " .. plan.name .. " " .. id)
+            elseif not inLog[id] and listed > 0 then
+                saved[id] = nil
+            end
+        end
+    end
+end
+
 local events = CreateFrame("Frame")
 events:RegisterEvent("CHAT_MSG_ADDON")
-events:SetScript("OnEvent", function(_, _, prefix, message, _, sender)
+events:RegisterEvent("PLAYER_ENTERING_WORLD")
+events:RegisterEvent("PARTY_MEMBERS_CHANGED")
+events:SetScript("OnEvent", function(self, event, prefix, message, _, sender)
+    if event ~= "CHAT_MSG_ADDON" then
+        self.ask = 5
+        return
+    end
     if prefix ~= PREFIX or sender ~= UnitName("player") then
         return
     end
@@ -176,9 +214,25 @@ events:SetScript("OnEvent", function(_, _, prefix, message, _, sender)
         Read(name, rest)
     elseif message == "BOTPLANEND" then
         plans, incoming = incoming, {}
+        RestoreIgnored()
         if panel:IsShown() then
             Render()
         end
+    end
+end)
+
+events:SetScript("OnUpdate", function(self, elapsed)
+    if not self.ask then
+        return
+    end
+    self.ask = self.ask - elapsed
+    if self.ask > 0 then
+        return
+    end
+    self.ask = nil
+    if not panel:IsShown() then
+        incoming = {}
+        Send("BOTPLAN")
     end
 end)
 
