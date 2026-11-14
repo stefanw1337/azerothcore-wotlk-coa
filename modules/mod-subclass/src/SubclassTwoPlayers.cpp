@@ -61,6 +61,7 @@ namespace
 constexpr uint32 KeepTogetherMs = 1000;
 constexpr float SeatReach = 40.0f;
 constexpr float SideBySide = 4.0f;
+constexpr float GhostLeash = 8.0f;
 constexpr uint32 InvisibleDisplay = 11686;
 constexpr uint32 LentBuffRecastMs = 60000;
 constexpr float LentHealBelowPct = 60.0f;
@@ -757,6 +758,36 @@ bool TakeExitRequest(uint32 guid)
     return exitRequests.erase(guid) != 0;
 }
 
+bool IsGhost(Player const* player)
+{
+    return player->HasPlayerFlag(PLAYER_FLAGS_GHOST);
+}
+
+void ReleaseTogether(Player* released)
+{
+    Player* partner = Online(TwoPlayersPartnerOf(released->GetGUID().GetCounter()));
+    if (!partner || partner->IsAlive() || IsGhost(partner))
+        return;
+    partner->BuildPlayerRepop();
+    partner->RepopAtGraveyard();
+    Tell(partner, released->GetName() + " let go of the body you share, so your spirit goes with them.");
+}
+
+void GhostAlong(Player* rider, Player* body)
+{
+    if (rider->IsAlive() || !IsGhost(rider) || !IsGhost(body))
+        return;
+    if (!SameMap(body, rider))
+    {
+        rider->TeleportTo(body->GetMapId(), body->GetPositionX(), body->GetPositionY(), body->GetPositionZ(),
+            body->GetOrientation());
+        return;
+    }
+    if (!rider->IsWithinDist(body, GhostLeash))
+        rider->NearTeleportTo(body->GetPositionX(), body->GetPositionY(), body->GetPositionZ(),
+            body->GetOrientation());
+}
+
 void KeepTogether(Player* player)
 {
     uint32 const guid = player->GetGUID().GetCounter();
@@ -833,7 +864,10 @@ void KeepTogether(Player* player)
         return;
     }
     if (!body->IsAlive())
+    {
+        GhostAlong(rider, body);
         return;
+    }
     if (!rider->IsAlive())
     {
         rider->ResurrectPlayer(body->GetHealthPct() / 100.0f);
@@ -998,7 +1032,8 @@ class mod_subclass_two_players_player : public PlayerScript
 {
 public:
     mod_subclass_two_players_player() : PlayerScript("mod_subclass_two_players_player", { PLAYERHOOK_ON_UPDATE,
-        PLAYERHOOK_ON_PLAYER_JUST_DIED, PLAYERHOOK_ON_PLAYER_RESURRECT, PLAYERHOOK_ON_LOGOUT,
+        PLAYERHOOK_ON_PLAYER_JUST_DIED, PLAYERHOOK_ON_PLAYER_RESURRECT, PLAYERHOOK_ON_PLAYER_RELEASED_GHOST,
+        PLAYERHOOK_ON_LOGOUT,
         PLAYERHOOK_CAN_GROUP_ACCEPT, PLAYERHOOK_CAN_EQUIP_ITEM, PLAYERHOOK_CAN_UNEQUIP_ITEM,
         PLAYERHOOK_ON_LOAD_FROM_DB, PLAYERHOOK_ON_BEFORE_LOGOUT, PLAYERHOOK_ON_KEEPS_OWN_VEHICLE })
     {
@@ -1061,6 +1096,11 @@ public:
         Unit::Kill(right, right, false);
         right->SetDisplayId(InvisibleDisplay);
         Tell(right, "The body you share has fallen, and you with it.");
+    }
+
+    void OnPlayerReleasedGhost(Player* player) override
+    {
+        ReleaseTogether(player);
     }
 
     void OnPlayerResurrect(Player* player, float /*restorePercent*/, bool& /*applySickness*/) override
