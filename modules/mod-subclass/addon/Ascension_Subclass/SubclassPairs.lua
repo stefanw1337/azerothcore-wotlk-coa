@@ -322,6 +322,12 @@ end
 if PartyMemberFrame_UpdateMember then
     hooksecurefunc("PartyMemberFrame_UpdateMember", HidePartner)
 end
+for index = 1, MAX_PARTY_MEMBERS or 4 do
+    local partyFrame = _G["PartyMemberFrame" .. index]
+    if partyFrame then
+        partyFrame:HookScript("OnShow", HidePartner)
+    end
+end
 if UnitFrame_Update then
     hooksecurefunc("UnitFrame_Update", ShowJoinedName)
 end
@@ -396,7 +402,7 @@ bodyBotButton.icon:SetAllPoints()
 bodyBotButton:Hide()
 
 local function PartnerBotMenu()
-    if not partnerName or not SquidBotsLite_IsBot or not SquidBotsLite_IsBot(partnerName) then
+    if not partnerName or not SquidBotsLite_IsBot then
         return nil
     end
     for index = 1, MAX_PARTY_MEMBERS or 4 do
