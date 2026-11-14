@@ -555,6 +555,9 @@ void Seat(Player* left, Player* right)
     if ((TwoPlayersHeadIsBot(right) || RidesHidden(right)) && !right->IsVisible())
         right->SetVisible(true);
     RevealArrival(right, false);
+    if (right->GetMap() == left->GetMap() && !right->IsWithinDist(left, SideBySide))
+        right->GetMap()->PlayerRelocation(right, left->GetPositionX(), left->GetPositionY(), left->GetPositionZ(),
+            left->GetOrientation());
     right->CastCustomSpell(VEHICLE_SPELL_RIDE_HARDCODED, SPELLVALUE_BASE_POINT0, RightHeadSeat + 1, left,
         TRIGGERED_FULL_MASK);
     sScriptMgr->AnticheatSetUnderACKmount(right);
@@ -821,11 +824,7 @@ void KeepTogether(Player* player)
         rider->SpawnCorpseBones();
         Tell(rider, "The body you share is back on its feet, and so are you.");
     }
-    if (close && rider->IsWithinDist(body, SideBySide))
-        return;
-    if (close)
-        rider->NearTeleportTo(body->GetPositionX(), body->GetPositionY(), body->GetPositionZ(), body->GetOrientation());
-    else
+    if (!close)
         rider->TeleportTo(body->GetMapId(), body->GetPositionX(), body->GetPositionY(), body->GetPositionZ(),
             body->GetOrientation());
 }
