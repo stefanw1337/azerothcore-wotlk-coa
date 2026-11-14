@@ -77,6 +77,7 @@ void HandlePairMessage(Player* player, std::vector<std::string_view> const& word
 void SendBotPlans(Player* player);
 void BotPlanDoNow(Player* player, std::string_view botName, uint32 questId);
 void BotPlanMoveUp(Player* player, std::string_view botName, uint32 questId);
+void BotPlanIgnore(Player* player, std::string_view botName, uint32 questId, bool ignore);
 std::string TwinState(Player const* player);
 std::string CyclopsModelState(Player const* player);
 std::string CyclopsPreview(uint32 itemId);
@@ -1459,6 +1460,8 @@ void HandleAddonMessage(Player* player, std::string_view message)
         BotPlanDoNow(player, words[1], Acore::StringTo<uint32>(words[2]).value_or(0));
     else if (words.size() == 3 && words[0] == "BOTPLANUP")
         BotPlanMoveUp(player, words[1], Acore::StringTo<uint32>(words[2]).value_or(0));
+    else if (words.size() == 3 && (words[0] == "BOTPLANIGNORE" || words[0] == "BOTPLANALLOW"))
+        BotPlanIgnore(player, words[1], Acore::StringTo<uint32>(words[2]).value_or(0), words[0] == "BOTPLANIGNORE");
     else if (words.size() == 1 && words[0] == "CYCLOPSECHO")
     {
         EchoCyclopsHelmet(player);

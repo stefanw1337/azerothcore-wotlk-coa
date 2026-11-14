@@ -17,6 +17,7 @@
 #include "WorldSession.h"
 #include <algorithm>
 #include <mutex>
+#include <set>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -60,6 +61,13 @@ struct BotRoute
 RouteSettings settings;
 std::mutex& routeMutex = *new std::mutex;
 std::unordered_map<uint32, BotRoute>& routes = *new std::unordered_map<uint32, BotRoute>;
+std::unordered_map<uint32, std::set<uint32>>& ignored = *new std::unordered_map<uint32, std::set<uint32>>;
+
+bool Ignored(Player* bot, uint32 questId)
+{
+    auto const found = ignored.find(bot->GetGUID().GetCounter());
+    return found != ignored.end() && found->second.count(questId);
+}
 
 bool DoableAlone(Player* bot, Quest const* quest)
 {
@@ -159,6 +167,12 @@ void Replan(Player* bot, PlayerbotAI* brain, BotRoute& route)
         uint32 const questId = bot->GetQuestSlotQuestId(slot);
         if (!questId)
             continue;
+        if (Ignored(bot, questId))
+        {
+            brain->lowPriorityQuest.insert(questId);
+            route.Unplanned.emplace_back(questId, "ignored");
+            continue;
+        }
         auto const skipped = route.SkippedAt.find(questId);
         if (skipped != route.SkippedAt.end() && getMSTimeDiff(skipped->second, now) < SkipMs)
         {
@@ -193,8 +207,13 @@ void FollowRoute(Player* bot, PlayerbotAI* brain, BotRoute& route)
         return;
     uint32 const head = route.Quests.front();
     NewRpgInfo& info = brain->rpgInfo;
-    NewRpgStatus const status = info.GetStatus();
     auto const* doing = std::get_if<NewRpgInfo::DoQuest>(&info.data);
+    if (doing && Ignored(bot, doing->questId))
+    {
+        info.ChangeToIdle();
+        doing = nullptr;
+    }
+    NewRpgStatus const status = info.GetStatus();
     uint64 const progress = ProgressOf(bot, head);
     if (doing && doing->questId == head)
     {
@@ -330,6 +349,8 @@ void BotPlanDoNow(Player* player, std::string_view botName, uint32 questId)
             continue;
         PlayerbotAI* brain = GET_PLAYERBOT_AI(bot);
         std::lock_guard<std::mutex> lock(routeMutex);
+        ignored[bot->GetGUID().GetCounter()].erase(questId);
+        brain->lowPriorityQuest.erase(questId);
         BotRoute& route = routes[bot->GetGUID().GetCounter()];
         route.SkippedAt.erase(questId);
         route.Steers = 0;
@@ -354,6 +375,34 @@ void BotPlanMoveUp(Player* player, std::string_view botName, uint32 questId)
         route.Quests = Subclass::MovedUp(route.Quests, questId);
         route.Priority = route.Quests;
         route.Steers = 0;
+    }
+    SendBotPlans(player);
+}
+
+void BotPlanIgnore(Player* player, std::string_view botName, uint32 questId, bool ignore)
+{
+    for (Player* bot : GroupBots(player))
+    {
+        if (bot->GetName() != botName || bot->GetQuestStatus(questId) == QUEST_STATUS_NONE)
+            continue;
+        PlayerbotAI* brain = GET_PLAYERBOT_AI(bot);
+        std::lock_guard<std::mutex> lock(routeMutex);
+        uint32 const guid = bot->GetGUID().GetCounter();
+        BotRoute& route = routes[guid];
+        route.Priority.erase(std::remove(route.Priority.begin(), route.Priority.end(), questId), route.Priority.end());
+        route.Quests.clear();
+        route.Steers = 0;
+        if (!ignore)
+        {
+            ignored[guid].erase(questId);
+            brain->lowPriorityQuest.erase(questId);
+            continue;
+        }
+        ignored[guid].insert(questId);
+        brain->lowPriorityQuest.insert(questId);
+        auto const* doing = std::get_if<NewRpgInfo::DoQuest>(&brain->rpgInfo.data);
+        if (doing && doing->questId == questId)
+            brain->rpgInfo.ChangeToIdle();
     }
     SendBotPlans(player);
 }
@@ -426,6 +475,11 @@ void BotPlanDoNow(Player* player, std::string_view /*botName*/, uint32 /*questId
 }
 
 void BotPlanMoveUp(Player* player, std::string_view /*botName*/, uint32 /*questId*/)
+{
+    SendBotPlans(player);
+}
+
+void BotPlanIgnore(Player* player, std::string_view /*botName*/, uint32 /*questId*/, bool /*ignore*/)
 {
     SendBotPlans(player);
 }

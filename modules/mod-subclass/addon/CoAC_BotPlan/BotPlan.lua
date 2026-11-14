@@ -5,7 +5,7 @@ local REFRESH_SECONDS = 3
 local plans, incoming = {}, {}
 
 local panel = CreateFrame("Frame", "CoACBotPlanFrame", UIParent)
-panel:SetWidth(380)
+panel:SetWidth(440)
 panel:SetHeight(120)
 panel:SetPoint("CENTER", 0, 120)
 panel:SetBackdrop({
@@ -48,9 +48,9 @@ local function Send(message)
     SendAddonMessage(PREFIX, message, "WHISPER", UnitName("player"))
 end
 
-local function ActionButton(line)
+local function ActionButton(line, width)
     local button = CreateFrame("Button", nil, line, "UIPanelButtonTemplate")
-    button:SetWidth(44)
+    button:SetWidth(width or 44)
     button:SetHeight(ROW_HEIGHT)
     return button
 end
@@ -66,11 +66,13 @@ local function Line(index)
     line:SetPoint("RIGHT", panel, "RIGHT", -16, 0)
     line.text = line:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     line.text:SetPoint("LEFT")
-    line.text:SetPoint("RIGHT", -96, 0)
+    line.text:SetPoint("RIGHT", -156, 0)
     line.text:SetJustifyH("LEFT")
     line:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+    line.third = ActionButton(line, 56)
+    line.third:SetPoint("RIGHT")
     line.action = ActionButton(line)
-    line.action:SetPoint("RIGHT")
+    line.action:SetPoint("RIGHT", line.third, "LEFT", -4, 0)
     line.second = ActionButton(line)
     line.second:SetPoint("RIGHT", line.action, "LEFT", -4, 0)
     lines[index] = line
@@ -83,11 +85,12 @@ local function SetButton(button, text, onClick)
     Shown(button, text ~= nil)
 end
 
-local function SetLine(index, text, actionText, onAction, secondText, onSecond)
+local function SetLine(index, text, actionText, onAction, secondText, onSecond, thirdText, onThird)
     local line = Line(index)
     line.text:SetText(text)
     SetButton(line.action, actionText, onAction)
     SetButton(line.second, secondText, onSecond)
+    SetButton(line.third, thirdText, onThird)
     line:EnableMouse(false)
     line:Show()
 end
@@ -109,7 +112,8 @@ local function Render()
             SetLine(index, "    " .. position .. ". " .. quest.title,
                 (position > 1 or id ~= plan.doingId) and "Now" or nil,
                 function() Send("BOTPLANNOW " .. name .. " " .. id) end,
-                position > 1 and "Up" or nil, function() Send("BOTPLANUP " .. name .. " " .. id) end)
+                position > 1 and "Up" or nil, function() Send("BOTPLANUP " .. name .. " " .. id) end,
+                "Ignore", function() Send("BOTPLANIGNORE " .. name .. " " .. id) end)
         end
         if #plan.route == 0 then
             index = index + 1
@@ -118,8 +122,14 @@ local function Render()
         for _, quest in ipairs(plan.later) do
             index = index + 1
             local id = quest.id
-            SetLine(index, "    |cff999999- " .. quest.title .. " (" .. quest.reason .. ")|r",
-                "Now", function() Send("BOTPLANNOW " .. name .. " " .. id) end)
+            local text = "    |cff999999- " .. quest.title .. " (" .. quest.reason .. ")|r"
+            if quest.reason == "ignored" then
+                SetLine(index, text, nil, nil, nil, nil, "Allow",
+                    function() Send("BOTPLANALLOW " .. name .. " " .. id) end)
+            else
+                SetLine(index, text, "Now", function() Send("BOTPLANNOW " .. name .. " " .. id) end, nil, nil,
+                    "Ignore", function() Send("BOTPLANIGNORE " .. name .. " " .. id) end)
+            end
         end
     end
     for extra = index + 1, #lines do
@@ -202,7 +212,8 @@ SlashCmdList.COACBOTPLAN = TogglePlans
 local function PlansTooltip(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     GameTooltip:SetText("Bot plans")
-    GameTooltip:AddLine("Your bots' quest routes: what they do now, what comes next, and the order.", 1, 1, 1, true)
+    GameTooltip:AddLine("Your bots' quest routes: what they do now, what comes next, the order, and which quests " ..
+        "they ignore.", 1, 1, 1, true)
     GameTooltip:Show()
 end
 
