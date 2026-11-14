@@ -91,9 +91,20 @@ void TwoPlayersSteerBotBody(Player* body, bool roam)
 void TwoPlayersKeepBotBodyRoaming(Player* body)
 {
     PlayerbotAI* brain = GET_PLAYERBOT_AI(body);
-    if (!brain || brain->HasStrategy("stay", BOT_STATE_NON_COMBAT))
+    if (!brain)
         return;
     std::string const questing = QuestingStrategy();
+    if (brain->HasStrategy("stay", BOT_STATE_NON_COMBAT))
+    {
+        if (brain->HasStrategy("grind", BOT_STATE_NON_COMBAT) || brain->HasStrategy(questing, BOT_STATE_NON_COMBAT))
+        {
+            brain->ChangeStrategy("-grind,-" + questing, BOT_STATE_NON_COMBAT);
+            brain->rpgInfo.ChangeToIdle();
+            body->StopMoving();
+            body->GetMotionMaster()->Clear();
+        }
+        return;
+    }
     std::string change;
     if (brain->HasStrategy("follow", BOT_STATE_NON_COMBAT))
         change += ",-follow";

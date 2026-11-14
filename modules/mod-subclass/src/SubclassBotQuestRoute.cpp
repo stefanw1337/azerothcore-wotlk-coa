@@ -182,7 +182,7 @@ void Replan(Player* bot, PlayerbotAI* brain, BotRoute& route)
 bool Steerable(Player* bot, PlayerbotAI* brain)
 {
     return bot->IsAlive() && !bot->IsInCombat() && !bot->IsInFlight() && !bot->GetMap()->Instanceable() &&
-        brain->HasStrategy("new rpg", BOT_STATE_NON_COMBAT);
+        brain->HasStrategy("new rpg", BOT_STATE_NON_COMBAT) && !brain->HasStrategy("stay", BOT_STATE_NON_COMBAT);
 }
 
 void FollowRoute(Player* bot, PlayerbotAI* brain, BotRoute& route)
