@@ -1923,7 +1923,17 @@ void Group::SendUpdateToPlayer(ObjectGuid playerGUID, MemberSlot* slot)
     }
 
     // two heads sharing a body take one place in the list: others see the body, the rider sees itself; a head
-    // played by a bot stays listed to the other head, whose bot controls need it
+    // played by a bot stays listed to the other head, whose bot controls need it, while a party (not a raid) has room
+    // for it
+    auto const oneBody = [&](MemberSlot const& member)
+    {
+        if (slot->guid == member.guid)
+            return false;
+        ObjectGuid const body = BodyOfRider(member.guid);
+        if (body && IsMember(body))
+            return false;
+        return BodyOfRider(slot->guid) != member.guid;
+    };
     auto const botPartner = [&](MemberSlot const& member)
     {
         if (BodyOfRider(member.guid) != slot->guid && BodyOfRider(slot->guid) != member.guid)
@@ -1931,16 +1941,11 @@ void Group::SendUpdateToPlayer(ObjectGuid playerGUID, MemberSlot* slot)
         Player const* partner = ObjectAccessor::FindConnectedPlayer(member.guid);
         return partner && partner->GetSession() && partner->GetSession()->IsBot();
     };
+    bool const roomForBotPartner = !isRaidGroup() &&
+        std::count_if(m_memberSlots.begin(), m_memberSlots.end(), oneBody) < MAXGROUPSIZE - 1;
     auto const listed = [&](MemberSlot const& member)
     {
-        if (slot->guid == member.guid)
-            return false;
-        if (botPartner(member))
-            return true;
-        ObjectGuid const body = BodyOfRider(member.guid);
-        if (body && IsMember(body))
-            return false;
-        return BodyOfRider(slot->guid) != member.guid;
+        return oneBody(member) || (roomForBotPartner && botPartner(member));
     };
     data << m_guid;
     data << uint32(m_counter++);                        // 3.3, value increases every time this packet gets sent
