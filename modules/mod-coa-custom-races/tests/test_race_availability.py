@@ -91,6 +91,7 @@ struct AccountScript
 #include <iostream>
 #include "''' + (ROOT / 'src/mod_coa_custom_races.cpp').as_posix() + '''"
 void AddCoAHideArmorScripts() { }
+void AddCoAMaleOnlyRacesScripts() { }
 void Require(bool ok)
 {
     if (!ok) std::abort();

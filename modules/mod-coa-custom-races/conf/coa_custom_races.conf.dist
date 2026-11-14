@@ -37,3 +37,12 @@ CoACustomRaces.DisabledRaceIds = ""
 # A changed catalog rejects that policy until the owner reviews and saves the list again.
 # Empty keeps compatibility with manually authored restrictions.
 CoACustomRaces.DisabledRaceCatalogSha256 = ""
+
+###################################################################################################
+#  CoACustomRaces.MaleOnlyRaceIds
+#        Races with only a male model (Drakonid 98/100, Grummle 103). At every server start,
+#        female characters of these races, players and bots, become male; a female has no body.
+#        Empty turns this off.
+#        Default: "98,100,103"
+###################################################################################################
+CoACustomRaces.MaleOnlyRaceIds = "98,100,103"

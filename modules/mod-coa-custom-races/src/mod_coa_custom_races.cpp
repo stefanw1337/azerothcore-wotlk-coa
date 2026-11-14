@@ -130,10 +130,12 @@ public:
 };
 
 void AddCoAHideArmorScripts();
+void AddCoAMaleOnlyRacesScripts();
 
 void Addmod_coa_custom_racesScripts()
 {
     AddCoAHideArmorScripts();
+    AddCoAMaleOnlyRacesScripts();
     new CoACustomRacesConfig();
     new CoACustomRacesAccount();
 }
