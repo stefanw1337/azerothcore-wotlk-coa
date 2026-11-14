@@ -1048,7 +1048,9 @@ public:
         if (!TwoPlayersIsLeftHead(guid))
             return;
         Player* right = Online(TwoPlayersPartnerOf(guid));
-        if (!Seated(player, right) || !right->IsAlive())
+        if (!right || !right->IsAlive())
+            return;
+        if (!Seated(player, right) && !(SameMap(player, right) && right->IsWithinDist(player, SideBySide)))
             return;
         right->ExitVehicle();
         Unit::Kill(right, right, false);
