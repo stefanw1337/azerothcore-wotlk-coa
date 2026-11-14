@@ -694,6 +694,15 @@ bool BuffedRecently(Player const* bot, SpellInfo const* info, uint32 now)
     return false;
 }
 
+bool HoldsAnotherChoice(Player const* bot, SpellInfo const* info)
+{
+    for (auto const& [spellId, application] : bot->GetAppliedAuras())
+        if (spellId != info->Id && sSpellMgr->CheckSpellGroupStackRules(info,
+            application->GetBase()->GetSpellInfo()) != SPELL_GROUP_STACK_RULE_DEFAULT)
+            return true;
+    return false;
+}
+
 void UseLentAbilities(Player* bot, Player* body)
 {
     if (!TwoPlayersHeadIsBot(bot) || !bot->IsAlive() || bot->IsNonMeleeSpellCast(false))
@@ -723,7 +732,7 @@ void UseLentAbilities(Player* bot, Player* body)
         }
         else if (LeavesAnAura(info))
         {
-            if (!bot->HasAura(spellId) && !BuffedRecently(bot, info, now))
+            if (!bot->HasAura(spellId) && !HoldsAnotherChoice(bot, info) && !BuffedRecently(bot, info, now))
                 target = bot;
         }
         else if (body->GetHealthPct() < LentHealBelowPct)

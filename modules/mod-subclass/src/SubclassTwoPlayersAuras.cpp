@@ -5,10 +5,12 @@
 #include "Player.h"
 #include "SpellAuras.h"
 #include "SpellInfo.h"
+#include "SpellMgr.h"
 #include "UnitScript.h"
 #include <algorithm>
 #include <mutex>
 #include <set>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -70,6 +72,33 @@ bool Shared(SpellInfo const* info)
     return true;
 }
 
+bool OtherChoiceOf(SpellInfo const* chosen, SpellInfo const* held)
+{
+    return chosen->Id != held->Id &&
+        sSpellMgr->CheckSpellGroupStackRules(chosen, held) == SPELL_GROUP_STACK_RULE_EXCLUSIVE_FROM_SAME_CASTER;
+}
+
+void DropOtherChoices(Player* head, Player* other, Aura const* chosen)
+{
+    ObjectGuid const caster = chosen->GetCasterGUID();
+    if (caster != head->GetGUID() && caster != other->GetGUID())
+        return;
+    for (Player* holder : { head, other })
+    {
+        std::vector<std::pair<uint32, ObjectGuid>> dropped;
+        for (auto const& [spellId, application] : holder->GetAppliedAuras())
+        {
+            Aura const* held = application->GetBase();
+            ObjectGuid const heldCaster = held->GetCasterGUID();
+            if ((heldCaster == head->GetGUID() || heldCaster == other->GetGUID()) &&
+                OtherChoiceOf(chosen->GetSpellInfo(), held->GetSpellInfo()))
+                dropped.emplace_back(spellId, heldCaster);
+        }
+        for (auto const& [spellId, heldCaster] : dropped)
+            holder->RemoveAurasDueToSpell(spellId, heldCaster);
+    }
+}
+
 void CopyOnto(Player* other, Aura const* original)
 {
     uint32 const spellId = original->GetId();
@@ -110,6 +139,17 @@ void CopyOnto(Player* other, Aura const* original)
 
 void TwoPlayersShareBuffs(Player* first, Player* second)
 {
+    std::vector<std::tuple<time_t, Player*, uint32, ObjectGuid>> choices;
+    for (Player* holder : { first, second })
+        for (auto const& [spellId, aura] : holder->GetOwnedAuras())
+            if (Shared(aura->GetSpellInfo()) && !IsMirror(holder, spellId))
+                choices.emplace_back(aura->GetApplyTime(), holder, spellId, aura->GetCasterGUID());
+    std::sort(choices.begin(), choices.end(), [](auto const& one, auto const& two)
+        { return std::get<0>(one) < std::get<0>(two); });
+    for (auto const& [applied, holder, spellId, caster] : choices)
+        if (Aura const* aura = holder->GetAura(spellId, caster))
+            DropOtherChoices(holder, holder == first ? second : first, aura);
+
     for (auto const& [from, to] : { std::pair<Player*, Player*>(first, second), { second, first } })
     {
         std::vector<Aura*> owned;
@@ -173,7 +213,10 @@ public:
         if (mirroring || !head || aura->GetOwner() != unit || !Shared(aura->GetSpellInfo()))
             return;
         if (Player* other = TwoPlayersSeatedPartner(head))
+        {
+            DropOtherChoices(head, other, aura);
             CopyOnto(other, aura);
+        }
     }
 
     void OnAuraRemove(Unit* unit, AuraApplication* application, AuraRemoveMode mode) override
