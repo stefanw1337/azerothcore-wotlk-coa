@@ -129,7 +129,7 @@ bool StockClassUses(std::uint32_t classId, std::uint32_t itemClass, std::uint32_
 {
     for (StockProficiency const& proficiency : STOCK_PROFICIENCIES)
         if (proficiency.ItemClass == itemClass && proficiency.ItemSubClass == itemSubClass)
-            return classId && (proficiency.Classes & (1u << (classId - 1)));
+            return classId && classId <= 32 && (proficiency.Classes & (1u << (classId - 1)));
     return false;
 }
 
