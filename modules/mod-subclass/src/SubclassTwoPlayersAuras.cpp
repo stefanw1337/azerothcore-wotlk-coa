@@ -75,7 +75,16 @@ void CopyOnto(Player* other, Aura const* original)
     uint32 const spellId = original->GetId();
     Aura* copy = other->GetAura(spellId);
     if (copy && !IsMirror(other, spellId))
+    {
+        int32 const duration = original->GetDuration();
+        if (copy->GetDuration() >= 0 && (duration < 0 || duration > copy->GetDuration()))
+        {
+            copy->SetMaxDuration(duration < 0 ? -1 : std::max(copy->GetMaxDuration(), duration));
+            copy->SetDuration(duration);
+            copy->SetNeedClientUpdateForTargets();
+        }
         return;
+    }
     mirroring = true;
     if (!copy)
     {
@@ -138,8 +147,7 @@ public:
     void OnAuraApply(Unit* unit, Aura* aura) override
     {
         Player* head = unit ? unit->ToPlayer() : nullptr;
-        if (mirroring || !head || aura->GetOwner() != unit || !Shared(aura->GetSpellInfo()) ||
-            IsMirror(head, aura->GetId()))
+        if (mirroring || !head || aura->GetOwner() != unit || !Shared(aura->GetSpellInfo()))
             return;
         if (Player* other = TwoPlayersSeatedPartner(head))
             CopyOnto(other, aura);
