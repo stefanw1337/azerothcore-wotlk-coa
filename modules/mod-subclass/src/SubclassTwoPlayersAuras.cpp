@@ -88,7 +88,8 @@ void CopyOnto(Player* other, Aura const* original)
     mirroring = true;
     if (!copy)
     {
-        copy = other->AddAura(spellId, other);
+        Unit* caster = original->GetCaster();
+        copy = (caster && caster->IsInWorld() ? caster : other)->AddAura(spellId, other);
         if (copy)
             MarkMirror(other, spellId, true);
     }
@@ -118,6 +119,28 @@ void TwoPlayersShareBuffs(Player* first, Player* second)
         for (Aura* aura : owned)
             CopyOnto(to, aura);
     }
+}
+
+void TwoPlayersKeepSharedBuffsEven(Player* first, Player* second)
+{
+    TwoPlayersShareBuffs(first, second);
+    std::vector<std::pair<Aura*, Aura*>> pairs;
+    for (auto const& [spellId, aura] : first->GetOwnedAuras())
+        if (Shared(aura->GetSpellInfo()))
+            if (Aura* twin = second->GetAura(spellId))
+                pairs.emplace_back(aura, twin);
+    mirroring = true;
+    for (auto [one, two] : pairs)
+    {
+        if (one->GetDuration() < 0 || two->GetDuration() < 0 || one->GetDuration() == two->GetDuration())
+            continue;
+        Aura* shorter = one->GetDuration() < two->GetDuration() ? one : two;
+        Aura const* longer = shorter == one ? two : one;
+        shorter->SetMaxDuration(std::max(shorter->GetMaxDuration(), longer->GetDuration()));
+        shorter->SetDuration(longer->GetDuration());
+        shorter->SetNeedClientUpdateForTargets();
+    }
+    mirroring = false;
 }
 
 void TwoPlayersDropSharedBuffs(Player* holder)

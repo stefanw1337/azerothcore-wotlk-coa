@@ -48,6 +48,7 @@ void SendSubclassMessage(Player* player, std::string const& message);
 void TwoPlayersKeepBotRiderStill(Player* rider);
 Player* TwoPlayersSeatedPartner(Player const* head);
 void TwoPlayersShareBuffs(Player* first, Player* second);
+void TwoPlayersKeepSharedBuffsEven(Player* first, Player* second);
 void TwoPlayersDropSharedBuffs(Player* holder);
 void TwoPlayersSteerBotBody(Player* body, bool roam);
 void TwoPlayersKeepBotBodyRoaming(Player* body);
@@ -795,6 +796,7 @@ void KeepTogether(Player* player)
     {
         if (left)
         {
+            TwoPlayersKeepSharedBuffsEven(body, rider);
             LendBothWays(body, rider);
             UseLentAbilities(body, body);
             ShowOneBodyToGroup(body, rider);
