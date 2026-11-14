@@ -15,6 +15,7 @@
 #include "WorldSession.h"
 #include <algorithm>
 #include <array>
+#include <iterator>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -50,6 +51,8 @@ struct Ride
 };
 
 constexpr uint32 RideRetryMs = 10000;
+constexpr uint32 FirstHotsMountSpell = 9860001;
+constexpr uint32 LastHotsMountSpell = 9860999;
 
 std::mutex& rideMutex = *new std::mutex;
 std::unordered_map<uint32, Ride>& rides = *new std::unordered_map<uint32, Ride>;
@@ -116,6 +119,14 @@ bool MountUp(Player* body, Player* rider)
     std::vector<uint32> mounts;
     AddMountsOf(body, mounts);
     AddMountsOf(rider, mounts);
+    if (sConfigMgr->GetOption<bool>("Subclass.TwoPlayers.Bot.PreferHotsMounts", true))
+    {
+        std::vector<uint32> hots;
+        std::copy_if(mounts.begin(), mounts.end(), std::back_inserter(hots),
+            [](uint32 spellId) { return spellId >= FirstHotsMountSpell && spellId <= LastHotsMountSpell; });
+        if (!hots.empty())
+            mounts = hots;
+    }
     if (mounts.empty() || body->IsNonMeleeSpellCast(false))
         return false;
     SpellInfo const* mount = sSpellMgr->GetSpellInfo(mounts[urand(0, mounts.size() - 1)]);
