@@ -6,6 +6,7 @@
 #include "Config.h"
 #include "DatabaseEnv.h"
 #include "MotionMaster.h"
+#include "ObjectAccessor.h"
 #include "Player.h"
 #include "Random.h"
 #include "SpellAuraEffects.h"
@@ -56,6 +57,9 @@ struct Ride
 
 constexpr uint32 RideRetryMs = 10000;
 constexpr uint32 RemountAfterMs = 30 * IN_MILLISECONDS;
+constexpr float DistractionYards = 40.0f;
+constexpr float RestedHealthPct = 85.0f;
+constexpr float RestedManaPct = 70.0f;
 constexpr uint32 TalkEveryMs = 5 * MINUTE * IN_MILLISECONDS;
 constexpr uint32 FirstHotsMountSpell = 9860001;
 constexpr uint32 LastHotsMountSpell = 9860999;
@@ -201,6 +205,27 @@ bool Fighting(Player* body, PlayerbotAI* brain)
     return body->IsInCombat() || brain->GetState() == BOT_STATE_COMBAT;
 }
 
+bool NeedsRest(Player* body)
+{
+    return body->IsSitState() || body->GetHealthPct() < RestedHealthPct ||
+        (body->getPowerType() == POWER_MANA && body->GetPowerPct(POWER_MANA) < RestedManaPct);
+}
+
+bool Distracted(Player* body, PlayerbotAI* brain)
+{
+    AiObjectContext* context = brain->GetAiObjectContext();
+    if (context->GetValue<bool>("has available loot")->Get())
+        return true;
+    for (ObjectGuid const& guid : context->GetValue<GuidVector>("possible targets")->Get())
+    {
+        Unit* unit = ObjectAccessor::GetUnit(*body, guid);
+        if (unit && unit->IsAlive() && body->IsWithinDistInMap(unit, DistractionYards) &&
+            body->IsValidAttackTarget(unit))
+            return true;
+    }
+    return false;
+}
+
 void LinkForOneLogin(uint32 headAccount, uint32 masterAccount, bool link)
 {
     if (link)
@@ -312,7 +337,8 @@ void TwoPlayersBotBodyRides(Player* body, Player* rider, bool halted)
         ride.NextTry = 0;
     }
     if (halted || Fighting(body, brain) || !body->IsOutdoors() || body->GetVehicle() ||
-        brain->HasStrategy("stay", BOT_STATE_NON_COMBAT) || distance < MountDistance())
+        brain->HasStrategy("stay", BOT_STATE_NON_COMBAT) || distance < MountDistance() || NeedsRest(body) ||
+        Distracted(body, brain))
         return;
     {
         std::lock_guard<std::mutex> lock(rideMutex);
