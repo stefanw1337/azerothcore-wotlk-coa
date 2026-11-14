@@ -817,6 +817,17 @@ inline std::int32_t QuestGoldShare(std::int32_t money, bool meleeHead)
     return meleeHead ? money - money / 2 : money / 2;
 }
 
+inline std::uint32_t QuestItemTopUp(std::uint32_t held, std::uint32_t partnerHeld, std::uint32_t required)
+{
+    std::uint32_t const wanted = std::min(partnerHeld, required);
+    return wanted > held ? wanted - held : 0;
+}
+
+inline std::uint16_t QuestCounterCatchUp(std::uint16_t own, std::uint16_t partner, std::uint16_t required)
+{
+    return std::max(own, std::min(partner, required));
+}
+
 inline std::pair<std::uint32_t, std::uint32_t> SharedPool(std::uint32_t first, std::uint32_t firstMax,
     std::uint32_t second, std::uint32_t secondMax)
 {

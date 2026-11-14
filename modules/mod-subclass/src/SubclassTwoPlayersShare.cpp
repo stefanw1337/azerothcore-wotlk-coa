@@ -22,6 +22,7 @@ bool TwoPlayersAskStopOrGo(uint32 guid);
 bool TwoPlayersIsLeftHead(uint32 guid);
 Player* TwoPlayersSeatedPartner(Player const* head);
 Subclass::SpecializationRoles RolesOfSpecialization(uint16 specialization);
+void TwoPlayersQuestRewarded(Player* player, Quest const* quest);
 
 namespace
 {
@@ -102,10 +103,13 @@ public:
         amount = Subclass::QuestGoldShare(amount, TwoPlayersIsLeftHead(guid));
     }
 
-    void OnPlayerCompleteQuest(Player* player, Quest const* /*quest*/) override
+    void OnPlayerCompleteQuest(Player* player, Quest const* quest) override
     {
-        std::lock_guard<std::mutex> lock(shareMutex);
-        questGoldPending.erase(player->GetGUID().GetCounter());
+        {
+            std::lock_guard<std::mutex> lock(shareMutex);
+            questGoldPending.erase(player->GetGUID().GetCounter());
+        }
+        TwoPlayersQuestRewarded(player, quest);
     }
 
     void OnPlayerUpdate(Player* player, uint32 diff) override

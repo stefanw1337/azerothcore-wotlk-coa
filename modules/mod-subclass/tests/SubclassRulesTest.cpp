@@ -742,6 +742,21 @@ TEST(Subclass, QuestGoldIsSplitWithTheOddCopperToTheMeleeHead)
     EXPECT_EQ(QuestGoldShare(-50, false), -50);
 }
 
+TEST(Subclass, AHeadIsToppedUpToThePartnersQuestItemsUpToTheRequiredCount)
+{
+    EXPECT_EQ(QuestItemTopUp(0, 3, 5), 3u);
+    EXPECT_EQ(QuestItemTopUp(2, 8, 5), 3u);
+    EXPECT_EQ(QuestItemTopUp(4, 2, 5), 0u);
+    EXPECT_EQ(QuestItemTopUp(6, 9, 5), 0u);
+}
+
+TEST(Subclass, AHeadsQuestCounterCatchesUpWithoutPassingTheRequiredCount)
+{
+    EXPECT_EQ(QuestCounterCatchUp(1, 4, 8), 4);
+    EXPECT_EQ(QuestCounterCatchUp(5, 2, 8), 5);
+    EXPECT_EQ(QuestCounterCatchUp(0, 12, 8), 8);
+}
+
 TEST(Subclass, ASharedPoolSpreadsWhatBothHeadsHoldOverBothMaxima)
 {
     EXPECT_EQ(SharedPool(100, 100, 0, 100), (std::pair<std::uint32_t, std::uint32_t>(50, 50)));
