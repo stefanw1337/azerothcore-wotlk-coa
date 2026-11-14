@@ -118,7 +118,8 @@ void CopyOnto(Player* other, Aura const* original)
     if (!copy)
     {
         Unit* caster = original->GetCaster();
-        copy = (caster && caster->IsInWorld() ? caster : other)->AddAura(spellId, other);
+        bool const casterKeepsOne = original->GetSpellInfo()->IsSingleTarget();
+        copy = (caster && caster->IsInWorld() && !casterKeepsOne ? caster : other)->AddAura(spellId, other);
         if (copy)
             MarkMirror(other, spellId, true);
     }
@@ -145,7 +146,7 @@ void TwoPlayersShareBuffs(Player* first, Player* second)
             if (Shared(aura->GetSpellInfo()) && !IsMirror(holder, spellId))
                 choices.emplace_back(aura->GetApplyTime(), holder, spellId, aura->GetCasterGUID());
     std::sort(choices.begin(), choices.end(), [](auto const& one, auto const& two)
-        { return std::get<0>(one) < std::get<0>(two); });
+        { return std::get<0>(one) > std::get<0>(two); });
     for (auto const& [applied, holder, spellId, caster] : choices)
         if (Aura const* aura = holder->GetAura(spellId, caster))
             DropOtherChoices(holder, holder == first ? second : first, aura);
