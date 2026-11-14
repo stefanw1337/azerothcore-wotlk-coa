@@ -224,12 +224,24 @@ local function BarButton(bar)
     barButton = CreateFrame("Button", "CoACBotPlanBarButton", bar)
     barButton:SetWidth(34)
     barButton:SetHeight(34)
-    barButton:SetPoint("LEFT", bar, "RIGHT", 6, 0)
+    barButton:SetPoint("TOPLEFT", bar, "TOPRIGHT", 3, 0)
     barButton.icon = barButton:CreateTexture(nil, "ARTWORK")
     barButton.icon:SetAllPoints()
     barButton.icon:SetTexture("Interface\\Icons\\INV_Misc_Map_01")
     barButton.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    barButton.ring = barButton:CreateTexture(nil, "OVERLAY")
+    barButton.ring:SetTexture("Interface\\Buttons\\UI-ActionButton-Border")
+    barButton.ring:SetBlendMode("ADD")
+    barButton.ring:SetWidth(62)
+    barButton.ring:SetHeight(62)
+    barButton.ring:SetPoint("CENTER")
+    barButton.ring:SetAlpha(0.8)
     barButton.caption = barButton:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    local like = bar.last and bar.last.caption
+    if like then
+        local font, size, flags = like:GetFont()
+        barButton.caption:SetFont(font, size, flags)
+    end
     barButton.caption:SetPoint("TOP", barButton, "BOTTOM", 0, -1)
     barButton.caption:SetText("Plans")
     barButton:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
@@ -246,7 +258,7 @@ barWatch:SetScript("OnUpdate", function(self, elapsed)
         return
     end
     self.wait = 1
-    if SquidBotsLiteBar then
+    if SquidBotsLiteBar and SquidBotsLiteBar.last then
         BarButton(SquidBotsLiteBar)
         self:SetScript("OnUpdate", nil)
     end
