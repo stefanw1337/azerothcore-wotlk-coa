@@ -107,7 +107,7 @@ bool ChaseMovementGenerator<T>::DispatchSplineToPosition(T* owner, float x, floa
         isBot = owner->IsBot();
     }
 
-    if (isBot && !owner->CanFly())
+    if (isBot && !(owner->CanFly() && owner->IsFlying()))
         forceDest = false;
 
     if (owner->IsHovering())
@@ -119,7 +119,7 @@ bool ChaseMovementGenerator<T>::DispatchSplineToPosition(T* owner, float x, floa
         if (pathType & PATHFIND_NOPATH)
             return false;
 
-        if (isBot && !owner->CanFly())
+        if (isBot && !(owner->CanFly() && owner->IsFlying()))
         {
             if (pathType & (PATHFIND_NOPATH | PATHFIND_NOT_USING_PATH | PATHFIND_INCOMPLETE))
                 return false;
@@ -232,7 +232,7 @@ bool ChaseMovementGenerator<T>::DoUpdate(T* owner, uint32 time_diff)
     }
 
     bool forceDest =
-        (isBot ? owner->CanFly() :
+        (isBot ? (owner->CanFly() && owner->IsFlying()) :
         //(cOwner && (cOwner->isWorldBoss() || cOwner->IsDungeonBoss())) || // force for all bosses, even not in instances
         ((GetTarget()->IsPlayer() && GetTarget()->ToPlayer()->IsGameMaster()) || // for .npc follow
         (owner->CanFly())))
@@ -634,7 +634,7 @@ bool FollowMovementGenerator<T>::DoUpdate(T* owner, uint32 time_diff)
     }
 
     bool forceDest =
-        (isBot ? owner->CanFly() :
+        (isBot ? (owner->CanFly() && owner->IsFlying()) :
         ((followingMaster) || // allow pets following their master to cheat while generating paths
         (GetTarget()->IsPlayer() && GetTarget()->ToPlayer()->IsGameMaster()) || // for .npc follow
         (owner->CanFly())))
@@ -706,7 +706,7 @@ bool FollowMovementGenerator<T>::DoUpdate(T* owner, uint32 time_diff)
 
         bool success = i_path->CalculatePath(x, y, z, forceDest);
         bool pathInvalid = !success || (i_path->GetPathType() & PATHFIND_NOPATH && !followingMaster);
-        if (isBot && !owner->CanFly())
+        if (isBot && !(owner->CanFly() && owner->IsFlying()))
         {
             if (i_path->GetPathType() & (PATHFIND_NOPATH | PATHFIND_NOT_USING_PATH))
                 pathInvalid = true;

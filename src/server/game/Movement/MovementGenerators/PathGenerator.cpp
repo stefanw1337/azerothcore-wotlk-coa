@@ -184,7 +184,7 @@ bool PathGenerator::CalculatePath(float x, float y, float z, float destX, float 
         if (_isBot)
         {
             Player const* player = _source->ToPlayer();
-            if (player && player->CanFly())
+            if (player && player->CanFly() && player->IsFlying())
             {
                 BuildShortcut();
                 _type = PathType(PATHFIND_NORMAL | PATHFIND_NOT_USING_PATH);
@@ -208,7 +208,7 @@ bool PathGenerator::CalculatePath(float x, float y, float z, float destX, float 
     if (_isBot && (_type & (PATHFIND_NOPATH | PATHFIND_NOT_USING_PATH)))
     {
         Player const* player = _source->ToPlayer();
-        if (!player || !player->CanFly())
+        if (!player || !(player->CanFly() && player->IsFlying()))
         {
             _pathPoints.clear();
             return false;
@@ -314,7 +314,7 @@ void PathGenerator::BuildPolyPath(G3D::Vector3 const& startPos, G3D::Vector3 con
     {
         if (_isBot)
         {
-            bool canFly = player && player->CanFly();
+            bool canFly = player && player->CanFly() && player->IsFlying();
             bool canSwim = player && player->CanSwim();
             bool waterPath = IsWaterPath(_pathPoints);
             if (canFly || (waterPath && canSwim))
@@ -373,7 +373,7 @@ void PathGenerator::BuildPolyPath(G3D::Vector3 const& startPos, G3D::Vector3 con
 
         if (_isBot)
         {
-            bool canFly = player && player->CanFly();
+            bool canFly = player && player->CanFly() && player->IsFlying();
             bool canSwim = player && player->CanSwim();
             bool isWater = (canSwim && waterPath);
 

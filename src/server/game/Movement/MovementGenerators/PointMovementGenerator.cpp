@@ -82,7 +82,7 @@ void PointMovementGenerator<T>::DoInitialize(T* unit)
         }
         else
         {
-            if (isBot && (!player || !player->CanFly()))
+            if (isBot && (!player || !(player->CanFly() && player->IsFlying())))
             {
                 // Strict bot navigation: fail safe, never cheat through geometry
                 unit->ClearUnitState(UNIT_STATE_ROAMING | UNIT_STATE_ROAMING_MOVE);
@@ -102,7 +102,7 @@ void PointMovementGenerator<T>::DoInitialize(T* unit)
     }
     else
     {
-        if (isBot && !isCharge && (!player || !player->CanFly()))
+        if (isBot && !isCharge && (!player || !(player->CanFly() && player->IsFlying())))
         {
             // Strict bot navigation: unpathed straight movement prohibited for ground bots
             unit->ClearUnitState(UNIT_STATE_ROAMING | UNIT_STATE_ROAMING_MOVE);
@@ -245,7 +245,8 @@ bool PointMovementGenerator<T>::DoUpdate(T* unit, uint32 diff)
                 else
                 {
                     Player const* player = unit->ToPlayer();
-                    if (player && player->IsBot() && id != EVENT_CHARGE && id != EVENT_CHARGE_PREPATH && !player->CanFly())
+                    if (player && player->IsBot() && id != EVENT_CHARGE && id != EVENT_CHARGE_PREPATH &&
+                        !(player->CanFly() && player->IsFlying()))
                     {
                         unit->ClearUnitState(UNIT_STATE_ROAMING | UNIT_STATE_ROAMING_MOVE);
                         unit->StopMoving();
@@ -258,7 +259,8 @@ bool PointMovementGenerator<T>::DoUpdate(T* unit, uint32 diff)
         else
         {
             Player const* player = unit->ToPlayer();
-            if (player && player->IsBot() && id != EVENT_CHARGE && id != EVENT_CHARGE_PREPATH && !player->CanFly())
+            if (player && player->IsBot() && id != EVENT_CHARGE && id != EVENT_CHARGE_PREPATH &&
+                !(player->CanFly() && player->IsFlying()))
             {
                 unit->ClearUnitState(UNIT_STATE_ROAMING | UNIT_STATE_ROAMING_MOVE);
                 unit->StopMoving();
