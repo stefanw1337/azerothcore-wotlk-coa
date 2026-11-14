@@ -2,8 +2,13 @@
  * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU AGPL v3 license.
  */
 
+#include "Cell.h"
+#include "CellImpl.h"
 #include "Chat.h"
 #include "Config.h"
+#include "GameObject.h"
+#include "GridNotifiers.h"
+#include "GridNotifiersImpl.h"
 #include "Group.h"
 #include "ObjectAccessor.h"
 #include "Map.h"
@@ -16,6 +21,7 @@
 #include "WorldScript.h"
 #include "WorldSession.h"
 #include <algorithm>
+#include <list>
 #include <mutex>
 #include <set>
 #include <string>
@@ -199,6 +205,47 @@ bool Steerable(Player* bot, PlayerbotAI* brain)
         brain->HasStrategy("new rpg", BOT_STATE_NON_COMBAT) && !brain->HasStrategy("stay", BOT_STATE_NON_COMBAT);
 }
 
+GameObject* QuestObjectInSight(Player* bot, Quest const* quest, QuestStatusData const& status, int32& objective)
+{
+    float const sight = sPlayerbotAIConfig.sightDistance;
+    std::list<GameObject*> seen;
+    Acore::GameObjectInRangeCheck check(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), sight);
+    Acore::GameObjectListSearcher<Acore::GameObjectInRangeCheck> searcher(bot, seen, check);
+    Cell::VisitObjects(bot, searcher, sight);
+    GameObject* nearest = nullptr;
+    for (GameObject* go : seen)
+    {
+        GameObjectQuestItemList const* items = sObjectMgr->GetGameObjectQuestItemList(go->GetEntry());
+        if (!items || go->GetGoType() != GAMEOBJECT_TYPE_CHEST || !go->isSpawned() || go->getLootState() != GO_READY ||
+            !go->ActivateToQuest(bot) || (nearest && bot->GetDistance(go) >= bot->GetDistance(nearest)))
+            continue;
+        for (int32 i = 0; i < QUEST_ITEM_OBJECTIVES_COUNT; ++i)
+            if (quest->RequiredItemId[i] && status.ItemCount[i] < quest->RequiredItemCount[i] &&
+                std::find(items->begin(), items->end(), quest->RequiredItemId[i]) != items->end())
+            {
+                nearest = go;
+                objective = QUEST_OBJECTIVES_COUNT + i;
+                break;
+            }
+    }
+    return nearest;
+}
+
+void SteerToQuestObject(Player* bot, NewRpgInfo::DoQuest& doing)
+{
+    Quest const* quest = sObjectMgr->GetQuestTemplate(doing.questId);
+    auto const found = bot->getQuestStatusMap().find(doing.questId);
+    if (!quest || found == bot->getQuestStatusMap().end() || found->second.Status != QUEST_STATUS_INCOMPLETE)
+        return;
+    int32 objective = 0;
+    GameObject* go = QuestObjectInSight(bot, quest, found->second, objective);
+    if (!go || (doing.pos.GetMapId() == go->GetMapId() && doing.pos.GetExactDist(go) < 1.0f))
+        return;
+    doing.pos = WorldPosition(go->GetMapId(), go->GetPositionX(), go->GetPositionY(), go->GetPositionZ());
+    doing.objectiveIdx = objective;
+    doing.lastReachPOI = 0;
+}
+
 void FollowRoute(Player* bot, PlayerbotAI* brain, BotRoute& route)
 {
     if (route.Log != LogOf(bot) || route.Quests.empty())
@@ -207,12 +254,14 @@ void FollowRoute(Player* bot, PlayerbotAI* brain, BotRoute& route)
         return;
     uint32 const head = route.Quests.front();
     NewRpgInfo& info = brain->rpgInfo;
-    auto const* doing = std::get_if<NewRpgInfo::DoQuest>(&info.data);
+    auto* doing = std::get_if<NewRpgInfo::DoQuest>(&info.data);
     if (doing && Ignored(bot, doing->questId))
     {
         info.ChangeToIdle();
         doing = nullptr;
     }
+    if (doing)
+        SteerToQuestObject(bot, *doing);
     NewRpgStatus const status = info.GetStatus();
     uint64 const progress = ProgressOf(bot, head);
     if (doing && doing->questId == head)
