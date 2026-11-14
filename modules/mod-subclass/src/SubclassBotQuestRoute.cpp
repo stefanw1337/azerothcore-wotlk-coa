@@ -206,7 +206,9 @@ void FollowRoute(Player* bot, PlayerbotAI* brain, BotRoute& route)
         }
         return;
     }
-    if (status != RPG_DO_QUEST && !(status == RPG_IDLE && settings.PreferQuests))
+    bool const drifting = status == RPG_IDLE || status == RPG_WANDER_RANDOM || status == RPG_WANDER_NPC ||
+        status == RPG_GO_GRIND || status == RPG_GO_CAMP;
+    if (status != RPG_DO_QUEST && !(drifting && settings.PreferQuests))
         return;
     if (route.Head == head && route.Progress == progress)
         ++route.Steers;

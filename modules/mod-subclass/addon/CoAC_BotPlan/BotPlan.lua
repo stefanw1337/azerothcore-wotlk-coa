@@ -107,7 +107,8 @@ local function Render()
             index = index + 1
             local id = quest.id
             SetLine(index, "    " .. position .. ". " .. quest.title,
-                position > 1 and "Now" or nil, function() Send("BOTPLANNOW " .. name .. " " .. id) end,
+                (position > 1 or id ~= plan.doingId) and "Now" or nil,
+                function() Send("BOTPLANNOW " .. name .. " " .. id) end,
                 position > 1 and "Up" or nil, function() Send("BOTPLANUP " .. name .. " " .. id) end)
         end
         if #plan.route == 0 then
@@ -143,6 +144,7 @@ local function Read(name, rest)
     local plan = { name = name, status = status, route = {}, later = {} }
     if doingId ~= "0" and doingTitle ~= "" then
         plan.doing = doingTitle
+        plan.doingId = tonumber(doingId)
     end
     for id, questTitle in string.gmatch(list, "(%d+):([^;]*)") do
         plan.route[#plan.route + 1] = { id = tonumber(id), title = questTitle }

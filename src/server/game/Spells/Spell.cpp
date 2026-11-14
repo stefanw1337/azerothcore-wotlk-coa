@@ -7350,7 +7350,11 @@ SpellCastResult Spell::CheckRange(bool strict)
             else if (!targetIsVehicleBase && !m_caster->IsWithinCombatRange(target, max_range))
                 return SPELL_FAILED_OUT_OF_RANGE; //0x5A;
 
-            if (!targetIsVehicleBase && m_caster->IsPlayer() && (m_spellInfo->FacingCasterFlags & SPELL_FACING_FLAG_INFRONT) && !m_caster->HasInArc(static_cast<float>(M_PI), target) && !m_caster->IsWithinBoundaryRadius(target))
+            // A player seated on another player (a shared body or a passenger mount) cannot turn on its
+            // own and its stored facing trails the driver's, so facing is not required of it.
+            bool const ridesAPlayer = m_caster->GetVehicleBase() && m_caster->GetVehicleBase()->IsPlayer();
+
+            if (!targetIsVehicleBase && !ridesAPlayer && m_caster->IsPlayer() && (m_spellInfo->FacingCasterFlags & SPELL_FACING_FLAG_INFRONT) && !m_caster->HasInArc(static_cast<float>(M_PI), target) && !m_caster->IsWithinBoundaryRadius(target))
                 return SPELL_FAILED_UNIT_NOT_INFRONT;
         }
 
