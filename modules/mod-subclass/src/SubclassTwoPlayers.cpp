@@ -16,6 +16,7 @@
 #include "Opcodes.h"
 #include "Player.h"
 #include "PlayerScript.h"
+#include "ScriptMgr.h"
 #include "Spell.h"
 #include "SpellInfo.h"
 #include "SpellMgr.h"
@@ -55,6 +56,7 @@ namespace
 {
 constexpr uint32 KeepTogetherMs = 1000;
 constexpr float SeatReach = 40.0f;
+constexpr float SideBySide = 4.0f;
 constexpr uint32 LentBuffRecastMs = 60000;
 constexpr float LentHealBelowPct = 60.0f;
 constexpr std::size_t LentBarChunk = 200;
@@ -510,7 +512,9 @@ void Seat(Player* left, Player* right)
     if ((TwoPlayersHeadIsBot(right) || RidesHidden(right)) && !right->IsVisible())
         right->SetVisible(true);
     RevealArrival(right, false);
-    right->EnterVehicle(left, RightHeadSeat);
+    right->CastCustomSpell(VEHICLE_SPELL_RIDE_HARDCODED, SPELLVALUE_BASE_POINT0, RightHeadSeat + 1, left,
+        TRIGGERED_FULL_MASK);
+    sScriptMgr->AnticheatSetUnderACKmount(right);
     if (!Seated(left, right))
         return;
     Reclaim(left);
@@ -772,7 +776,11 @@ void KeepTogether(Player* player)
         rider->SpawnCorpseBones();
         Tell(rider, "The body you share is back on its feet, and so are you.");
     }
-    if (!close)
+    if (close && rider->IsWithinDist(body, SideBySide))
+        return;
+    if (close)
+        rider->NearTeleportTo(body->GetPositionX(), body->GetPositionY(), body->GetPositionZ(), body->GetOrientation());
+    else
         rider->TeleportTo(body->GetMapId(), body->GetPositionX(), body->GetPositionY(), body->GetPositionZ(),
             body->GetOrientation());
 }
