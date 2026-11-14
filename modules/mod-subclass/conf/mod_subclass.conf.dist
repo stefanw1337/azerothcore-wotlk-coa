@@ -166,6 +166,15 @@ Subclass.Bots.Force = 0
 
 Subclass.Bots.RebuildHours = 4
 
+#    Subclass.Bots.AnyRace
+#        With Subclass.Bots.Force: bots of every race take a subclass, not only Ogre and Thin Human bots.
+#        They follow the Two-Headed Ogre pairs and trees, and their bodies stay as they are. Use it to fill
+#        LiveMon with subclass combos from ordinary bots. Real players are never touched.
+#        Default: 0 - disabled
+#                 1 - enabled
+
+Subclass.Bots.AnyRace = 0
+
 #    Subclass.TwoPlayers.Enable
 #        Two-Players: two players share one Two-Headed Ogre (the male) or one pair of Twins. 0 switches it
 #        off: no new Two-Players characters, no pairing, and existing pairs play as single characters.

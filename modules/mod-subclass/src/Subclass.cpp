@@ -417,6 +417,7 @@ std::atomic<bool> thinHumanEnabled{ true };
 std::atomic<bool> twoHeadedOgreEnabled{ true };
 std::atomic<bool> twoPlayersEnabled{ true };
 std::atomic<bool> forceBots{ false };
+std::atomic<bool> anyRaceBots{ false };
 std::atomic<bool> travelFormsWholeBody{ true };
 std::atomic<uint32> brotherMirrorDisplay{ 977602 };
 std::vector<Subclass::Pair> pairs;
@@ -457,8 +458,18 @@ Subclass::Settings CurrentSettings()
     return settings;
 }
 
+bool BorrowsTheOgreStory(Player const* player)
+{
+    uint8 const race = player->getRace();
+    WorldSession const* session = player->GetSession();
+    return anyRaceBots && forceBots && session && session->IsBot() && race != Subclass::TwoHeadedOgreRace &&
+        race != Subclass::ThinHumanRace;
+}
+
 Subclass::Character CharacterOf(Player const* player)
 {
+    if (BorrowsTheOgreStory(player))
+        return { Subclass::TwoHeadedOgreRace, GENDER_FEMALE, player->getClass(), player->GetLevel() };
     return { player->getRace(), StoryGenderOf(player), player->getClass(), player->GetLevel() };
 }
 
@@ -702,7 +713,7 @@ bool MainMaySubclass(uint8 classId);
 
 bool MayCarrySubclass(Player const* player)
 {
-    return MainMaySubclass(player->getClass()) && SubclassRaceEnabled(player->getRace());
+    return MainMaySubclass(player->getClass()) && SubclassRaceEnabled(CharacterOf(player).Race);
 }
 
 bool MainMaySubclass(uint8 classId)
@@ -2378,6 +2389,7 @@ public:
         twoHeadedOgreEnabled = loaded.TwoHeadedOgre;
         twoPlayersEnabled = sConfigMgr->GetOption<bool>("Subclass.TwoPlayers.Enable", true);
         forceBots = loaded.ForceBots;
+        anyRaceBots = sConfigMgr->GetOption<bool>("Subclass.Bots.AnyRace", false);
         travelFormsWholeBody = loaded.TravelFormsWholeBody;
         brotherMirrorDisplay = loaded.BrotherMirrorDisplay;
         std::lock_guard<std::mutex> lock(subclassMutex);
