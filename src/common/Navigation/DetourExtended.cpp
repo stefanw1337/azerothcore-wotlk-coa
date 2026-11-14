@@ -5,6 +5,31 @@
 #include "DetourExtended.h"
 #include "DetourCommon.h"
 #include "Geometry.h"
+#include "MapDefines.h"
+#include <cmath>
+
+bool dtQueryFilterExt::passFilter(const dtPolyRef ref, dtMeshTile const* tile, dtPoly const* poly) const
+{
+    if (!dtQueryFilter::passFilter(ref, tile, poly))
+        return false;
+
+    if (_minGroundNormalUp <= 0.0f || poly->getType() != DT_POLYTYPE_GROUND || poly->getArea() != NAV_GROUND)
+        return true;
+
+    // Newell normal of the polygon; Detour's y axis points up.
+    float normal[3] = { 0.0f, 0.0f, 0.0f };
+    for (unsigned char i = 0; i < poly->vertCount; ++i)
+    {
+        float const* a = &tile->verts[poly->verts[i] * 3];
+        float const* b = &tile->verts[poly->verts[(i + 1) % poly->vertCount] * 3];
+        normal[0] += (a[1] - b[1]) * (a[2] + b[2]);
+        normal[1] += (a[2] - b[2]) * (a[0] + b[0]);
+        normal[2] += (a[0] - b[0]) * (a[1] + b[1]);
+    }
+
+    float const length = dtVlen(normal);
+    return length <= 0.0f || std::fabs(normal[1]) >= _minGroundNormalUp * length;
+}
 
 float dtQueryFilterExt::getCost(float const* pa, float const* pb,
                 const dtPolyRef /*prevRef*/, dtMeshTile const* /*prevTile*/, dtPoly const* /*prevPoly*/,
