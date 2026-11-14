@@ -2139,6 +2139,17 @@ void Group::ChangeMembersGroup(ObjectGuid guid, uint8 group)
 //      the current RR player is checked to be near the looted object.
 //      if yes, no update done.
 //      if not, he loses his turn.
+// a head seated in another member's body cannot walk to a corpse; when either head is a bot, the body loots
+static bool RidesWithBotAsLooter(Group const* group, Player const* player)
+{
+    ObjectGuid const body = BodyOfRider(player->GetGUID());
+    if (!body || !group->IsMember(body) || !player->GetVehicleBase() || player->GetVehicleBase()->GetGUID() != body)
+        return false;
+    Player const* bodyPlayer = ObjectAccessor::FindConnectedPlayer(body);
+    auto const isBot = [](Player const* head) { return head && head->GetSession() && head->GetSession()->IsBot(); };
+    return isBot(player) || isBot(bodyPlayer);
+}
+
 void Group::UpdateLooterGuid(WorldObject* pLootedObject, bool ifneed)
 {
     // round robin style looting applies for all low
@@ -2154,7 +2165,7 @@ void Group::UpdateLooterGuid(WorldObject* pLootedObject, bool ifneed)
         {
             // not update if only update if need and ok
             Player* looter = ObjectAccessor::FindPlayer(guid_itr->guid);
-            if (looter && looter->IsAtLootRewardDistance(pLootedObject))
+            if (looter && looter->IsAtLootRewardDistance(pLootedObject) && !RidesWithBotAsLooter(this, looter))
                 return;
         }
         ++guid_itr;
@@ -2165,7 +2176,7 @@ void Group::UpdateLooterGuid(WorldObject* pLootedObject, bool ifneed)
     for (member_citerator itr = guid_itr; itr != m_memberSlots.end(); ++itr)
     {
         if (Player* player = ObjectAccessor::FindPlayer(itr->guid))
-            if (player->IsAtLootRewardDistance(pLootedObject))
+            if (player->IsAtLootRewardDistance(pLootedObject) && !RidesWithBotAsLooter(this, player))
             {
                 pNewLooter = player;
                 break;
@@ -2178,7 +2189,7 @@ void Group::UpdateLooterGuid(WorldObject* pLootedObject, bool ifneed)
         for (member_citerator itr = m_memberSlots.begin(); itr != guid_itr; ++itr)
         {
             if (Player* player = ObjectAccessor::FindPlayer(itr->guid))
-                if (player->IsAtLootRewardDistance(pLootedObject))
+                if (player->IsAtLootRewardDistance(pLootedObject) && !RidesWithBotAsLooter(this, player))
                 {
                     pNewLooter = player;
                     break;
