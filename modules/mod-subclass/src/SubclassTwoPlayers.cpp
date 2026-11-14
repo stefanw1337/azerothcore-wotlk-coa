@@ -943,16 +943,6 @@ void WearTheBodysGear(Player* rider, Player const* body)
     }
 }
 
-ObjectGuid TwoPlayersWornCopyAt(Player const* rider, uint8 slot)
-{
-    if (slot >= EQUIPMENT_SLOT_END)
-        return ObjectGuid::Empty;
-    std::lock_guard<std::mutex> lock(copyMutex);
-    auto const found = wornCopies.find(rider->GetGUID().GetCounter());
-    Item const* copy = found == wornCopies.end() ? nullptr : found->second[slot].Copy;
-    return copy ? copy->GetGUID() : ObjectGuid::Empty;
-}
-
 void LeaveOwnGearBehind(Player* rider)
 {
     bool destroyed = false;
@@ -1309,6 +1299,16 @@ std::string TwoPlayersRide(Player* rider)
     if (!TwoPlayersHeadIsBot(body))
         return body->GetName() + " walks the body; ask them to mount up.";
     return TwoPlayersBotBodyRideToggle(body, rider);
+}
+
+ObjectGuid TwoPlayersWornCopyAt(Player const* rider, uint8 slot)
+{
+    if (slot >= EQUIPMENT_SLOT_END)
+        return ObjectGuid::Empty;
+    std::lock_guard<std::mutex> lock(copyMutex);
+    auto const found = wornCopies.find(rider->GetGUID().GetCounter());
+    Item const* copy = found == wornCopies.end() ? nullptr : found->second[slot].Copy;
+    return copy ? copy->GetGUID() : ObjectGuid::Empty;
 }
 
 Player* TwoPlayersSeatedPartner(Player const* head)
