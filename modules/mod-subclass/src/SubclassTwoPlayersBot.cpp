@@ -2,11 +2,15 @@
  * Copyright (C) 2016+ AzerothCore <www.azerothcore.org>, released under GNU AGPL v3 license.
  */
 
+#include "CellImpl.h"
 #include "CharacterCache.h"
 #include "Config.h"
 #include "DatabaseEnv.h"
+#include "DBCStores.h"
+#include "GameObject.h"
+#include "GridNotifiers.h"
+#include "GridNotifiersImpl.h"
 #include "MotionMaster.h"
-#include "ObjectAccessor.h"
 #include "Player.h"
 #include "Random.h"
 #include "SpellAuraEffects.h"
@@ -17,6 +21,7 @@
 #include <algorithm>
 #include <array>
 #include <iterator>
+#include <list>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -43,6 +48,16 @@ std::string QuestingStrategy()
     return sPlayerbotAIConfig.enableNewRpgStrategy ? "new rpg" : "rpg";
 }
 
+struct Treasure
+{
+    ObjectGuid Target;
+    uint32 Since = 0;
+    uint32 LastLook = 0;
+    std::unordered_map<ObjectGuid::LowType, uint32> Tried;
+};
+
+std::unordered_map<uint32, Treasure>& treasures = *new std::unordered_map<uint32, Treasure>;
+
 struct Ride
 {
     uint32 NextTry = 0;
@@ -53,11 +68,21 @@ struct Ride
     uint32 LastDown = 0;
     uint32 LastMountLine = 0;
     uint32 LastDropLine = 0;
+    uint32 MountedAt = 0;
+    uint32 PausedAt = 0;
 };
 
 constexpr uint32 RideRetryMs = 10000;
 constexpr uint32 RemountAfterMs = 30 * IN_MILLISECONDS;
-constexpr float DistractionYards = 40.0f;
+constexpr float DistractionYards = 60.0f;
+constexpr float TreasureYards = 40.0f;
+constexpr float TreasureReach = 4.0f;
+constexpr uint32 TreasureLookMs = 2 * IN_MILLISECONDS;
+constexpr uint32 TreasureGiveUpMs = 25 * IN_MILLISECONDS;
+constexpr uint32 TreasureForgetMs = 10 * MINUTE * IN_MILLISECONDS;
+constexpr uint32 TreasureMoveId = 0x54524541;
+constexpr uint32 ShortRideMs = 20 * IN_MILLISECONDS;
+constexpr uint32 PauseAfterShortRideMs = 3 * MINUTE * IN_MILLISECONDS;
 constexpr float RestedHealthPct = 85.0f;
 constexpr float RestedManaPct = 70.0f;
 constexpr uint32 TalkEveryMs = 5 * MINUTE * IN_MILLISECONDS;
@@ -181,6 +206,10 @@ bool MountUp(Player* body, Player* rider, bool asked)
     body->GetMotionMaster()->Clear();
     if (body->CastSpell(body, mount, TRIGGERED_NONE) != SPELL_CAST_OK)
         return false;
+    {
+        std::lock_guard<std::mutex> lock(rideMutex);
+        rides[body->GetGUID().GetCounter()].MountedAt = getMSTime();
+    }
     if (!MayTalk(body, asked))
         return true;
     BodyEmote(body, std::string("hoists the ") + mount->SpellName[LOCALE_enUS] + " onto his shoulders.");
@@ -193,7 +222,12 @@ void GetDown(Player* body)
 {
     {
         std::lock_guard<std::mutex> lock(rideMutex);
-        rides[body->GetGUID().GetCounter()].LastDown = getMSTime();
+        Ride& ride = rides[body->GetGUID().GetCounter()];
+        uint32 const now = getMSTime();
+        ride.LastDown = now;
+        if (ride.MountedAt && getMSTimeDiff(ride.MountedAt, now) < ShortRideMs)
+            ride.PausedAt = now;
+        ride.MountedAt = 0;
     }
     if (MayTalk(body, false))
         BodyEmote(body, Acore::StringFormat(DropLines[FreshLine(body, DropLines.size(), true)], MountName(body)));
@@ -211,19 +245,129 @@ bool NeedsRest(Player* body)
         (body->getPowerType() == POWER_MANA && body->GetPowerPct(POWER_MANA) < RestedManaPct);
 }
 
-bool Distracted(Player* body, PlayerbotAI* brain)
+bool EnemyNear(Player* body)
 {
-    AiObjectContext* context = brain->GetAiObjectContext();
-    if (context->GetValue<bool>("has available loot")->Get())
-        return true;
-    for (ObjectGuid const& guid : context->GetValue<GuidVector>("possible targets")->Get())
+    std::list<Unit*> near;
+    Acore::AnyUnfriendlyUnitInObjectRangeCheck check(body, body, DistractionYards);
+    Acore::UnitListSearcher<Acore::AnyUnfriendlyUnitInObjectRangeCheck> searcher(body, near, check);
+    Cell::VisitObjects(body, searcher, DistractionYards);
+    for (Unit* unit : near)
     {
-        Unit* unit = ObjectAccessor::GetUnit(*body, guid);
-        if (unit && unit->IsAlive() && body->IsWithinDistInMap(unit, DistractionYards) &&
-            body->IsValidAttackTarget(unit))
+        Creature const* creature = unit->ToCreature();
+        if (creature && !creature->IsCivilian() && body->IsValidAttackTarget(unit))
             return true;
     }
     return false;
+}
+
+bool OpensWithoutSkill(GameObject const* go)
+{
+    uint32 const lockId = go->GetGOInfo()->GetLockId();
+    LockEntry const* lock = lockId ? sLockStore.LookupEntry(lockId) : nullptr;
+    if (!lock)
+        return true;
+    for (uint8 index = 0; index < MAX_LOCK_CASE; ++index)
+    {
+        if (lock->Type[index] == LOCK_KEY_ITEM)
+            return false;
+        if (lock->Type[index] == LOCK_KEY_SKILL && SkillByLockType(LockType(lock->Index[index])) != SKILL_NONE)
+            return false;
+    }
+    return true;
+}
+
+bool IsTreasure(Player* body, GameObject const* go)
+{
+    if (go->GetGoType() != GAMEOBJECT_TYPE_CHEST || !go->isSpawned() || go->getLootState() != GO_READY ||
+        !go->GetGOInfo()->chest.lootId || !OpensWithoutSkill(go))
+        return false;
+    return !go->GetGOInfo()->chest.questId || go->ActivateToQuest(body);
+}
+
+GameObject* TreasureInSight(Player* body, Treasure const& treasure, uint32 now)
+{
+    std::list<GameObject*> seen;
+    Acore::GameObjectInRangeCheck check(body->GetPositionX(), body->GetPositionY(), body->GetPositionZ(),
+        TreasureYards);
+    Acore::GameObjectListSearcher<Acore::GameObjectInRangeCheck> searcher(body, seen, check);
+    Cell::VisitObjects(body, searcher, TreasureYards);
+    GameObject* nearest = nullptr;
+    for (GameObject* go : seen)
+    {
+        auto const tried = treasure.Tried.find(go->GetSpawnId());
+        if ((tried != treasure.Tried.end() && getMSTimeDiff(tried->second, now) < TreasureForgetMs) ||
+            !IsTreasure(body, go) || (nearest && body->GetDistance(go) >= body->GetDistance(nearest)))
+            continue;
+        nearest = go;
+    }
+    return nearest;
+}
+
+void OpenTreasure(Player* body, GameObject* go)
+{
+    if (body->IsMounted())
+        body->RemoveAurasByType(SPELL_AURA_MOUNTED);
+    body->StopMoving();
+    body->SetFacingToObject(go);
+    WorldPacket use(CMSG_GAMEOBJ_USE, 8);
+    use << go->GetGUID();
+    body->GetSession()->HandleGameObjectUseOpcode(use);
+}
+
+bool OpenAfterUnlock(Player* body, GameObject* go)
+{
+    rideMutex.unlock();
+    OpenTreasure(body, go);
+    rideMutex.lock();
+    return true;
+}
+
+bool SeekTreasure(Player* body, PlayerbotAI* brain, bool halted)
+{
+    uint32 const now = getMSTime();
+    uint32 const guid = body->GetGUID().GetCounter();
+    std::lock_guard<std::mutex> lock(rideMutex);
+    Treasure& treasure = treasures[guid];
+    if (halted || Fighting(body, brain) || brain->HasStrategy("stay", BOT_STATE_NON_COMBAT) ||
+        body->IsNonMeleeSpellCast(false))
+    {
+        treasure.Target.Clear();
+        return false;
+    }
+    GameObject* go = treasure.Target ? body->GetMap()->GetGameObject(treasure.Target) : nullptr;
+    if (go && (!IsTreasure(body, go) || getMSTimeDiff(treasure.Since, now) > TreasureGiveUpMs))
+    {
+        treasure.Tried[go->GetSpawnId()] = now;
+        go = nullptr;
+    }
+    if (!go)
+    {
+        treasure.Target.Clear();
+        if (treasure.LastLook && getMSTimeDiff(treasure.LastLook, now) < TreasureLookMs)
+            return false;
+        treasure.LastLook = now;
+        go = TreasureInSight(body, treasure, now);
+        if (!go)
+            return false;
+        treasure.Target = go->GetGUID();
+        treasure.Since = now;
+    }
+    brain->SetNextCheckDelay(IN_MILLISECONDS);
+    if (!body->IsWithinDistInMap(go, TreasureReach))
+    {
+        if (!body->isMoving())
+            body->GetMotionMaster()->MovePoint(TreasureMoveId, go->GetPositionX(), go->GetPositionY(),
+                go->GetPositionZ());
+        return true;
+    }
+    treasure.Tried[go->GetSpawnId()] = now;
+    treasure.Target.Clear();
+    return OpenAfterUnlock(body, go);
+}
+
+bool Distracted(Player* body, PlayerbotAI* brain)
+{
+    return brain->GetAiObjectContext()->GetValue<bool>("has available loot")->Get() || EnemyNear(body);
 }
 
 void LinkForOneLogin(uint32 headAccount, uint32 masterAccount, bool link)
@@ -316,6 +460,8 @@ void TwoPlayersBotBodyRides(Player* body, Player* rider, bool halted)
     PlayerbotAI* brain = GET_PLAYERBOT_AI(body);
     if (!brain || !body->IsAlive())
         return;
+    if (SeekTreasure(body, brain, halted))
+        return;
     if (body->IsMounted())
     {
         if (Fighting(body, brain))
@@ -332,7 +478,8 @@ void TwoPlayersBotBodyRides(Player* body, Player* rider, bool halted)
             return;
         ride.Held = false;
         if ((ride.NextTry && getMSTimeDiff(ride.NextTry, now) < RideRetryMs) ||
-            (ride.LastDown && getMSTimeDiff(ride.LastDown, now) < RemountAfterMs))
+            (ride.LastDown && getMSTimeDiff(ride.LastDown, now) < RemountAfterMs) ||
+            (ride.PausedAt && getMSTimeDiff(ride.PausedAt, now) < PauseAfterShortRideMs))
             return;
         ride.NextTry = 0;
     }
