@@ -847,7 +847,11 @@ void KeepTogether(Player* player)
             ShowOneBodyToGroup(body, rider);
         }
         else
+        {
             UseLentAbilities(rider, body);
+            if (rider->GetDisplayId() == InvisibleDisplay)
+                rider->RestoreDisplayId();
+        }
         return;
     }
     if (left)
@@ -872,6 +876,8 @@ void KeepTogether(Player* player)
     {
         rider->ResurrectPlayer(body->GetHealthPct() / 100.0f);
         rider->SpawnCorpseBones();
+        if (close)
+            Seat(body, rider);
         Tell(rider, "The body you share is back on its feet, and so are you.");
     }
     if (!close)
@@ -1105,7 +1111,10 @@ public:
 
     void OnPlayerResurrect(Player* player, float /*restorePercent*/, bool& /*applySickness*/) override
     {
-        if (player->GetDisplayId() == InvisibleDisplay && TwoPlayersPartnerOf(player->GetGUID().GetCounter()))
+        uint32 const guid = player->GetGUID().GetCounter();
+        Player* partner = Online(TwoPlayersPartnerOf(guid));
+        bool const rejoiningBody = partner && partner->IsAlive() && !TwoPlayersIsLeftHead(guid);
+        if (player->GetDisplayId() == InvisibleDisplay && TwoPlayersPartnerOf(guid) && !rejoiningBody)
             player->RestoreDisplayId();
     }
 
