@@ -31,6 +31,7 @@ uint32 TwoPlayersPartnerOf(uint32 guid);
 bool TwoPlayersHeadIsBot(Player const* head);
 bool TwoPlayersIsLeftHead(uint32 guid);
 Player* TwoPlayersSeatedPartner(Player const* head);
+void TwoPlayersSendAddon(Player* player, std::string const& message);
 
 namespace
 {
@@ -77,6 +78,13 @@ std::unordered_map<uint32, LimitBreak>& limitBreaks = *new std::unordered_map<ui
 uint32 GaugeSize()
 {
     return std::max<uint32>(1, sConfigMgr->GetOption<uint32>("Subclass.TwoPlayers.BonkHeads.SharedHits", 20));
+}
+
+void TellBonkReady(Player* body, Player* rider, bool ready)
+{
+    for (Player* head : { body, rider })
+        if (head)
+            TwoPlayersSendAddon(head, ready ? "BONKREADY" : "BONKSPENT");
 }
 
 void Tell(Player* player, std::string const& text)
@@ -179,6 +187,7 @@ void CountHit(Player* head, Unit* victim)
             "a second.";
         Tell(body, line);
         Tell(rider, line);
+        TellBonkReady(body, rider, true);
     }
     if (after.Mode == before.Mode && after.Stacks == before.Stacks)
         return;
@@ -331,6 +340,7 @@ void BonkHeads(Player* body, Player* rider)
     std::string const line = "|cffd8b46a[The body]|r BONK! The Melee Head throws, the Ranged Head breathes.";
     Tell(body, line);
     Tell(rider, line);
+    TellBonkReady(body, rider, false);
     if (target)
         ThrowWhatIsWielded(body, target);
     std::lock_guard<std::mutex> lock(racialMutex);

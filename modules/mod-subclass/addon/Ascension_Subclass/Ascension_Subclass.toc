@@ -13,6 +13,7 @@ SubclassOrbs.lua
 SubclassNodes.lua
 SubclassChoices.lua
 SubclassGlow.lua
+SubclassBonk.lua
 SubclassPetBar.lua
 SubclassPairs.lua
 SubclassCarry.lua
