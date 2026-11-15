@@ -9,6 +9,14 @@ local SECTIONS = {
     { load = "C", title = "Kept - click one to always sell that kind" },
 }
 
+local QUALITY_BASE = 4294967040
+local QUALITIES = {
+    { quality = 1, name = "white", color = "ffffffff" },
+    { quality = 2, name = "green", color = "ff1eff00" },
+    { quality = 3, name = "blue", color = "ff0070dd", warn = true },
+    { quality = 4, name = "epic", color = "ffa335ee", warn = true },
+}
+
 local loads, marked, incoming, incomingMarked = {}, {}, {}, {}
 local worth, alone = 0, false
 
@@ -45,8 +53,8 @@ close:SetPoint("TOPRIGHT", -4, -4)
 local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 hint:SetPoint("TOP", 0, -32)
 hint:SetWidth(COLUMNS * SLOT)
-hint:SetText("Drop one of your items here, or click one under Kept, to always sell that kind. " ..
-    "Click a marked item to keep it again.")
+hint:SetText("Drop one of your items here, or click one under Kept, to always sell that item. " ..
+    "Click a marked item to keep it again. Right-click an item for more.")
 
 local total = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 total:SetPoint("BOTTOMLEFT", 20, 18)
@@ -61,7 +69,41 @@ send:SetScript("OnClick", function()
     frame.wait = REFRESH_SECONDS - 0.5
 end)
 
-local headers, slots = {}, {}
+local headers, slots, qualityButtons = {}, {}, {}
+local menu = CreateFrame("Frame", "CoACCourierMenu", UIParent, "UIDropDownMenuTemplate")
+
+local function QualityText(entry)
+    return "|c" .. entry.color .. entry.name .. "|r"
+end
+
+local function SellsQuality(quality)
+    return marked[QUALITY_BASE + quality] == true
+end
+
+local function ToggleQuality(entry)
+    if SellsQuality(entry.quality) then
+        Send("COURIERUNMARK " .. (QUALITY_BASE + entry.quality))
+    elseif entry.warn then
+        local popup = StaticPopup_Show("COACCOURIER_QUALITY", QualityText(entry))
+        if popup then
+            popup.data = entry.quality
+        end
+    else
+        Send("COURIERMARK " .. (QUALITY_BASE + entry.quality))
+    end
+end
+
+function CoACCourierQualityMenu()
+    local lines = {}
+    for _, entry in ipairs(QUALITIES) do
+        lines[#lines + 1] = {
+            text = "Every " .. QualityText(entry) .. " item" .. (entry.warn and " (asks first)" or ""),
+            checked = SellsQuality(entry.quality),
+            func = function() ToggleQuality(entry) end,
+        }
+    end
+    return lines
+end
 
 local function Mark(entry, link)
     local _, _, quality = GetItemInfo(entry)
@@ -73,6 +115,21 @@ local function Mark(entry, link)
         return
     end
     Send("COURIERMARK " .. entry)
+end
+
+local function ItemMenu(slot)
+    local _, link = GetItemInfo(slot.entry)
+    local lines = { { text = link or ("item " .. slot.entry), isTitle = true, notCheckable = true } }
+    if slot.load == "M" then
+        lines[#lines + 1] = { text = "Keep this item again", notCheckable = true,
+            func = function() Send("COURIERUNMARK " .. slot.entry) end }
+    elseif slot.load ~= "J" and slot.load ~= "Q" then
+        lines[#lines + 1] = { text = "Always sell this item", notCheckable = true,
+            func = function() Mark(slot.entry, link) end }
+    end
+    lines[#lines + 1] = { text = "Courier sells every...", notCheckable = true, hasArrow = true,
+        menuList = CoACCourierQualityMenu() }
+    EasyMenu(lines, menu, "cursor", 0, 0, "MENU")
 end
 
 local function Coins(money)
@@ -125,8 +182,11 @@ local function Slot(index)
     slot:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
     slot:SetScript("OnEnter", ShowSlotTooltip)
     slot:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    slot:SetScript("OnClick", function(self)
-        if CursorHasItem() then
+    slot:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    slot:SetScript("OnClick", function(self, mouse)
+        if mouse == "RightButton" then
+            ItemMenu(self)
+        elseif CursorHasItem() then
             frame:GetScript("OnReceiveDrag")(frame)
         elseif self.load == "M" then
             Send("COURIERUNMARK " .. self.entry)
@@ -140,8 +200,43 @@ local function Slot(index)
     return slot
 end
 
+local qualityLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+qualityLabel:SetPoint("TOPLEFT", 20, -58)
+qualityLabel:SetText("Always sell:")
+for index, entry in ipairs(QUALITIES) do
+    local button = CreateFrame("Button", nil, frame)
+    button:SetWidth(52)
+    button:SetHeight(16)
+    button:SetPoint("LEFT", qualityLabel, "RIGHT", 6 + (index - 1) * 56, 0)
+    button.text = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    button.text:SetPoint("CENTER")
+    button.text:SetText(QualityText(entry))
+    button.mark = button:CreateTexture(nil, "BACKGROUND")
+    button.mark:SetAllPoints()
+    button.mark:SetTexture(1, 0.82, 0, 0.35)
+    button:SetHighlightTexture("Interface\\Buttons\\UI-Panel-Button-Highlight", "ADD")
+    button:SetScript("OnClick", function() ToggleQuality(entry) end)
+    button:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(SellsQuality(entry.quality) and "The courier sells every " .. entry.name ..
+            " item both heads carry. Click to stop." or "Click to have the courier sell every " .. entry.name ..
+            " item both heads carry.", nil, nil, nil, nil, true)
+        GameTooltip:Show()
+    end)
+    button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    qualityButtons[index] = button
+end
+
 local function Render()
-    local y, used, shownHeaders = -52, 0, 0
+    for index, entry in ipairs(QUALITIES) do
+        local button = qualityButtons[index]
+        if SellsQuality(entry.quality) then
+            button.mark:Show()
+        else
+            button.mark:Hide()
+        end
+    end
+    local y, used, shownHeaders = -74, 0, 0
     local rows = {}
     for _, section in ipairs(SECTIONS) do
         local list = {}
@@ -156,7 +251,7 @@ local function Render()
                 carried[entry.entry] = true
             end
             for entry in pairs(marked) do
-                if not carried[entry] then
+                if not carried[entry] and entry < QUALITY_BASE then
                     list[#list + 1] = { load = "M", entry = entry, count = 0, money = 0 }
                 end
             end
@@ -208,6 +303,18 @@ local function Render()
     total:SetText("Worth: " .. Coins(worth))
     frame:SetHeight(-y + 50)
 end
+
+StaticPopupDialogs["COACCOURIER_QUALITY"] = {
+    text = "Have the courier sell every %s item both heads carry, including gear in your bags?",
+    button1 = YES,
+    button2 = NO,
+    OnAccept = function(_, quality)
+        Send("COURIERMARK " .. (QUALITY_BASE + quality))
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+}
 
 StaticPopupDialogs["COACCOURIER_EPIC"] = {
     text = "Always sell every %s? It is epic or better.",
@@ -355,9 +462,14 @@ function EasyMenu(menuList, menuFrame, ...)
         for _, line in ipairs(menuList) do
             if entry and type(line) == "table" and line.func and string.find(line.text or "", "vendor") then
                 local _, link = GetItemInfo(entry)
-                line.text = "Always sell with the courier"
+                line.text = "Courier: always sell this item"
                 line.func = function()
                     Mark(entry, link)
+                end
+                line.hasArrow = true
+                line.menuList = { { text = "Courier sells every...", isTitle = true, notCheckable = true } }
+                for _, quality in ipairs(CoACCourierQualityMenu()) do
+                    line.menuList[#line.menuList + 1] = quality
                 end
             end
         end

@@ -26,6 +26,7 @@ void TwoPlayersSendAddon(Player* player, std::string const& message);
 namespace
 {
 constexpr uint32 AutoCheckMs = 5000;
+constexpr uint32 QualityMarkBase = 0xFFFFFF00;
 
 struct Payout
 {
@@ -106,7 +107,7 @@ Load LoadOf(Player const* holder, Item const* item, Marks const& marked)
         return Load::None;
     if (proto->Quality == ITEM_QUALITY_POOR)
         return Load::Junk;
-    return marked.count(proto->ItemId) ? Load::Marked : Load::None;
+    return marked.count(proto->ItemId) || marked.count(QualityMarkBase + proto->Quality) ? Load::Marked : Load::None;
 }
 
 template <typename Visit>
@@ -280,10 +281,13 @@ void TwoPlayersCourierList(Player* presser)
 
 void TwoPlayersCourierMark(Player* presser, uint32 entry, bool mark)
 {
-    ItemTemplate const* proto = sObjectMgr->GetItemTemplate(entry);
-    if (!proto)
+    bool const quality = entry >= QualityMarkBase;
+    if (quality && (entry - QualityMarkBase < ITEM_QUALITY_NORMAL || entry - QualityMarkBase > ITEM_QUALITY_EPIC))
         return;
-    if (mark && (!proto->SellPrice || proto->Bonding == BIND_QUEST_ITEM))
+    ItemTemplate const* proto = quality ? nullptr : sObjectMgr->GetItemTemplate(entry);
+    if (!quality && !proto)
+        return;
+    if (proto && mark && (!proto->SellPrice || proto->Bonding == BIND_QUEST_ITEM))
     {
         Tell(presser, proto->Name1 + " cannot be sold, so the courier will not take it.");
         TwoPlayersCourierList(presser);
