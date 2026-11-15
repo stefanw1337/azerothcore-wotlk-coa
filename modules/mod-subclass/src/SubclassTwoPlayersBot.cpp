@@ -247,11 +247,11 @@ bool NeedsRest(Player* body)
 
 bool EnemyNear(Player* body)
 {
-    std::list<Unit*> near;
+    std::list<Unit*> around;
     Acore::AnyUnfriendlyUnitInObjectRangeCheck check(body, body, DistractionYards);
-    Acore::UnitListSearcher<Acore::AnyUnfriendlyUnitInObjectRangeCheck> searcher(body, near, check);
+    Acore::UnitListSearcher<Acore::AnyUnfriendlyUnitInObjectRangeCheck> searcher(body, around, check);
     Cell::VisitObjects(body, searcher, DistractionYards);
-    for (Unit* unit : near)
+    for (Unit* unit : around)
     {
         Creature const* creature = unit->ToCreature();
         if (creature && !creature->IsCivilian() && body->IsValidAttackTarget(unit))
