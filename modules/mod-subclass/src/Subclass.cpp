@@ -1463,7 +1463,7 @@ void HandleAddonMessage(Player* player, std::string_view message)
             ChatHandler(player->GetSession()).SendSysMessage(refusal);
         SendAddon(player, RelicState(player));
     }
-    else if (!words.empty() && words[0].starts_with("PAIR"))
+    else if (!words.empty() && (words[0].starts_with("PAIR") || words[0].starts_with("COURIER")))
         HandlePairMessage(player, words);
     else if (words.size() == 1 && words[0] == "BOTPLAN")
         SendBotPlans(player);

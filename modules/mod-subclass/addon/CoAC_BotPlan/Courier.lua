@@ -6,6 +6,7 @@ local SECTIONS = {
     { load = "J", title = "Grey junk" },
     { load = "M", title = "Marked to sell" },
     { load = "Q", title = "Leftover quest items (thrown away, no coins)" },
+    { load = "C", title = "Kept - click one to always sell that kind" },
 }
 
 local loads, marked, incoming, incomingMarked = {}, {}, {}, {}
@@ -44,7 +45,8 @@ close:SetPoint("TOPRIGHT", -4, -4)
 local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 hint:SetPoint("TOP", 0, -32)
 hint:SetWidth(COLUMNS * SLOT)
-hint:SetText("Drop an item here to always sell that kind. Click a marked item to keep it again.")
+hint:SetText("Drop one of your items here, or click one under Kept, to always sell that kind. " ..
+    "Click a marked item to keep it again.")
 
 local total = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 total:SetPoint("BOTTOMLEFT", 20, 18)
@@ -60,6 +62,18 @@ send:SetScript("OnClick", function()
 end)
 
 local headers, slots = {}, {}
+
+local function Mark(entry, link)
+    local _, _, quality = GetItemInfo(entry)
+    if quality and quality >= 4 then
+        local popup = StaticPopup_Show("COACCOURIER_EPIC", link or ("item " .. entry))
+        if popup then
+            popup.data = entry
+        end
+        return
+    end
+    Send("COURIERMARK " .. entry)
+end
 
 local function Coins(money)
     local text = ""
@@ -90,6 +104,8 @@ local function ShowSlotTooltip(slot)
     end
     if slot.load == "M" then
         GameTooltip:AddLine("Click to keep this kind of item again.", 0, 1, 0)
+    elseif slot.load == "C" then
+        GameTooltip:AddLine("Click to always sell this kind of item.", 0, 1, 0)
     end
     GameTooltip:Show()
 end
@@ -114,6 +130,9 @@ local function Slot(index)
             frame:GetScript("OnReceiveDrag")(frame)
         elseif self.load == "M" then
             Send("COURIERUNMARK " .. self.entry)
+        elseif self.load == "C" then
+            local _, link = GetItemInfo(self.entry)
+            Mark(self.entry, link)
         end
     end)
     slot:SetScript("OnReceiveDrag", function() frame:GetScript("OnReceiveDrag")(frame) end)
@@ -208,15 +227,7 @@ frame:SetScript("OnReceiveDrag", function()
         return
     end
     ClearCursor()
-    local _, _, quality = GetItemInfo(entry)
-    if quality and quality >= 4 then
-        local popup = StaticPopup_Show("COACCOURIER_EPIC", link or ("item " .. entry))
-        if popup then
-            popup.data = entry
-        end
-        return
-    end
-    Send("COURIERMARK " .. entry)
+    Mark(entry, link)
 end)
 frame:SetScript("OnMouseUp", function(self)
     if CursorHasItem() then

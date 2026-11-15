@@ -75,7 +75,7 @@ struct Ride
 constexpr uint32 RideRetryMs = 10000;
 constexpr uint32 RemountAfterMs = 30 * IN_MILLISECONDS;
 constexpr float DistractionYards = 60.0f;
-constexpr float TreasureYards = 40.0f;
+constexpr float TreasureYards = 60.0f;
 constexpr float TreasureReach = 4.0f;
 constexpr uint32 TreasureLookMs = 2 * IN_MILLISECONDS;
 constexpr uint32 TreasureGiveUpMs = 25 * IN_MILLISECONDS;

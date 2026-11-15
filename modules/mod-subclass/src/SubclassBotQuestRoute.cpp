@@ -44,6 +44,11 @@ constexpr uint32 CheckMs = 2000;
 constexpr float QuestReach = 1500.0f;
 constexpr uint32 StuckSteers = 3;
 constexpr uint32 SkipMs = 15 * MINUTE * IN_MILLISECONDS;
+constexpr float ObjectReach = 4.0f;
+constexpr float PassingYards = 60.0f;
+constexpr uint32 ObjectGiveUpMs = 30 * IN_MILLISECONDS;
+constexpr uint32 ObjectForgetMs = 5 * MINUTE * IN_MILLISECONDS;
+constexpr uint32 ObjectMoveId = 0x5CB0;
 
 struct RouteSettings
 {
@@ -62,6 +67,10 @@ struct BotRoute
     std::vector<uint32> Priority;
     std::vector<std::pair<uint32, std::string_view>> Unplanned;
     std::unordered_map<uint32, uint32> SkippedAt;
+    ObjectGuid Object;
+    uint32 ObjectQuest = 0;
+    uint32 ObjectSince = 0;
+    std::unordered_map<ObjectGuid::LowType, uint32> ObjectTried;
 };
 
 RouteSettings settings;
@@ -250,45 +259,116 @@ bool Steerable(Player* bot, PlayerbotAI* brain)
         brain->HasStrategy("new rpg", BOT_STATE_NON_COMBAT) && !brain->HasStrategy("stay", BOT_STATE_NON_COMBAT);
 }
 
-GameObject* QuestObjectInSight(Player* bot, Quest const* quest, QuestStatusData const& status, int32& objective)
+int32 ObjectiveFrom(Player* bot, uint32 questId, GameObjectQuestItemList const& items)
 {
+    Quest const* quest = sObjectMgr->GetQuestTemplate(questId);
+    auto const found = bot->getQuestStatusMap().find(questId);
+    if (!quest || found == bot->getQuestStatusMap().end() || found->second.Status != QUEST_STATUS_INCOMPLETE ||
+        Ignored(bot, questId))
+        return -1;
+    for (int32 i = 0; i < QUEST_ITEM_OBJECTIVES_COUNT; ++i)
+        if (quest->RequiredItemId[i] && found->second.ItemCount[i] < quest->RequiredItemCount[i] &&
+            std::find(items.begin(), items.end(), quest->RequiredItemId[i]) != items.end())
+            return QUEST_OBJECTIVES_COUNT + i;
+    return -1;
+}
+
+struct QuestObject
+{
+    GameObject* Object = nullptr;
+    uint32 QuestId = 0;
+    int32 Objective = 0;
+};
+
+QuestObject QuestObjectInSight(Player* bot, uint32 doingQuestId, BotRoute const& route)
+{
+    uint32 const now = getMSTime();
     float const sight = sPlayerbotAIConfig.sightDistance;
     std::list<GameObject*> seen;
     Acore::GameObjectInRangeCheck check(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), sight);
     Acore::GameObjectListSearcher<Acore::GameObjectInRangeCheck> searcher(bot, seen, check);
     Cell::VisitObjects(bot, searcher, sight);
-    GameObject* nearest = nullptr;
+    QuestObject nearest;
     for (GameObject* go : seen)
     {
         GameObjectQuestItemList const* items = sObjectMgr->GetGameObjectQuestItemList(go->GetEntry());
+        auto const tried = route.ObjectTried.find(go->GetSpawnId());
+        float const distance = bot->GetDistance(go);
         if (!items || go->GetGoType() != GAMEOBJECT_TYPE_CHEST || !go->isSpawned() || go->getLootState() != GO_READY ||
-            !go->ActivateToQuest(bot) || (nearest && bot->GetDistance(go) >= bot->GetDistance(nearest)))
+            !go->ActivateToQuest(bot) || (nearest.Object && distance >= bot->GetDistance(nearest.Object)) ||
+            (tried != route.ObjectTried.end() && getMSTimeDiff(tried->second, now) < ObjectForgetMs))
             continue;
-        for (int32 i = 0; i < QUEST_ITEM_OBJECTIVES_COUNT; ++i)
-            if (quest->RequiredItemId[i] && status.ItemCount[i] < quest->RequiredItemCount[i] &&
-                std::find(items->begin(), items->end(), quest->RequiredItemId[i]) != items->end())
+        if (doingQuestId)
+            if (int32 const objective = ObjectiveFrom(bot, doingQuestId, *items); objective >= 0)
             {
-                nearest = go;
-                objective = QUEST_OBJECTIVES_COUNT + i;
+                nearest = { go, doingQuestId, objective };
+                continue;
+            }
+        if (distance > PassingYards)
+            continue;
+        for (auto const& [questId, status] : bot->getQuestStatusMap())
+            if (int32 const objective = ObjectiveFrom(bot, questId, *items); objective >= 0)
+            {
+                nearest = { go, questId, objective };
                 break;
             }
     }
     return nearest;
 }
 
-void SteerToQuestObject(Player* bot, NewRpgInfo::DoQuest& doing)
+bool Openable(Player* bot, GameObject const* go)
 {
-    Quest const* quest = sObjectMgr->GetQuestTemplate(doing.questId);
-    auto const found = bot->getQuestStatusMap().find(doing.questId);
-    if (!quest || found == bot->getQuestStatusMap().end() || found->second.Status != QUEST_STATUS_INCOMPLETE)
-        return;
-    int32 objective = 0;
-    GameObject* go = QuestObjectInSight(bot, quest, found->second, objective);
-    if (!go || (doing.pos.GetMapId() == go->GetMapId() && doing.pos.GetExactDist(go) < 1.0f))
-        return;
-    doing.pos = WorldPosition(go->GetMapId(), go->GetPositionX(), go->GetPositionY(), go->GetPositionZ());
-    doing.objectiveIdx = objective;
-    doing.lastReachPOI = 0;
+    return go->isSpawned() && go->getLootState() == GO_READY && go->ActivateToQuest(bot);
+}
+
+void OpenQuestObject(Player* bot, GameObject* go)
+{
+    if (bot->IsMounted())
+        bot->RemoveAurasByType(SPELL_AURA_MOUNTED);
+    bot->StopMoving();
+    bot->SetFacingToObject(go);
+    WorldPacket use(CMSG_GAMEOBJ_USE, 8);
+    use << go->GetGUID();
+    bot->GetSession()->HandleGameObjectUseOpcode(use);
+}
+
+bool SteerToQuestObject(Player* bot, PlayerbotAI* brain, BotRoute& route, NewRpgInfo::DoQuest* doing)
+{
+    uint32 const now = getMSTime();
+    GameObject* go = route.Object ? bot->GetMap()->GetGameObject(route.Object) : nullptr;
+    if (go && (!Openable(bot, go) || getMSTimeDiff(route.ObjectSince, now) > ObjectGiveUpMs))
+    {
+        route.ObjectTried[go->GetSpawnId()] = now;
+        go = nullptr;
+    }
+    if (!go)
+    {
+        route.Object.Clear();
+        QuestObject const found = QuestObjectInSight(bot, doing ? doing->questId : 0, route);
+        if (!found.Object)
+            return false;
+        go = found.Object;
+        route.Object = go->GetGUID();
+        route.ObjectQuest = found.QuestId;
+        route.ObjectSince = now;
+        if (doing && doing->questId == found.QuestId)
+        {
+            doing->pos = WorldPosition(go->GetMapId(), go->GetPositionX(), go->GetPositionY(), go->GetPositionZ());
+            doing->objectiveIdx = found.Objective;
+            doing->lastReachPOI = 0;
+        }
+    }
+    brain->SetNextCheckDelay(CheckMs);
+    if (!bot->IsWithinDistInMap(go, ObjectReach))
+    {
+        bot->GetMotionMaster()->MovePoint(ObjectMoveId, go->GetPositionX(), go->GetPositionY(), go->GetPositionZ());
+        return true;
+    }
+    route.ObjectTried[go->GetSpawnId()] = now;
+    route.Object.Clear();
+    brain->lowPriorityQuest.erase(route.ObjectQuest);
+    OpenQuestObject(bot, go);
+    return true;
 }
 
 void FollowRoute(Player* bot, PlayerbotAI* brain, BotRoute& route)
@@ -305,11 +385,10 @@ void FollowRoute(Player* bot, PlayerbotAI* brain, BotRoute& route)
         info.ChangeToIdle();
         doing = nullptr;
     }
+    if (SteerToQuestObject(bot, brain, route, doing))
+        return;
     if (doing)
-    {
-        SteerToQuestObject(bot, *doing);
         AimAtQuest(bot, *doing);
-    }
     NewRpgStatus const status = info.GetStatus();
     uint64 const progress = ProgressOf(bot, head);
     if (doing && doing->questId == head)

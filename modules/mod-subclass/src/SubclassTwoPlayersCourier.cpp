@@ -40,7 +40,8 @@ enum class Load : char
     None = 0,
     Junk = 'J',
     Marked = 'M',
-    Leftover = 'Q'
+    Leftover = 'Q',
+    Markable = 'C'
 };
 
 using Marks = std::set<uint32>;
@@ -252,19 +253,23 @@ void TwoPlayersCourierList(Player* presser)
             continue;
         ForEachCarried(head, [&](uint8, uint8, Item* item)
         {
-            Load const load = LoadOf(head, item, marked);
+            Load load = LoadOf(head, item, marked);
+            ItemTemplate const* proto = item->GetTemplate();
+            if (load == Load::None && proto->SellPrice && proto->Bonding != BIND_QUEST_ITEM)
+                load = Load::Markable;
             if (load == Load::None)
                 return;
             auto& [count, money] = loads[{ head->GetName(), char(load), item->GetEntry() }];
             count += item->GetCount();
             if (load != Load::Leftover)
-                money += item->GetTemplate()->SellPrice * item->GetCount();
+                money += proto->SellPrice * item->GetCount();
         });
     }
     for (auto const& [key, value] : loads)
     {
         auto const& [owner, load, entry] = key;
-        worth += value.second;
+        if (load != char(Load::Markable))
+            worth += value.second;
         TwoPlayersSendAddon(presser, "COURIER " + std::string(1, load) + " " + std::to_string(entry) + " " +
             std::to_string(value.first) + " " + std::to_string(value.second) + " " + owner);
     }
