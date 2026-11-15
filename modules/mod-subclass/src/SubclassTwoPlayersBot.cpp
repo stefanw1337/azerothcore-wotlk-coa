@@ -383,7 +383,7 @@ void LinkForOneLogin(uint32 headAccount, uint32 masterAccount, bool link)
 
 bool TwoPlayersBotsAvailable()
 {
-    return true;
+    return sPlayerbotAIConfig.enabled;
 }
 
 bool TwoPlayersCallBot(Player* master, uint32 headGuid)
