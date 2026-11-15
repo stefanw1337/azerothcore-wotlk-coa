@@ -117,9 +117,15 @@ local function Mark(entry, link)
     Send("COURIERMARK " .. entry)
 end
 
+local SellOne
+
 local function ItemMenu(slot)
     local _, link = GetItemInfo(slot.entry)
     local lines = { { text = link or ("item " .. slot.entry), isTitle = true, notCheckable = true } }
+    if slot.owner and slot.load ~= "Q" then
+        lines[#lines + 1] = { text = "Sell this one now", notCheckable = true,
+            func = function() SellOne(slot.entry, slot.owner, link) end }
+    end
     if slot.load == "M" then
         lines[#lines + 1] = { text = "Keep this item again", notCheckable = true,
             func = function() Send("COURIERUNMARK " .. slot.entry) end }
@@ -130,6 +136,18 @@ local function ItemMenu(slot)
     lines[#lines + 1] = { text = "Courier sells every...", notCheckable = true, hasArrow = true,
         menuList = CoACCourierQualityMenu() }
     EasyMenu(lines, menu, "cursor", 0, 0, "MENU")
+end
+
+function SellOne(entry, owner, link)
+    local _, _, quality = GetItemInfo(entry)
+    if quality and quality >= 4 then
+        local popup = StaticPopup_Show("COACCOURIER_ONE", link or ("item " .. entry))
+        if popup then
+            popup.data = { entry = entry, owner = owner }
+        end
+        return
+    end
+    Send("COURIERSELLONE " .. entry .. " " .. owner)
 end
 
 local function Coins(money)
@@ -316,6 +334,18 @@ StaticPopupDialogs["COACCOURIER_QUALITY"] = {
     hideOnEscape = true,
 }
 
+StaticPopupDialogs["COACCOURIER_ONE"] = {
+    text = "Sell %s with the courier? It is epic or better.",
+    button1 = YES,
+    button2 = NO,
+    OnAccept = function(_, data)
+        Send("COURIERSELLONE " .. data.entry .. " " .. data.owner)
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+}
+
 StaticPopupDialogs["COACCOURIER_EPIC"] = {
     text = "Always sell every %s? It is epic or better.",
     button1 = YES,
@@ -459,9 +489,15 @@ local originalEasyMenu = EasyMenu
 function EasyMenu(menuList, menuFrame, ...)
     if menuFrame == SquidBotsLiteSheetMenu and SheetShowsPartner() and menuList and menuList[1] then
         local entry = tonumber(string.match(menuList[1].text or "", "item:(%d+)"))
-        for _, line in ipairs(menuList) do
+        for index, line in ipairs(menuList) do
             if entry and type(line) == "table" and line.func and string.find(line.text or "", "vendor") then
                 local _, link = GetItemInfo(entry)
+                local owner = Ascension_Subclass.PartnerName()
+                table.insert(menuList, index, { text = "Courier: sell this one now", notCheckable = true,
+                    func = function()
+                        SellOne(entry, owner, link)
+                        refreshSheetAt = GetTime() + 1.5
+                    end })
                 line.text = "Courier: always sell this item"
                 line.func = function()
                     Mark(entry, link)

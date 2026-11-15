@@ -16,12 +16,14 @@
 #include <mutex>
 #include <set>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
 Player* TwoPlayersSeatedPartner(Player const* head);
 bool TwoPlayersHeadIsBot(Player const* head);
 void TwoPlayersSendAddon(Player* player, std::string const& message);
+void TwoPlayersCourierList(Player* presser);
 
 namespace
 {
@@ -140,13 +142,14 @@ bool CourierOut(Player* player)
     return found != payouts.end() && !found->second.empty();
 }
 
-Payout HandJunkToCourier(Player* player, Marks const& marked)
+template <typename Pick>
+Payout HandToCourier(Player* player, Pick pick)
 {
     std::vector<std::pair<uint8, uint8>> junk;
     Payout payout;
     ForEachCarried(player, [&](uint8 bag, uint8 slot, Item* item)
     {
-        Load const load = LoadOf(player, item, marked);
+        Load const load = pick(item);
         if (load == Load::None)
             return;
         junk.emplace_back(bag, slot);
@@ -166,6 +169,11 @@ Payout HandJunkToCourier(Player* player, Marks const& marked)
     std::lock_guard<std::mutex> lock(courierMutex);
     payouts[player->GetGUID().GetCounter()].push_back(payout);
     return payout;
+}
+
+Payout HandJunkToCourier(Player* player, Marks const& marked)
+{
+    return HandToCourier(player, [&](Item const* item) { return LoadOf(player, item, marked); });
 }
 
 std::string Count(uint32 count, std::string const& what)
@@ -240,6 +248,32 @@ std::string TwoPlayersSendCourier(Player* presser)
     if (partner && !TwoPlayersHeadIsBot(partner))
         Tell(partner, told);
     return "";
+}
+
+void TwoPlayersCourierSellOne(Player* presser, std::string_view owner, uint32 entry)
+{
+    Player* partner = TwoPlayersSeatedPartner(presser);
+    if (!partner)
+    {
+        Tell(presser, "The courier only serves the two heads of one body.");
+        return;
+    }
+    Player* head = partner->GetName() == owner ? partner : presser;
+    bool taken = false;
+    Payout const payout = HandToCourier(head, [&](Item const* item)
+    {
+        ItemTemplate const* proto = item->GetTemplate();
+        if (taken || item->GetEntry() != entry || !proto->SellPrice || proto->Bonding == BIND_QUEST_ITEM)
+            return Load::None;
+        taken = true;
+        return Load::Marked;
+    });
+    std::string const told = taken ? CourierLeaves(head, payout) :
+        head->GetName() + " carries no sellable item of that kind.";
+    Tell(presser, told);
+    if (!TwoPlayersHeadIsBot(partner) && taken)
+        Tell(partner, told);
+    TwoPlayersCourierList(presser);
 }
 
 void TwoPlayersCourierList(Player* presser)

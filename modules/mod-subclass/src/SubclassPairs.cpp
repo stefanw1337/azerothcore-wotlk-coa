@@ -40,6 +40,7 @@ std::string TwoPlayersRide(Player* rider);
 std::string TwoPlayersSendCourier(Player* presser);
 void TwoPlayersCourierList(Player* presser);
 void TwoPlayersCourierMark(Player* presser, uint32 entry, bool mark);
+void TwoPlayersCourierSellOne(Player* presser, std::string_view owner, uint32 entry);
 
 namespace
 {
@@ -660,6 +661,11 @@ void HandlePairMessage(Player* player, std::vector<std::string_view> const& word
     {
         if (Optional<uint32> const entry = Acore::StringTo<uint32>(words[1]))
             TwoPlayersCourierMark(player, *entry, words[0] == "COURIERMARK");
+    }
+    else if (words.size() == 3 && words[0] == "COURIERSELLONE")
+    {
+        if (Optional<uint32> const entry = Acore::StringTo<uint32>(words[1]))
+            TwoPlayersCourierSellOne(player, words[2], *entry);
     }
     else if (words.size() == 1 && words[0] == "PAIRMOUNT")
     {
