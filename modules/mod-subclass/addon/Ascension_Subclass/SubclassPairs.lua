@@ -334,6 +334,10 @@ if PaperDollFrame_SetLevel then
     hooksecurefunc("PaperDollFrame_SetLevel", AddPartnerClass)
 end
 
+function Ascension_Subclass.PartnerName()
+    return partnerName
+end
+
 function Ascension_Subclass.SetPartner(name, className, classHex)
     partnerClassName, partnerClassHex = name and className, name and classHex
     if name == partnerName then

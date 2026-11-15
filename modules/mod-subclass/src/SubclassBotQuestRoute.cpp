@@ -16,12 +16,14 @@
 #include "Player.h"
 #include "PlayerScript.h"
 #include "QuestDef.h"
+#include "Spell.h"
 #include "SubclassQuestRoute.h"
 #include "WorldPacket.h"
 #include "WorldScript.h"
 #include "WorldSession.h"
 #include <algorithm>
 #include <list>
+#include <map>
 #include <mutex>
 #include <set>
 #include <string>
@@ -49,6 +51,10 @@ constexpr float PassingYards = 60.0f;
 constexpr uint32 ObjectGiveUpMs = 30 * IN_MILLISECONDS;
 constexpr uint32 ObjectForgetMs = 5 * MINUTE * IN_MILLISECONDS;
 constexpr uint32 ObjectMoveId = 0x5CB0;
+constexpr float UseReach = 10.0f;
+constexpr uint32 UseWaitMs = 15 * IN_MILLISECONDS;
+constexpr float DropperFollowYards = 15.0f;
+constexpr float EmptySpawnYards = 40.0f;
 
 struct RouteSettings
 {
@@ -71,7 +77,19 @@ struct BotRoute
     uint32 ObjectQuest = 0;
     uint32 ObjectSince = 0;
     std::unordered_map<ObjectGuid::LowType, uint32> ObjectTried;
+    uint32 UsedAt = 0;
 };
+
+struct UseOn
+{
+    uint32 ItemId = 0;
+    uint32 Target = 0;
+    int32 Objective = -1;
+};
+
+std::unordered_map<uint32, std::vector<uint32>>& droppers = *new std::unordered_map<uint32, std::vector<uint32>>;
+std::map<std::pair<uint32, uint32>, std::vector<Position>>& dropperSpawns =
+    *new std::map<std::pair<uint32, uint32>, std::vector<Position>>;
 
 RouteSettings settings;
 std::mutex& routeMutex = *new std::mutex;
@@ -371,6 +389,122 @@ bool SteerToQuestObject(Player* bot, PlayerbotAI* brain, BotRoute& route, NewRpg
     return true;
 }
 
+UseOn UseOnOf(Player* bot, Quest const* quest, QuestStatusData const& status)
+{
+    for (int32 i = 0; i < QUEST_OBJECTIVES_COUNT; ++i)
+    {
+        int32 const target = quest->RequiredNpcOrGo[i];
+        CreatureTemplate const* creature = target > 0 ? sObjectMgr->GetCreatureTemplate(target) : nullptr;
+        if (!creature || status.CreatureOrGOCount[i] >= quest->RequiredNpcOrGoCount[i])
+            continue;
+        FactionTemplateEntry const* faction = sFactionTemplateStore.LookupEntry(creature->faction);
+        if (!faction || faction->IsHostileTo(*bot->GetFactionTemplateEntry()))
+            continue;
+        for (uint32 itemId : quest->ItemDrop)
+            if (ItemTemplate const* proto = itemId ? sObjectMgr->GetItemTemplate(itemId) : nullptr)
+                for (auto const& spell : proto->Spells)
+                    if (spell.SpellId > 0 && spell.SpellTrigger == ITEM_SPELLTRIGGER_ON_USE)
+                        return { itemId, uint32(target), i };
+    }
+    return {};
+}
+
+std::vector<uint32> const& DroppersOf(uint32 itemId)
+{
+    auto [found, fresh] = droppers.try_emplace(itemId);
+    if (fresh)
+        for (auto const& [entry, creature] : *sObjectMgr->GetCreatureTemplates())
+            if (CreatureQuestItemList const* items = sObjectMgr->GetCreatureQuestItemList(entry))
+                if (std::find(items->begin(), items->end(), itemId) != items->end())
+                    found->second.push_back(entry);
+    return found->second;
+}
+
+std::vector<Position> const& DropperSpawnsOf(uint32 itemId, uint32 mapId)
+{
+    auto [found, fresh] = dropperSpawns.try_emplace({ itemId, mapId });
+    if (fresh)
+    {
+        std::vector<uint32> const& entries = DroppersOf(itemId);
+        for (auto const& [spawnId, data] : sObjectMgr->GetAllCreatureData())
+            if (data.mapid == mapId && std::find(entries.begin(), entries.end(), data.id) != entries.end())
+                found->second.emplace_back(data.posX, data.posY, data.posZ);
+    }
+    return found->second;
+}
+
+Position NearestDropper(Player* bot, uint32 itemId)
+{
+    float const sight = sPlayerbotAIConfig.sightDistance;
+    Creature* nearest = nullptr;
+    for (uint32 entry : DroppersOf(itemId))
+        if (Creature* creature = bot->FindNearestCreature(entry, sight))
+            if (!nearest || bot->GetDistance(creature) < bot->GetDistance(nearest))
+                nearest = creature;
+    if (nearest)
+        return nearest->GetPosition();
+    Position best;
+    float bestDistance = 0.0f;
+    for (Position const& spawn : DropperSpawnsOf(itemId, bot->GetMapId()))
+    {
+        float const distance = bot->GetExactDist(&spawn);
+        if (distance > EmptySpawnYards && (!bestDistance || distance < bestDistance))
+        {
+            best = spawn;
+            bestDistance = distance;
+        }
+    }
+    return best;
+}
+
+bool UseQuestItemOn(Player* bot, PlayerbotAI* brain, BotRoute& route, NewRpgInfo::DoQuest& doing)
+{
+    Quest const* quest = sObjectMgr->GetQuestTemplate(doing.questId);
+    auto const found = bot->getQuestStatusMap().find(doing.questId);
+    if (!quest || found == bot->getQuestStatusMap().end() || found->second.Status != QUEST_STATUS_INCOMPLETE)
+        return false;
+    UseOn const use = UseOnOf(bot, quest, found->second);
+    if (use.Objective < 0)
+        return false;
+    Item* item = bot->GetItemByEntry(use.ItemId);
+    if (!item)
+    {
+        Position const dropper = NearestDropper(bot, use.ItemId);
+        if (dropper.GetPositionX() == 0.0f && dropper.GetPositionY() == 0.0f)
+            return false;
+        if (doing.pos.GetMapId() != bot->GetMapId() || doing.pos.GetExactDist(dropper) > DropperFollowYards)
+        {
+            doing.pos = WorldPosition(bot->GetMapId(), dropper.GetPositionX(), dropper.GetPositionY(),
+                dropper.GetPositionZ());
+            doing.objectiveIdx = use.Objective;
+            doing.lastReachPOI = 0;
+        }
+        return false;
+    }
+    Creature* target = bot->FindNearestCreature(use.Target, sPlayerbotAIConfig.sightDistance);
+    if (!target)
+        return false;
+    uint32 const now = getMSTime();
+    brain->SetNextCheckDelay(CheckMs);
+    if (!bot->IsWithinDistInMap(target, UseReach))
+    {
+        bot->GetMotionMaster()->MovePoint(ObjectMoveId, target->GetPositionX(), target->GetPositionY(),
+            target->GetPositionZ());
+        return true;
+    }
+    if (route.UsedAt && getMSTimeDiff(route.UsedAt, now) < UseWaitMs)
+        return true;
+    if (bot->IsMounted())
+        bot->RemoveAurasByType(SPELL_AURA_MOUNTED);
+    bot->StopMoving();
+    bot->SetFacingToObject(target);
+    SpellCastTargets targets;
+    targets.SetUnitTarget(target);
+    bot->CastItemUseSpell(item, targets, 1, 0);
+    route.UsedAt = now;
+    return true;
+}
+
 void FollowRoute(Player* bot, PlayerbotAI* brain, BotRoute& route)
 {
     if (route.Log != LogOf(bot) || route.Quests.empty())
@@ -386,6 +520,8 @@ void FollowRoute(Player* bot, PlayerbotAI* brain, BotRoute& route)
         doing = nullptr;
     }
     if (SteerToQuestObject(bot, brain, route, doing))
+        return;
+    if (doing && UseQuestItemOn(bot, brain, route, *doing))
         return;
     if (doing)
         AimAtQuest(bot, *doing);

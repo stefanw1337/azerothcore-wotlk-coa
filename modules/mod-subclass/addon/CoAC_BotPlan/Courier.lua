@@ -283,3 +283,84 @@ function CoACCourierToggle()
         frame:Show()
     end
 end
+
+local SHEET_SELL_JUNK = { ["Sell junk"] = true, ["Vendre la camelote"] = true }
+local SHEET_REFRESH = { ["Refresh"] = true, ["Actualiser"] = true }
+local refreshSheetAt
+
+local function SheetShowsPartner()
+    local partner = Ascension_Subclass and Ascension_Subclass.PartnerName and Ascension_Subclass.PartnerName()
+    local title = SquidBotsLiteSheet and SquidBotsLiteSheet.title and SquidBotsLiteSheet.title:GetText()
+    return partner and title and title:match(" : (.+)$") == partner
+end
+
+local function SendCourierFromSheet()
+    Send("PAIRJUNK")
+    refreshSheetAt = GetTime() + 1.5
+    if CoACCourierFrame:IsShown() then
+        CoACCourierFrame.wait = REFRESH_SECONDS
+    end
+end
+
+local function ClickRefresh(parent)
+    for _, child in ipairs({ parent:GetChildren() }) do
+        if child:GetObjectType() == "Button" and child:IsShown() and SHEET_REFRESH[child:GetText() or ""] then
+            child:Click()
+            return true
+        end
+        if ClickRefresh(child) then
+            return true
+        end
+    end
+end
+
+local function HookSellJunk(parent)
+    for _, child in ipairs({ parent:GetChildren() }) do
+        if child:GetObjectType() == "Button" and not child.coacCourier and child.GetText and
+            SHEET_SELL_JUNK[child:GetText() or ""] then
+            child.coacCourier = true
+            local original = child:GetScript("OnClick")
+            child:SetScript("OnClick", function(self, ...)
+                if SheetShowsPartner() then
+                    SendCourierFromSheet()
+                elseif original then
+                    original(self, ...)
+                end
+            end)
+        end
+        HookSellJunk(child)
+    end
+end
+
+local sheetWatch = CreateFrame("Frame")
+sheetWatch:SetScript("OnUpdate", function(self, elapsed)
+    self.wait = (self.wait or 0) + elapsed
+    if self.wait < 0.5 then
+        return
+    end
+    self.wait = 0
+    if SquidBotsLiteSheet and SquidBotsLiteSheet:IsShown() then
+        HookSellJunk(SquidBotsLiteSheet)
+        if refreshSheetAt and GetTime() >= refreshSheetAt then
+            refreshSheetAt = nil
+            ClickRefresh(SquidBotsLiteSheet)
+        end
+    end
+end)
+
+local originalEasyMenu = EasyMenu
+function EasyMenu(menuList, menuFrame, ...)
+    if menuFrame == SquidBotsLiteSheetMenu and SheetShowsPartner() and menuList and menuList[1] then
+        local entry = tonumber(string.match(menuList[1].text or "", "item:(%d+)"))
+        for _, line in ipairs(menuList) do
+            if entry and type(line) == "table" and line.func and string.find(line.text or "", "vendor") then
+                local _, link = GetItemInfo(entry)
+                line.text = "Always sell with the courier"
+                line.func = function()
+                    Mark(entry, link)
+                end
+            end
+        end
+    end
+    return originalEasyMenu(menuList, menuFrame, ...)
+end
