@@ -78,7 +78,9 @@ CreatureModelData). Run it on your server `files/dbc` and on your client tables 
   <new base> <out>`: Spell (our spells), ItemDisplayInfo, SkillLineAbility (we only set ClassMask 0 on 13 931 rows,
   so a subclass can learn them), SkillRaceClassInfo (ClassMask on 135 rows), SpellRange, SpellShapeshiftForm,
   SpellVisual, SpellVisualEffectName, SpellVisualKit, SpellVisualKitModelAttach, Vehicle, VehicleSeat.
-- Character creation glue: your 1.9.2 `CharacterCreate.lua` with `client/GlueXML/subclass_races.lua` appended.
+- Character creation glue: your `CharacterCreate.lua` with `client/GlueXML/subclass_races.lua` appended, then
+  `client/GlueXML/two_players.lua` (the Two-Players gender: the Two-Headed Ogre's male and the Twins' female button
+  becomes "Two-Players", with its own lore and racials and the Melee / Ranged head buttons that pick the class list).
 
 ## SQL
 
