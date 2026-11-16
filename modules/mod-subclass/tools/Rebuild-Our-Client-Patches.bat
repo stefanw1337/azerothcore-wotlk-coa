@@ -8,7 +8,7 @@ pushd "%~dp0"
 set "PY="
 where py >nul 2>&1 && set "PY=py -3"
 if not defined PY where python >nul 2>&1 && set "PY=python"
-if not defined PY set "PY="L:\CoA Server-Ogre-edits\Runtime\python\python.exe""
+if not defined PY if defined COA_PYTHON set "PY="%COA_PYTHON%""
 echo === [1/3] Vault patches, started over ===
 call "Build-Vault-Patches.bat" --fresh < nul
 if errorlevel 1 goto failed
@@ -23,7 +23,7 @@ if exist "%~dp0..\Data\patch-ZZZZY.MPQ" (
 )
 popd
 echo.
-echo All rebuilt. Now run L:\WoW-Skinshifter\tools\Build-Skinshifter-Client.bat again (it builds on these tables).
+echo All rebuilt.
 pause
 exit /b 0
 :failed

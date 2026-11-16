@@ -7,9 +7,9 @@
             Python packages and CascExtractor), which goes into files\ogre.
 #>
 param(
-    [string]$Build = 'L:\coa-build',
-    [string]$Server = 'L:\CoA Server-Ogre-edits',
-    [string]$Client = 'L:\CoA Client',
+    [Parameter(Mandatory)][string]$Build,
+    [Parameter(Mandatory)][string]$Server,
+    [Parameter(Mandatory)][string]$Client,
     [string]$Work = $PSScriptRoot,
     [string]$DatabaseRelease = '0cd699377',
     [string[]]$LocalOnly = @('Creature\TwoHeadedOgre\TwoHeadedOgreMale', 'Creature\ChoGall\')

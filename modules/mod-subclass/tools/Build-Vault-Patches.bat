@@ -11,7 +11,7 @@ if "%DATA%"=="" set "DATA=%HERE%..\Data"
 set "PY="
 if not defined PY where py >nul 2>&1 && set "PY=py -3"
 if not defined PY where python >nul 2>&1 && set "PY=python"
-if not defined PY if exist "L:\CoA Server-Ogre-edits\Runtime\python\python.exe" set "PY="L:\CoA Server-Ogre-edits\Runtime\python\python.exe""
+if not defined PY if defined COA_PYTHON set "PY="%COA_PYTHON%""
 if not defined PY (
     echo Python 3 was not found. Install it from python.org and run this again.
     pause
