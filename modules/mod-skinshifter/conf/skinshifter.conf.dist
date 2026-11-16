@@ -8,8 +8,9 @@
 ###################################################################################################
 
 #    Skinshifter.Enable
-#        Default: 1
-Skinshifter.Enable = 1
+#        Off by default: an unfinished prototype. 1 turns it on.
+#        Default: 0
+Skinshifter.Enable = 0
 
 #    Skinshifter.Lift.*  (Steal Form: stealing a skin and abilities; "Lift" is its old name)
 
