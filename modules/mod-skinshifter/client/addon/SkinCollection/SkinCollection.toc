@@ -13,3 +13,4 @@ SkinTooltips.lua
 SkinPossessor.lua
 SkinSpellbookSearch.lua
 SkinReins.lua
+SkinPortrait.lua

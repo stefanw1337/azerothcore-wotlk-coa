@@ -61,6 +61,16 @@ local function IconOf(skin)
 end
 
 local skins, abilities, worn = {}, {}, 0
+
+-- The skin you wear now (nil in your own form), for the portrait and the character window (SkinPortrait.lua).
+local wornEntry
+function SkinCollection_WornSkin()
+	if not worn or worn == 0 then return nil end
+	for _, skin in ipairs(skins) do
+		if skin.display == worn then return skin end
+	end
+	return { display = worn, entry = wornEntry }
+end
 local worldMax  -- the skins of the creatures in this game's world (server: MAX)
 local filtered, selected = {}, nil
 local incoming, incomingAbilities
@@ -692,9 +702,13 @@ events:SetScript("OnEvent", function(_, event, prefix, message)
 		selected = keep or skins[1]
 		if frame:IsShown() then Refresh() end
 		if SkinSlots_OnMessage then SkinSlots_OnMessage(fields) end
+		if SkinPortrait_Refresh then SkinPortrait_Refresh() end
 	elseif kind == "WORN" then
 		worn = tonumber(fields[2]) or 0
+		wornEntry = tonumber(fields[3])
+		if wornEntry == 0 then wornEntry = nil end
 		if frame:IsShown() then Refresh() end
+		if SkinPortrait_Refresh then SkinPortrait_Refresh() end
 	elseif kind == "SPEC" then
 		specState.current = tonumber(fields[2]) or 0
 		specState.level = tonumber(fields[3]) or 10
