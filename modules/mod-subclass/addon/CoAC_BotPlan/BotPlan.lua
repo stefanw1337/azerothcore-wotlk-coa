@@ -3,6 +3,7 @@ local ROW_HEIGHT = 16
 local REFRESH_SECONDS = 3
 
 local plans, incoming = {}, {}
+local oneBody = false
 
 local panel = CreateFrame("Frame", "CoACBotPlanFrame", UIParent)
 panel:SetWidth(440)
@@ -204,9 +205,20 @@ events:RegisterEvent("PARTY_MEMBERS_CHANGED")
 events:SetScript("OnEvent", function(self, event, prefix, message, _, sender)
     if event ~= "CHAT_MSG_ADDON" then
         self.ask = 5
+        if event == "PLAYER_ENTERING_WORLD" then
+            Send("PAIRSTATEASK")
+        end
         return
     end
     if prefix ~= PREFIX or sender ~= UnitName("player") then
+        return
+    end
+    local head = string.match(message, "^PAIRSTATE (%u+)")
+    if head then
+        oneBody = head == "LEFT" or head == "RIGHT"
+        if not oneBody and CoACCourierFrame then
+            CoACCourierFrame:Hide()
+        end
         return
     end
     local name, rest = string.match(message, "^BOTPLAN (%S+) (.*)$")
@@ -305,7 +317,7 @@ local function JunkTooltip(self)
 end
 
 local barButtons = {}
-local function BarButton(bar, name, icon, caption, onClick, onEnter)
+local function BarButton(bar, name, icon, caption, onClick, onEnter, pairOnly)
     local button = CreateFrame("Button", name, bar)
     button:SetWidth(34)
     button:SetHeight(34)
@@ -334,9 +346,13 @@ local function BarButton(bar, name, icon, caption, onClick, onEnter)
     button:SetScript("OnLeave", function() GameTooltip:Hide() end)
     barButtons[#barButtons + 1] = button
     button.ours = true
+    button.pairOnly = pairOnly
 end
 
 local function PlaceBarButtons(bar)
+    for _, button in ipairs(barButtons) do
+        Shown(button, oneBody or not button.pairOnly)
+    end
     local places = {}
     for _, child in ipairs({ bar:GetChildren() }) do
         if not child.ours and child.caption and child:IsShown() then
@@ -357,12 +373,16 @@ local function PlaceBarButtons(bar)
             step = gap
         end
     end
-    for index, button in ipairs(barButtons) do
-        local x = places[#places] + (step or 0) * index
-        if button.x ~= x then
-            button.x = x
-            button:ClearAllPoints()
-            button:SetPoint("TOPLEFT", bar, "TOPLEFT", x, 0)
+    local index = 0
+    for _, button in ipairs(barButtons) do
+        if oneBody or not button.pairOnly then
+            index = index + 1
+            local x = places[#places] + (step or 0) * index
+            if button.x ~= x then
+                button.x = x
+                button:ClearAllPoints()
+                button:SetPoint("TOPLEFT", bar, "TOPLEFT", x, 0)
+            end
         end
     end
 end
@@ -379,7 +399,7 @@ barWatch:SetScript("OnUpdate", function(self, elapsed)
         BarButton(SquidBotsLiteBar, "CoACBotPlanBarButton", "Interface\\Icons\\INV_Misc_Map_01", "Plans",
             TogglePlans, PlansTooltip)
         BarButton(SquidBotsLiteBar, "CoACBotPlanRideButton", "Interface\\Icons\\Ability_Mount_RidingHorse", "Ride",
-            function() Send("PAIRMOUNT") end, RideTooltip)
+            function() Send("PAIRMOUNT") end, RideTooltip, true)
         BarButton(SquidBotsLiteBar, "CoACBotPlanJunkButton", "Interface\\Icons\\INV_Misc_Coin_02", "Junk",
             function(_, mouse)
                 if mouse == "RightButton" and CoACCourierToggle then
@@ -387,7 +407,7 @@ barWatch:SetScript("OnUpdate", function(self, elapsed)
                 else
                     Send("PAIRJUNK")
                 end
-            end, JunkTooltip)
+            end, JunkTooltip, true)
         CoACBotPlanJunkButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     end
     if #barButtons > 0 then
