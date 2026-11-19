@@ -1,0 +1,57 @@
+From f2b072c34a503e8b0025e60edf8e2c467031b7e5 Mon Sep 17 00:00:00 2001
+From: stefanw1337 <stefanw1337@users.noreply.github.com>
+Date: Thu, 19 Nov 2026 23:47:25 +0100
+Subject: [PATCH] Nameplates: creature type flag 0x40000000 forces a plate
+
+A server can mark creatures with creature type flag 0x40000000 (unused by
+the 3.3.5 client). Marked units always get a nameplate: dead units too,
+whatever nameplateShowEnemies/Friends and the CoA nameplate filters say.
+Not-selectable units, visibility, the screen position and the nameplate
+range still apply. Unmarked units are unchanged.
+
+mod-loot-goblins uses it so goblin drops (dead loot creatures) get plates
+its addon dresses as Diablo III-style item labels, via NAME_PLATE_UNIT_ADDED.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_015TQhYFQu78iCB9QND3RG6u
+---
+ WoW/Source/Object/ObjectClient/Unit_C.cpp | 23 +++++++++++++++++++++++
+ 1 file changed, 23 insertions(+)
+
+diff --git a/WoW/Source/Object/ObjectClient/Unit_C.cpp b/WoW/Source/Object/ObjectClient/Unit_C.cpp
+index 0589db1..66eba5a 100644
+--- a/WoW/Source/Object/ObjectClient/Unit_C.cpp
++++ b/WoW/Source/Object/ObjectClient/Unit_C.cpp
+@@ -21283,6 +21283,29 @@ void CGUnit_C::SetNamePlateFocus(const C2Vector& position) {
+ // VERIFY: 5739ef94 manual
+ // OFFSET: 0x0072B060
+ int32_t CGUnit_C::ShouldShowNamePlate(CGWorldFrame* worldFrame, C3Vector* position) {
++    // mod-loot-goblins: creature type flag 0x40000000 forces a plate (dead too, nameplate CVars and filters ignored),
++    // so goblin drops get a styleable plate. Only creatures a server marks with it are affected.
++    if (this->m_creatureCacheEntry && (this->m_creatureCacheEntry->m_typeFlags & 0x40000000)) {
++        if (this->m_unit->m_unitFieldFlags & 0x2000000) {
++            return 0;
++        }
++
++        if (!this->m_worldObject || !World::QueryObjectVisible(this->m_worldObject) || !CGGameUI::m_visible) {
++            return 0;
++        }
++
++        CGCamera* forcedCamera = CGWorldFrame::GetActiveCamera();
++        CGUnit_C* forcedTarget = forcedCamera ? static_cast<CGUnit_C*>(ClntObjMgrObjectPtr(forcedCamera->m_targetGUID, TYPE_UNIT, __FILE__, __LINE__)) : nullptr;
++
++        if (!forcedTarget || forcedTarget == this || !GetNamePlateScreenPos(this, worldFrame, position)) {
++            return 0;
++        }
++
++        C3Vector forcedDelta = this->GetPosition() - forcedTarget->GetPosition();
++
++        return forcedDelta.x * forcedDelta.x + forcedDelta.y * forcedDelta.y + forcedDelta.z * forcedDelta.z <= CoA::GlobalsG::NamePlateRangeSq() ? 1 : 0;
++    }
++
+     // CoA: AscNamePlates.cpp:FUN_102c2630 (orig hook 0x72B060) -- the personal plate, the neutral / in-combat filters and
+     // the fixed vertical offset decide first.
+     int32_t coaResult = 0;
+-- 
+2.43.0
+

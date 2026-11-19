@@ -1,0 +1,7 @@
+## Interface: 30300
+## Title: |cffffd000Loot Goblins|r
+## Notes: Rift-style timer and map pins for Loot Goblins and the goblin loot roll window (needs mod-loot-goblins on the server).
+## Author: stefanw1337
+## Version: 20261119zh
+LootGoblins_Maps.lua
+LootGoblins.lua

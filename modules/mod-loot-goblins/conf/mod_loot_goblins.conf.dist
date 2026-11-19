@@ -1,0 +1,880 @@
+[worldserver]
+
+###################################################################################################
+# Loot Goblins (mod-loot-goblins)
+#
+# Goblins that turn up now and then, count their coins until someone hits them, then run. Kill one before it
+# portals away and everyone who helped gets their own loot, Diablo III style.
+###################################################################################################
+
+###################################################################################################
+# GENERAL
+###################################################################################################
+
+#    LootGoblins.Enable
+#        Turns the whole module on or off.
+#        Default: 1
+LootGoblins.Enable = 1
+
+#    LootGoblins.Announce
+#        Server-wide messages: a goblin was spotted, slain, or someone looted an epic from one.
+#        Default: 1
+LootGoblins.Announce = 1
+
+#    LootGoblins.AnnounceEscape
+#        Tell the people who fought it when a goblin escapes through its portal.
+#        Default: 1
+LootGoblins.AnnounceEscape = 1
+
+#    LootGoblins.AnnounceChase
+#        When a goblin is first hit, everyone in the zone is told it's running, how long it has, and to come help.
+#        Default: 1
+LootGoblins.AnnounceChase = 1
+
+#    LootGoblins.MapPins
+#        Players with the LootGoblins addon see every goblin on their map as a pin on the world and zone map,
+#        and in the zone list (arrow, distance, click to target).
+#        Default: 1
+LootGoblins.MapPins = 1
+
+#    LootGoblins.CorpseSeconds
+#        Seconds a slain goblin's body stays before it fades (its loot is in the piles, not on the body).
+#        Default: 12
+LootGoblins.CorpseSeconds = 12
+
+###################################################################################################
+# NATURAL SPAWNS
+#    % chance that a goblin appears when a player kills a creature, by where it happens.
+###################################################################################################
+
+#    LootGoblins.SpawnChance.OpenWorld
+#        Outdoors, outside cities and sanctuaries.
+#        Default: 0.5
+LootGoblins.SpawnChance.OpenWorld = 0.5
+
+#    LootGoblins.SpawnChance.Cave
+#        Indoors in the open world (caves, buildings).
+#        Default: 0.5
+LootGoblins.SpawnChance.Cave = 0.5
+
+#    LootGoblins.SpawnChance.SafeZone
+#        Cities and sanctuaries.
+#        Default: 0
+LootGoblins.SpawnChance.SafeZone = 0
+
+#    LootGoblins.SpawnChance.Dungeon
+#        5-player dungeons.
+#        Default: 2.0
+LootGoblins.SpawnChance.Dungeon = 2.0
+
+#    LootGoblins.SpawnChance.Raid
+#        Raids.
+#        Default: 1.0
+LootGoblins.SpawnChance.Raid = 1.0
+
+#    LootGoblins.SpawnChance.FFAArea
+#        Free-for-all PvP areas (Gurubashi Arena and the like).
+#        Default: 2.0
+LootGoblins.SpawnChance.FFAArea = 2.0
+
+#    LootGoblins.SpawnChance.Battleground
+#        Battlegrounds.
+#        Default: 3.0
+LootGoblins.SpawnChance.Battleground = 3.0
+
+#    LootGoblins.SpawnChance.ArenaSkirmish
+#        Arena skirmishes.
+#        Default: 5.0
+LootGoblins.SpawnChance.ArenaSkirmish = 5.0
+
+#    LootGoblins.SpawnChance.ArenaRated
+#        Rated arenas.
+#        Default: 0
+LootGoblins.SpawnChance.ArenaRated = 0
+
+#    LootGoblins.SpawnCooldown
+#        Seconds before another natural goblin can appear on the same map.
+#        Default: 120
+LootGoblins.SpawnCooldown = 120
+
+#    LootGoblins.MaxActive
+#        Most goblins alive at once, server-wide (GM spawns ignore it).
+#        Default: 10
+LootGoblins.MaxActive = 10
+
+#    LootGoblins.Pack.SmallChance
+#        % of natural spawns that are a small pack (3-4 goblins) instead of one.
+#        Default: 3.0
+LootGoblins.Pack.SmallChance = 3.0
+
+#    LootGoblins.Pack.LargeChance
+#        % of natural spawns that are a large pack (4-7 goblins, announced as a horde).
+#        Default: 0.5
+LootGoblins.Pack.LargeChance = 0.5
+
+#    LootGoblins.Pack.SameType
+#        1 = every goblin in a pack is the same type; 0 = mixed.
+#        Default: 0
+LootGoblins.Pack.SameType = 0
+
+###################################################################################################
+# GOBLIN TYPES
+#    How often each type appears, relative to the others (0 = never). The type is shown under the goblin's name.
+###################################################################################################
+
+#    LootGoblins.TypeWeight.Gold
+#        Lots of money.
+#        Default: 20
+LootGoblins.TypeWeight.Gold = 20
+
+#    LootGoblins.TypeWeight.Uncommon
+#        A guaranteed green item.
+#        Default: 25
+LootGoblins.TypeWeight.Uncommon = 25
+
+#    LootGoblins.TypeWeight.Rare
+#        A guaranteed blue item.
+#        Default: 12
+LootGoblins.TypeWeight.Rare = 12
+
+#    LootGoblins.TypeWeight.Epic
+#        A guaranteed epic item.
+#        Default: 3
+LootGoblins.TypeWeight.Epic = 3
+
+#    LootGoblins.TypeWeight.Unknown
+#        Items from boss loot tables.
+#        Default: 2
+LootGoblins.TypeWeight.Unknown = 2
+
+#    LootGoblins.TypeWeight.Worldforged
+#        CoA Worldforged items (never spawns where the database has none).
+#        Default: 2
+LootGoblins.TypeWeight.Worldforged = 2
+
+#    LootGoblins.TypeWeight.Warspoils
+#        Lots of money (for PvP).
+#        Default: 0
+LootGoblins.TypeWeight.Warspoils = 0
+
+#    LootGoblins.TypeWeight.Mining
+#        Ore and stone.
+#        Default: 5
+LootGoblins.TypeWeight.Mining = 5
+
+#    LootGoblins.TypeWeight.Herb
+#        Herbs.
+#        Default: 5
+LootGoblins.TypeWeight.Herb = 5
+
+#    LootGoblins.TypeWeight.Skinning
+#        Leather and hides.
+#        Default: 5
+LootGoblins.TypeWeight.Skinning = 5
+
+#    LootGoblins.TypeWeight.Cloth
+#        Cloth.
+#        Default: 5
+LootGoblins.TypeWeight.Cloth = 5
+
+#    LootGoblins.TypeWeight.Enchanting
+#        Enchanting materials.
+#        Default: 4
+LootGoblins.TypeWeight.Enchanting = 4
+
+#    LootGoblins.TypeWeight.Gem
+#        Gems.
+#        Default: 4
+LootGoblins.TypeWeight.Gem = 4
+
+#    LootGoblins.TypeWeight.Inscription
+#        Inks and pigments.
+#        Default: 4
+LootGoblins.TypeWeight.Inscription = 4
+
+#    LootGoblins.TypeWeight.Cooking
+#        Cooking ingredients.
+#        Default: 4
+LootGoblins.TypeWeight.Cooking = 4
+
+#    LootGoblins.TypeWeight.Fishing
+#        Fish.
+#        Default: 4
+LootGoblins.TypeWeight.Fishing = 4
+
+#    LootGoblins.TypeWeight.Engineering
+#        Engineering parts.
+#        Default: 4
+LootGoblins.TypeWeight.Engineering = 4
+
+#    LootGoblins.TypeWeight.Alchemy
+#        Potions and alchemy materials.
+#        Default: 4
+LootGoblins.TypeWeight.Alchemy = 4
+
+#    LootGoblins.TypeWeight.Blacksmithing
+#        Bars and smithing materials.
+#        Default: 4
+LootGoblins.TypeWeight.Blacksmithing = 4
+
+###################################################################################################
+# RANKS
+#    Elite / rare / rare elite goblins (dragon frame): tougher, better loot.
+###################################################################################################
+
+#    LootGoblins.Rank.Dungeon
+#        Rank in dungeons: 0 = normal, 1 = elite, 2 = rare, 3 = rare elite.
+#        Default: 1
+LootGoblins.Rank.Dungeon = 1
+
+#    LootGoblins.Rank.Raid
+#        Rank in raids (same numbers).
+#        Default: 1
+LootGoblins.Rank.Raid = 1
+
+#    LootGoblins.Rank.OpenWorldRareChance
+#        Open world: % chance a goblin is rare.
+#        Default: 15
+LootGoblins.Rank.OpenWorldRareChance = 15
+
+#    LootGoblins.Rank.OpenWorldRareEliteChance
+#        Open world: % chance a goblin is rare elite.
+#        Default: 5
+LootGoblins.Rank.OpenWorldRareEliteChance = 5
+
+#    LootGoblins.Rank.Normal.Health
+#        Normal: health multiplier.
+#        Default: 1.0
+LootGoblins.Rank.Normal.Health = 1.0
+
+#    LootGoblins.Rank.Normal.LootBonus
+#        Normal: loot odds multiplier (better quality, more upgrades).
+#        Default: 1.0
+LootGoblins.Rank.Normal.LootBonus = 1.0
+
+#    LootGoblins.Rank.Normal.ExtraItems
+#        Normal: extra items for each player who gets loot.
+#        Default: 0
+LootGoblins.Rank.Normal.ExtraItems = 0
+
+#    LootGoblins.Rank.Elite.Health
+#        Elite: health multiplier.
+#        Default: 1.5
+LootGoblins.Rank.Elite.Health = 1.5
+
+#    LootGoblins.Rank.Elite.LootBonus
+#        Elite: loot odds multiplier (better quality, more upgrades).
+#        Default: 1.15
+LootGoblins.Rank.Elite.LootBonus = 1.15
+
+#    LootGoblins.Rank.Elite.ExtraItems
+#        Elite: extra items for each player who gets loot.
+#        Default: 1
+LootGoblins.Rank.Elite.ExtraItems = 1
+
+#    LootGoblins.Rank.Rare.Health
+#        Rare: health multiplier.
+#        Default: 1.25
+LootGoblins.Rank.Rare.Health = 1.25
+
+#    LootGoblins.Rank.Rare.LootBonus
+#        Rare: loot odds multiplier (better quality, more upgrades).
+#        Default: 1.3
+LootGoblins.Rank.Rare.LootBonus = 1.3
+
+#    LootGoblins.Rank.Rare.ExtraItems
+#        Rare: extra items for each player who gets loot.
+#        Default: 2
+LootGoblins.Rank.Rare.ExtraItems = 2
+
+#    LootGoblins.Rank.RareElite.Health
+#        RareElite: health multiplier.
+#        Default: 2.0
+LootGoblins.Rank.RareElite.Health = 2.0
+
+#    LootGoblins.Rank.RareElite.LootBonus
+#        RareElite: loot odds multiplier (better quality, more upgrades).
+#        Default: 1.5
+LootGoblins.Rank.RareElite.LootBonus = 1.5
+
+#    LootGoblins.Rank.RareElite.ExtraItems
+#        RareElite: extra items for each player who gets loot.
+#        Default: 3
+LootGoblins.Rank.RareElite.ExtraItems = 3
+
+###################################################################################################
+# THE CHASE
+###################################################################################################
+
+#    LootGoblins.UnawareTime
+#        Seconds an unaware goblin (not hit yet) waits before it wanders off.
+#        Default: 600
+LootGoblins.UnawareTime = 600
+
+#    LootGoblins.StartTime
+#        Seconds on the timer at the first hit.
+#        Default: 180
+LootGoblins.StartTime = 180
+
+#    LootGoblins.TimePerHit
+#        Seconds added to the timer per hit.
+#        Default: 0.5
+LootGoblins.TimePerHit = 0.5
+
+#    LootGoblins.TimeExtendPerPlayerCooldown
+#        Each player can add time at most this often (seconds).
+#        Default: 1.0
+LootGoblins.TimeExtendPerPlayerCooldown = 1.0
+
+#    LootGoblins.MaxLifetime
+#        Hard limit in seconds from the first hit, whatever the timer says.
+#        Default: 300
+LootGoblins.MaxLifetime = 300
+
+#    LootGoblins.MinFightSeconds
+#        Gives people nearby time to get there: from the first hit, its health can't drop faster than
+#        a straight line from full to nothing over this many seconds. 0 = off.
+#        Default: 60
+LootGoblins.MinFightSeconds = 60
+
+#    LootGoblins.PortalWindow
+#        In its last seconds it tries to open a portal and escape; a hit breaks the attempt.
+#        When the timer runs out the portal can't be broken.
+#        Default: 15
+LootGoblins.PortalWindow = 15
+
+#    LootGoblins.PortalCastTime
+#        Portal cast time in milliseconds.
+#        Default: 2500
+LootGoblins.PortalCastTime = 2500
+
+#    LootGoblins.PortalRetryDelay
+#        Seconds before it tries again after a broken portal.
+#        Default: 3
+LootGoblins.PortalRetryDelay = 3
+
+#    LootGoblins.AllDeadEscapeSeconds
+#        Seconds after everyone fighting it died before it portals away.
+#        Default: 20
+LootGoblins.AllDeadEscapeSeconds = 20
+
+#    LootGoblins.Faction.Unaware
+#        Faction before the first hit (7 = yellow: attackable, never attacks).
+#        Default: 7
+LootGoblins.Faction.Unaware = 7
+
+#    LootGoblins.Faction.Awake
+#        Faction after the first hit (14 = red to everyone).
+#        Default: 14
+LootGoblins.Faction.Awake = 14
+
+#    LootGoblins.RunSpeedRate
+#        Run speed, x normal.
+#        Default: 1.15
+LootGoblins.RunSpeedRate = 1.15
+
+#    LootGoblins.FleeDistance
+#        Yards it runs per dash.
+#        Default: 18
+LootGoblins.FleeDistance = 18
+
+#    LootGoblins.Pull.Enable
+#        The goblin judges the group while it runs: healthy groups get dragged through mob packs,
+#        struggling ones get spared.
+#        Default: 1
+LootGoblins.Pull.Enable = 1
+
+#    LootGoblins.Pull.HealthHigh
+#        Healthy: average health at least this %, nobody dead and not too many mobs on them.
+#        Default: 70
+LootGoblins.Pull.HealthHigh = 70
+
+#    LootGoblins.Pull.HealthLow
+#        Struggling: average health below this %, someone dead, or too many mobs: it avoids packs.
+#        Default: 45
+LootGoblins.Pull.HealthLow = 45
+
+#    LootGoblins.Pull.MaxEngaged
+#        'Too many mobs': more than this + half the number of participants.
+#        Default: 3
+LootGoblins.Pull.MaxEngaged = 3
+
+#    LootGoblins.OnlyPlayersHurtIt
+#        Only players (and their pets) can hurt it: guards and mobs can't kill it for you.
+#        Default: 1
+LootGoblins.OnlyPlayersHurtIt = 1
+
+#    LootGoblins.CC.Reduction
+#        Hard crowd control always shows 'Immune'; any other harmful effect lasts this much (%) shorter.
+#        Default: 50
+LootGoblins.CC.Reduction = 50
+
+###################################################################################################
+# TIMER BAR
+###################################################################################################
+
+#    LootGoblins.TimerBar.Addon
+#        Players with the LootGoblins addon get its Rift-style countdown bar.
+#        Default: 1
+LootGoblins.TimerBar.Addon = 1
+
+#    LootGoblins.TimerBar.MirrorFallback
+#        Players without the addon get the game's fatigue bar as the countdown.
+#        Default: 1
+LootGoblins.TimerBar.MirrorFallback = 1
+
+#    LootGoblins.TimerBar.Range
+#        Yards from the goblin within which the bar is shown.
+#        Default: 80
+LootGoblins.TimerBar.Range = 80
+
+###################################################################################################
+# LEVELS AND HEALTH
+#    Everyone can join, whatever their level.
+###################################################################################################
+
+#    LootGoblins.Level.FollowLowestParticipant
+#        The goblin drops to the lowest participant's level.
+#        Default: 1
+LootGoblins.Level.FollowLowestParticipant = 1
+
+#    LootGoblins.Level.NormaliseDamage
+#        Higher-level players hit like the goblin's level (so they can't one-shot it).
+#        Default: 1
+LootGoblins.Level.NormaliseDamage = 1
+
+#    LootGoblins.Level.HigherLevelEdge
+#        ...plus this much extra (1.25 = 25% more than a player of its level).
+#        Default: 1.25
+LootGoblins.Level.HigherLevelEdge = 1.25
+
+#    LootGoblins.GoblinHealthMultiplier
+#        Health = normal health for its level x this.
+#        Default: 8
+LootGoblins.GoblinHealthMultiplier = 8
+
+#    LootGoblins.HealthPerAttacker
+#        +% health for every participant after the first.
+#        Default: 50
+LootGoblins.HealthPerAttacker = 50
+
+#    LootGoblins.MaxHitPercent
+#        No single hit takes more than this % of its health.
+#        Default: 5
+LootGoblins.MaxHitPercent = 5
+
+###################################################################################################
+# LOOT
+#    Every participant gets their own drops, rolled for their own level.
+###################################################################################################
+
+#    LootGoblins.Loot.ItemsMin
+#        Fewest items per player.
+#        Default: 4
+LootGoblins.Loot.ItemsMin = 4
+
+#    LootGoblins.Loot.ItemsMax
+#        Most items per player (before rank and boss extras).
+#        Default: 8
+LootGoblins.Loot.ItemsMax = 8
+
+#    LootGoblins.Loot.QualityWeight.Green
+#        Gear quality odds (relative): green.
+#        Default: 80
+LootGoblins.Loot.QualityWeight.Green = 80
+
+#    LootGoblins.Loot.QualityWeight.Blue
+#        ... blue.
+#        Default: 18
+LootGoblins.Loot.QualityWeight.Blue = 18
+
+#    LootGoblins.Loot.QualityWeight.Epic
+#        ... epic.
+#        Default: 2
+LootGoblins.Loot.QualityWeight.Epic = 2
+
+#    LootGoblins.Loot.EpicChanceByLevel
+#        Epic odds factor from a level on ("level:factor,...").
+#        Default: "1:0.1,20:0.4,40:0.75,60:1.0"
+LootGoblins.Loot.EpicChanceByLevel = "1:0.1,20:0.4,40:0.75,60:1.0"
+
+#    LootGoblins.Upgrade.GreenToBlue
+#        % chance a green item is upgraded to blue.
+#        Default: 15
+LootGoblins.Upgrade.GreenToBlue = 15
+
+#    LootGoblins.Upgrade.BlueToEpic
+#        % chance a blue item is upgraded to epic.
+#        Default: 10
+LootGoblins.Upgrade.BlueToEpic = 10
+
+#    LootGoblins.Unknown.ItemCount
+#        Items from boss loot an Unknown goblin drops.
+#        Default: 3
+LootGoblins.Unknown.ItemCount = 3
+
+#    LootGoblins.Worldforged.ItemCount
+#        Worldforged items a Worldforged goblin drops.
+#        Default: 1
+LootGoblins.Worldforged.ItemCount = 1
+
+#    LootGoblins.Gold.CopperPerLevel
+#        Money: copper per player level (x 1-3 at random).
+#        Default: 30
+LootGoblins.Gold.CopperPerLevel = 30
+
+#    LootGoblins.Gold.GoldGoblinMultiplier
+#        Gold goblins drop this many times as much money.
+#        Default: 20
+LootGoblins.Gold.GoldGoblinMultiplier = 20
+
+#    LootGoblins.LootLifetime
+#        Seconds the drops stay on the ground.
+#        Default: 300
+LootGoblins.LootLifetime = 300
+
+#    LootGoblins.Loot.Pinata
+#        Drops fly out of the goblin in an arc and land around it.
+#        Default: 1
+LootGoblins.Loot.Pinata = 1
+
+#    LootGoblins.Loot.OnlyOwnerSeesPiles
+#        Only the player a drop is for sees it.
+#        Default: 1
+LootGoblins.Loot.OnlyOwnerSeesPiles = 1
+
+#    LootGoblins.MinContribution
+#        % of the fight a player must have done to get loot.
+#        Default: 1.0
+LootGoblins.MinContribution = 1.0
+
+#    LootGoblins.ContributionCountsHealing
+#        Healing counts toward a player's share.
+#        Default: 1
+LootGoblins.ContributionCountsHealing = 1
+
+#    LootGoblins.Score.HealingWeight
+#        Share points per point of healing (no overhealing).
+#        Default: 0.75
+LootGoblins.Score.HealingWeight = 0.75
+
+#    LootGoblins.Score.TankingWeight
+#        Share points per point of damage taken from mobs it dragged in.
+#        Default: 0.75
+LootGoblins.Score.TankingWeight = 0.75
+
+#    LootGoblins.Score.AddDamageWeight
+#        Share points per point of damage done to those mobs.
+#        Default: 0.5
+LootGoblins.Score.AddDamageWeight = 0.5
+
+#    LootGoblins.Score.PresenceRange
+#        Yards: staying alive this close counts as being there.
+#        Default: 40
+LootGoblins.Score.PresenceRange = 40
+
+#    LootGoblins.Score.PresenceForFairShare
+#        Being there for this % of the fight guarantees a fair share (1 / participants).
+#        Default: 50
+LootGoblins.Score.PresenceForFairShare = 50
+
+#    LootGoblins.Score.AddFightRange
+#        Yards from the goblin within which fights with dragged-in mobs count.
+#        Default: 60
+LootGoblins.Score.AddFightRange = 60
+
+#    LootGoblins.ContributionBonus
+#        How much a bigger share improves loot odds.
+#        Default: 0.5
+LootGoblins.ContributionBonus = 0.5
+
+#    LootGoblins.ContributionMin
+#        Lowest odds multiplier from the share.
+#        Default: 0.5
+LootGoblins.ContributionMin = 0.5
+
+#    LootGoblins.ContributionMax
+#        Highest odds multiplier from the share.
+#        Default: 2.0
+LootGoblins.ContributionMax = 2.0
+
+###################################################################################################
+# LOOT ON THE GROUND
+#    Each drop is its own lootable 'corpse' with a loot beam, like Diablo III.
+###################################################################################################
+
+#    LootGoblins.LootNames
+#        Each drop is named after its item ("Short Sword", <Rare> under it); money after the amount.
+#        Default: 1
+LootGoblins.LootNames = 1
+
+#    LootGoblins.LootNameColors
+#        Quality colour codes in those names. If your client shows "|cff..." text, set 0.
+#        Default: 1
+LootGoblins.LootNameColors = 1
+
+#    LootGoblins.LootItemModels
+#        Weapons, shields and off-hands lie on the ground as their real models; armour and jewellery
+#        as Diablo III item models (money and other goods as a gold heap).
+#        Default: 1
+LootGoblins.LootItemModels = 1
+
+#    LootGoblins.LootRangedModels
+#        Bows, guns, crossbows, wands and thrown weapons as their real models too
+#        (0 = gold heap, if they turn out invisible in a client).
+#        Default: 1
+LootGoblins.LootRangedModels = 1
+
+#    LootGoblins.LootPoleModels
+#        Fishing poles and miscellaneous weapons as their real models too (they were invisible on
+#        the ground; test with .lg drop <itemid> [count] [lift]).
+#        Default: 0
+LootGoblins.LootPoleModels = 0
+
+#    LootGoblins.ForcedNameplates
+#        Goblins, Greed and every drop always get a nameplate - dead too, whatever the player's
+#        nameplate settings - so the addon can show Diablo III-style item labels. Needs a client with
+#        the Loot Goblins nameplate support (CoA64 / Ascension64 built from source); others ignore it.
+#        Default: 1
+LootGoblins.ForcedNameplates = 1
+
+#    LootGoblins.LootBeams.Enable
+#        Loot beams over the drops, in the item's quality colour.
+#        Default: 1
+LootGoblins.LootBeams.Enable = 1
+
+#    LootGoblins.LootBeams.MinQuality
+#        Only drops of this quality and better get a beam (0 = all, 2 = green and better ...).
+#        Default: 0
+LootGoblins.LootBeams.MinQuality = 0
+
+###################################################################################################
+# SCALED-DOWN ITEMS
+#    Higher-level items shrunk to the player's level, a bit stronger than normal gear there, locked at that level.
+#    Needs the item resolver CoA's core has; on other cores this switches itself off.
+###################################################################################################
+
+#    LootGoblins.Scaled.Enable
+#        Turns scaled-down items on or off.
+#        Default: 1
+LootGoblins.Scaled.Enable = 1
+
+#    LootGoblins.Scaled.Chance
+#        % of gear drops that are a shrunk higher-level item (low-level epics always are).
+#        Default: 30
+LootGoblins.Scaled.Chance = 30
+
+#    LootGoblins.Scaled.PowerBonus
+#        Item level of a copy vs normal gear of its quality at that level (1.10 = 10% stronger).
+#        Default: 1.10
+LootGoblins.Scaled.PowerBonus = 1.10
+
+#    LootGoblins.Scaled.BracketSize
+#        Copies are made per level bracket (5 = one copy for levels 20-24 ...).
+#        Default: 5
+LootGoblins.Scaled.BracketSize = 5
+
+#    LootGoblins.Scaled.SpellMode
+#        Item spells on copies: 0 = none, 1 = only 'on equip' effects, 2 = all (procs too).
+#        Default: 1
+LootGoblins.Scaled.SpellMode = 1
+
+#    LootGoblins.Scaled.NameSuffix
+#        Text added to a copy's name (empty = same name as the original).
+#        Default: ""
+LootGoblins.Scaled.NameSuffix = ""
+
+#    LootGoblins.Scaled.FirstEntry
+#        Item ids for copies (1,000,000 from here). Never change it once copies exist.
+#        Default: 9000001
+LootGoblins.Scaled.FirstEntry = 9000001
+
+#    LootGoblins.Scaled.RuntimeCopies
+#        The installer makes the copies and puts them in the client patch, so they have icons.
+#        1 = also make new ones while the server runs (red question mark in bags until the
+#        installer is run again).
+#        Default: 0
+LootGoblins.Scaled.RuntimeCopies = 0
+
+###################################################################################################
+# GROUP ROLLS
+###################################################################################################
+
+#    LootGoblins.GroupRoll.Mode
+#        Need / Greed / Pass for the headline items: 0 = off (everyone gets personal drops),
+#        1 = in dungeons and raids, 2 = in any group.
+#        Default: 1
+LootGoblins.GroupRoll.Mode = 1
+
+#    LootGoblins.GroupRoll.Timeout
+#        Seconds to choose (players without the addon greed automatically).
+#        Default: 40
+LootGoblins.GroupRoll.Timeout = 40
+
+#    LootGoblins.GroupRoll.BonusDivisor
+#        Roll = 1-100 + share % / this (38% of the fight -> +4).
+#        Default: 10
+LootGoblins.GroupRoll.BonusDivisor = 10
+
+###################################################################################################
+# WORLD BOSS CHAIN
+#    Open world only. A goblin that enough of the zone piles onto opens a huge portal and Greed steps out.
+#    Kill her within HardModeWithin seconds and the hard-mode boss follows.
+###################################################################################################
+
+#    LootGoblins.Boss.Enable
+#        Turns the boss chain on or off.
+#        Default: 1
+LootGoblins.Boss.Enable = 1
+
+#    LootGoblins.Boss.CrowdPercent
+#        Share (%) of the zone's players that must be fighting the goblin.
+#        Default: 40
+LootGoblins.Boss.CrowdPercent = 40
+
+#    LootGoblins.Boss.CrowdMin
+#        ...and never fewer fighters than this.
+#        Default: 8
+LootGoblins.Boss.CrowdMin = 8
+
+#    LootGoblins.Boss.MinLevel
+#        Goblin level needed.
+#        Default: 10
+LootGoblins.Boss.MinLevel = 10
+
+#    LootGoblins.Boss.ZoneCooldown
+#        Seconds before a zone can get another boss.
+#        Default: 3600
+LootGoblins.Boss.ZoneCooldown = 3600
+
+#    LootGoblins.Boss.GreedTime
+#        Seconds before Greed leaves.
+#        Default: 600
+LootGoblins.Boss.GreedTime = 600
+
+#    LootGoblins.Boss.HardModeWithin
+#        Kill Greed within this many seconds for hard mode.
+#        Default: 300
+LootGoblins.Boss.HardModeWithin = 300
+
+#    LootGoblins.Boss.HardTime
+#        Seconds before the hard-mode boss leaves.
+#        Default: 900
+LootGoblins.Boss.HardTime = 900
+
+#    LootGoblins.Boss.GreedHealthPerPlayer
+#        Greed's health: x base health of her level, per fighter.
+#        Default: 6
+LootGoblins.Boss.GreedHealthPerPlayer = 6
+
+#    LootGoblins.Boss.HardHealthPerPlayer
+#        The hard-mode boss's health, the same way.
+#        Default: 10
+LootGoblins.Boss.HardHealthPerPlayer = 10
+
+#    LootGoblins.Boss.MeleePercent
+#        Her swings hit for this % of the target's max health.
+#        Default: 7
+LootGoblins.Boss.MeleePercent = 7
+
+#    LootGoblins.Boss.AbilityPercent
+#        Shockwave / charge hit for this % of max health.
+#        Default: 28
+LootGoblins.Boss.AbilityPercent = 28
+
+#    LootGoblins.Boss.MaxHitPercent
+#        Most of her health a single hit can take (%).
+#        Default: 1.5
+LootGoblins.Boss.MaxHitPercent = 1.5
+
+#    LootGoblins.Boss.Leash
+#        Yards from where she appeared before she blinks back.
+#        Default: 70
+LootGoblins.Boss.Leash = 70
+
+#    LootGoblins.Boss.GreedExtraItems
+#        Extra items per fighter from Greed.
+#        Default: 2
+LootGoblins.Boss.GreedExtraItems = 2
+
+#    LootGoblins.Boss.HardExtraItems
+#        Extra items per fighter from the hard-mode boss.
+#        Default: 4
+LootGoblins.Boss.HardExtraItems = 4
+
+#    LootGoblins.Boss.LootMultiplier
+#        Better quality odds from the bosses.
+#        Default: 1.5
+LootGoblins.Boss.LootMultiplier = 1.5
+
+###################################################################################################
+# GM COMMANDS
+#    .lootgoblin (alias .lg): spawn [count] [type] [normal|elite|rare|rareelite] | pack [small|large] | list |
+#    despawn [all] | escape | info | boss [hard] | drop <itemid> [count] [lift] | pools [level] | reload
+###################################################################################################
+
+#    LootGoblins.Command.MaxSpawn
+#        Most goblins one .lg spawn can make.
+#        Default: 25
+LootGoblins.Command.MaxSpawn = 25
+
+#    LootGoblins.Command.Announce
+#        Announce GM-spawned goblins like natural ones.
+#        Default: 1
+LootGoblins.Command.Announce = 1
+
+###################################################################################################
+# CREATURE ENTRIES
+#    The module's SQL creates these. Change them only together with the SQL.
+###################################################################################################
+
+#    LootGoblins.Entry.TypeBase
+#        First goblin entry (one per type, in the type order above).
+#        Default: 987101
+LootGoblins.Entry.TypeBase = 987101
+
+#    LootGoblins.Entry.LootPile
+#        The gold heap used for money (and as the mines' marker).
+#        Default: 987200
+LootGoblins.Entry.LootPile = 987200
+
+#    LootGoblins.Entry.Portal
+#        The escape portal.
+#        Default: 987201
+LootGoblins.Entry.Portal = 987201
+
+#    LootGoblins.Entry.DeathBurst
+#        The burst of coins when a goblin dies.
+#        Default: 987202
+LootGoblins.Entry.DeathBurst = 987202
+
+#    LootGoblins.Entry.CoinBurst
+#        Coins it drops when hit, and the flying drops.
+#        Default: 987203
+LootGoblins.Entry.CoinBurst = 987203
+
+#    LootGoblins.Entry.LootBeam
+#        The loot beam.
+#        Default: 987204
+LootGoblins.Entry.LootBeam = 987204
+
+#    LootGoblins.Entry.Greed
+#        Greed (world boss).
+#        Default: 987205
+LootGoblins.Entry.Greed = 987205
+
+#    LootGoblins.Entry.HardBoss
+#        The hard-mode boss.
+#        Default: 987206
+LootGoblins.Entry.HardBoss = 987206
+
+#    LootGoblins.Entry.PileSlotFirst
+#        First of the entries used for drops (one per dropped item, reused in turn).
+#        Its low 16 bits (61440+) belong to no game creature, so tooltip addons like MobSpells show nothing.
+#        Default: 1044480
+LootGoblins.Entry.PileSlotFirst = 1044480
+
+#    LootGoblins.PileSlots
+#        How many drop entries there are.
+#        Default: 100
+LootGoblins.PileSlots = 100
