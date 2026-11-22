@@ -566,6 +566,23 @@ inline bool FitsRightHead(SpecializationRoles const& roles)
     return roles.Caster || roles.Ranged || roles.Healer;
 }
 
+enum class ChosenHead : std::uint8_t
+{
+    Any,
+    Left,
+    Right
+};
+
+inline std::optional<std::pair<std::string, ChosenHead>> SplitCreationHead(std::string_view name)
+{
+    if (name.size() < 3 || name[name.size() - 2] != '#' || (name.back() != 'M' && name.back() != 'R'))
+        return std::nullopt;
+    std::string_view const base = name.substr(0, name.size() - 2);
+    if (base.find('#') != std::string_view::npos)
+        return std::nullopt;
+    return std::make_pair(std::string(base), name.back() == 'M' ? ChosenHead::Left : ChosenHead::Right);
+}
+
 struct PairHead
 {
     bool TwoPlayers = false;
@@ -573,6 +590,7 @@ struct PairHead
     std::uint8_t Level = 0;
     SpecializationRoles Roles;
     bool CoAClass = true;
+    ChosenHead Chosen = ChosenHead::Any;
 };
 
 enum class PairRefusal
@@ -582,6 +600,8 @@ enum class PairRefusal
     RightNotTwoPlayers,
     LeftPaired,
     RightPaired,
+    LeftChoseRanged,
+    RightChoseMelee,
     LevelGap,
     LeftSpecialization,
     RightSpecialization,
@@ -599,6 +619,10 @@ inline PairRefusal CheckPair(PairHead const& left, PairHead const& right)
         return PairRefusal::LeftPaired;
     if (right.Paired)
         return PairRefusal::RightPaired;
+    if (left.Chosen == ChosenHead::Right)
+        return PairRefusal::LeftChoseRanged;
+    if (right.Chosen == ChosenHead::Left)
+        return PairRefusal::RightChoseMelee;
     if (!left.CoAClass)
         return PairRefusal::LeftClass;
     if (!right.CoAClass)

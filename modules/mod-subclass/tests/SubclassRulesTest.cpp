@@ -701,6 +701,32 @@ TEST(Subclass, TheOgreJoinsHerHeadsWithAnApostropheAndTheTwinsWithAnAmpersand)
     EXPECT_EQ(WhisperName(ThinHumanRace, "Warken", "Flarken"), "Warken&Flarken");
 }
 
+TEST(Subclass, TheHeadChosenAtCreationRidesOnTheNameAndDecidesWhoSendsThePairRequest)
+{
+    auto const melee = SplitCreationHead("Warken#M");
+    ASSERT_TRUE(melee.has_value());
+    EXPECT_EQ(melee->first, "Warken");
+    EXPECT_EQ(melee->second, ChosenHead::Left);
+    auto const ranged = SplitCreationHead("Flarken Second#R");
+    ASSERT_TRUE(ranged.has_value());
+    EXPECT_EQ(ranged->first, "Flarken Second");
+    EXPECT_EQ(ranged->second, ChosenHead::Right);
+    EXPECT_FALSE(SplitCreationHead("Warken").has_value());
+    EXPECT_FALSE(SplitCreationHead("#M").has_value());
+    EXPECT_FALSE(SplitCreationHead("War#ken#M").has_value());
+    EXPECT_FALSE(SplitCreationHead("Warken#X").has_value());
+
+    PairHead hybrid{ true, false, 1, SpecializationRoles{ true, false, true, false, false } };
+    PairHead chosenMelee = hybrid;
+    chosenMelee.Chosen = ChosenHead::Left;
+    PairHead chosenRanged = hybrid;
+    chosenRanged.Chosen = ChosenHead::Right;
+    EXPECT_EQ(CheckPair(chosenMelee, chosenRanged), PairRefusal::None);
+    EXPECT_EQ(CheckPair(chosenRanged, chosenMelee), PairRefusal::LeftChoseRanged);
+    EXPECT_EQ(CheckPair(hybrid, chosenMelee), PairRefusal::RightChoseMelee);
+    EXPECT_EQ(CheckPair(hybrid, hybrid), PairRefusal::None);
+}
+
 TEST(Subclass, AWhisperToTheFirstBrotherDropsTheSecondBrothersName)
 {
     EXPECT_EQ(WithoutRiderName("& Flarken hi there", "Flarken"), "hi there");

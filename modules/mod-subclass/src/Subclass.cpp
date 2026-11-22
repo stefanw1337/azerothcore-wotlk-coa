@@ -74,6 +74,8 @@ void EchoCyclopsHelmet(Player* player);
 std::string RelicState(Player* player);
 std::string HandleRelicMessage(Player* player, std::vector<std::string_view> const& words);
 void HandlePairMessage(Player* player, std::vector<std::string_view> const& words);
+bool TakeCreationHead(WorldSession* session, WorldPacket const& packet);
+bool TwoPlayersEnabled();
 void SendBotPlans(Player* player);
 void BotPlanDoNow(Player* player, std::string_view botName, uint32 questId);
 void BotPlanMoveUp(Player* player, std::string_view botName, uint32 questId);
@@ -374,6 +376,8 @@ void AddPairsToCharacterSelect(WorldSession* session, std::string payload)
                         PlainClassName(partnerClass), ClassColorHex(partnerClass),
                         left ? Subclass::JoinedName(race, name, partner) : Subclass::JoinedName(race, partner, name));
                 } while (result->NextRow());
+            if (TwoPlayersEnabled())
+                payload += std::string(payload.size() > 1 ? "," : "") + CharacterSelectEntry("#heads", "1", "", "");
             SendCharacterSelectPayload(session, payload + "}");
         }));
 }
@@ -3922,7 +3926,11 @@ public:
             SendTwinGearToCharacterSelect(session);
             SendMutatedToCharacterSelect(session);
         }
-        return !session || (AllowsCreation(session, packet) && KeepsRelicOutOfBank(session, packet));
+        if (!session)
+            return true;
+        if (!AllowsCreation(session, packet))
+            return false;
+        return !TakeCreationHead(session, packet) && KeepsRelicOutOfBank(session, packet);
     }
 };
 

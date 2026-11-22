@@ -419,4 +419,21 @@ do
 		GlueTooltip:HookScript("OnHide", function(tip) tip.twoPlayersFor = nil end)
 	end
 end
+do
+	local HEADS_PAYLOAD_ID = 1398096451
+	local function ServerTakesHeads()
+		if not GetJsonCacheData then return false end
+		local ok, sent = pcall(GetJsonCacheData, "MISC_PLAYER_DATA_PAYLOAD", HEADS_PAYLOAD_ID)
+		return ok and type(sent) == "string" and string.find(sent, '"#heads"', 1, true) ~= nil
+	end
+	local createCharacter = CreateCharacter
+	function CreateCharacter(name, ...)
+		local ok, slot = pcall(CharacterCreate_TwoPlayersSlot)
+		if type(name) == "string" and name ~= "" and ok and slot and not PAID_SERVICE_TYPE
+			and ServerTakesHeads() then
+			name = name .. (CHAR_CREATE_TWO_PLAYERS_HEAD == "right" and "#R" or "#M")
+		end
+		return createCharacter(name, ...)
+	end
+end
 -- Two-Players: end
