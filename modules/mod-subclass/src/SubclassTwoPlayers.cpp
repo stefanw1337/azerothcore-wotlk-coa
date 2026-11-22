@@ -793,6 +793,18 @@ void GhostAlong(Player* rider, Player* body)
             body->GetOrientation());
 }
 
+void ShareTheBodysRest(Player* rider, Player const* body)
+{
+    for (RestFlag const flag : { REST_FLAG_IN_TAVERN, REST_FLAG_IN_CITY, REST_FLAG_IN_FACTION_AREA })
+    {
+        if (!body->HasRestFlag(flag))
+            rider->RemoveRestFlag(flag);
+        else if (!rider->HasRestFlag(flag) || (flag == REST_FLAG_IN_TAVERN &&
+            rider->GetInnTriggerId() != body->GetInnTriggerId()))
+            rider->SetRestFlag(flag, flag == REST_FLAG_IN_TAVERN ? body->GetInnTriggerId() : 0);
+    }
+}
+
 void KeepTogether(Player* player)
 {
     uint32 const guid = player->GetGUID().GetCounter();
@@ -854,6 +866,7 @@ void KeepTogether(Player* player)
         else
         {
             UseLentAbilities(rider, body);
+            ShareTheBodysRest(rider, body);
             if (rider->GetDisplayId() == InvisibleDisplay)
                 rider->RestoreDisplayId();
         }
