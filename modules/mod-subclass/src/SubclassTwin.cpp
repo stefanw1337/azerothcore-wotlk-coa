@@ -33,6 +33,7 @@
 #include "Random.h"
 #include "ScriptMgr.h"
 #include "StringConvert.h"
+#include "Tokenize.h"
 #include "SubclassRules.h"
 #include "AscensionPooledVitality.h"
 #include "ScriptedGossip.h"
@@ -960,6 +961,32 @@ Wardrobe StandInOutfit(Player const* body, Player const* rider)
 {
     Wardrobe const chosen = WardrobeOf(rider);
     return chosen.Enabled ? chosen : Worn(body);
+}
+
+std::unordered_set<uint32>& dressedRiders = *new std::unordered_set<uint32>;
+
+void DressSeatedRider(Player* rider, Player const* body)
+{
+    uint32 const guid = rider->GetGUID().GetCounter();
+    if (body)
+    {
+        Wardrobe const outfit = StandInOutfit(body, rider);
+        for (std::size_t slot = 0; slot < WardrobeSlots; ++slot)
+        {
+            rider->SetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + Slots[slot].Slot * 2, outfit.Items[slot]);
+            rider->SetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENCHANTMENT + Slots[slot].Slot * 2, 0);
+        }
+        std::lock_guard<std::mutex> lock(twinMutex);
+        dressedRiders.insert(guid);
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        if (!dressedRiders.erase(guid))
+            return;
+    }
+    for (TwinSlot const& slot : Slots)
+        rider->SetVisibleItemSlot(slot.Slot, rider->GetItemByPos(INVENTORY_SLOT_BAG_0, slot.Slot));
 }
 
 Player* SeatedTwinsRider(Player const* body)
@@ -2459,7 +2486,9 @@ void KeepTwoPlayersBrother(Player* player)
     uint32 const guid = player->GetGUID().GetCounter();
     Player const* rider = SeatedTwinsRider(player);
     bool const alone = HasTwin(player) && !rider;
-    bool const standIn = BodyOfStandIn(player) != nullptr;
+    Player* const standInBody = BodyOfStandIn(player);
+    bool const standIn = standInBody != nullptr;
+    DressSeatedRider(player, standInBody);
     bool changed;
     {
         std::lock_guard<std::mutex> lock(twinMutex);
@@ -6603,6 +6632,26 @@ public:
     }
 };
 
+std::string CharacterSelectGear(std::array<uint32, WardrobeSlots> const& items)
+{
+    std::string gear;
+    for (std::size_t slot = 0; slot < WardrobeSlots; ++slot)
+        if (ItemTemplate const* item = sObjectMgr->GetItemTemplate(items[slot]))
+            gear += Acore::StringFormat("{}[{},{},{}]", gear.empty() ? "" : ",", uint32(Slots[slot].Slot),
+                item->DisplayInfoID, item->InventoryType);
+    return gear;
+}
+
+std::array<uint32, WardrobeSlots> GearOfEquipmentCache(std::string_view cache)
+{
+    std::vector<std::string_view> const tokens = Acore::Tokenize(cache, ' ', false);
+    std::array<uint32, WardrobeSlots> items = {};
+    for (std::size_t slot = 0; slot < WardrobeSlots; ++slot)
+        if (std::size_t const index = std::size_t(Slots[slot].Slot) * 2; index < tokens.size())
+            items[slot] = Acore::StringTo<uint32>(tokens[index]).value_or(0);
+    return items;
+}
+
 void SendTwinGearToCharacterSelect(WorldSession* session)
 {
     constexpr uint16 MiscPlayerDataPayload = 0x77D;
@@ -6610,37 +6659,67 @@ void SendTwinGearToCharacterSelect(WorldSession* session)
     std::string columns;
     for (TwinSlot const& slot : Slots)
         columns += Acore::StringFormat(", `t`.`{}`", slot.Name);
+    std::string partnerColumns;
+    for (TwinSlot const& slot : Slots)
+        partnerColumns += Acore::StringFormat(", `ot`.`{}`", slot.Name);
     session->QueueQueryCallback(CharacterDatabase.AsyncQuery(Acore::StringFormat(
         "SELECT `c`.`name`, `t`.`guid` IS NOT NULL AND (EXISTS (SELECT 1 FROM `character_queststatus_rewarded` AS "
         "`q` WHERE `q`.`guid` = `c`.`guid` AND `q`.`quest` = {}) OR EXISTS (SELECT 1 FROM `mod_subclass_character` "
         "AS `s` WHERE `s`.`guid` = `c`.`guid` AND `s`.`sub_class` <> 0 AND `s`.`sub_spec` <> 0)), `f`.`guid` IS NOT "
-        "NULL, `f`.`face`, `f`.`hair`, `f`.`facial`{} FROM `characters` AS `c` LEFT JOIN `mod_subclass_twin` AS `t` "
-        "ON `t`.`guid` = `c`.`guid` LEFT JOIN `mod_subclass_twin_features` AS `f` ON `f`.`guid` = `c`.`guid` "
-        "WHERE `c`.`account` = {} AND `c`.`race` = {} AND `c`.`deleteInfos_Name` IS NULL", TwinQuest, columns,
-        session->GetAccountId(), TwinRace)).WithCallback(
+        "NULL, `f`.`face`, `f`.`hair`, `f`.`facial`{}, `o`.`guid` IS NOT NULL, IFNULL(`p`.`left_guid` = `c`.`guid`, "
+        "0), IFNULL(`o`.`equipmentCache`, ''), IFNULL(`o`.`face`, 0), IFNULL(`o`.`hairStyle`, 0), "
+        "IFNULL(`o`.`facialStyle`, 0), IFNULL(`ot`.`enabled`, 0){}, `c`.`gender` FROM `characters` AS `c` LEFT JOIN "
+        "`mod_subclass_twin` AS `t` ON `t`.`guid` = `c`.`guid` LEFT JOIN `mod_subclass_twin_features` AS `f` ON "
+        "`f`.`guid` = `c`.`guid` LEFT JOIN `mod_subclass_two_players` AS `p` ON `c`.`guid` IN (`p`.`left_guid`, "
+        "`p`.`right_guid`) LEFT JOIN `characters` AS `o` ON `o`.`guid` = IF(`p`.`left_guid` = `c`.`guid`, "
+        "`p`.`right_guid`, `p`.`left_guid`) AND `o`.`deleteInfos_Name` IS NULL LEFT JOIN `mod_subclass_twin` AS `ot` "
+        "ON `ot`.`guid` = `o`.`guid` WHERE `c`.`account` = {} AND `c`.`race` = {} AND `c`.`deleteInfos_Name` IS NULL",
+        TwinQuest, columns, partnerColumns, session->GetAccountId(), TwinRace)).WithCallback(
         [session](QueryResult result)
         {
             constexpr std::size_t FirstItem = 6;
+            constexpr std::size_t Partner = FirstItem + WardrobeSlots;
+            constexpr std::size_t FirstPartnerItem = Partner + 7;
+            constexpr std::size_t Gender = FirstPartnerItem + WardrobeSlots;
             std::string payload = "{";
+            auto const add = [&payload](std::string const& key, std::string const& value)
+            {
+                payload += Acore::StringFormat("{}\"{}\":[{}]", payload.size() > 1 ? "," : "", key, value);
+            };
             if (result)
                 do
                 {
                     Field* fields = result->Fetch();
                     std::string const name = fields[0].Get<std::string>();
+                    if (fields[Partner].Get<bool>())
+                    {
+                        bool const left = fields[Partner + 1].Get<bool>();
+                        std::array<uint32, WardrobeSlots> partnerOutfit = {};
+                        for (std::size_t slot = 0; slot < WardrobeSlots; ++slot)
+                            partnerOutfit[slot] = fields[FirstPartnerItem + slot].Get<uint32>();
+                        if (!left)
+                            add(name, CharacterSelectGear(GearOfEquipmentCache(fields[Partner + 2].Get<std::string>())));
+                        else if (fields[Partner + 6].Get<bool>())
+                            add(name, CharacterSelectGear(partnerOutfit));
+                        add(name + "#look", Acore::StringFormat("{},{},{}", uint32(fields[Partner + 3].Get<uint8>()),
+                            uint32(fields[Partner + 4].Get<uint8>()), uint32(fields[Partner + 5].Get<uint8>())));
+                        continue;
+                    }
+                    if (Subclass::IsTwoPlayersBody(TwinRace, fields[Gender].Get<uint8>()))
+                    {
+                        add(name + "#alone", "");
+                        continue;
+                    }
                     if (fields[1].Get<bool>())
                     {
-                        std::string items;
+                        std::array<uint32, WardrobeSlots> items = {};
                         for (std::size_t slot = 0; slot < WardrobeSlots; ++slot)
-                            if (ItemTemplate const* item =
-                                    sObjectMgr->GetItemTemplate(fields[FirstItem + slot].Get<uint32>()))
-                                items += Acore::StringFormat("{}[{},{},{}]", items.empty() ? "" : ",",
-                                    uint32(Slots[slot].Slot), item->DisplayInfoID, item->InventoryType);
-                        payload += Acore::StringFormat("{}\"{}\":[{}]", payload.size() > 1 ? "," : "", name, items);
+                            items[slot] = fields[FirstItem + slot].Get<uint32>();
+                        add(name, CharacterSelectGear(items));
                     }
                     if (fields[2].Get<bool>())
-                        payload += Acore::StringFormat("{}\"{}#look\":[{},{},{}]", payload.size() > 1 ? "," : "",
-                            name, uint32(fields[3].Get<uint8>()), uint32(fields[4].Get<uint8>()),
-                            uint32(fields[5].Get<uint8>()));
+                        add(name + "#look", Acore::StringFormat("{},{},{}", uint32(fields[3].Get<uint8>()),
+                            uint32(fields[4].Get<uint8>()), uint32(fields[5].Get<uint8>())));
                 } while (result->NextRow());
             payload += "}";
             WorldPacket packet(MiscPlayerDataPayload, 4 + payload.size() + 1);
