@@ -55,6 +55,7 @@ void TwoPlayersKeepBotBodyRoaming(Player* body);
 void TwoPlayersBotBodyRides(Player* body, Player* rider, bool halted);
 std::string TwoPlayersBotBodyRideToggle(Player* body, Player* rider);
 void KeepTwoPlayersBrother(Player* player);
+void TwoPlayersTwinCasts(Player* body, Unit* target, bool positive);
 
 namespace
 {
@@ -1172,18 +1173,6 @@ public:
     }
 };
 
-Player* VisibleRiderOf(Unit* unit)
-{
-    Player* body = unit ? unit->ToPlayer() : nullptr;
-    if (!body || Subclass::BodyVehicleFor(body->getRace(true)) != Subclass::TwinsTwoPlayersVehicle)
-        return nullptr;
-    uint32 const guid = body->GetGUID().GetCounter();
-    if (!TwoPlayersIsLeftHead(guid))
-        return nullptr;
-    Player* rider = Online(TwoPlayersPartnerOf(guid));
-    return Seated(body, rider) ? rider : nullptr;
-}
-
 bool HealsManyAtOnce(SpellInfo const* info)
 {
     if (info->IsAffectingArea())
@@ -1220,7 +1209,7 @@ class mod_subclass_two_players_unit : public UnitScript
 {
 public:
     mod_subclass_two_players_unit() : UnitScript("mod_subclass_two_players_unit", true,
-        { UNITHOOK_ON_DAMAGE, UNITHOOK_MODIFY_MELEE_DAMAGE, UNITHOOK_MODIFY_HEAL_RECEIVED }) { }
+        { UNITHOOK_ON_DAMAGE, UNITHOOK_MODIFY_HEAL_RECEIVED }) { }
 
     void ModifyHealReceived(Unit* healer, Unit* receiver, uint32& heal, SpellInfo const* info) override
     {
@@ -1232,15 +1221,6 @@ public:
         HealInfo bodyHeal(healer, body, heal, info, info->GetSchoolMask());
         heal = 0;
         healer->HealBySpell(bodyHeal);
-    }
-
-    void ModifyMeleeDamage(Unit* /*target*/, Unit* attacker, uint32& /*damage*/) override
-    {
-        Player* rider = VisibleRiderOf(attacker);
-        if (!rider)
-            return;
-        bool const armed = attacker->ToPlayer()->GetWeaponForAttack(BASE_ATTACK, true) != nullptr;
-        rider->HandleEmoteCommand(armed ? EMOTE_ONESHOT_ATTACK1H : EMOTE_ONESHOT_ATTACK_UNARMED);
     }
 
     void OnDamage(Unit* /*attacker*/, Unit* victim, uint32& damage) override
@@ -1298,8 +1278,8 @@ public:
             return;
         PayLentShare(caster, info);
         DismountForRider(caster, info);
-        if (Player* rider = VisibleRiderOf(caster))
-            rider->HandleEmoteCommand(info->IsPositive() ? EMOTE_ONESHOT_SPELL_CAST_OMNI : EMOTE_ONESHOT_SPELL_CAST);
+        if (Player* body = BodyOfSeatedRider(caster))
+            TwoPlayersTwinCasts(body, spell->m_targets.GetUnitTarget(), info->IsPositive());
     }
 
     bool CanPrepare(Spell* spell, SpellCastTargets const* targets, AuraEffect const* /*triggeredByAura*/) override

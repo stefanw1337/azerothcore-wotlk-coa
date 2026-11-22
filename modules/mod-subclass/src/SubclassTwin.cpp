@@ -242,6 +242,8 @@ struct Look
     uint8 Class = 0;
     std::array<uint8, 5> Features = {};
     std::array<uint32, LookSlots> Displays = {};
+
+    bool operator==(Look const&) const = default;
 };
 
 std::mutex& twinMutex = *new std::mutex;
@@ -258,6 +260,7 @@ std::unordered_map<uint32, uint32>& sentHome = *new std::unordered_map<uint32, u
 std::unordered_map<uint32, uint32>& auraTicks = *new std::unordered_map<uint32, uint32>;
 std::unordered_map<uint32, uint32>& arrivals = *new std::unordered_map<uint32, uint32>;
 std::unordered_set<uint32>& aloneTwoPlayersTwins = *new std::unordered_set<uint32>;
+std::unordered_map<uint32, uint32>& standInFor = *new std::unordered_map<uint32, uint32>;
 std::unordered_map<uint32, uint8>& sips = *new std::unordered_map<uint32, uint8>;
 std::unordered_map<uint32, bool>& hangovers = *new std::unordered_map<uint32, bool>;
 
@@ -934,6 +937,30 @@ Look LookOf(Player const* player, Wardrobe const& wardrobe)
     return look;
 }
 
+Look RiderLook(Player const* rider, Wardrobe const& worn)
+{
+    Look look;
+    look.DisplayId = BrotherNativeDisplay(rider);
+    look.Race = rider->getRace();
+    look.Gender = StoryGenderOf(rider);
+    look.Class = rider->getClass();
+    look.Features = { rider->GetByteValue(PLAYER_BYTES, 0), rider->GetByteValue(PLAYER_BYTES, 1),
+        rider->GetByteValue(PLAYER_BYTES, 2), rider->GetByteValue(PLAYER_BYTES, 3),
+        rider->GetByteValue(PLAYER_BYTES_2, 0) };
+    for (std::size_t slot = 0; slot < LookSlots; ++slot)
+        look.Displays[slot] = DisplayOfItem(worn.Items[slot]);
+    if (look.Race == Subclass::ThinHumanRace)
+        look.Features[4] = Subclass::FacialUnderHat(look.Features[4], look.Features[2], look.Displays[0] != 0);
+    return look;
+}
+
+Player* SeatedTwinsRider(Player const* body)
+{
+    if (body->getRace(true) != TwinRace || !TwoPlayersIsLeftHead(body->GetGUID().GetCounter()))
+        return nullptr;
+    return TwoPlayersSeatedPartner(body);
+}
+
 Creature* TwinOf(Player const* player)
 {
     ObjectGuid guid;
@@ -1274,7 +1301,7 @@ Carry WantedCarry(Player const* player, Motion const& motion)
             return motion.Mode == Carry::Passenger || kit->GetAvailableSeatCount() ? Carry::Passenger : Carry::Beside;
         return Carry::Saddle;
     }
-    if (player->IsFlying())
+    if (player->IsFlying() || (player->GetVehicleKit() && !OwnsKit(player)))
         return Carry::Beside;
     if (motion.Afoot && motion.Afoot <= AfootStride)
         return Carry::Beside;
@@ -2073,6 +2100,7 @@ void DismissTwin(Player* player)
         twinOfOwner.erase(itr);
         looks.erase(guid);
         motions.erase(player->GetGUID().GetCounter());
+        standInFor.erase(player->GetGUID().GetCounter());
         swingPartners.erase(player->GetGUID());
         shieldBearers.erase(player->GetGUID());
     }
@@ -2101,15 +2129,17 @@ void SummonTwin(Player* player)
     if (!twin)
         return;
 
-    Wardrobe const dressed = Dressed(player);
-    Look const look = LookOf(player, dressed);
+    Player const* rider = SeatedTwinsRider(player);
+    Wardrobe const dressed = rider ? Worn(rider) : Dressed(player);
+    Look const look = rider ? RiderLook(rider, dressed) : LookOf(player, dressed);
     {
         std::lock_guard<std::mutex> lock(twinMutex);
         twinOfOwner[player->GetGUID().GetCounter()] = twin->GetGUID();
         looks[twin->GetGUID()] = look;
         motions[player->GetGUID().GetCounter()].Split = IsSplit(player);
+        standInFor[player->GetGUID().GetCounter()] = rider ? rider->GetGUID().GetCounter() : 0;
     }
-    twin->SetLevel(player->GetLevel());
+    twin->SetLevel(rider ? rider->GetLevel() : player->GetLevel());
     twin->SetDisplayId(BrotherNativeDisplay(player));
     twin->SetNativeDisplayId(BrotherNativeDisplay(player));
     twin->SetFloatValue(UNIT_FIELD_COMBATREACH, TwinReach);
@@ -2130,9 +2160,7 @@ bool TwoPlayersTwinStandsAlone(Player const* player)
     uint32 const guid = player->GetGUID().GetCounter();
     if (!Subclass::IsTwoPlayersBody(player->getRace(true), StoryGenderOf(player)))
         return false;
-    if (!TwoPlayersPartnerOf(guid))
-        return true;
-    return TwoPlayersIsLeftHead(guid) && !TwoPlayersSeatedPartner(player);
+    return !TwoPlayersPartnerOf(guid) || TwoPlayersIsLeftHead(guid);
 }
 
 bool HasTwin(Player const* player)
@@ -2144,7 +2172,7 @@ bool HasTwin(Player const* player)
 
 void RefreshTwin(Player* player)
 {
-    if (HasTwin(player) && WardrobeOf(player).Enabled)
+    if (HasTwin(player) && (WardrobeOf(player).Enabled || SeatedTwinsRider(player)))
         SummonTwin(player);
     else
         DismissTwin(player);
@@ -2352,17 +2380,40 @@ void KeepTwoPlayersBrother(Player* player)
         player->IsBeingTeleported())
         return;
     uint32 const guid = player->GetGUID().GetCounter();
-    bool const alone = HasTwin(player);
+    Player const* rider = SeatedTwinsRider(player);
+    bool const alone = HasTwin(player) && !rider;
     bool changed;
     {
         std::lock_guard<std::mutex> lock(twinMutex);
         changed = alone ? aloneTwoPlayersTwins.insert(guid).second : aloneTwoPlayersTwins.erase(guid) != 0;
     }
-    bool const wanted = alone && WardrobeOf(player).Enabled;
-    if (wanted != (TwinOf(player) != nullptr))
+    bool const wanted = HasTwin(player) && (rider || WardrobeOf(player).Enabled);
+    Creature const* twin = TwinOf(player);
+    bool stale = false;
+    if (twin)
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        auto const shown = standInFor.find(guid);
+        uint32 const riderGuid = rider ? rider->GetGUID().GetCounter() : 0;
+        stale = shown == standInFor.end() || shown->second != riderGuid;
+        if (!stale && rider)
+            if (auto const look = looks.find(twin->GetGUID()); look != looks.end())
+                stale = !(look->second == RiderLook(rider, Worn(rider)));
+    }
+    if (wanted != (twin != nullptr) || (wanted && stale))
         RefreshTwin(player);
     if (changed)
         SendSubclassMessage(player, TwinState(player));
+}
+
+void TwoPlayersTwinCasts(Player* body, Unit* target, bool positive)
+{
+    Creature* twin = body->getRace(true) == TwinRace ? TwinOf(body) : nullptr;
+    if (!twin)
+        return;
+    if (target && target != twin)
+        twin->SetFacingToObject(target);
+    twin->HandleEmoteCommand(positive ? EMOTE_ONESHOT_SPELL_CAST_OMNI : EMOTE_ONESHOT_SPELL_CAST);
 }
 
 void OfferStoryLater(Player* player);
