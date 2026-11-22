@@ -1296,6 +1296,34 @@ std::unordered_map<uint32, uint32> const& RiderPoseVehicles()
     return vehicles;
 }
 
+std::unordered_map<uint32, uint32> const& FormSeatVehicles()
+{
+    static std::unordered_map<uint32, uint32> const vehicles = []
+    {
+        std::unordered_map<uint32, uint32> loaded;
+        bool const present = bool(WorldDatabase.Query("SELECT 1 FROM information_schema.TABLES WHERE "
+            "TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mod_subclass_form_seat'"));
+        if (QueryResult result = present ?
+                WorldDatabase.Query("SELECT `DisplayId`, `VehicleId` FROM `mod_subclass_form_seat`") : nullptr)
+            do
+            {
+                Field* fields = result->Fetch();
+                if (sVehicleStore.LookupEntry(fields[1].Get<uint32>()))
+                    loaded[fields[0].Get<uint32>()] = fields[1].Get<uint32>();
+            } while (result->NextRow());
+        LOG_INFO("module", "mod-subclass: {} ridden form looks seat the twin brother on their own back", loaded.size());
+        return loaded;
+    }();
+    return vehicles;
+}
+
+uint32 FormSeatFor(Player const* player, uint32 fallback)
+{
+    auto const& vehicles = FormSeatVehicles();
+    auto const itr = vehicles.find(player->GetDisplayId());
+    return itr != vehicles.end() ? itr->second : fallback;
+}
+
 uint32 SaddleFor(Player const* player)
 {
     auto const& vehicles = RiderPoseVehicles();
@@ -1312,14 +1340,24 @@ uint32 VehicleFor(Player const* player, Carry mode)
         case Carry::Piggyback:
             return PiggybackVehicle;
         case Carry::WolfBack:
-            return WolfBackVehicle;
+            return FormSeatFor(player, WolfBackVehicle);
         case Carry::CatBack:
-            return CatBackVehicle;
+            return FormSeatFor(player, CatBackVehicle);
         case Carry::Shoulders:
             return ShoulderRideVehicle;
         default:
             return SaddleFor(player);
     }
+}
+
+bool FormSeatOutdated(Player const* player, Carry mode)
+{
+    if (mode != Carry::WolfBack && mode != Carry::CatBack)
+        return false;
+    uint32 const wanted = VehicleFor(player, mode);
+    uint32 const expected = SeatedTwinsRider(player) ? Subclass::TwinsCarryVehicleFor(wanted) : wanted;
+    Vehicle const* kit = player->GetVehicleKit();
+    return kit && kit->GetVehicleInfo()->m_ID != expected;
 }
 
 void SetCarry(Player* player, Creature* twin, Carry mode)
@@ -2219,7 +2257,7 @@ void UpdateCarry(Player* player, uint32 diff)
     }
     Carry const wanted = WantedCarry(player, motion);
     bool const seated = twin->GetVehicle() != nullptr;
-    if (wanted == motion.Mode && (wanted == Carry::Beside) != seated)
+    if (wanted == motion.Mode && (wanted == Carry::Beside) != seated && !FormSeatOutdated(player, wanted))
         return;
     SetCarry(player, twin, wanted);
     std::lock_guard<std::mutex> lock(twinMutex);
