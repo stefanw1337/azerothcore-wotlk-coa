@@ -49,6 +49,7 @@
 #include "WorldSession.h"
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstring>
 #include <fstream>
@@ -4872,9 +4873,58 @@ public:
             { "wear", HandleWear, SEC_GAMEMASTER, Console::No },
             { "strip", HandleStrip, SEC_GAMEMASTER, Console::No },
             { "copy", HandleCopy, SEC_GAMEMASTER, Console::No },
-            { "info", HandleInfo, SEC_GAMEMASTER, Console::No }
+            { "info", HandleInfo, SEC_GAMEMASTER, Console::No },
+            { "seat", HandleSeat, SEC_GAMEMASTER, Console::No }
         };
         return table;
+    }
+
+    static uint32 SeatColumn(Field& field)
+    {
+        switch (field.GetType())
+        {
+            case DatabaseFieldTypes::Float:
+            case DatabaseFieldTypes::Double:
+                return std::bit_cast<uint32>(field.Get<float>());
+            default:
+                return static_cast<uint32>(field.Get<int32>());
+        }
+    }
+
+    static bool HandleSeat(ChatHandler* handler, uint32 seatId, float x, float y, float z)
+    {
+        constexpr uint16 PatchVehicleSeat = 0x097B;
+        constexpr uint32 SeatColumns = 58;
+        constexpr uint32 FirstOffsetColumn = 3;
+        VehicleSeatEntry const* seat = sVehicleSeatStore.LookupEntry(seatId);
+        QueryResult row = WorldDatabase.Query("SELECT * FROM `vehicleseat_dbc` WHERE `ID` = {}", seatId);
+        if (!seat || !row || row->GetFieldCount() != SeatColumns)
+        {
+            handler->PSendSysMessage("Vehicle seat {} is not in vehicleseat_dbc.", seatId);
+            return true;
+        }
+        VehicleSeatEntry* editable = const_cast<VehicleSeatEntry*>(seat);
+        editable->m_attachmentOffsetX = x;
+        editable->m_attachmentOffsetY = y;
+        editable->m_attachmentOffsetZ = z;
+        WorldDatabase.DirectExecute("UPDATE `vehicleseat_dbc` SET `AttachmentOffsetX` = {}, `AttachmentOffsetY` = {}, "
+            "`AttachmentOffsetZ` = {} WHERE `ID` = {}", x, y, z, seatId);
+        std::array<float, 3> const offset = { x, y, z };
+        Field* fields = row->Fetch();
+        WorldPacket packet(PatchVehicleSeat, SeatColumns * sizeof(uint32));
+        for (uint32 column = 0; column < SeatColumns; ++column)
+            packet << (column >= FirstOffsetColumn && column < FirstOffsetColumn + offset.size() ?
+                std::bit_cast<uint32>(offset[column - FirstOffsetColumn]) : SeatColumn(fields[column]));
+        Player* player = handler->GetSession()->GetPlayer();
+        player->SendMessageToSet(&packet, true);
+        Player* body = BodyOfStandIn(player);
+        if (!body)
+            body = player;
+        DismissTwin(body);
+        RefreshTwin(body);
+        handler->PSendSysMessage("Seat {} now sits at {} {} {} from its attachment point {}.", seatId, x, y, z,
+            seat->m_attachmentID);
+        return true;
     }
 
     static bool RefuseWithoutTwin(ChatHandler* handler)
