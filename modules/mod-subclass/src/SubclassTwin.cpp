@@ -969,9 +969,13 @@ std::unordered_set<uint32>& dressedRiders = *new std::unordered_set<uint32>;
 void DressSeatedRider(Player* rider, Player const* body)
 {
     uint32 const guid = rider->GetGUID().GetCounter();
-    if (body)
+    bool const pairedRider = rider->getRace(true) == TwinRace && TwoPlayersPartnerOf(guid) &&
+        !TwoPlayersIsLeftHead(guid);
+    if (!body && pairedRider && !WardrobeOf(rider).Enabled)
+        return;
+    if (body || pairedRider)
     {
-        Wardrobe const outfit = StandInOutfit(body, rider);
+        Wardrobe const outfit = body ? StandInOutfit(body, rider) : WardrobeOf(rider);
         for (std::size_t slot = 0; slot < WardrobeSlots; ++slot)
         {
             rider->SetUInt32Value(PLAYER_VISIBLE_ITEM_1_ENTRYID + Slots[slot].Slot * 2, outfit.Items[slot]);
@@ -1854,6 +1858,56 @@ uint32 CursedShape(Player const* player)
     return 0;
 }
 
+struct MirrorResend
+{
+    uint32 Due = 0;
+    uint8 Left = 0;
+};
+
+constexpr uint32 MirrorResendDelay = 1000;
+constexpr uint32 MirrorResendSpacing = 2000;
+constexpr uint8 MirrorResends = 2;
+std::unordered_map<ObjectGuid, MirrorResend>& mirrorResends = *new std::unordered_map<ObjectGuid, MirrorResend>;
+
+WorldPacket MirrorImageData(ObjectGuid guid, Look const& look)
+{
+    WorldPacket data(SMSG_MIRRORIMAGE_DATA, 68);
+    data << guid << uint32(look.DisplayId) << uint8(look.Race) << uint8(look.Gender) << uint8(look.Class);
+    for (uint8 feature : look.Features)
+        data << uint8(feature);
+    data << uint32(0);
+    for (uint32 display : look.Displays)
+        data << uint32(display);
+    return data;
+}
+
+void ResendMirrorImageLater(Creature const* twin)
+{
+    std::lock_guard<std::mutex> lock(twinMutex);
+    mirrorResends[twin->GetGUID()] = { getMSTime() + MirrorResendDelay, MirrorResends };
+}
+
+void ResendMirrorImage(Creature* twin)
+{
+    Look look;
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        auto const resend = mirrorResends.find(twin->GetGUID());
+        if (resend == mirrorResends.end() || int32(resend->second.Due - getMSTime()) > 0)
+            return;
+        auto const known = looks.find(twin->GetGUID());
+        if (known == looks.end() || !--resend->second.Left)
+            mirrorResends.erase(resend);
+        else
+            resend->second.Due = getMSTime() + MirrorResendSpacing;
+        if (known == looks.end())
+            return;
+        look = known->second;
+    }
+    WorldPacket data = MirrorImageData(twin->GetGUID(), look);
+    twin->SendMessageToSet(&data, false);
+}
+
 void MirrorShape(Player* player, Creature* twin)
 {
     uint32 const cursed = CursedShape(player);
@@ -1864,7 +1918,10 @@ void MirrorShape(Player* player, Creature* twin)
     if (shaped)
         twin->RemoveUnitFlag2(UNIT_FLAG2_MIRROR_IMAGE);
     else
+    {
         twin->SetUnitFlag2(UNIT_FLAG2_MIRROR_IMAGE);
+        ResendMirrorImageLater(twin);
+    }
     twin->SetDisplayId(wanted);
 }
 
@@ -2141,6 +2198,7 @@ void UpdateCarry(Player* player, uint32 diff)
     }
     MirrorStun(player, twin);
     MirrorShape(player, twin);
+    ResendMirrorImage(twin);
     MirrorFormVisual(player, twin);
     UpdateCompanion(player, twin);
     LeadSummons(player, twin, SummonLeader(player, twin));
@@ -2179,6 +2237,7 @@ void DismissTwin(Player* player)
         guid = itr->second;
         twinOfOwner.erase(itr);
         looks.erase(guid);
+        mirrorResends.erase(guid);
         motions.erase(player->GetGUID().GetCounter());
         standInFor.erase(player->GetGUID().GetCounter());
         pairedCarry.erase(player->GetGUID().GetCounter());
@@ -2273,13 +2332,7 @@ bool AnswerMirrorImage(WorldSession* session, WorldPacket const& packet)
         look = itr->second;
     }
 
-    WorldPacket response(SMSG_MIRRORIMAGE_DATA, 68);
-    response << guid << uint32(look.DisplayId) << uint8(look.Race) << uint8(look.Gender) << uint8(look.Class);
-    for (uint8 feature : look.Features)
-        response << uint8(feature);
-    response << uint32(0);
-    for (uint32 display : look.Displays)
-        response << uint32(display);
+    WorldPacket response = MirrorImageData(guid, look);
     session->SendPacket(&response);
     return false;
 }

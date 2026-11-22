@@ -3,6 +3,7 @@
  */
 
 #include "AllSpellScript.h"
+#include "AscensionCustomResourceData.h"
 #include "AscensionSpecialization.h"
 #include "Chat.h"
 #include "Config.h"
@@ -233,12 +234,36 @@ bool LoggingOut(Player const* player)
     return player && player->GetSession() && player->GetSession()->isLogingOut();
 }
 
+constexpr uint32 FreshSeatRefreshMs = 2000;
+std::unordered_map<uint32, uint32>& freshSeats = *new std::unordered_map<uint32, uint32>;
+
+void ShowSeatAgainLater(Player const* rider)
+{
+    std::lock_guard<std::mutex> lock(bodyMutex);
+    freshSeats[rider->GetGUID().GetCounter()] = getMSTime() + FreshSeatRefreshMs;
+}
+
+bool SeatShownAgainNow(Player const* rider)
+{
+    std::lock_guard<std::mutex> lock(bodyMutex);
+    auto const found = freshSeats.find(rider->GetGUID().GetCounter());
+    if (found == freshSeats.end() || int32(found->second - getMSTime()) > 0)
+        return false;
+    freshSeats.erase(found);
+    return true;
+}
+
 void HideRiderApart(Player* rider)
 {
     uint32 const guid = rider->GetGUID().GetCounter();
     uint32 const partnerGuid = TwoPlayersPartnerOf(guid);
     if (!partnerGuid || TwoPlayersIsLeftHead(guid) || !RidesHidden(rider))
         return;
+    if (SeatShownAgainNow(rider) && rider->IsVisible())
+    {
+        rider->SetVisible(false);
+        return;
+    }
     Player* body = ObjectAccessor::FindPlayerByLowGUID(partnerGuid);
     bool const visible = Seated(body, rider) && !LoggingOut(rider) && !LoggingOut(body);
     if (rider->IsVisible() != visible)
@@ -563,6 +588,27 @@ void CarryMountPassengers(Player* body, Player* rider)
         Seat(body, rider, true);
 }
 
+void ExplainUnseated(Player const* body, Player const* rider)
+{
+    constexpr uint32 ExplainEveryMs = 10000;
+    static std::unordered_map<uint32, uint32> explained;
+    uint32 const now = getMSTime();
+    {
+        std::lock_guard<std::mutex> lock(bodyMutex);
+        uint32& last = explained[body->GetGUID().GetCounter()];
+        if (last && getMSTimeDiff(last, now) < ExplainEveryMs)
+            return;
+        last = now;
+    }
+    Vehicle const* kit = body->GetVehicleKit();
+    Unit const* holder = kit ? kit->GetPassenger(RightHeadSeat) : nullptr;
+    LOG_INFO("module", "mod-subclass: {} could not sit on {}: kit {}, seat {} held by {}, rider in combat {}, "
+        "alive {}, on vehicle {}, {:.1f} yards apart", rider->GetName(), body->GetName(),
+        kit ? kit->GetVehicleInfo()->m_ID : 0, int32(RightHeadSeat), holder ? holder->GetName() : "nobody",
+        rider->IsInCombat(), rider->IsAlive(), rider->GetVehicleBase() ? rider->GetVehicleBase()->GetName() : "none",
+        rider->GetDistance(body));
+}
+
 void Seat(Player* left, Player* right, bool kitSwap)
 {
     if (Seated(left, right) || !GiveBodyKit(left))
@@ -578,8 +624,11 @@ void Seat(Player* left, Player* right, bool kitSwap)
     right->CastCustomSpell(VEHICLE_SPELL_RIDE_HARDCODED, SPELLVALUE_BASE_POINT0, RightHeadSeat + 1, left,
         TRIGGERED_FULL_MASK);
     sScriptMgr->AnticheatSetUnderACKmount(right);
+    if (!Seated(left, right))
+        ExplainUnseated(left, right);
     if (!Seated(left, right) || kitSwap)
         return;
+    ShowSeatAgainLater(right);
     Reclaim(left);
     Reclaim(right);
     LendBothWays(left, right);
@@ -803,6 +852,79 @@ void GhostAlong(Player* rider, Player* body)
             body->GetOrientation());
 }
 
+std::map<std::pair<uint32, uint32>, uint32>& sharedResources = *new std::map<std::pair<uint32, uint32>, uint32>;
+
+uint32 ResourceStacks(Player const* head, uint32 resource)
+{
+    Aura const* aura = head->GetAura(resource);
+    return aura ? aura->GetStackAmount() : 0;
+}
+
+void SetResourceStacks(Player* head, uint32 resource, uint32 stacks, Aura const* source)
+{
+    Aura* aura = head->GetAura(resource);
+    if (!stacks)
+    {
+        if (aura)
+            head->RemoveAurasDueToSpell(resource);
+        return;
+    }
+    if (!aura)
+        aura = head->AddAura(resource, head);
+    if (!aura)
+        return;
+    if (aura->GetStackAmount() != stacks)
+        aura->SetStackAmount(uint8(std::min<uint32>(stacks, UINT8_MAX)));
+    if (source && source->GetDuration() >= 0)
+    {
+        aura->SetMaxDuration(source->GetMaxDuration());
+        aura->SetDuration(source->GetDuration());
+    }
+    aura->SetNeedClientUpdateForTargets();
+}
+
+void ShareClassResources(Player* body, Player* rider)
+{
+    if (body->getClass() != rider->getClass())
+        return;
+    uint32 const bodyGuid = body->GetGUID().GetCounter();
+    for (AscensionCompatData::ResourceDisplay const& resource : AscensionCompatData::ResourceDisplays)
+    {
+        if (resource.ClassId != body->getClass())
+            continue;
+        int32 const onBody = int32(ResourceStacks(body, resource.SpellId));
+        int32 const onRider = int32(ResourceStacks(rider, resource.SpellId));
+        int32 shared = onBody;
+        {
+            std::lock_guard<std::mutex> lock(bodyMutex);
+            auto const found = sharedResources.find({ bodyGuid, resource.SpellId });
+            if (found != sharedResources.end())
+            {
+                int32 const before = int32(found->second);
+                shared = before + (onBody - before) + (onRider - before);
+            }
+            SpellInfo const* info = sSpellMgr->GetSpellInfo(resource.SpellId);
+            int32 const most = resource.DisplayMaximum ? resource.DisplayMaximum :
+                info && info->StackAmount ? int32(info->StackAmount) : INT32_MAX;
+            shared = std::clamp(shared, 0, most);
+            sharedResources[{ bodyGuid, resource.SpellId }] = uint32(shared);
+        }
+        Aura const* changed = onRider != shared ? body->GetAura(resource.SpellId) : rider->GetAura(resource.SpellId);
+        if (onBody != shared)
+            SetResourceStacks(body, resource.SpellId, uint32(shared), rider->GetAura(resource.SpellId));
+        if (onRider != shared)
+            SetResourceStacks(rider, resource.SpellId, uint32(shared), changed);
+    }
+}
+
+void ForgetSharedResources(uint32 bodyGuid)
+{
+    std::lock_guard<std::mutex> lock(bodyMutex);
+    for (auto itr = sharedResources.lower_bound({ bodyGuid, 0 });
+        itr != sharedResources.end() && itr->first.first == bodyGuid;)
+        itr = sharedResources.erase(itr);
+}
+
 void ShareTheBodysRest(Player* rider, Player const* body)
 {
     for (RestFlag const flag : { REST_FLAG_IN_TAVERN, REST_FLAG_IN_CITY, REST_FLAG_IN_FACTION_AREA })
@@ -843,7 +965,10 @@ void KeepTogether(Player* player)
         Greet(left ? guid : partnerGuid, false);
         ForgetTold(guid);
         if (left)
+        {
             ShowTwoAgain(player);
+            ForgetSharedResources(guid);
+        }
         Steered(guid, false);
         if (HasLent(player))
             Reclaim(player);
@@ -868,6 +993,7 @@ void KeepTogether(Player* player)
     {
         if (left)
         {
+            ShareClassResources(body, rider);
             TwoPlayersKeepSharedBuffsEven(body, rider);
             LendBothWays(body, rider);
             UseLentAbilities(body, body);
@@ -883,7 +1009,10 @@ void KeepTogether(Player* player)
         return;
     }
     if (left)
+    {
         ShowTwoAgain(body);
+        ForgetSharedResources(guid);
+    }
     if (!Ready(body) || !Ready(rider) || body->GetVehicle())
         return;
     bool const close = SameMap(body, rider) && rider->IsWithinDist(body, SeatReach);
