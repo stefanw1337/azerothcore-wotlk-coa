@@ -55,6 +55,7 @@ void TwoPlayersKeepBotBodyRoaming(Player* body);
 void TwoPlayersBotBodyRides(Player* body, Player* rider, bool halted);
 std::string TwoPlayersBotBodyRideToggle(Player* body, Player* rider);
 void KeepTwoPlayersBrother(Player* player);
+void DropTwinKit(Player* player);
 void TwoPlayersTwinCasts(Player* body, Unit* target, bool positive);
 
 namespace
@@ -179,6 +180,7 @@ bool GiveBodyKit(Player* body)
     if (HasBodyKit(body))
         return true;
     uint32 const vehicle = Subclass::BodyVehicleFor(body->getRace(true));
+    DropTwinKit(body);
     if (body->GetVehicleKit() || !body->CreateVehicleKit(vehicle, 0))
         return false;
     body->GetVehicleKit()->Reset();

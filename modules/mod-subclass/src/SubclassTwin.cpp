@@ -954,6 +954,12 @@ Look RiderLook(Player const* rider, Wardrobe const& worn)
     return look;
 }
 
+Wardrobe StandInOutfit(Player const* body)
+{
+    Wardrobe const chosen = WardrobeOf(body);
+    return chosen.Enabled ? chosen : Worn(body);
+}
+
 Player* SeatedTwinsRider(Player const* body)
 {
     if (body->getRace(true) != TwinRace || !TwoPlayersIsLeftHead(body->GetGUID().GetCounter()))
@@ -1182,6 +1188,11 @@ void DropKit(Player* player)
     player->RemoveVehicleKit();
 }
 
+void DropTwinKit(Player* player)
+{
+    DropKit(player);
+}
+
 bool GiveKit(Player* player, uint32 vehicleId)
 {
     if (Vehicle const* kit = player->GetVehicleKit())
@@ -1281,6 +1292,8 @@ bool TransformedPastTheForm(Player const* player)
 
 Carry WantedCarry(Player const* player, Motion const& motion)
 {
+    if (TwoPlayersPartnerOf(player->GetGUID().GetCounter()))
+        return Carry::Beside;
     if (motion.Riding)
         return player->IsAlive() && !player->IsInWater() && !player->HasStealthAura() ? Carry::Shoulders :
             Carry::Beside;
@@ -2130,7 +2143,7 @@ void SummonTwin(Player* player)
         return;
 
     Player const* rider = SeatedTwinsRider(player);
-    Wardrobe const dressed = rider ? Worn(rider) : Dressed(player);
+    Wardrobe const dressed = rider ? StandInOutfit(player) : Dressed(player);
     Look const look = rider ? RiderLook(rider, dressed) : LookOf(player, dressed);
     {
         std::lock_guard<std::mutex> lock(twinMutex);
@@ -2398,7 +2411,7 @@ void KeepTwoPlayersBrother(Player* player)
         stale = shown == standInFor.end() || shown->second != riderGuid;
         if (!stale && rider)
             if (auto const look = looks.find(twin->GetGUID()); look != looks.end())
-                stale = !(look->second == RiderLook(rider, Worn(rider)));
+                stale = !(look->second == RiderLook(rider, StandInOutfit(player)));
     }
     if (wanted != (twin != nullptr) || (wanted && stale))
         RefreshTwin(player);
