@@ -845,6 +845,11 @@ TEST(Subclass, BothTwoPlayersBodiesCarryTheMountsPassengers)
     EXPECT_TRUE(IsBodyVehicle(TwinsCarryVehicleFor(9598), ThinHumanRace));
     EXPECT_FALSE(IsBodyVehicle(TwinsCarryVehicleFor(9530), TwoHeadedOgreRace));
     EXPECT_FALSE(IsTwinsCarryVehicle(9600));
+    EXPECT_TRUE(IsFormSeatVehicle(9710));
+    EXPECT_FALSE(IsFormSeatVehicle(9532));
+    EXPECT_TRUE(IsBodyVehicle(TwinsCarryVehicleFor(9718), ThinHumanRace));
+    EXPECT_FALSE(IsTwinsCarryVehicle(9710));
+    EXPECT_FALSE(IsTwinsCarryVehicle(50));
     EXPECT_FALSE(IsBodyVehicle(DriveKartVehicle, TwoHeadedOgreRace));
 }
 

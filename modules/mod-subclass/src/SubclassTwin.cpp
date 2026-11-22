@@ -1224,7 +1224,8 @@ bool OwnsKit(Player const* player)
     if (!kit)
         return false;
     uint32 const id = kit->GetVehicleInfo()->m_ID;
-    return (id >= PiggybackVehicle && id <= LastTwinVehicle) || Subclass::IsTwinsCarryVehicle(id);
+    return (id >= PiggybackVehicle && id <= LastTwinVehicle) || Subclass::IsFormSeatVehicle(id) ||
+        Subclass::IsTwinsCarryVehicle(id);
 }
 
 void WantPairedCarry(Player const* body, uint32 vehicleId)
@@ -1902,9 +1903,9 @@ struct MirrorResend
     uint8 Left = 0;
 };
 
-constexpr uint32 MirrorResendDelay = 1000;
+constexpr uint32 MirrorResendDelay = 1500;
 constexpr uint32 MirrorResendSpacing = 2000;
-constexpr uint8 MirrorResends = 2;
+constexpr uint8 MirrorResends = 1;
 std::unordered_map<ObjectGuid, MirrorResend>& mirrorResends = *new std::unordered_map<ObjectGuid, MirrorResend>;
 
 WorldPacket MirrorImageData(ObjectGuid guid, Look const& look)
@@ -1927,23 +1928,21 @@ void ResendMirrorImageLater(Creature const* twin)
 
 void ResendMirrorImage(Creature* twin)
 {
-    Look look;
     {
         std::lock_guard<std::mutex> lock(twinMutex);
         auto const resend = mirrorResends.find(twin->GetGUID());
         if (resend == mirrorResends.end() || int32(resend->second.Due - getMSTime()) > 0)
             return;
-        auto const known = looks.find(twin->GetGUID());
-        if (known == looks.end() || !--resend->second.Left)
+        bool const known = looks.contains(twin->GetGUID());
+        if (!known || !--resend->second.Left)
             mirrorResends.erase(resend);
         else
             resend->second.Due = getMSTime() + MirrorResendSpacing;
-        if (known == looks.end())
+        if (!known)
             return;
-        look = known->second;
     }
-    WorldPacket data = MirrorImageData(twin->GetGUID(), look);
-    twin->SendMessageToSet(&data, false);
+    twin->DestroyForVisiblePlayers();
+    twin->UpdateObjectVisibility(true);
 }
 
 void MirrorShape(Player* player, Creature* twin)

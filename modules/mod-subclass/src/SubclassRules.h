@@ -687,10 +687,19 @@ inline std::uint32_t TwinsCarryVehicleFor(std::uint32_t twinVehicle)
     return twinVehicle + TwinsCarryVehicleOffset;
 }
 
+constexpr std::uint32_t FirstFormSeatVehicle = 9710;
+constexpr std::uint32_t LastFormSeatVehicle = 9749;
+
+inline bool IsFormSeatVehicle(std::uint32_t vehicle)
+{
+    return vehicle >= FirstFormSeatVehicle && vehicle <= LastFormSeatVehicle;
+}
+
 inline bool IsTwinsCarryVehicle(std::uint32_t vehicle)
 {
-    return vehicle >= FirstTwinCarryVehicle + TwinsCarryVehicleOffset &&
-        vehicle <= LastTwinCarryVehicle + TwinsCarryVehicleOffset;
+    return (vehicle >= FirstTwinCarryVehicle + TwinsCarryVehicleOffset &&
+        vehicle <= LastTwinCarryVehicle + TwinsCarryVehicleOffset) ||
+        IsFormSeatVehicle(vehicle - TwinsCarryVehicleOffset);
 }
 
 inline bool IsBodyVehicle(std::uint32_t vehicle, std::uint8_t race)
