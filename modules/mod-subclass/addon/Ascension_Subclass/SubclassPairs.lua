@@ -7,7 +7,7 @@ local function Send(message)
 end
 
 StaticPopupDialogs["SUBCLASS_PAIR_INVITE"] = {
-    text = "Pair request from %s: ride on their body as the %s?",
+    text = "Pair request from %s: join as their %s?",
     button1 = "Join",
     button2 = "Cancel",
     OnAccept = function()
@@ -209,9 +209,10 @@ frame:SetScript("OnEvent", function(_, event, prefix, message, _, sender)
         WhisperBothHeads(asked, pairName)
         return
     end
-    local inviter = message:match("^PAIRINVITE (.+)$")
+    local inviter, inviteKind = message:match("^PAIRINVITE (%S+)%s*(%u*)$")
     if inviter then
-        StaticPopup_Show("SUBCLASS_PAIR_INVITE", inviter, "Ranged Head")
+        StaticPopup_Show("SUBCLASS_PAIR_INVITE", inviter,
+            inviteKind == "TWINS" and "other brother (ranged)" or "Ranged Head")
         return
     end
     local body, rider, kind = message:match("^TWOPLAYERS (%S+) (%S+)%s*(%u*)$")

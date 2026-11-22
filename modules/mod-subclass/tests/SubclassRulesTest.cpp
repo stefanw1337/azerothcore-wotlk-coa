@@ -697,6 +697,9 @@ TEST(Subclass, TheOgreJoinsHerHeadsWithAnApostropheAndTheTwinsWithAnAmpersand)
 {
     EXPECT_EQ(JoinedName(TwoHeadedOgreRace, "Grogh", "Rogh"), "Grogh'Rogh");
     EXPECT_EQ(JoinedName(ThinHumanRace, "Warken", "Flarken"), "Warken & Flarken");
+    EXPECT_EQ(HeadTitle(TwoHeadedOgreRace, false), "Ranged Head");
+    EXPECT_EQ(HeadTitle(ThinHumanRace, false), "other brother (ranged)");
+    EXPECT_EQ(HeadTitle(ThinHumanRace, true), "other brother (melee)");
     EXPECT_EQ(WhisperName(TwoHeadedOgreRace, "Grogh", "Rogh"), "Grogh'Rogh");
     EXPECT_EQ(WhisperName(ThinHumanRace, "Warken", "Flarken"), "Warken&Flarken");
 }

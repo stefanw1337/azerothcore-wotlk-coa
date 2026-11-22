@@ -140,9 +140,11 @@ std::string RefusalText(Subclass::PairRefusal refusal, Player const* left, Playe
         case Subclass::PairRefusal::RightNotTwoPlayers:
             return right->GetName() + " is not a Two-Players character.";
         case Subclass::PairRefusal::LeftChoseRanged:
-            return left->GetName() + " was created as a Ranged Head and can't send pair requests.";
+            return left->GetName() + " was created as the " + Subclass::HeadTitle(left->getRace(true), false) +
+                " and can't send pair requests.";
         case Subclass::PairRefusal::RightChoseMelee:
-            return right->GetName() + " was created as a Melee Head and can't ride as the Ranged Head.";
+            return right->GetName() + " was created as the " + Subclass::HeadTitle(right->getRace(true), true) +
+                " and can't join as the " + Subclass::HeadTitle(right->getRace(true), false) + ".";
         case Subclass::PairRefusal::LeftPaired:
             return left->GetName() + " is already part of a pair.";
         case Subclass::PairRefusal::RightPaired:
@@ -150,9 +152,11 @@ std::string RefusalText(Subclass::PairRefusal refusal, Player const* left, Playe
         case Subclass::PairRefusal::LevelGap:
             return "The two heads must be within " + std::to_string(Subclass::MaxPairLevelGap) + " levels.";
         case Subclass::PairRefusal::LeftSpecialization:
-            return left->GetName() + " needs a melee or tank specialization to be the Melee Head.";
+            return left->GetName() + " needs a melee or tank specialization to be the " +
+                Subclass::HeadTitle(left->getRace(true), true) + ".";
         case Subclass::PairRefusal::RightSpecialization:
-            return right->GetName() + " needs a caster, healer or ranged specialization to be the Ranged Head.";
+            return right->GetName() + " needs a caster, healer or ranged specialization to be the " +
+                Subclass::HeadTitle(right->getRace(true), false) + ".";
         case Subclass::PairRefusal::LeftClass:
             return left->GetName() + " has an original class. Two-Players heads are CoA classes only.";
         case Subclass::PairRefusal::RightClass:
@@ -204,10 +208,12 @@ void Invite(Player* left, Player* right)
         invites[right->GetGUID().GetCounter()] = { left->GetGUID().GetCounter(),
             uint64(GameTime::GetGameTimeMS().count()) + InviteMilliseconds };
     }
-    Tell(left, "You sent " + right->GetName() + " a pair request to be your Ranged Head.");
-    Tell(right, left->GetName() + " sends you a pair request to ride as the Ranged Head. Type .pair accept or "
-        ".pair decline.");
-    SendPairAddon(right, "PAIRINVITE " + left->GetName());
+    bool const twins = left->getRace(true) == Subclass::ThinHumanRace;
+    std::string const ranged = Subclass::HeadTitle(left->getRace(true), false);
+    Tell(left, "You sent " + right->GetName() + " a pair request to be your " + ranged + ".");
+    Tell(right, left->GetName() + " sends you a pair request to join as their " + ranged + ". Type .pair accept "
+        "or .pair decline.");
+    SendPairAddon(right, "PAIRINVITE " + left->GetName() + (twins ? " TWINS" : ""));
 }
 
 void ForgetStandInBody(uint32 right)
@@ -291,8 +297,9 @@ void Accept(Player* invitee)
     }
     bool const hadStandInBody = !StandInBodyOf(rightGuid).empty();
     ForgetStandInBody(rightGuid);
-    Tell(left, right->GetName() + " is now your Ranged Head.");
-    Tell(right, "You are now " + left->GetName() + "'s Ranged Head.");
+    std::string const ranged = Subclass::HeadTitle(left->getRace(true), false);
+    Tell(left, right->GetName() + " is now your " + ranged + ".");
+    Tell(right, "You are now " + left->GetName() + "'s " + ranged + ".");
     if (hadStandInBody)
         Tell(right, "The stand-in body and its echo gear are gone. You ride on " + left->GetName() + " now.");
     SendPairAddon(left, StateOf(left));
@@ -315,7 +322,8 @@ void Decline(Player* invitee)
     }
     Tell(invitee, "You declined the invitation.");
     if (Player* inviter = ObjectAccessor::FindPlayerByLowGUID(invite.Inviter))
-        Tell(inviter, invitee->GetName() + " declined to be your Ranged Head.");
+        Tell(inviter, invitee->GetName() + " declined to be your " +
+            Subclass::HeadTitle(inviter->getRace(true), false) + ".");
 }
 
 void Status(Player* player)
@@ -329,9 +337,11 @@ void Status(Player* player)
     else if (!partner)
         Tell(player, "You are not paired with another head.");
     else if (IsLeftHead(guid))
-        Tell(player, "You are the Melee Head. Your Ranged Head is " + NameOf(partner) + ".");
+        Tell(player, "You are the " + Subclass::HeadTitle(player->getRace(true), true) + ". Your " +
+            Subclass::HeadTitle(player->getRace(true), false) + " is " + NameOf(partner) + ".");
     else
-        Tell(player, "You are the Ranged Head. Your Melee Head is " + NameOf(partner) + ".");
+        Tell(player, "You are the " + Subclass::HeadTitle(player->getRace(true), false) + ". Your " +
+            Subclass::HeadTitle(player->getRace(true), true) + " is " + NameOf(partner) + ".");
     SendPairAddon(player, StateOf(player));
 }
 

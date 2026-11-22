@@ -905,6 +905,13 @@ inline std::string JoinedName(std::uint8_t race, std::string const& left, std::s
     return left + (race == ThinHumanRace ? " & " : "'") + right;
 }
 
+inline std::string HeadTitle(std::uint8_t race, bool melee)
+{
+    if (race == ThinHumanRace)
+        return melee ? "other brother (melee)" : "other brother (ranged)";
+    return melee ? "Melee Head" : "Ranged Head";
+}
+
 inline char WhisperMark(std::uint8_t race)
 {
     return race == ThinHumanRace ? '&' : '\'';
