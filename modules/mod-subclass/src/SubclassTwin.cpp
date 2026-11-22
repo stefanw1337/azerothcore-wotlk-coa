@@ -261,6 +261,7 @@ std::unordered_map<uint32, uint32>& auraTicks = *new std::unordered_map<uint32, 
 std::unordered_map<uint32, uint32>& arrivals = *new std::unordered_map<uint32, uint32>;
 std::unordered_set<uint32>& aloneTwoPlayersTwins = *new std::unordered_set<uint32>;
 std::unordered_map<uint32, uint32>& standInFor = *new std::unordered_map<uint32, uint32>;
+std::unordered_set<uint32>& standInRiders = *new std::unordered_set<uint32>;
 std::unordered_map<uint32, uint8>& sips = *new std::unordered_map<uint32, uint8>;
 std::unordered_map<uint32, bool>& hangovers = *new std::unordered_map<uint32, bool>;
 
@@ -954,9 +955,9 @@ Look RiderLook(Player const* rider, Wardrobe const& worn)
     return look;
 }
 
-Wardrobe StandInOutfit(Player const* body)
+Wardrobe StandInOutfit(Player const* body, Player const* rider)
 {
-    Wardrobe const chosen = WardrobeOf(body);
+    Wardrobe const chosen = WardrobeOf(rider);
     return chosen.Enabled ? chosen : Worn(body);
 }
 
@@ -965,6 +966,20 @@ Player* SeatedTwinsRider(Player const* body)
     if (body->getRace(true) != TwinRace || !TwoPlayersIsLeftHead(body->GetGUID().GetCounter()))
         return nullptr;
     return TwoPlayersSeatedPartner(body);
+}
+
+Player* BodyOfStandIn(Player const* rider)
+{
+    uint32 const guid = rider->GetGUID().GetCounter();
+    if (rider->getRace(true) != TwinRace || !TwoPlayersPartnerOf(guid) || TwoPlayersIsLeftHead(guid))
+        return nullptr;
+    return TwoPlayersSeatedPartner(rider);
+}
+
+std::string StandInLocked(Player const* body)
+{
+    Player const* rider = SeatedTwinsRider(body);
+    return rider ? rider->GetName() + " picks his own look while you are paired." : "";
 }
 
 Creature* TwinOf(Player const* player)
@@ -2143,7 +2158,7 @@ void SummonTwin(Player* player)
         return;
 
     Player const* rider = SeatedTwinsRider(player);
-    Wardrobe const dressed = rider ? StandInOutfit(player) : Dressed(player);
+    Wardrobe const dressed = rider ? StandInOutfit(player, rider) : Dressed(player);
     Look const look = rider ? RiderLook(rider, dressed) : LookOf(player, dressed);
     {
         std::lock_guard<std::mutex> lock(twinMutex);
@@ -2241,6 +2256,12 @@ std::string TwinWearing(Player const* player)
     std::string reply = "TWINWEAR";
     if (HasSecondHead(player))
         return reply + Acore::StringFormat(" {}", ShownCyclopsHelmet(player));
+    if (Player const* body = BodyOfStandIn(player))
+    {
+        for (uint32 itemId : StandInOutfit(body, player).Items)
+            reply += Acore::StringFormat(" {}", itemId);
+        return reply;
+    }
     if (!HasTwin(player))
         return reply;
     Wardrobe const wardrobe = Dressed(player);
@@ -2253,6 +2274,10 @@ void SetBorrowedPassives(Player* player, bool active);
 
 std::string TwinState(Player const* player)
 {
+    if (BodyOfStandIn(player))
+        return Acore::StringFormat("TWINSTATE 1 {} 1 1", WardrobeOf(player).Enabled ? 1 : 0);
+    if (SeatedTwinsRider(player))
+        return "TWINSTATE 0 0 0";
     return Acore::StringFormat("TWINSTATE {} {} {}", HasTwin(player) ? 1 : 0, WardrobeOf(player).Enabled ? 1 : 0,
         IsSplit(player) ? 1 : 0);
 }
@@ -2395,10 +2420,12 @@ void KeepTwoPlayersBrother(Player* player)
     uint32 const guid = player->GetGUID().GetCounter();
     Player const* rider = SeatedTwinsRider(player);
     bool const alone = HasTwin(player) && !rider;
+    bool const standIn = BodyOfStandIn(player) != nullptr;
     bool changed;
     {
         std::lock_guard<std::mutex> lock(twinMutex);
         changed = alone ? aloneTwoPlayersTwins.insert(guid).second : aloneTwoPlayersTwins.erase(guid) != 0;
+        changed = (standIn ? standInRiders.insert(guid).second : standInRiders.erase(guid) != 0) || changed;
     }
     bool const wanted = HasTwin(player) && (rider || WardrobeOf(player).Enabled);
     Creature const* twin = TwinOf(player);
@@ -2411,7 +2438,7 @@ void KeepTwoPlayersBrother(Player* player)
         stale = shown == standInFor.end() || shown->second != riderGuid;
         if (!stale && rider)
             if (auto const look = looks.find(twin->GetGUID()); look != looks.end())
-                stale = !(look->second == RiderLook(rider, StandInOutfit(player)));
+                stale = !(look->second == RiderLook(rider, StandInOutfit(player, rider)));
     }
     if (wanted != (twin != nullptr) || (wanted && stale))
         RefreshTwin(player);
@@ -3883,6 +3910,16 @@ std::string ToggleHeads(Player* player)
 
 std::string ToggleTwin(Player* player)
 {
+    if (Player* body = BodyOfStandIn(player))
+    {
+        Wardrobe wardrobe = WardrobeOf(player);
+        wardrobe.Enabled = !wardrobe.Enabled;
+        StoreWardrobe(player, wardrobe);
+        RefreshTwin(body);
+        return wardrobe.Enabled ? "You wear your own outfit." : "You dress like " + body->GetName() + " again.";
+    }
+    if (std::string const locked = StandInLocked(player); !locked.empty())
+        return locked;
     if (!HasTwin(player))
         return "Only the Thin Twins have a brother to call.";
     if (player->IsInCombat())
@@ -4012,6 +4049,11 @@ std::string TwinFeatures(Player const* player)
 
 void HandleTwinFeatures(Player* player, std::vector<std::string_view> const& words)
 {
+    if (std::string const locked = StandInLocked(player); !locked.empty())
+    {
+        ChatHandler(player->GetSession()).SendSysMessage(locked);
+        return;
+    }
     if (!HasTwin(player) || words.size() != 4)
         return;
     OwnFeatures features = FeaturesOf(player);
@@ -4039,14 +4081,21 @@ void HandleTwinLook(Player* player, std::vector<std::string_view> const& words)
         return DressCyclops(player, words);
     constexpr std::array<int, 15> SlotOfCategory = { -1, 0, 1, 9, 3, 10, 2, 7, 8, 4, 5, 6, int(Ranged),
         int(MainHand), int(OffHand) };
-    if (!HasTwin(player))
+    if (std::string const locked = StandInLocked(player); !locked.empty())
+    {
+        ChatHandler(player->GetSession()).SendSysMessage(locked);
         return;
-    if (!IsSplit(player))
+    }
+    Player* body = BodyOfStandIn(player);
+    if (!body && !HasTwin(player))
+        return;
+    if (!body && !IsSplit(player))
     {
         ChatHandler(player->GetSession()).SendSysMessage(EchoRefusal);
         return;
     }
-    Wardrobe wardrobe = WardrobeOf(player);
+    Wardrobe wardrobe = body && !WardrobeOf(player).Enabled ? Worn(body) : WardrobeOf(player);
+    wardrobe.Enabled = wardrobe.Enabled || body;
     uint32 changed = 0;
     for (std::size_t index = 1; index < words.size(); ++index)
     {
@@ -4066,8 +4115,12 @@ void HandleTwinLook(Player* player, std::vector<std::string_view> const& words)
     if (!changed)
         return;
     StoreWardrobe(player, wardrobe);
-    RefreshTwin(player);
-    ChatHandler(player->GetSession()).PSendSysMessage("Your twin changes into his new outfit ({} piece(s)).", changed);
+    RefreshTwin(body ? body : player);
+    if (body)
+        ChatHandler(player->GetSession()).PSendSysMessage("You change into your new outfit ({} piece(s)).", changed);
+    else
+        ChatHandler(player->GetSession()).PSendSysMessage("Your twin changes into his new outfit ({} piece(s)).",
+            changed);
 }
 
 WorldPacket TwinSwingPacket(SwingPartner const& partner, ObjectGuid target, uint32 hitInfo, uint32 school,
