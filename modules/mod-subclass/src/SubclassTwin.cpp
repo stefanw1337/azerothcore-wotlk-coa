@@ -4944,7 +4944,7 @@ public:
         }
     }
 
-    static bool HandleSeat(ChatHandler* handler, uint32 seatId, float x, float y, float z)
+    static bool HandleSeat(ChatHandler* handler, uint32 seatId, float x, float y, float z, Optional<int32> attachment)
     {
         constexpr uint16 PatchVehicleSeat = 0x097B;
         constexpr uint32 SeatColumns = 58;
@@ -4960,14 +4960,18 @@ public:
         editable->m_attachmentOffsetX = x;
         editable->m_attachmentOffsetY = y;
         editable->m_attachmentOffsetZ = z;
-        WorldDatabase.DirectExecute("UPDATE `vehicleseat_dbc` SET `AttachmentOffsetX` = {}, `AttachmentOffsetY` = {}, "
-            "`AttachmentOffsetZ` = {} WHERE `ID` = {}", x, y, z, seatId);
+        if (attachment)
+            editable->m_attachmentID = *attachment;
+        WorldDatabase.DirectExecute("UPDATE `vehicleseat_dbc` SET `AttachmentID` = {}, `AttachmentOffsetX` = {}, "
+            "`AttachmentOffsetY` = {}, `AttachmentOffsetZ` = {} WHERE `ID` = {}", seat->m_attachmentID, x, y, z, seatId);
         std::array<float, 3> const offset = { x, y, z };
         Field* fields = row->Fetch();
         WorldPacket packet(PatchVehicleSeat, SeatColumns * sizeof(uint32));
+        constexpr uint32 AttachmentColumn = 2;
         for (uint32 column = 0; column < SeatColumns; ++column)
             packet << (column >= FirstOffsetColumn && column < FirstOffsetColumn + offset.size() ?
-                std::bit_cast<uint32>(offset[column - FirstOffsetColumn]) : SeatColumn(fields[column]));
+                std::bit_cast<uint32>(offset[column - FirstOffsetColumn]) : column == AttachmentColumn ?
+                uint32(seat->m_attachmentID) : SeatColumn(fields[column]));
         Player* player = handler->GetSession()->GetPlayer();
         player->SendMessageToSet(&packet, true);
         Player* body = BodyOfStandIn(player);
