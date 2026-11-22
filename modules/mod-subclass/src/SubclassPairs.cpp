@@ -122,9 +122,9 @@ std::string RefusalText(Subclass::PairRefusal refusal, Player const* left, Playe
     switch (refusal)
     {
         case Subclass::PairRefusal::LeftNotTwoPlayers:
-            return left->GetName() + " is not a Two-Players Two-Headed Ogre.";
+            return left->GetName() + " is not a Two-Players character.";
         case Subclass::PairRefusal::RightNotTwoPlayers:
-            return right->GetName() + " is not a Two-Players Two-Headed Ogre.";
+            return right->GetName() + " is not a Two-Players character.";
         case Subclass::PairRefusal::LeftPaired:
             return left->GetName() + " is already part of a pair.";
         case Subclass::PairRefusal::RightPaired:
