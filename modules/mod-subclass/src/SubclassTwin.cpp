@@ -1201,15 +1201,6 @@ void WantPairedCarry(Player const* body, uint32 vehicleId)
     pairedCarry[body->GetGUID().GetCounter()] = vehicleId;
 }
 
-uint32 TwinsCarryVehicleWanted(Player const* body)
-{
-    if (!SeatedTwinsRider(body))
-        return 0;
-    std::lock_guard<std::mutex> lock(twinMutex);
-    auto const found = pairedCarry.find(body->GetGUID().GetCounter());
-    return found == pairedCarry.end() ? 0 : found->second;
-}
-
 void SendVehicleData(Player* player, uint32 vehicleId)
 {
     WorldPacket data(SMSG_PLAYER_VEHICLE_DATA, player->GetPackGUID().size() + 4);
@@ -1226,11 +1217,6 @@ void DropKit(Player* player)
         return;
     SendVehicleData(player, 0);
     player->RemoveVehicleKit();
-}
-
-void DropTwinKit(Player* player)
-{
-    DropKit(player);
 }
 
 bool GiveKit(Player* player, uint32 vehicleId)
@@ -2449,6 +2435,20 @@ bool HasSecondHead(Player const* player)
 bool LonelyTwin(Player const* player)
 {
     return HasTwin(player) && !WardrobeOf(player).Enabled;
+}
+
+uint32 TwinsCarryVehicleWanted(Player const* body)
+{
+    if (!SeatedTwinsRider(body))
+        return 0;
+    std::lock_guard<std::mutex> lock(twinMutex);
+    auto const found = pairedCarry.find(body->GetGUID().GetCounter());
+    return found == pairedCarry.end() ? 0 : found->second;
+}
+
+void DropTwinKit(Player* player)
+{
+    DropKit(player);
 }
 
 void KeepTwoPlayersBrother(Player* player)
