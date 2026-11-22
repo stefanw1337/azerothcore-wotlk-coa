@@ -3352,6 +3352,9 @@ local function TakeOffTwin(slots)
     end
     if #looks > 0 then
         Send("TWINLOOK " .. table.concat(looks, " "))
+        if twinState.standIn then
+            Send("TWINWEARING")
+        end
     end
 end
 
@@ -3376,7 +3379,8 @@ local function ShowUndressMenu(anchor)
     if DressesCyclops() then
         return ShowCyclopsMenu(anchor)
     end
-    local entries = { { text = "Take off your twin's", isTitle = true, notCheckable = true } }
+    local entries = { { text = twinState.standIn and "Take off your own" or "Take off your twin's", isTitle = true,
+        notCheckable = true } }
     local worn = {}
     for slot, name in ipairs(TWIN_SLOT_NAMES) do
         if (twinOutfit[slot] or 0) > 0 then
@@ -3386,7 +3390,8 @@ local function ShowUndressMenu(anchor)
         end
     end
     if #worn == 0 then
-        entries[#entries + 1] = { text = "He wears nothing you can take off", disabled = true, notCheckable = true }
+        entries[#entries + 1] = { text = twinState.standIn and "You wear nothing you can take off"
+            or "He wears nothing you can take off", disabled = true, notCheckable = true }
     else
         entries[#entries + 1] = { text = "Everything", notCheckable = true, func = function() TakeOffTwin(worn) end }
     end
@@ -3449,6 +3454,9 @@ local function PlaceTwinApply()
         twinApplyButton:SetText("Apply")
         twinApplyButton:SetScript("OnClick", function()
             local sent = dressingTwin and SendTwinLook() or (not dressingTwin and SendOwnLook())
+            if sent and dressingTwin and twinState.standIn then
+                Send("TWINWEARING")
+            end
             DEFAULT_CHAT_FRAME:AddMessage(sent and "|cffffd100Wardrobe:|r look applied."
                 or "|cffffd100Wardrobe:|r pick something first.")
         end)
@@ -3466,6 +3474,10 @@ function ShowDressing()
         return
     end
     if twinState.twoPlayers then
+        if twinState.standIn and twinButton:GetParent():IsVisible() and not twinButton.wearingAsked then
+            twinButton.wearingAsked = true
+            Send("TWINWEARING")
+        end
         dressingTwin = twinState.standIn
         twinButton:Hide()
     else
@@ -3584,8 +3596,10 @@ local function AttachTwinButton()
     end
     anchor:GetParent():HookScript("OnHide", function()
         dressingTwin = false
+        twinButton.wearingAsked = nil
         ShowDressing()
     end)
+    anchor:GetParent():HookScript("OnShow", ShowDressing)
     ShowDressing()
     return true
 end
