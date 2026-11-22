@@ -685,6 +685,20 @@ TEST(Subclass, AJoinedBodyNameSplitsIntoTheMeleeAndRangedHeads)
     EXPECT_FALSE(SplitJoinedName("'Rogh").has_value());
     EXPECT_FALSE(SplitJoinedName("Grogh'").has_value());
     EXPECT_FALSE(SplitJoinedName("Gro'gh'Rogh").has_value());
+    auto const brothers = SplitJoinedName("Warken&Flarken");
+    ASSERT_TRUE(brothers.has_value());
+    EXPECT_EQ(brothers->first, "Warken");
+    EXPECT_EQ(brothers->second, "Flarken");
+    EXPECT_FALSE(SplitJoinedName("&Flarken").has_value());
+    EXPECT_FALSE(SplitJoinedName("Warken'Flar&ken").has_value());
+}
+
+TEST(Subclass, TheOgreJoinsHerHeadsWithAnApostropheAndTheTwinsWithAnAmpersand)
+{
+    EXPECT_EQ(JoinedName(TwoHeadedOgreRace, "Grogh", "Rogh"), "Grogh'Rogh");
+    EXPECT_EQ(JoinedName(ThinHumanRace, "Warken", "Flarken"), "Warken & Flarken");
+    EXPECT_EQ(WhisperName(TwoHeadedOgreRace, "Grogh", "Rogh"), "Grogh'Rogh");
+    EXPECT_EQ(WhisperName(ThinHumanRace, "Warken", "Flarken"), "Warken&Flarken");
 }
 
 TEST(Subclass, BothHeadsOnOneFoeAgreeAndStackUpToTheLimit)

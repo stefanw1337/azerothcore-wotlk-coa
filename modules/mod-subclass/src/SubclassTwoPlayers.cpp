@@ -428,7 +428,8 @@ void ShowOneBodyToGroup(Player* body, Player* rider)
     Group* group = body->GetGroup();
     if (!group)
         return;
-    std::string const line = "TWOPLAYERS " + body->GetName() + " " + rider->GetName();
+    std::string const line = "TWOPLAYERS " + body->GetName() + " " + rider->GetName() +
+        (body->getRace(true) == Subclass::ThinHumanRace ? " TWINS" : "");
     for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
     {
         Player* member = ref->GetSource();

@@ -154,6 +154,8 @@ std::string StateOf(Player const* player)
         std::string const formerLeft = StandInBodyOf(guid);
         if (!formerLeft.empty())
             return "PAIRSTATE ECHO " + formerLeft;
+        if (!TwoPlayersEnabled() || !IsTwoPlayers(player))
+            return "PAIRSTATE OFF";
         Subclass::SpecializationRoles const roles = HeadOf(player).Roles;
         return std::string("PAIRSTATE NONE ") + (Subclass::FitsLeftHead(roles) ? "LEFT"
             : Subclass::FitsRightHead(roles) ? "RIGHT" : "ANY");
@@ -534,6 +536,9 @@ std::optional<std::string> BodyNameOf(std::string const& joined)
     if (!right || !sCharacterCache->GetCharacterNameByGuid(ObjectGuid::Create<HighGuid::Player>(right), rightName) ||
         rightName != heads->second)
         return std::nullopt;
+    CharacterCacheEntry const* body = sCharacterCache->GetCharacterCacheByGuid(left);
+    if (!body || joined[joined.find_first_of("'&")] != Subclass::WhisperMark(body->Race))
+        return std::nullopt;
     return heads->first;
 }
 
@@ -548,7 +553,8 @@ bool SendWhisperToBody(WorldSession* session, WorldPacket const& packet)
         return false;
     std::string to;
     read >> to;
-    std::optional<std::string> const body = to.find('\'') == std::string::npos ? std::nullopt : BodyNameOf(to);
+    std::optional<std::string> const body =
+        to.find_first_of("'&") == std::string::npos ? std::nullopt : BodyNameOf(to);
     if (!body)
         return false;
     WorldPacket rewritten(CMSG_MESSAGECHAT, packet.size());
@@ -564,7 +570,8 @@ bool SendInviteToBody(WorldSession* session, WorldPacket const& packet)
     read.rpos(0);
     std::string name;
     read >> name;
-    std::optional<std::string> const body = name.find('\'') == std::string::npos ? std::nullopt : BodyNameOf(name);
+    std::optional<std::string> const body =
+        name.find_first_of("'&") == std::string::npos ? std::nullopt : BodyNameOf(name);
     if (!body)
         return false;
     WorldPacket rewritten(CMSG_GROUP_INVITE, packet.size());

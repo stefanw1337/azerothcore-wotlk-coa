@@ -1,15 +1,9 @@
 local PREFIX = "SUBCLASS"
-local TWO_PLAYERS_RACE = "Two-Headed Ogre"
-local MALE = 2
-local pairState = "NONE"
+local pairState = "OFF"
 local ownHead = "ANY"
 
 local function Send(message)
     SendAddonMessage(PREFIX, message, "WHISPER", UnitName("player"))
-end
-
-local function IsTwoPlayersBody()
-    return UnitRace("player") == TWO_PLAYERS_RACE and UnitSex("player") == MALE
 end
 
 StaticPopupDialogs["SUBCLASS_PAIR_INVITE"] = {
@@ -32,7 +26,7 @@ StaticPopupDialogs["SUBCLASS_PAIR_INVITE"] = {
 local MENUS = { PLAYER = true, PARTY = true, RAID_PLAYER = true, FRIEND = true, TARGET = true }
 
 hooksecurefunc("UnitPopup_ShowMenu", function(_, which, unit, name)
-    if UIDROPDOWNMENU_MENU_LEVEL ~= 1 or not MENUS[which] or not IsTwoPlayersBody() then
+    if UIDROPDOWNMENU_MENU_LEVEL ~= 1 or not MENUS[which] then
         return
     end
     if pairState ~= "NONE" and pairState ~= "ECHO" then
@@ -190,9 +184,9 @@ frame:SetScript("OnEvent", function(_, event, prefix, message, _, sender)
         StaticPopup_Show("SUBCLASS_PAIR_INVITE", inviter, "Ranged Head")
         return
     end
-    local body, rider = message:match("^TWOPLAYERS (%S+) (%S+)$")
+    local body, rider, kind = message:match("^TWOPLAYERS (%S+) (%S+)%s*(%u*)$")
     if body then
-        Ascension_Subclass.SetOneBody(body, rider)
+        Ascension_Subclass.SetOneBody(body, rider, kind == "TWINS" and " & " or "'")
         return
     end
     local parted = message:match("^TWOPLAYERSOFF (%S+)$")
@@ -265,14 +259,14 @@ local function JoinRaidNames()
     end
 end
 
-function Ascension_Subclass.SetOneBody(body, rider)
+function Ascension_Subclass.SetOneBody(body, rider, separator)
     for name, of in pairs(riders) do
         if of == body then
             riders[name] = nil
             joinedNames[name] = nil
         end
     end
-    joinedNames[body] = rider and body .. "'" .. rider or nil
+    joinedNames[body] = rider and body .. (separator or "'") .. rider or nil
     if rider then
         riders[rider] = body
         joinedNames[rider] = joinedNames[body]

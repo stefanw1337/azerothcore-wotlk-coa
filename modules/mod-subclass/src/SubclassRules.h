@@ -875,11 +875,26 @@ inline bool RangedHeadMayNeed(std::uint32_t itemClass)
     return itemClass != Weapon && itemClass != Armor;
 }
 
+inline std::string JoinedName(std::uint8_t race, std::string const& left, std::string const& right)
+{
+    return left + (race == ThinHumanRace ? " & " : "'") + right;
+}
+
+inline char WhisperMark(std::uint8_t race)
+{
+    return race == ThinHumanRace ? '&' : '\'';
+}
+
+inline std::string WhisperName(std::uint8_t race, std::string const& left, std::string const& right)
+{
+    return left + WhisperMark(race) + right;
+}
+
 inline std::optional<std::pair<std::string, std::string>> SplitJoinedName(std::string_view joined)
 {
-    std::size_t const mark = joined.find('\'');
+    std::size_t const mark = joined.find_first_of("'&");
     if (mark == std::string_view::npos || mark == 0 || mark + 1 >= joined.size() ||
-        joined.find('\'', mark + 1) != std::string_view::npos)
+        joined.find_first_of("'&", mark + 1) != std::string_view::npos)
         return std::nullopt;
     return std::make_pair(std::string(joined.substr(0, mark)), std::string(joined.substr(mark + 1)));
 }
