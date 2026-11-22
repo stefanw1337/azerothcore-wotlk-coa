@@ -52,11 +52,13 @@ std::string HeadSpecRefusal(Player* player, uint32 /*active*/, uint32 requested)
     Subclass::SpecializationRoles const roles = RolesOfSpecialization(uint16(requested));
     if (!Subclass::HasAnyRole(roles))
         return "";
+    std::string const together = player->getRace(true) == Subclass::ThinHumanRace ? "while you are paired." :
+        "while you share a body.";
     if (TwoPlayersIsLeftHead(guid))
-        return Subclass::FitsLeftHead(roles) ? "" :
-            "The Melee Head takes melee or tank specializations only, while you share a body.";
-    return Subclass::FitsRightHead(roles) ? "" :
-        "The Ranged Head takes caster, ranged or healer specializations only, while you share a body.";
+        return Subclass::FitsLeftHead(roles) ? "" : "The " + Subclass::HeadTitle(player->getRace(true), true) +
+            " takes melee or tank specializations only, " + together;
+    return Subclass::FitsRightHead(roles) ? "" : "The " + Subclass::HeadTitle(player->getRace(true), false) +
+        " takes caster, ranged or healer specializations only, " + together;
 }
 
 void SharePool(Player* body, Player* rider)

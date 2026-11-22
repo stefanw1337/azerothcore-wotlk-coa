@@ -333,9 +333,10 @@ void Status(Player* player)
     std::string const formerLeft = StandInBodyOf(guid);
     if (!partner && !formerLeft.empty())
         Tell(player, "You ride a stand-in body wearing the echo of " + formerLeft + "'s gear. Type .pair echo to see "
-            "it, or find a new Melee Head.");
+            "it, or find a new " + Subclass::HeadTitle(player->getRace(true), true) + ".");
     else if (!partner)
-        Tell(player, "You are not paired with another head.");
+        Tell(player, player->getRace(true) == Subclass::ThinHumanRace ? "You are not paired with another brother." :
+            "You are not paired with another head.");
     else if (IsLeftHead(guid))
         Tell(player, "You are the " + Subclass::HeadTitle(player->getRace(true), true) + ". Your " +
             Subclass::HeadTitle(player->getRace(true), false) + " is " + NameOf(partner) + ".");
@@ -389,10 +390,13 @@ void Forget(uint32 guid)
     TwoPlayersSeparate(guid, partner);
     if (Player* other = ObjectAccessor::FindPlayerByLowGUID(partner))
     {
+        bool const twins = other->getRace(true) == Subclass::ThinHumanRace;
         if (wasLeft)
-            Tell(other, "Your Melee Head is gone. The echo of their gear is kept for your stand-in body.");
+            Tell(other, "Your " + Subclass::HeadTitle(other->getRace(true), true) +
+                " is gone. The echo of their gear is kept for your stand-in body.");
         else
-            Tell(other, "The other head of your body is gone. The seat is free for a new partner.");
+            Tell(other, twins ? "Your other brother is gone. There is room for a new partner." :
+                "The other head of your body is gone. The seat is free for a new partner.");
         SendPairAddon(other, StateOf(other));
     }
 }

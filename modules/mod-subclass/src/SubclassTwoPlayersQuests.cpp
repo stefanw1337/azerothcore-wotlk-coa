@@ -361,7 +361,8 @@ void TwoPlayersQuestRewarded(Player* player, Quest const* quest)
         if (uint64 const worth = WorthOfRewardItems(guid))
         {
             player->ModifyMoney(int32(std::min<uint64>(worth, uint64(MAX_MONEY_AMOUNT))));
-            Tell(player, "The quest's item reward goes to your Melee Head; you get its worth in gold.");
+            Tell(player, "The quest's item reward goes to your " + Subclass::HeadTitle(player->getRace(true), true) +
+                "; you get its worth in gold.");
         }
     Forget(guid);
 }

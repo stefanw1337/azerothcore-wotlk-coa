@@ -575,11 +575,10 @@ void Seat(Player* left, Player* right)
     TwoPlayersShareBuffs(left, right);
     if (!Greet(left->GetGUID().GetCounter(), true))
         return;
-    bool const piggyback = Subclass::BodyVehicleFor(left->getRace(true)) == Subclass::TwinsTwoPlayersVehicle;
-    Tell(left, right->GetName() + (piggyback ? " rides on your back now." : " is your other head now.") +
+    bool const twins = left->getRace(true) == Subclass::ThinHumanRace;
+    Tell(left, right->GetName() + (twins ? " is your other brother (ranged) now." : " is your other head now.") +
         " Their movement and melee abilities are yours to use.");
-    Tell(right, (piggyback ? "You ride on " + left->GetName() + "'s back now." :
-        "You are " + left->GetName() + "'s other head now.") +
+    Tell(right, "You are " + left->GetName() + (twins ? "'s other brother (ranged) now." : "'s other head now.") +
         " Their ranged spells, casts and buffs are yours to use.");
 }
 
@@ -631,9 +630,11 @@ void CallBotForMissingHead(Player* player, uint32 partnerGuid, bool missing, boo
         return;
     if (!TimeToCallBot(player->GetGUID().GetCounter(), missing) || !TwoPlayersCallBot(player, partnerGuid))
         return;
-    Tell(player, left ? "A bot casts for your Ranged Head until they come back." :
-        "A bot steers your Melee Head's body until they come back. Type /pair stop to hold it still and /pair go "
-        "to let it roam again.");
+    bool const twins = player->getRace(true) == Subclass::ThinHumanRace;
+    Tell(player, left ? "A bot casts for your " + Subclass::HeadTitle(player->getRace(true), false) +
+        " until they come back." : "A bot steers your " + Subclass::HeadTitle(player->getRace(true), true) +
+        (twins ? "" : "'s body") + " until they come back. Type /pair stop to hold it still and /pair go to let it "
+        "roam again.");
 }
 
 bool MarkWaiting(uint32 guid, bool wait)
@@ -649,14 +650,16 @@ void WaitForBody(Player* rider, bool wait, bool botBody)
     {
         rider->SetControlled(true, UNIT_STATE_ROOT);
         if (changed)
-            Tell(rider, "Your Melee Head is offline. The body stands still here until they come back.");
+            Tell(rider, "Your " + Subclass::HeadTitle(rider->getRace(true), true) + " is offline. " +
+                (rider->getRace(true) == Subclass::ThinHumanRace ? "You wait here" : "The body stands still here") +
+                " until they come back.");
         return;
     }
     if (!changed)
         return;
     rider->SetControlled(false, UNIT_STATE_ROOT);
     if (!wait && !botBody)
-        Tell(rider, "Your Melee Head is back.");
+        Tell(rider, "Your " + Subclass::HeadTitle(rider->getRace(true), true) + " is back.");
 }
 
 void KeepTheTwoPlayersBody(Player* player)
@@ -1130,7 +1133,8 @@ public:
         Player* left = Online(partnerGuid);
         if (!left || left->GetGroup() == group)
             return true;
-        Tell(player, "Your Melee Head handles the group: ask them to invite or join, and you come along.");
+        Tell(player, "Your " + Subclass::HeadTitle(player->getRace(true), true) +
+            " handles the group: ask them to invite or join, and you come along.");
         return false;
     }
 
@@ -1266,16 +1270,17 @@ void PayLentShare(Unit* caster, SpellInfo const* info)
         presser->ModifyPower(presser->getPowerType(), -int32(share));
 }
 
-char const* RefusalFor(Subclass::Borrow kind)
+std::string RefusalFor(Subclass::Borrow kind, uint8 race)
 {
     switch (kind)
     {
         case Subclass::Borrow::Movement:
-            return "Only the Melee Head moves the body.";
+            return race == Subclass::ThinHumanRace ? "Only your other brother (melee) leads the way." :
+                "Only the Melee Head moves the body.";
         case Subclass::Borrow::Melee:
-            return "The Melee Head uses the melee abilities.";
+            return "The " + Subclass::HeadTitle(race, true) + " uses the melee abilities.";
         default:
-            return "The Ranged Head uses the ranged spells, casts and buffs.";
+            return "The " + Subclass::HeadTitle(race, false) + " uses the ranged spells, casts and buffs.";
     }
 }
 
@@ -1320,7 +1325,7 @@ public:
             ClassAbilityOf(presser, info->Id))
         {
             if (!TwoPlayersHeadIsBot(presser))
-                Tell(presser, RefusalFor(kind));
+                Tell(presser, RefusalFor(kind, presser->getRace(true)));
             return false;
         }
         if (!pressedByLeft)
@@ -1345,9 +1350,12 @@ std::string TwoPlayersRide(Player* rider)
     uint32 const guid = rider->GetGUID().GetCounter();
     Player* body = TwoPlayersSeatedPartner(rider);
     if (!body || TwoPlayersIsLeftHead(guid))
-        return "Ride is for the Ranged Head, seated on a bot body.";
+        return rider->getRace(true) == Subclass::ThinHumanRace ?
+            "Ride is for the other brother (ranged), with a bot brother." :
+            "Ride is for the Ranged Head, seated on a bot body.";
     if (!TwoPlayersHeadIsBot(body))
-        return body->GetName() + " walks the body; ask them to mount up.";
+        return body->GetName() + (rider->getRace(true) == Subclass::ThinHumanRace ? " leads the way" :
+            " walks the body") + "; ask them to mount up.";
     return TwoPlayersBotBodyRideToggle(body, rider);
 }
 
@@ -1428,10 +1436,13 @@ std::string TwoPlayersHalt(Player* rider, bool halt)
     uint32 const guid = rider->GetGUID().GetCounter();
     uint32 const partnerGuid = TwoPlayersPartnerOf(guid);
     if (!partnerGuid || TwoPlayersIsLeftHead(guid))
-        return "Only a Ranged Head can stop or start a bot that steers the body.";
+        return rider->getRace(true) == Subclass::ThinHumanRace ?
+            "Only the other brother (ranged) can stop or start a bot brother." :
+            "Only a Ranged Head can stop or start a bot that steers the body.";
     Player* body = Online(partnerGuid);
     if (!TwoPlayersHeadIsBot(body))
-        return "Your Melee Head steers the body, not a bot.";
+        return rider->getRace(true) == Subclass::ThinHumanRace ? "Your other brother (melee) leads, not a bot." :
+            "Your Melee Head steers the body, not a bot.";
     {
         std::lock_guard<std::mutex> lock(bodyMutex);
         if (halt)
