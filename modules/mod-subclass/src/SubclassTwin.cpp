@@ -2471,13 +2471,15 @@ void KeepTwoPlayersBrother(Player* player)
     bool stale = false;
     if (twin)
     {
+        std::optional<Look> const expected = rider ? std::optional<Look>(RiderLook(rider, StandInOutfit(player, rider)))
+            : std::nullopt;
         std::lock_guard<std::mutex> lock(twinMutex);
         auto const shown = standInFor.find(guid);
         uint32 const riderGuid = rider ? rider->GetGUID().GetCounter() : 0;
         stale = shown == standInFor.end() || shown->second != riderGuid;
-        if (!stale && rider)
+        if (!stale && expected)
             if (auto const look = looks.find(twin->GetGUID()); look != looks.end())
-                stale = !(look->second == RiderLook(rider, StandInOutfit(player, rider)));
+                stale = !(look->second == *expected);
     }
     if (wanted != (twin != nullptr) || (wanted && stale))
         RefreshTwin(player);
