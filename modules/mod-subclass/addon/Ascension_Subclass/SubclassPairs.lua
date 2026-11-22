@@ -37,6 +37,12 @@ hooksecurefunc("UnitPopup_ShowMenu", function(_, which, unit, name)
         return
     end
     local function AddInvite(text, message)
+        for i = 1, DropDownList1.numButtons or 0 do
+            local button = _G["DropDownList1Button" .. i]
+            if button and button:IsShown() and button:GetText() == text then
+                return
+            end
+        end
         local info = UIDropDownMenu_CreateInfo()
         info.text = text
         info.notCheckable = 1
