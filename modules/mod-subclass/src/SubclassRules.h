@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -888,6 +889,22 @@ inline char WhisperMark(std::uint8_t race)
 inline std::string WhisperName(std::uint8_t race, std::string const& left, std::string const& right)
 {
     return left + WhisperMark(race) + right;
+}
+
+inline std::optional<std::string> WithoutRiderName(std::string_view message, std::string_view rider)
+{
+    if (rider.empty() || message.size() < rider.size() + 2 || message.substr(0, 2) != "& ")
+        return std::nullopt;
+    std::string_view const named = message.substr(2, rider.size());
+    for (std::size_t i = 0; i < rider.size(); ++i)
+        if (std::tolower(static_cast<unsigned char>(named[i])) != std::tolower(static_cast<unsigned char>(rider[i])))
+            return std::nullopt;
+    std::string_view rest = message.substr(rider.size() + 2);
+    if (!rest.empty() && rest.front() != ' ')
+        return std::nullopt;
+    while (!rest.empty() && rest.front() == ' ')
+        rest.remove_prefix(1);
+    return std::string(rest);
 }
 
 inline std::optional<std::pair<std::string, std::string>> SplitJoinedName(std::string_view joined)

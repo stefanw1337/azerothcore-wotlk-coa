@@ -701,6 +701,16 @@ TEST(Subclass, TheOgreJoinsHerHeadsWithAnApostropheAndTheTwinsWithAnAmpersand)
     EXPECT_EQ(WhisperName(ThinHumanRace, "Warken", "Flarken"), "Warken&Flarken");
 }
 
+TEST(Subclass, AWhisperToTheFirstBrotherDropsTheSecondBrothersName)
+{
+    EXPECT_EQ(WithoutRiderName("& Flarken hi there", "Flarken"), "hi there");
+    EXPECT_EQ(WithoutRiderName("& flarken  hi", "Flarken"), "hi");
+    EXPECT_EQ(WithoutRiderName("& Flarken", "Flarken"), "");
+    EXPECT_FALSE(WithoutRiderName("& Flarkenson hi", "Flarken").has_value());
+    EXPECT_FALSE(WithoutRiderName("hi & Flarken", "Flarken").has_value());
+    EXPECT_FALSE(WithoutRiderName("& Warken hi", "Flarken").has_value());
+}
+
 TEST(Subclass, BothHeadsOnOneFoeAgreeAndStackUpToTheLimit)
 {
     AccordSettings const settings;

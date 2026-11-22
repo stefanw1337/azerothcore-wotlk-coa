@@ -523,7 +523,9 @@ public:
     }
 };
 
-std::optional<std::string> BodyNameOf(std::string const& joined)
+using Heads = std::pair<std::string, std::string>;
+
+std::optional<Heads> HeadsOf(std::string const& joined)
 {
     auto heads = Subclass::SplitJoinedName(joined);
     if (!heads || !normalizePlayerName(heads->first) || !normalizePlayerName(heads->second))
@@ -539,28 +541,62 @@ std::optional<std::string> BodyNameOf(std::string const& joined)
     CharacterCacheEntry const* body = sCharacterCache->GetCharacterCacheByGuid(left);
     if (!body || joined[joined.find_first_of("'&")] != Subclass::WhisperMark(body->Race))
         return std::nullopt;
-    return heads->first;
+    return heads;
 }
 
-bool SendWhisperToBody(WorldSession* session, WorldPacket const& packet)
+std::optional<std::string> BodyNameOf(std::string const& joined)
+{
+    std::optional<Heads> const heads = HeadsOf(joined);
+    return heads ? std::optional<std::string>(heads->first) : std::nullopt;
+}
+
+std::optional<Heads> BrothersNamedIn(std::string first, std::string& message)
+{
+    if (message.rfind("& ", 0) != 0 || !normalizePlayerName(first))
+        return std::nullopt;
+    ObjectGuid const guid = sCharacterCache->GetCharacterGuidByName(first);
+    CharacterCacheEntry const* brother = guid ? sCharacterCache->GetCharacterCacheByGuid(guid) : nullptr;
+    if (!brother || brother->Race != Subclass::ThinHumanRace || !IsLeftHead(guid.GetCounter()))
+        return std::nullopt;
+    std::string second;
+    uint32 const partner = PartnerOf(guid.GetCounter());
+    if (!partner || !sCharacterCache->GetCharacterNameByGuid(ObjectGuid::Create<HighGuid::Player>(partner), second))
+        return std::nullopt;
+    std::optional<std::string> const rest = Subclass::WithoutRiderName(message, second);
+    if (!rest)
+        return std::nullopt;
+    message = *rest;
+    return Heads{ first, second };
+}
+
+void Whisper(WorldSession* session, uint32 language, std::string const& to, std::string const& text)
+{
+    WorldPacket packet(CMSG_MESSAGECHAT, 8 + to.size() + text.size() + 2);
+    packet << uint32(CHAT_MSG_WHISPER) << language << to << text;
+    session->HandleMessagechatOpcode(packet);
+}
+
+bool SendWhisperToBothHeads(WorldSession* session, WorldPacket const& packet)
 {
     WorldPacket read(packet);
     read.rpos(0);
     uint32 type = 0;
     uint32 language = 0;
     read >> type >> language;
-    if (type != CHAT_MSG_WHISPER)
+    if (type != CHAT_MSG_WHISPER || language == LANG_ADDON)
         return false;
     std::string to;
     read >> to;
-    std::optional<std::string> const body =
-        to.find_first_of("'&") == std::string::npos ? std::nullopt : BodyNameOf(to);
-    if (!body)
+    std::string text = read.ReadCString(true);
+    std::optional<Heads> const heads =
+        to.find_first_of("'&") != std::string::npos ? HeadsOf(to) : BrothersNamedIn(to, text);
+    if (!heads)
         return false;
-    WorldPacket rewritten(CMSG_MESSAGECHAT, packet.size());
-    rewritten << type << language << *body;
-    rewritten.append(read.contents() + read.rpos(), read.size() - read.rpos());
-    session->HandleMessagechatOpcode(rewritten);
+    std::string const& sender = session->GetPlayer()->GetName();
+    if (heads->first != sender)
+        Whisper(session, language, heads->first, text);
+    if (heads->second != sender && ObjectAccessor::FindPlayerByName(heads->second, false))
+        Whisper(session, language, heads->second, text);
     return true;
 }
 
@@ -596,7 +632,7 @@ public:
             return true;
         try
         {
-            bool const handled = opcode == CMSG_MESSAGECHAT ? SendWhisperToBody(session, packet) :
+            bool const handled = opcode == CMSG_MESSAGECHAT ? SendWhisperToBothHeads(session, packet) :
                 SendInviteToBody(session, packet);
             return !handled;
         }
