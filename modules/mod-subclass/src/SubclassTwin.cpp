@@ -978,8 +978,12 @@ Player* BodyOfStandIn(Player const* rider)
 
 std::string StandInLocked(Player const* body)
 {
-    Player const* rider = SeatedTwinsRider(body);
-    return rider ? rider->GetName() + " picks his own look while you are paired." : "";
+    if (Player const* rider = SeatedTwinsRider(body))
+        return rider->GetName() + " picks his own look while you are paired.";
+    if (body->getRace(true) == TwinRace && Subclass::IsTwoPlayersBody(body->getRace(true), StoryGenderOf(body)) &&
+        !BodyOfStandIn(body))
+        return "In Two-Players each brother dresses himself.";
+    return "";
 }
 
 Creature* TwinOf(Player const* player)
@@ -2277,9 +2281,9 @@ std::string TwinState(Player const* player)
     if (BodyOfStandIn(player))
         return Acore::StringFormat("TWINSTATE 1 {} 1 1", WardrobeOf(player).Enabled ? 1 : 0);
     if (SeatedTwinsRider(player))
-        return "TWINSTATE 0 0 0";
-    return Acore::StringFormat("TWINSTATE {} {} {}", HasTwin(player) ? 1 : 0, WardrobeOf(player).Enabled ? 1 : 0,
-        IsSplit(player) ? 1 : 0);
+        return "TWINSTATE 0 0 0 2";
+    return Acore::StringFormat("TWINSTATE {} {} {} {}", HasTwin(player) ? 1 : 0, WardrobeOf(player).Enabled ? 1 : 0,
+        IsSplit(player) ? 1 : 0, Subclass::IsTwoPlayersBody(player->getRace(true), StoryGenderOf(player)) ? 2 : 0);
 }
 
 bool SubclassChosen(Player const* player);
@@ -3918,8 +3922,8 @@ std::string ToggleTwin(Player* player)
         RefreshTwin(body);
         return wardrobe.Enabled ? "You wear your own outfit." : "You dress like " + body->GetName() + " again.";
     }
-    if (std::string const locked = StandInLocked(player); !locked.empty())
-        return locked;
+    if (Player const* rider = SeatedTwinsRider(player))
+        return rider->GetName() + " walks beside you while you are paired.";
     if (!HasTwin(player))
         return "Only the Thin Twins have a brother to call.";
     if (player->IsInCombat())

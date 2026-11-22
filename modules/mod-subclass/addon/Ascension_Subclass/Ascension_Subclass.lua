@@ -922,7 +922,7 @@ end
 
 local twinOutfit = {}
 local ShowTwinPreview
-local twinState = { has = false, out = false, split = false, standIn = false }
+local twinState = { has = false, out = false, split = false, standIn = false, twoPlayers = false }
 Ascension_Subclass.TwinLook = { features = {}, kinds = { { key = "f", title = "Face", choice = "Face" },
     { key = "h", title = "Hair style", choice = "Style" }, { key = "b", title = "Facial hair", choice = "Beard" } } }
 local ShowTwinState
@@ -1877,8 +1877,12 @@ local function Receive(message)
         return
     end
     if command == "TWINSTATE" then
-        local has, out, split, standIn = string.match(rest, "^(%d) (%d) (%d)%s*(%d*)$")
-        twinState = { has = has == "1", out = out == "1", split = split == "1", standIn = standIn == "1" }
+        local has, out, split, mode = string.match(rest, "^(%d) (%d) (%d)%s*(%d*)$")
+        twinState = { has = has == "1", out = out == "1", split = split == "1", standIn = mode == "1",
+            twoPlayers = mode == "1" or mode == "2" }
+        if ShowDressing then
+            ShowDressing()
+        end
         if ShowTwinState then
             ShowTwinState()
         end
@@ -3458,6 +3462,15 @@ local function PlaceTwinApply()
 end
 
 function ShowDressing()
+    if not twinButton then
+        return
+    end
+    if twinState.twoPlayers then
+        dressingTwin = twinState.standIn
+        twinButton:Hide()
+    else
+        twinButton:Show()
+    end
     local covered = PlaceTwinApply()
     if twinApplyButton then
         if covered and (dressingTwin or DressesCyclops()) then
@@ -3465,9 +3478,6 @@ function ShowDressing()
         else
             twinApplyButton:Hide()
         end
-    end
-    if twinState.standIn then
-        dressingTwin = true
     end
     local other = DressesCyclops() and "Dressing: Right head" or twinState.standIn and "Dressing: You"
         or "Dressing: Your twin"
