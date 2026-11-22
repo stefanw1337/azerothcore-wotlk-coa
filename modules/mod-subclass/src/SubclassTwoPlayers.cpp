@@ -6,6 +6,7 @@
 #include "AscensionSpecialization.h"
 #include "Chat.h"
 #include "Config.h"
+#include "DBCStores.h"
 #include "GameTime.h"
 #include "Group.h"
 #include "GroupMgr.h"
@@ -56,6 +57,7 @@ void TwoPlayersBotBodyRides(Player* body, Player* rider, bool halted);
 std::string TwoPlayersBotBodyRideToggle(Player* body, Player* rider);
 void KeepTwoPlayersBrother(Player* player);
 void DropTwinKit(Player* player);
+uint32 TwinsCarryVehicleWanted(Player const* body);
 void TwoPlayersTwinCasts(Player* body, Unit* target, bool positive);
 
 namespace
@@ -214,7 +216,11 @@ uint32 KitWanted(Player const* body, uint32 mountCreature)
     CreatureTemplate const* mount = mountCreature ? sObjectMgr->GetCreatureTemplate(mountCreature) : nullptr;
     uint32 const carrying = mount && own == Subclass::TwoPlayersVehicle ?
         Subclass::TwoPlayersVehicleCarrying(mount->VehicleId) : 0;
-    return carrying ? carrying : own;
+    if (carrying)
+        return carrying;
+    if (uint32 const twinCarry = TwinsCarryVehicleWanted(body); twinCarry && sVehicleStore.LookupEntry(twinCarry))
+        return twinCarry;
+    return own;
 }
 
 bool RidesHidden(Player const* rider)
@@ -528,7 +534,7 @@ void RevealArrival(Player* rider, bool onlyWhenOverdue)
         rider->SetVisible(true);
 }
 
-void Seat(Player* left, Player* right);
+void Seat(Player* left, Player* right, bool kitSwap = false);
 
 void CarryMountPassengers(Player* body, Player* rider)
 {
@@ -540,11 +546,13 @@ void CarryMountPassengers(Player* body, Player* rider)
         return;
     bool const reseat = rider && Seated(body, rider);
     body->RemoveVehicleKit();
-    if (!body->CreateVehicleKit(wanted, wanted == Subclass::BodyVehicleFor(body->getRace(true)) ? 0 : mountCreature))
+    bool const ownSeats = wanted == Subclass::BodyVehicleFor(body->getRace(true)) ||
+        Subclass::IsTwinsCarryVehicle(wanted);
+    if (!body->CreateVehicleKit(wanted, ownSeats ? 0 : mountCreature))
     {
         GiveBodyKit(body);
         if (reseat)
-            Seat(body, rider);
+            Seat(body, rider, true);
         return;
     }
     body->GetVehicleKit()->Reset();
@@ -552,10 +560,10 @@ void CarryMountPassengers(Player* body, Player* rider)
     SendVehicleData(body, wanted);
     body->GetVehicleKit()->InstallAllAccessories(false);
     if (reseat)
-        Seat(body, rider);
+        Seat(body, rider, true);
 }
 
-void Seat(Player* left, Player* right)
+void Seat(Player* left, Player* right, bool kitSwap)
 {
     if (Seated(left, right) || !GiveBodyKit(left))
         return;
@@ -570,7 +578,7 @@ void Seat(Player* left, Player* right)
     right->CastCustomSpell(VEHICLE_SPELL_RIDE_HARDCODED, SPELLVALUE_BASE_POINT0, RightHeadSeat + 1, left,
         TRIGGERED_FULL_MASK);
     sScriptMgr->AnticheatSetUnderACKmount(right);
-    if (!Seated(left, right))
+    if (!Seated(left, right) || kitSwap)
         return;
     Reclaim(left);
     Reclaim(right);

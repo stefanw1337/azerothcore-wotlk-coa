@@ -262,6 +262,7 @@ std::unordered_map<uint32, uint32>& arrivals = *new std::unordered_map<uint32, u
 std::unordered_set<uint32>& aloneTwoPlayersTwins = *new std::unordered_set<uint32>;
 std::unordered_map<uint32, uint32>& standInFor = *new std::unordered_map<uint32, uint32>;
 std::unordered_set<uint32>& standInRiders = *new std::unordered_set<uint32>;
+std::unordered_map<uint32, uint32>& pairedCarry = *new std::unordered_map<uint32, uint32>;
 std::unordered_map<uint32, uint8>& sips = *new std::unordered_map<uint32, uint8>;
 std::unordered_map<uint32, bool>& hangovers = *new std::unordered_map<uint32, bool>;
 
@@ -1188,7 +1189,25 @@ void MirrorFormVisual(Player* player, Creature* twin)
 bool OwnsKit(Player const* player)
 {
     Vehicle const* kit = player->GetVehicleKit();
-    return kit && kit->GetVehicleInfo()->m_ID >= PiggybackVehicle && kit->GetVehicleInfo()->m_ID <= LastTwinVehicle;
+    if (!kit)
+        return false;
+    uint32 const id = kit->GetVehicleInfo()->m_ID;
+    return (id >= PiggybackVehicle && id <= LastTwinVehicle) || Subclass::IsTwinsCarryVehicle(id);
+}
+
+void WantPairedCarry(Player const* body, uint32 vehicleId)
+{
+    std::lock_guard<std::mutex> lock(twinMutex);
+    pairedCarry[body->GetGUID().GetCounter()] = vehicleId;
+}
+
+uint32 TwinsCarryVehicleWanted(Player const* body)
+{
+    if (!SeatedTwinsRider(body))
+        return 0;
+    std::lock_guard<std::mutex> lock(twinMutex);
+    auto const found = pairedCarry.find(body->GetGUID().GetCounter());
+    return found == pairedCarry.end() ? 0 : found->second;
 }
 
 void SendVehicleData(Player* player, uint32 vehicleId)
@@ -1201,6 +1220,8 @@ void SendVehicleData(Player* player, uint32 vehicleId)
 
 void DropKit(Player* player)
 {
+    if (SeatedTwinsRider(player))
+        return WantPairedCarry(player, 0);
     if (!OwnsKit(player))
         return;
     SendVehicleData(player, 0);
@@ -1214,6 +1235,13 @@ void DropTwinKit(Player* player)
 
 bool GiveKit(Player* player, uint32 vehicleId)
 {
+    if (SeatedTwinsRider(player))
+    {
+        uint32 const carry = Subclass::TwinsCarryVehicleFor(vehicleId);
+        WantPairedCarry(player, carry);
+        Vehicle const* kit = player->GetVehicleKit();
+        return kit && kit->GetVehicleInfo()->m_ID == carry;
+    }
     if (Vehicle const* kit = player->GetVehicleKit())
     {
         if (kit->GetVehicleInfo()->m_ID == vehicleId)
@@ -1296,7 +1324,15 @@ void SetCarry(Player* player, Creature* twin, Carry mode)
         return;
     }
     if (!GiveKit(player, VehicleFor(player, mode)))
-        return SetCarry(player, twin, Carry::Beside);
+    {
+        if (!SeatedTwinsRider(player))
+            return SetCarry(player, twin, Carry::Beside);
+        if (twin->GetVehicle())
+            twin->ExitVehicle();
+        if (twin->GetMotionMaster()->GetCurrentMovementGeneratorType() != FOLLOW_MOTION_TYPE)
+            twin->GetMotionMaster()->MoveFollow(player, TwinDistance, TwinAngle);
+        return;
+    }
     twin->GetMotionMaster()->Clear();
     twin->EnterVehicle(player, TwinSeat);
 }
@@ -1311,8 +1347,6 @@ bool TransformedPastTheForm(Player const* player)
 
 Carry WantedCarry(Player const* player, Motion const& motion)
 {
-    if (TwoPlayersPartnerOf(player->GetGUID().GetCounter()))
-        return Carry::Beside;
     if (motion.Riding)
         return player->IsAlive() && !player->IsInWater() && !player->HasStealthAura() ? Carry::Shoulders :
             Carry::Beside;
@@ -1329,11 +1363,11 @@ Carry WantedCarry(Player const* player, Motion const& motion)
     {
         if (player->HasAuraType(SPELL_AURA_TRANSFORM) || player->HasAuraType(SPELL_AURA_MOD_SHAPESHIFT))
             return Carry::Beside;
-        if (Vehicle const* kit = player->GetVehicleKit(); kit && !OwnsKit(player))
+        if (Vehicle const* kit = player->GetVehicleKit(); kit && !OwnsKit(player) && !SeatedTwinsRider(player))
             return motion.Mode == Carry::Passenger || kit->GetAvailableSeatCount() ? Carry::Passenger : Carry::Beside;
         return Carry::Saddle;
     }
-    if (player->IsFlying() || (player->GetVehicleKit() && !OwnsKit(player)))
+    if (player->IsFlying() || (player->GetVehicleKit() && !OwnsKit(player) && !SeatedTwinsRider(player)))
         return Carry::Beside;
     if (motion.Afoot && motion.Afoot <= AfootStride)
         return Carry::Beside;
@@ -2133,6 +2167,7 @@ void DismissTwin(Player* player)
         looks.erase(guid);
         motions.erase(player->GetGUID().GetCounter());
         standInFor.erase(player->GetGUID().GetCounter());
+        pairedCarry.erase(player->GetGUID().GetCounter());
         swingPartners.erase(player->GetGUID());
         shieldBearers.erase(player->GetGUID());
     }

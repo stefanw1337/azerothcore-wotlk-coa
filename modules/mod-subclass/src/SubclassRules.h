@@ -678,9 +678,24 @@ inline std::uint32_t TwoPlayersVehicleCarrying(std::uint32_t mountVehicle)
     }
 }
 
+constexpr std::uint32_t FirstTwinCarryVehicle = 9530;
+constexpr std::uint32_t LastTwinCarryVehicle = 9599;
+constexpr std::uint32_t TwinsCarryVehicleOffset = 100;
+
+inline std::uint32_t TwinsCarryVehicleFor(std::uint32_t twinVehicle)
+{
+    return twinVehicle + TwinsCarryVehicleOffset;
+}
+
+inline bool IsTwinsCarryVehicle(std::uint32_t vehicle)
+{
+    return vehicle >= FirstTwinCarryVehicle + TwinsCarryVehicleOffset &&
+        vehicle <= LastTwinCarryVehicle + TwinsCarryVehicleOffset;
+}
+
 inline bool IsBodyVehicle(std::uint32_t vehicle, std::uint8_t race)
 {
-    if (vehicle == BodyVehicleFor(race))
+    if (vehicle == BodyVehicleFor(race) || (race == ThinHumanRace && IsTwinsCarryVehicle(vehicle)))
         return true;
     return BodyVehicleFor(race) == TwoPlayersVehicle && (vehicle == TwoPlayersOnHordeMammothVehicle ||
         vehicle == TwoPlayersOnAllianceMammothVehicle || vehicle == TwoPlayersOnDriveKartVehicle);
