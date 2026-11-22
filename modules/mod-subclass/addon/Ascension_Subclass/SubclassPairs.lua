@@ -50,6 +50,25 @@ hooksecurefunc("UnitPopup_ShowMenu", function(_, which, unit, name)
     end
 end)
 
+hooksecurefunc("UnitPopup_OnClick", function(self)
+    local menu = UIDROPDOWNMENU_INIT_MENU
+    if self.value ~= "WHISPER" or not menu then
+        return
+    end
+    local name = menu.name or (menu.unit and UnitName(menu.unit))
+    if name and not name:find("[%s'&-]") then
+        Send("PAIRWHISPER " .. name)
+    end
+end)
+
+local function WhisperBothHeads(asked, pairName)
+    local editBox = ChatEdit_GetActiveWindow and ChatEdit_GetActiveWindow() or DEFAULT_CHAT_FRAME.editBox
+    if editBox and editBox:GetAttribute("chatType") == "WHISPER" and editBox:GetAttribute("tellTarget") == asked then
+        editBox:SetAttribute("tellTarget", pairName)
+        ChatEdit_UpdateHeader(editBox)
+    end
+end
+
 SLASH_SUBCLASSPAIR1 = "/pair"
 SlashCmdList.SUBCLASSPAIR = function(text)
     local word = strtrim(text or "")
@@ -177,6 +196,11 @@ frame:SetScript("OnEvent", function(_, event, prefix, message, _, sender)
         return
     end
     if prefix ~= PREFIX or sender ~= UnitName("player") then
+        return
+    end
+    local asked, pairName = message:match("^PAIRWHISPER (%S+) (%S+)$")
+    if asked then
+        WhisperBothHeads(asked, pairName)
         return
     end
     local inviter = message:match("^PAIRINVITE (.+)$")

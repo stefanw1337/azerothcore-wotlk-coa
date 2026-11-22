@@ -569,6 +569,26 @@ std::optional<Heads> BrothersNamedIn(std::string first, std::string& message)
     return Heads{ first, second };
 }
 
+std::optional<std::string> WhisperNameOf(std::string name)
+{
+    if (!normalizePlayerName(name))
+        return std::nullopt;
+    ObjectGuid const guid = sCharacterCache->GetCharacterGuidByName(name);
+    uint32 const partner = guid ? PartnerOf(guid.GetCounter()) : 0;
+    if (!partner)
+        return std::nullopt;
+    uint32 const left = IsLeftHead(guid.GetCounter()) ? guid.GetCounter() : partner;
+    uint32 const right = left == partner ? guid.GetCounter() : partner;
+    std::string leftName;
+    std::string rightName;
+    CharacterCacheEntry const* body =
+        sCharacterCache->GetCharacterCacheByGuid(ObjectGuid::Create<HighGuid::Player>(left));
+    if (!body || !sCharacterCache->GetCharacterNameByGuid(ObjectGuid::Create<HighGuid::Player>(left), leftName) ||
+        !sCharacterCache->GetCharacterNameByGuid(ObjectGuid::Create<HighGuid::Player>(right), rightName))
+        return std::nullopt;
+    return Subclass::WhisperName(body->Race, leftName, rightName);
+}
+
 void Whisper(WorldSession* session, uint32 language, std::string const& to, std::string const& text)
 {
     WorldPacket packet(CMSG_MESSAGECHAT, 8 + to.size() + text.size() + 2);
@@ -672,6 +692,14 @@ bool TwoPlayersIsLeftHead(uint32 guid)
 
 void HandlePairMessage(Player* player, std::vector<std::string_view> const& words)
 {
+    if (words.size() == 2 && words[0] == "PAIRWHISPER")
+    {
+        std::string const name(words[1]);
+        if (TwoPlayersEnabled())
+            if (std::optional<std::string> const pair = WhisperNameOf(name))
+                SendPairAddon(player, "PAIRWHISPER " + name + " " + *pair);
+        return;
+    }
     if (!TwoPlayersEnabled())
     {
         Tell(player, "Two-Players is switched off on this server.");
