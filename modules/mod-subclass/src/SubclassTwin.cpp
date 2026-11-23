@@ -1189,6 +1189,8 @@ void FlashFormOnBrother(Player* player, uint32 spellId)
         twin->CastSpell(twin, TwinFormCopyOf(spellId).Visual, true);
 }
 
+void ResendMirrorImageLater(Creature const* twin);
+
 void MirrorFormVisual(Player* player, Creature* twin)
 {
     std::unordered_set<uint32> worn;
@@ -1216,6 +1218,8 @@ void MirrorFormVisual(Player* player, Creature* twin)
             shed.push_back(spellId);
     for (uint32 spellId : shed)
         twin->RemoveAurasDueToSpell(spellId);
+    if (!shed.empty())
+        ResendMirrorImageLater(twin);
 }
 
 bool OwnsKit(Player const* player)
