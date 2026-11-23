@@ -134,11 +134,24 @@ void ShowAccord(Player* head, Subclass::Accord const& accord)
         aura->SetStackAmount(uint8(std::max<uint32>(1, accord.Stacks)));
 }
 
+bool Brothers(Player const* head)
+{
+    return head->getRace(true) == Subclass::ThinHumanRace;
+}
+
+std::string Voice(Player const* head)
+{
+    return Brothers(head) ? "|cffd8b46a[The brothers]|r " : "|cffd8b46a[The body]|r ";
+}
+
 void Bicker(Player* body, Player* rider, Subclass::AccordMode mode)
 {
-    std::string const line = mode == Subclass::AccordMode::Agree ?
-        "|cffd8b46a[The body]|r Both heads glare at the same foe. For once, they agree." :
-        "|cffd8b46a[The body]|r The heads can't agree on a target and start bickering.";
+    bool const brothers = Brothers(body);
+    std::string const line = Voice(body) + (mode == Subclass::AccordMode::Agree ?
+        (brothers ? "Both brothers glare at the same foe. For once, they agree." :
+            "Both heads glare at the same foe. For once, they agree.") :
+        (brothers ? "The brothers can't agree on a target and start bickering." :
+            "The heads can't agree on a target and start bickering."));
     Tell(body, line);
     Tell(rider, line);
 }
@@ -172,8 +185,8 @@ void CountHit(Player* head, Unit* victim)
     }
     if (announce)
     {
-        std::string const line = "|cffd8b46a[The body]|r Heads agree. Time to bonk! Both press Bonk Heads! within "
-            "a second.";
+        std::string const line = Voice(body) + (Brothers(body) ? "The brothers agree." : "Heads agree.") +
+            " Time to bonk! Both press Bonk Heads! within a second.";
         Tell(body, line);
         Tell(rider, line);
         TellBonkReady(body, rider, true);
@@ -302,7 +315,9 @@ void Breathe(Player* body, Player* rider)
 void BonkHeads(Player* body, Player* rider)
 {
     Unit* target = SwapTarget(body);
-    std::string const line = "|cffd8b46a[The body]|r BONK! The Melee Head throws, the Ranged Head breathes.";
+    std::string const line = Voice(body) + (Brothers(body) ?
+        "BONK! The brother in front throws, the brother on his back lets his magic fly." :
+        "BONK! The Melee Head throws, the Ranged Head breathes.");
     Tell(body, line);
     Tell(rider, line);
     TellBonkReady(body, rider, false);
@@ -320,7 +335,8 @@ void PressBonkHeads(Player* presser)
     Player* partner = TwoPlayersSeatedPartner(presser);
     if (!partner)
     {
-        Tell(presser, "Bonk Heads! needs both heads on one body.");
+        Tell(presser, Brothers(presser) ? "Bonk Heads! needs your other brother at your side." :
+            "Bonk Heads! needs both heads on one body.");
         return;
     }
     bool const byMelee = TwoPlayersIsLeftHead(presser->GetGUID().GetCounter());
@@ -344,7 +360,8 @@ void PressBonkHeads(Player* presser)
     }
     if (!ready)
     {
-        Tell(presser, "Heads no agree enough yet. Hit the same foes more!");
+        Tell(presser, Brothers(presser) ? "The brothers don't agree enough yet. Hit the same foes more!" :
+            "Heads no agree enough yet. Hit the same foes more!");
         return;
     }
     if (fire)
@@ -352,7 +369,7 @@ void PressBonkHeads(Player* presser)
         BonkHeads(body, rider);
         return;
     }
-    Tell(partner, "|cffd8b46a[The body]|r " + presser->GetName() + " wants to bonk heads. Press Bonk Heads! now!");
+    Tell(partner, Voice(body) + presser->GetName() + " wants to bonk heads. Press Bonk Heads! now!");
 }
 
 void BreathTick(Player* body, Player* rider)

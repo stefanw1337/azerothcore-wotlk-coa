@@ -134,3 +134,25 @@ events:SetScript("OnEvent", function(_, event, prefix, message, _, sender)
     end
     Refresh()
 end)
+
+local OGRE_RACE = "Two-Headed Ogre"
+local BROTHERS_TEXT = "Fills while both brothers agree on their foes. When ready, both brothers press it within a "
+    .. "second: the brother in front throws what he wields and the brother on his back lets his magic fly over the "
+    .. "foes in front for 10 seconds."
+
+GameTooltip:HookScript("OnTooltipSetSpell", function(tip)
+    if tip:GetSpell() ~= BonkName() then
+        return
+    end
+    local brothers = UnitRace("player") ~= OGRE_RACE
+    for index = 2, tip:NumLines() do
+        local line = _G[tip:GetName() .. "TextLeft" .. index]
+        local text = line and line:GetText()
+        if text and text:find("^No script") then
+            line:SetText("")
+        elseif text and brothers and text:find("both heads agree") then
+            line:SetText(BROTHERS_TEXT)
+        end
+    end
+    tip:Show()
+end)
