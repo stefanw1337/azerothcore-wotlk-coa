@@ -6997,6 +6997,16 @@ std::array<uint32, WardrobeSlots> GearOfEquipmentCache(std::string_view cache)
     return items;
 }
 
+static uint32 CharacterSelectKulTiran(LazyThin state, bool rider)
+{
+    constexpr uint32 Self = 1;
+    constexpr uint32 Brother = 2;
+    if (state == LazyThin::Thin)
+        return 0;
+    bool const bodyKulTiran = state == LazyThin::OwnKulTiran;
+    return bodyKulTiran != rider ? Self : Brother;
+}
+
 void SendTwinGearToCharacterSelect(WorldSession* session)
 {
     constexpr uint16 MiscPlayerDataPayload = 0x77D;
@@ -7013,12 +7023,15 @@ void SendTwinGearToCharacterSelect(WorldSession* session)
         "AS `s` WHERE `s`.`guid` = `c`.`guid` AND `s`.`sub_class` <> 0 AND `s`.`sub_spec` <> 0)), `f`.`guid` IS NOT "
         "NULL, `f`.`face`, `f`.`hair`, `f`.`facial`{}, `o`.`guid` IS NOT NULL, IFNULL(`p`.`left_guid` = `c`.`guid`, "
         "0), IFNULL(`o`.`equipmentCache`, ''), IFNULL(`o`.`face`, 0), IFNULL(`o`.`hairStyle`, 0), "
-        "IFNULL(`o`.`facialStyle`, 0), IFNULL(`ot`.`enabled`, 0){}, `c`.`gender` FROM `characters` AS `c` LEFT JOIN "
+        "IFNULL(`o`.`facialStyle`, 0), IFNULL(`ot`.`enabled`, 0){}, `c`.`gender`, IFNULL(`lt`.`state`, 0), "
+        "IFNULL(`p`.`left_guid` <> `c`.`guid`, 0) FROM `characters` AS `c` LEFT JOIN "
         "`mod_subclass_twin` AS `t` ON `t`.`guid` = `c`.`guid` LEFT JOIN `mod_subclass_twin_features` AS `f` ON "
         "`f`.`guid` = `c`.`guid` LEFT JOIN `mod_subclass_two_players` AS `p` ON `c`.`guid` IN (`p`.`left_guid`, "
         "`p`.`right_guid`) LEFT JOIN `characters` AS `o` ON `o`.`guid` = IF(`p`.`left_guid` = `c`.`guid`, "
         "`p`.`right_guid`, `p`.`left_guid`) AND `o`.`deleteInfos_Name` IS NULL LEFT JOIN `mod_subclass_twin` AS `ot` "
-        "ON `ot`.`guid` = `o`.`guid` WHERE `c`.`account` = {} AND `c`.`race` = {} AND `c`.`deleteInfos_Name` IS NULL",
+        "ON `ot`.`guid` = `o`.`guid` LEFT JOIN `mod_subclass_lazy_thin` AS `lt` ON `lt`.`guid` = "
+        "IFNULL(`p`.`left_guid`, `c`.`guid`) WHERE `c`.`account` = {} AND `c`.`race` = {} AND "
+        "`c`.`deleteInfos_Name` IS NULL",
         TwinQuest, columns, partnerColumns, session->GetAccountId(), TwinRace)).WithCallback(
         [session](QueryResult result)
         {
@@ -7026,6 +7039,8 @@ void SendTwinGearToCharacterSelect(WorldSession* session)
             constexpr std::size_t Partner = FirstItem + WardrobeSlots;
             constexpr std::size_t FirstPartnerItem = Partner + 7;
             constexpr std::size_t Gender = FirstPartnerItem + WardrobeSlots;
+            constexpr std::size_t LazyState = Gender + 1;
+            constexpr std::size_t Rider = Gender + 2;
             std::string payload = "{";
             auto const add = [&payload](std::string const& key, std::string const& value)
             {
@@ -7036,6 +7051,9 @@ void SendTwinGearToCharacterSelect(WorldSession* session)
                 {
                     Field* fields = result->Fetch();
                     std::string const name = fields[0].Get<std::string>();
+                    if (uint32 const kulTiran = CharacterSelectKulTiran(LazyThin(fields[LazyState].Get<uint8>()),
+                        fields[Rider].Get<bool>()))
+                        add(name + "#kultiran", std::to_string(kulTiran));
                     if (fields[Partner].Get<bool>())
                     {
                         bool const left = fields[Partner + 1].Get<bool>();
