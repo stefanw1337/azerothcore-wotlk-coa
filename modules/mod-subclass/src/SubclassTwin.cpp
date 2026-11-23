@@ -1912,14 +1912,6 @@ constexpr uint32 MirrorResendSpacing = 2000;
 constexpr uint8 MirrorResends = 3;
 std::unordered_map<ObjectGuid, MirrorResend>& mirrorResends = *new std::unordered_map<ObjectGuid, MirrorResend>;
 
-std::string DescribeLook(Look const& look)
-{
-    return Acore::StringFormat("display {} race {} gender {} class {} features {} {} {} {} {} items {} {} {} {} {}",
-        look.DisplayId, look.Race, look.Gender, look.Class, look.Features[0], look.Features[1], look.Features[2],
-        look.Features[3], look.Features[4], look.Displays[0], look.Displays[1], look.Displays[2], look.Displays[3],
-        look.Displays[4]);
-}
-
 WorldPacket MirrorImageData(ObjectGuid guid, Look const& look)
 {
     WorldPacket data(SMSG_MIRRORIMAGE_DATA, 68);
@@ -1955,8 +1947,6 @@ void ResendMirrorImage(Creature* twin)
             return;
         look = known->second;
     }
-    LOG_INFO("module", "mod-subclass mirror: {} look sent again ({}), unit shows display {} flags2 {:#x}",
-        twin->GetGUID().ToString(), DescribeLook(look), twin->GetDisplayId(), twin->GetUInt32Value(UNIT_FIELD_FLAGS_2));
     WorldPacket data = MirrorImageData(twin->GetGUID(), look);
     twin->SendMessageToSet(&data, false);
 }
@@ -1968,8 +1958,6 @@ void MirrorShape(Player* player, Creature* twin)
     uint32 const wanted = shaped ? shaped : BrotherNativeDisplay(player);
     if (twin->GetDisplayId() == wanted)
         return;
-    LOG_INFO("module", "mod-subclass mirror: {} display {} -> {} (cursed {}, borrowed {}, rides {})",
-        twin->GetGUID().ToString(), twin->GetDisplayId(), wanted, cursed, shaped, RidesTheBrother(player));
     if (shaped)
         twin->RemoveUnitFlag2(UNIT_FLAG2_MIRROR_IMAGE);
     else
@@ -2276,8 +2264,6 @@ void UpdateCarry(Player* player, uint32 diff)
     bool const seated = twin->GetVehicle() != nullptr;
     if (wanted == motion.Mode && (wanted == Carry::Beside) != seated && !FormSeatOutdated(player, wanted))
         return;
-    LOG_INFO("module", "mod-subclass mirror: {} carry {} -> {} (vehicle {})", twin->GetGUID().ToString(),
-        uint32(motion.Mode), uint32(wanted), VehicleFor(player, wanted));
     SetCarry(player, twin, wanted);
     std::lock_guard<std::mutex> lock(twinMutex);
     motions[guid].Mode = twin->GetVehicle() ? wanted : Carry::Beside;
@@ -2333,8 +2319,6 @@ void SummonTwin(Player* player)
         std::lock_guard<std::mutex> lock(twinMutex);
         twinOfOwner[player->GetGUID().GetCounter()] = twin->GetGUID();
         looks[twin->GetGUID()] = look;
-        LOG_INFO("module", "mod-subclass mirror: {} summoned for {} ({})", twin->GetGUID().ToString(),
-            player->GetName(), DescribeLook(look));
         motions[player->GetGUID().GetCounter()].Split = IsSplit(player);
         standInFor[player->GetGUID().GetCounter()] = rider ? rider->GetGUID().GetCounter() : 0;
     }
@@ -2392,8 +2376,6 @@ bool AnswerMirrorImage(WorldSession* session, WorldPacket const& packet)
         mirrorResends[guid] = { getMSTime() + MirrorResendDelay, MirrorResends };
     }
 
-    LOG_INFO("module", "mod-subclass mirror: {} asked by {} ({})", guid.ToString(),
-        session->GetPlayer() ? session->GetPlayer()->GetName() : "?", DescribeLook(look));
     WorldPacket response = MirrorImageData(guid, look);
     session->SendPacket(&response);
     return false;
