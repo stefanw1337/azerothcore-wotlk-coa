@@ -14624,7 +14624,10 @@ void Unit::SetDisplayId(uint32 modelId, float displayScale /*=1.f*/)
     SetUInt32Value(UNIT_FIELD_DISPLAYID, modelId);
 
     // Set Gender by modelId
-    if (CreatureModelInfo const* minfo = sObjectMgr->GetCreatureModelInfo(modelId))
+    // CoA: a player back in its native model takes its own gender again; custom race models carry none of their own.
+    if (IsPlayer() && modelId == GetNativeDisplayId())
+        SetByteValue(UNIT_FIELD_BYTES_0, 2, GetByteValue(PLAYER_BYTES_3, 0));
+    else if (CreatureModelInfo const* minfo = sObjectMgr->GetCreatureModelInfo(modelId))
         SetByteValue(UNIT_FIELD_BYTES_0, 2, minfo->gender);
 
     SetObjectScale(displayScale);
