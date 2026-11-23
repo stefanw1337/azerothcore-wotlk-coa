@@ -688,7 +688,7 @@ inline std::uint32_t TwinsCarryVehicleFor(std::uint32_t twinVehicle)
 }
 
 constexpr std::uint32_t FirstFormSeatVehicle = 9710;
-constexpr std::uint32_t LastFormSeatVehicle = 9749;
+constexpr std::uint32_t LastFormSeatVehicle = 9769;
 
 inline bool IsFormSeatVehicle(std::uint32_t vehicle)
 {

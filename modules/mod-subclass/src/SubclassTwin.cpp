@@ -35,6 +35,7 @@
 #include "StringConvert.h"
 #include "Tokenize.h"
 #include "SubclassRules.h"
+#include "AscensionClientSpellPatches.h"
 #include "AscensionPooledVitality.h"
 #include "ScriptedGossip.h"
 #include "ServerScript.h"
@@ -163,6 +164,16 @@ constexpr uint32 TwinQuest = 9530020;
 constexpr char const* EchoRefusal = "Your brother still wears whatever you wear. He will want his own clothes "
     "once you have earned the Bravery Badge together.";
 constexpr float TwinDistance = 0.35f;
+constexpr float KulTiranRoom = 0.6f;
+constexpr uint32 LazyThinSpell = 9530135;
+constexpr uint8 KulTiranRace = 16;
+constexpr uint32 KulTiranMaleDisplay = 141685;
+constexpr uint32 KulTiranOnThinBack = 9720;
+constexpr uint32 ThinOnKulTiranBack = 9721;
+constexpr uint32 KulTiranBrotherSaddles = 9750;
+constexpr uint32 KulTiranRiderSaddles = 9760;
+constexpr uint32 FirstRiderPoseVehicle = 9534;
+constexpr uint32 LastRiderPoseVehicle = 9542;
 constexpr float TwinReach = 0.15f;
 constexpr float TwinAngle = float(M_PI) * 1.5f;
 constexpr std::size_t LookSlots = 11;
@@ -257,6 +268,16 @@ constexpr std::array<std::size_t, 3> FeatureBytes = { 1, 2, 4 };
 std::unordered_map<uint32, OwnFeatures>& ownFeatures = *new std::unordered_map<uint32, OwnFeatures>;
 std::unordered_map<uint32, ObjectGuid>& twinOfOwner = *new std::unordered_map<uint32, ObjectGuid>;
 std::unordered_map<ObjectGuid, Look>& looks = *new std::unordered_map<ObjectGuid, Look>;
+
+enum class LazyThin : uint8
+{
+    Thin,
+    BrotherKulTiran,
+    OwnKulTiran
+};
+
+std::mutex lazyThinMutex;
+std::unordered_map<uint32, LazyThin>& lazyThins = *new std::unordered_map<uint32, LazyThin>;
 std::unordered_map<uint32, Motion>& motions = *new std::unordered_map<uint32, Motion>;
 std::unordered_map<uint32, uint32>& sentHome = *new std::unordered_map<uint32, uint32>;
 std::unordered_map<uint32, uint32>& auraTicks = *new std::unordered_map<uint32, uint32>;
@@ -915,8 +936,58 @@ uint32 DisplayOfItem(uint32 itemId)
     return item ? item->DisplayInfoID : 0;
 }
 
+uint32 LazyThinOwner(Player const* player)
+{
+    uint32 const guid = player->GetGUID().GetCounter();
+    uint32 const partner = TwoPlayersPartnerOf(guid);
+    return partner && !TwoPlayersIsLeftHead(guid) ? partner : guid;
+}
+
+void LoadLazyThins()
+{
+    static bool loaded = false;
+    if (loaded)
+        return;
+    loaded = true;
+    bool const present = bool(CharacterDatabase.Query("SELECT 1 FROM information_schema.TABLES WHERE "
+        "TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mod_subclass_lazy_thin'"));
+    if (QueryResult result = present ? CharacterDatabase.Query("SELECT `guid`, `state` FROM `mod_subclass_lazy_thin`")
+            : nullptr)
+        do
+        {
+            Field* fields = result->Fetch();
+            uint8 const state = fields[1].Get<uint8>();
+            if (state <= uint8(LazyThin::OwnKulTiran))
+                lazyThins[fields[0].Get<uint32>()] = LazyThin(state);
+        } while (result->NextRow());
+}
+
+LazyThin LazyThinOf(Player const* player)
+{
+    uint32 const owner = LazyThinOwner(player);
+    std::lock_guard<std::mutex> lock(lazyThinMutex);
+    LoadLazyThins();
+    auto const itr = lazyThins.find(owner);
+    return itr != lazyThins.end() ? itr->second : LazyThin::Thin;
+}
+
+float SideDistance(Player const* player)
+{
+    return TwinDistance + (LazyThinOf(player) == LazyThin::Thin ? 0.0f : KulTiranRoom);
+}
+
+void WearKulTiranLook(Look& look)
+{
+    look.DisplayId = KulTiranMaleDisplay;
+    look.Race = KulTiranRace;
+    look.Gender = GENDER_MALE;
+    look.Features = {};
+}
+
 uint32 BrotherNativeDisplay(Player const* player)
 {
+    if (player->getRace(true) == TwinRace && LazyThinOf(player) == LazyThin::BrotherKulTiran)
+        return KulTiranMaleDisplay;
     return Subclass::BrotherDisplay(player->GetNativeDisplayId(), BrotherMirrorDisplay());
 }
 
@@ -938,6 +1009,8 @@ Look LookOf(Player const* player, Wardrobe const& wardrobe)
             features[index]);
     if (look.Race == Subclass::ThinHumanRace)
         look.Features[4] = Subclass::FacialUnderHat(look.Features[4], look.Features[2], look.Displays[0] != 0);
+    if (look.DisplayId == KulTiranMaleDisplay)
+        WearKulTiranLook(look);
     return look;
 }
 
@@ -955,6 +1028,8 @@ Look RiderLook(Player const* rider, Wardrobe const& worn)
         look.Displays[slot] = DisplayOfItem(worn.Items[slot]);
     if (look.Race == Subclass::ThinHumanRace)
         look.Features[4] = Subclass::FacialUnderHat(look.Features[4], look.Features[2], look.Displays[0] != 0);
+    if (look.DisplayId == KulTiranMaleDisplay)
+        WearKulTiranLook(look);
     return look;
 }
 
@@ -1338,12 +1413,26 @@ uint32 SaddleFor(Player const* player)
     return SaddleVehicle;
 }
 
+uint32 KulTiranSeat(Player const* player, uint32 vehicle)
+{
+    LazyThin const state = player->getRace(true) == TwinRace ? LazyThinOf(player) : LazyThin::Thin;
+    if (state == LazyThin::Thin)
+        return vehicle;
+    uint32 variant = 0;
+    if (vehicle == PiggybackVehicle)
+        variant = state == LazyThin::BrotherKulTiran ? KulTiranOnThinBack : ThinOnKulTiranBack;
+    else if (vehicle == SaddleVehicle || (vehicle >= FirstRiderPoseVehicle && vehicle <= LastRiderPoseVehicle))
+        variant = (state == LazyThin::BrotherKulTiran ? KulTiranBrotherSaddles : KulTiranRiderSaddles) +
+            (vehicle == SaddleVehicle ? 0 : vehicle - FirstRiderPoseVehicle + 1);
+    return variant && sVehicleStore.LookupEntry(variant) ? variant : vehicle;
+}
+
 uint32 VehicleFor(Player const* player, Carry mode)
 {
     switch (mode)
     {
         case Carry::Piggyback:
-            return PiggybackVehicle;
+            return KulTiranSeat(player, PiggybackVehicle);
         case Carry::WolfBack:
             return FormSeatFor(player, WolfBackVehicle);
         case Carry::CatBack:
@@ -1351,13 +1440,13 @@ uint32 VehicleFor(Player const* player, Carry mode)
         case Carry::Shoulders:
             return ShoulderRideVehicle;
         default:
-            return SaddleFor(player);
+            return KulTiranSeat(player, SaddleFor(player));
     }
 }
 
-bool FormSeatOutdated(Player const* player, Carry mode)
+bool SeatOutdated(Player const* player, Carry mode)
 {
-    if (mode != Carry::WolfBack && mode != Carry::CatBack)
+    if (mode == Carry::Beside || mode == Carry::Shoulders || mode == Carry::Passenger)
         return false;
     uint32 const wanted = VehicleFor(player, mode);
     uint32 const expected = SeatedTwinsRider(player) ? Subclass::TwinsCarryVehicleFor(wanted) : wanted;
@@ -1373,9 +1462,9 @@ void SetCarry(Player* player, Creature* twin, Carry mode)
             twin->ExitVehicle();
         DropKit(player);
         twin->GetMotionMaster()->Clear();
-        twin->GetMotionMaster()->MoveFollow(player, TwinDistance, TwinAngle);
+        twin->GetMotionMaster()->MoveFollow(player, SideDistance(player), TwinAngle);
         std::lock_guard<std::mutex> lock(twinMutex);
-        motions[player->GetGUID().GetCounter()].Follow = TwinDistance;
+        motions[player->GetGUID().GetCounter()].Follow = SideDistance(player);
         return;
     }
     if (mode == Carry::Passenger)
@@ -1391,7 +1480,7 @@ void SetCarry(Player* player, Creature* twin, Carry mode)
         if (twin->GetVehicle())
             twin->ExitVehicle();
         if (twin->GetMotionMaster()->GetCurrentMovementGeneratorType() != FOLLOW_MOTION_TYPE)
-            twin->GetMotionMaster()->MoveFollow(player, TwinDistance, TwinAngle);
+            twin->GetMotionMaster()->MoveFollow(player, SideDistance(player), TwinAngle);
         return;
     }
     twin->GetMotionMaster()->Clear();
@@ -1491,7 +1580,7 @@ void BecomeGhost(Player* player, Creature* twin, bool ghost)
     twin->SetStandState(UNIT_STAND_STATE_STAND);
     twin->UpdateObjectVisibility();
     twin->GetMotionMaster()->Clear();
-    twin->GetMotionMaster()->MoveFollow(player, TwinDistance, TwinAngle);
+    twin->GetMotionMaster()->MoveFollow(player, SideDistance(player), TwinAngle);
 }
 
 bool Clawing(Creature const* twin)
@@ -1524,7 +1613,7 @@ bool FightsFromRange(Player const* player, Creature const* twin)
 
 float FollowDistanceFor(Player const* player, Creature const* twin)
 {
-    return player->IsInCombat() && FightsFromRange(player, twin) ? RangedStandoff : TwinDistance;
+    return player->IsInCombat() && FightsFromRange(player, twin) ? RangedStandoff : SideDistance(player);
 }
 
 void MirrorStealth(Player* player, Creature* twin)
@@ -1587,12 +1676,12 @@ void MirrorStance(Player* player, Creature* twin, bool fighting)
         return;
     if (player->HasStealthAura())
     {
-        if (player->isMoving() || !twin->IsWithinDist(player, TwinDistance + TwinReach * 4))
+        if (player->isMoving() || !twin->IsWithinDist(player, SideDistance(player) + TwinReach * 4))
         {
             if (twin->getStandState() != UNIT_STAND_STATE_STAND)
                 twin->SetStandState(UNIT_STAND_STATE_STAND);
             if (twin->GetMotionMaster()->GetCurrentMovementGeneratorType() != FOLLOW_MOTION_TYPE)
-                twin->GetMotionMaster()->MoveFollow(player, TwinDistance, TwinAngle);
+                twin->GetMotionMaster()->MoveFollow(player, SideDistance(player), TwinAngle);
         }
         else if (twin->getStandState() != UNIT_STAND_STATE_KNEEL)
         {
@@ -1618,15 +1707,15 @@ void MirrorStance(Player* player, Creature* twin, bool fighting)
     else if (twin->getStandState() == UNIT_STAND_STATE_DEAD)
     {
         twin->SetStandState(UNIT_STAND_STATE_STAND);
-        twin->GetMotionMaster()->MoveFollow(player, TwinDistance, TwinAngle);
+        twin->GetMotionMaster()->MoveFollow(player, SideDistance(player), TwinAngle);
     }
     if (!twin->IsWithinDist(player, TwinFarAway))
     {
         Position beside = player->GetPosition();
-        player->MovePositionToFirstCollision(beside, TwinDistance, TwinAngle);
+        player->MovePositionToFirstCollision(beside, SideDistance(player), TwinAngle);
         twin->NearTeleportTo(beside.GetPositionX(), beside.GetPositionY(), player->GetPositionZ(),
             player->GetOrientation());
-        twin->GetMotionMaster()->MoveFollow(player, TwinDistance, TwinAngle);
+        twin->GetMotionMaster()->MoveFollow(player, SideDistance(player), TwinAngle);
     }
     if (twin->getStandState() != player->getStandState())
         twin->SetStandState(player->getStandState());
@@ -2262,7 +2351,7 @@ void UpdateCarry(Player* player, uint32 diff)
     }
     Carry const wanted = WantedCarry(player, motion);
     bool const seated = twin->GetVehicle() != nullptr;
-    if (wanted == motion.Mode && (wanted == Carry::Beside) != seated && !FormSeatOutdated(player, wanted))
+    if (wanted == motion.Mode && (wanted == Carry::Beside) != seated && !SeatOutdated(player, wanted))
         return;
     SetCarry(player, twin, wanted);
     std::lock_guard<std::mutex> lock(twinMutex);
@@ -2306,7 +2395,7 @@ void SummonTwin(Player* player)
         return;
 
     Position position = player->GetPosition();
-    player->MovePositionToFirstCollision(position, TwinDistance, TwinAngle);
+    player->MovePositionToFirstCollision(position, SideDistance(player), TwinAngle);
     position.Relocate(position.GetPositionX(), position.GetPositionY(), player->GetPositionZ());
     TempSummon* twin = player->SummonCreature(TwinEntry, position, TEMPSUMMON_MANUAL_DESPAWN);
     if (!twin)
@@ -2334,7 +2423,7 @@ void SummonTwin(Player* player)
     twin->SetCreatorGUID(player->GetGUID());
     twin->SetFaction(player->GetFaction());
     Arm(twin, dressed);
-    twin->GetMotionMaster()->MoveFollow(player, TwinDistance, TwinAngle);
+    twin->GetMotionMaster()->MoveFollow(player, SideDistance(player), TwinAngle);
     ShowQuestOnTwin(player, SubclassQuestOffered(player));
 }
 
@@ -2359,6 +2448,97 @@ void RefreshTwin(Player* player)
         SummonTwin(player);
     else
         DismissTwin(player);
+}
+
+void KeepOwnKulTiranLook(Player* player)
+{
+    if (player->getRace(true) != TwinRace || LazyThinOwner(player) != player->GetGUID().GetCounter())
+        return;
+    bool const wanted = LazyThinOf(player) == LazyThin::OwnKulTiran;
+    uint32 const display = player->GetDisplayId();
+    bool known = false;
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        known = looks.contains(player->GetGUID());
+    }
+    if (!known && (!wanted || display != player->GetNativeDisplayId()))
+        return;
+    if (!wanted || (display != KulTiranMaleDisplay && display != player->GetNativeDisplayId()))
+    {
+        if (player->HasUnitFlag2(UNIT_FLAG2_MIRROR_IMAGE))
+            player->RemoveUnitFlag2(UNIT_FLAG2_MIRROR_IMAGE);
+        if (wanted)
+            return;
+        {
+            std::lock_guard<std::mutex> lock(twinMutex);
+            looks.erase(player->GetGUID());
+        }
+        if (display == KulTiranMaleDisplay)
+            player->SetDisplayId(player->GetNativeDisplayId());
+        return;
+    }
+    Look look;
+    look.Class = player->getClass();
+    Wardrobe const worn = Worn(player);
+    for (std::size_t slot = 0; slot < LookSlots; ++slot)
+        look.Displays[slot] = DisplayOfItem(worn.Items[slot]);
+    WearKulTiranLook(look);
+    bool changed = false;
+    {
+        std::lock_guard<std::mutex> lock(twinMutex);
+        auto const shown = looks.find(player->GetGUID());
+        changed = shown == looks.end() || !(shown->second == look);
+        looks[player->GetGUID()] = look;
+    }
+    if (display != KulTiranMaleDisplay)
+        player->SetDisplayId(KulTiranMaleDisplay);
+    if (!player->HasUnitFlag2(UNIT_FLAG2_MIRROR_IMAGE))
+        player->SetUnitFlag2(UNIT_FLAG2_MIRROR_IMAGE);
+    if (changed)
+    {
+        WorldPacket data = MirrorImageData(player->GetGUID(), look);
+        player->SendMessageToSet(&data, true);
+    }
+}
+
+void CycleLazyThin(Player* presser)
+{
+    uint32 const owner = LazyThinOwner(presser);
+    LazyThin next;
+    {
+        std::lock_guard<std::mutex> lock(lazyThinMutex);
+        LoadLazyThins();
+        LazyThin& state = lazyThins[owner];
+        next = state == LazyThin::Thin ? LazyThin::BrotherKulTiran :
+            state == LazyThin::BrotherKulTiran ? LazyThin::OwnKulTiran : LazyThin::Thin;
+        state = next;
+    }
+    CharacterDatabase.Execute("REPLACE INTO `mod_subclass_lazy_thin` (`guid`, `state`) VALUES ({}, {})", owner,
+        uint32(next));
+    Player* body = owner == presser->GetGUID().GetCounter() ? presser :
+        ObjectAccessor::FindConnectedPlayer(ObjectGuid::Create<HighGuid::Player>(owner));
+    uint32 const riderGuid = TwoPlayersPartnerOf(owner);
+    Player* rider = riderGuid ? ObjectAccessor::FindConnectedPlayer(ObjectGuid::Create<HighGuid::Player>(riderGuid))
+        : nullptr;
+    std::string const brother = rider ? rider->GetName() : "Your brother";
+    std::string const self = rider ? (body ? body->GetName() : std::string("Your other brother")) : "You";
+    std::string line;
+    if (next == LazyThin::BrotherKulTiran)
+        line = brother + " goes back to his old ways: a Kul Tiran again, broad as a barrel.";
+    else if (next == LazyThin::OwnKulTiran)
+        line = self + (rider ? " goes back to his old ways and fills out like a Kul Tiran. " :
+            " go back to your old ways and fill out like a Kul Tiran. ") + brother + " is thin again.";
+    else
+        line = "Old ways forgotten: both brothers are thin again.";
+    for (Player* head : { body, rider })
+        if (head)
+            ChatHandler(head->GetSession()).SendSysMessage(line);
+    if (body)
+    {
+        KeepOwnKulTiranLook(body);
+        if (!rider && TwinOf(body))
+            SummonTwin(body);
+    }
 }
 
 bool AnswerMirrorImage(WorldSession* session, WorldPacket const& packet)
@@ -4041,6 +4221,8 @@ void LearnRacials(Player* player)
         player->learnSpell(ToleranceSpell, false);
     if (player->getRace() == TwinRace && SubclassRaceEnabled(TwinRace) && !player->HasSpell(HandMeDownsSpell))
         player->learnSpell(HandMeDownsSpell, false);
+    if (player->getRace() == TwinRace && SubclassRaceEnabled(TwinRace) && !player->HasSpell(LazyThinSpell))
+        player->learnSpell(LazyThinSpell, false);
 }
 
 bool WaitingToReturn(Player const* player, bool returning)
@@ -4870,6 +5052,7 @@ public:
         if (Arrives(player, diff))
             RefreshTwin(player);
         UpdateCarry(player, diff);
+        KeepOwnKulTiranLook(player);
         TickSelfAura(player, diff);
         PlayEasy(player, diff);
     }
@@ -6683,6 +6866,11 @@ public:
     void OnSpellCast(Spell* /*spell*/, Unit* caster, SpellInfo const* spellInfo, bool /*skipCheck*/) override
     {
         Player* player = caster->ToPlayer();
+        if (player && spellInfo->Id == LazyThinSpell)
+        {
+            CycleLazyThin(player);
+            return;
+        }
         if (spellInfo->Id != SpellVault || !player || !HasTwin(player))
             return;
         if (TwinsVaultTogether(player))
@@ -6881,6 +7069,7 @@ void SendTwinGearToCharacterSelect(WorldSession* session)
 
 void AddSC_mod_subclass_twin()
 {
+    Ascension::ClientSpellPatches::Instance().Register(LazyThinSpell);
     AddAscensionClassLookProvider(&CarryClassLook);
     new mod_subclass_borrowed_auras();
     new mod_subclass_own_look();
