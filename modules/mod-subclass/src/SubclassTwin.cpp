@@ -1907,9 +1907,9 @@ struct MirrorResend
     uint8 Left = 0;
 };
 
-constexpr uint32 MirrorResendDelay = 1500;
+constexpr uint32 MirrorResendDelay = 1000;
 constexpr uint32 MirrorResendSpacing = 2000;
-constexpr uint8 MirrorResends = 1;
+constexpr uint8 MirrorResends = 3;
 std::unordered_map<ObjectGuid, MirrorResend>& mirrorResends = *new std::unordered_map<ObjectGuid, MirrorResend>;
 
 WorldPacket MirrorImageData(ObjectGuid guid, Look const& look)
@@ -1932,21 +1932,23 @@ void ResendMirrorImageLater(Creature const* twin)
 
 void ResendMirrorImage(Creature* twin)
 {
+    Look look;
     {
         std::lock_guard<std::mutex> lock(twinMutex);
         auto const resend = mirrorResends.find(twin->GetGUID());
         if (resend == mirrorResends.end() || int32(resend->second.Due - getMSTime()) > 0)
             return;
-        bool const known = looks.contains(twin->GetGUID());
-        if (!known || !--resend->second.Left)
+        auto const known = looks.find(twin->GetGUID());
+        if (known == looks.end() || !--resend->second.Left)
             mirrorResends.erase(resend);
         else
             resend->second.Due = getMSTime() + MirrorResendSpacing;
-        if (!known)
+        if (known == looks.end())
             return;
+        look = known->second;
     }
-    twin->DestroyForVisiblePlayers();
-    twin->UpdateObjectVisibility(true);
+    WorldPacket data = MirrorImageData(twin->GetGUID(), look);
+    twin->SendMessageToSet(&data, false);
 }
 
 void MirrorShape(Player* player, Creature* twin)
@@ -2224,6 +2226,7 @@ void UpdateCarry(Player* player, uint32 diff)
     Creature* twin = TwinOf(player);
     if (!twin)
         return;
+    ResendMirrorImage(twin);
     if (player->HasStealthAura() && RidesTheBrother(player))
         EndRideForStealth(player);
     if (bool const riding = RidesTheBrother(player); riding != motion.Riding)
@@ -2239,7 +2242,6 @@ void UpdateCarry(Player* player, uint32 diff)
     }
     MirrorStun(player, twin);
     MirrorShape(player, twin);
-    ResendMirrorImage(twin);
     MirrorFormVisual(player, twin);
     UpdateCompanion(player, twin);
     LeadSummons(player, twin, SummonLeader(player, twin));
@@ -2371,6 +2373,7 @@ bool AnswerMirrorImage(WorldSession* session, WorldPacket const& packet)
         if (itr == looks.end())
             return true;
         look = itr->second;
+        mirrorResends[guid] = { getMSTime() + MirrorResendDelay, MirrorResends };
     }
 
     WorldPacket response = MirrorImageData(guid, look);
