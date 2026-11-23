@@ -1495,12 +1495,18 @@ bool TransformedPastTheForm(Player const* player)
     return false;
 }
 
+bool WearsOwnKulTiranLook(Player const* player)
+{
+    return player->GetDisplayId() == KulTiranMaleDisplay && player->getRace(true) == TwinRace &&
+        LazyThinOf(player) == LazyThin::OwnKulTiran;
+}
+
 Carry WantedCarry(Player const* player, Motion const& motion)
 {
     if (motion.Riding)
         return player->IsAlive() && !player->IsInWater() && !player->HasStealthAura() ? Carry::Shoulders :
             Carry::Beside;
-    bool const shaped = player->GetDisplayId() != player->GetNativeDisplayId();
+    bool const shaped = player->GetDisplayId() != player->GetNativeDisplayId() && !WearsOwnKulTiranLook(player);
     bool const ridden = shaped && IsRiddenForm(player->GetShapeshiftForm()) && !TransformedPastTheForm(player);
     if (!player->IsAlive() || player->IsInCombat() || player->IsInWater() || !player->IsStandState() ||
         player->HasStealthAura() || (!ridden && player->GetSheath() != SHEATH_STATE_UNARMED) ||
