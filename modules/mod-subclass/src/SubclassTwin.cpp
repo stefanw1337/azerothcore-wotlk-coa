@@ -5327,6 +5327,18 @@ public:
             ride ? ride->GetVehicleInfo()->m_ID : 0, twin && ride ? int32(twin->GetTransSeat()) : -1,
             uint32(player->GetShapeshiftForm()), player->GetDisplayId(), player->GetNativeDisplayId(),
             uint32(player->GetSheath()), player->IsInCombat());
+        Vehicle const* kit = player->GetVehicleKit();
+        std::string const carry = Acore::StringFormat("Kit {} (paired wants {}, rider seated {}), Lazy Thin {}, own "
+            "Kul Tiran look {}, borrowed shape {}, moving {} ms, afoot {}, bracing {}, standing {}, mounted {}, "
+            "twin stunned {}", kit ? kit->GetVehicleInfo()->m_ID : 0, TwinsCarryVehicleWanted(player),
+            SeatedTwinsRider(player) != nullptr, uint32(LazyThinOf(player)), WearsOwnKulTiranLook(player),
+            InBorrowedShape(player), motion.Moving, motion.Afoot, motion.Bracing, player->IsStandState(),
+            player->IsMounted(), twin && twin->HasUnitFlag(UNIT_FLAG_STUNNED));
+        handler->SendSysMessage(carry);
+        LOG_INFO("module", "mod-subclass: twin info for {}: carry {} (wanted {}), on vehicle {}, display {} (own {}), "
+            "sheath {}, combat {}; {}", player->GetName(), uint32(motion.Mode), uint32(WantedCarry(player, motion)),
+            ride ? ride->GetVehicleInfo()->m_ID : 0, player->GetDisplayId(), player->GetNativeDisplayId(),
+            uint32(player->GetSheath()), player->IsInCombat(), carry);
         return true;
     }
 };
