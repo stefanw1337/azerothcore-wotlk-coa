@@ -8,13 +8,12 @@
 #include <algorithm>
 #include <vector>
 
-// Gilgoblin (race 105) racials
 enum GilgoblinRacials
 {
-    SPELL_CURRENT_RIDER      = 15001051,   // passive: periodic check -> swim speed buff
-    SPELL_BRINE_MENDING      = 15001054,   // passive: 1% max health per second in water
-    SPELL_BRINEBORN_CASCADE  = 15001055,   // active: bouncing heal / damage
-    SPELL_CURRENT_RIDER_BUFF = 15001056,   // +50% swim speed
+    SPELL_CURRENT_RIDER      = 15001051,
+    SPELL_BRINE_MENDING      = 15001054,
+    SPELL_BRINEBORN_CASCADE  = 15001055,
+    SPELL_CURRENT_RIDER_BUFF = 15001056,
     SPELL_CASCADE_HEAL       = 15001057,
     SPELL_CASCADE_DAMAGE     = 15001058,
 };
@@ -23,12 +22,11 @@ constexpr float CASCADE_JUMP_RANGE = 12.0f;
 constexpr uint8 CASCADE_TARGETS = 5;
 constexpr int32 CASCADE_PCT = 15;
 
-// Current Rider: +50% swim speed in water, only out of combat
 class spell_gilgoblin_current_rider : public AuraScript
 {
     PrepareAuraScript(spell_gilgoblin_current_rider);
 
-    void OnTick(AuraEffect const* /*aurEff*/)
+    void OnTick(AuraEffect const*)
     {
         Unit* owner = GetUnitOwner();
         if (!owner)
@@ -41,7 +39,7 @@ class spell_gilgoblin_current_rider : public AuraScript
             owner->RemoveAurasDueToSpell(SPELL_CURRENT_RIDER_BUFF);
     }
 
-    void OnRemove(AuraEffect const* /*aurEff*/, AuraEffectHandleModes /*mode*/)
+    void OnRemove(AuraEffect const*, AuraEffectHandleModes)
     {
         if (Unit* owner = GetUnitOwner())
             owner->RemoveAurasDueToSpell(SPELL_CURRENT_RIDER_BUFF);
@@ -54,12 +52,11 @@ class spell_gilgoblin_current_rider : public AuraScript
     }
 };
 
-// Brine Mending: heal 1% of maximum health every second while in water
 class spell_gilgoblin_brine_mending : public AuraScript
 {
     PrepareAuraScript(spell_gilgoblin_brine_mending);
 
-    void OnTick(AuraEffect const* /*aurEff*/)
+    void OnTick(AuraEffect const*)
     {
         Unit* owner = GetUnitOwner();
         if (!owner || !owner->IsAlive() || !owner->IsInWater() || owner->IsFullHealth())
@@ -73,8 +70,6 @@ class spell_gilgoblin_brine_mending : public AuraScript
     }
 };
 
-// Brineborn Cascade: hits the target (self, ally or enemy), then jumps to the nearest unhit ally or enemy, 5 targets.
-// Allies are healed for 15% of their maximum health, enemies take 15% of the caster's maximum health as Frost damage.
 class spell_gilgoblin_brineborn_cascade : public SpellScript
 {
     PrepareSpellScript(spell_gilgoblin_brineborn_cascade);
@@ -89,11 +84,11 @@ class spell_gilgoblin_brineborn_cascade : public SpellScript
             if (c->IsCritter() || c->IsTotem())
                 return false;
         if (caster->IsValidAttackTarget(u))
-            return u->IsHostileTo(caster) || u->IsInCombatWith(caster);   // no neutral bystanders
+            return u->IsHostileTo(caster) || u->IsInCombatWith(caster);
         return caster->IsValidAssistTarget(u) && u->IsFriendlyTo(caster);
     }
 
-    void HandleDummy(SpellEffIndex /*effIndex*/)
+    void HandleDummy(SpellEffIndex)
     {
         Unit* caster = GetCaster();
         Unit* cur = GetHitUnit();

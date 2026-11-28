@@ -5,12 +5,11 @@
 #include <algorithm>
 #include <cstdint>
 
-// Titan racial "Aegis of the Keepers": the absorb equals 100% of the Titan's maximum health.
 class spell_titan_aegis : public AuraScript
 {
     PrepareAuraScript(spell_titan_aegis);
 
-    void CalcAmount(AuraEffect const* /*effect*/, int32& amount, bool& canBeRecalculated)
+    void CalcAmount(AuraEffect const*, int32& amount, bool& canBeRecalculated)
     {
         canBeRecalculated = false;
         if (Unit* owner = GetUnitOwner())
