@@ -61,7 +61,7 @@
 #include "AscensionPersonalBank.h"
 #include "AscensionRealmLevelPurchase.h"
 #include "AscensionVanityOwnership.h"
-#include "AscensionIncarnation.h"
+#include "AscensionIncarnationDisplay.h"
 #include "AscensionCosmeticPetTokens.h"
 #include "AscensionCollectibleSpellData.h"
 #include "AscensionCustomClassData.h"
@@ -10798,6 +10798,13 @@ public:
 
   void OnPlayerLogin(Player *player) override {
     RemoveForeignVanillaRacials(player);
+    if (sConfigMgr->GetOption<bool>("CoACustomRaces.Enable", false)) {
+      // AllRaces v12: Elune's Chosen are ghostly for good (Elune's Veil), the Qiraji keep the Wings of the Swarm aura
+      if (player->getRace() == 118 && !player->HasAura(13990141))
+        player->CastSpell(player, 13990141, true);
+      if (player->getRace() == 88 && !player->HasAura(13990151))
+        player->CastSpell(player, 13990151, true);
+    }
     if (ascensionCompatConfig.GetConfigValue<bool>(
             AscensionCompatConfig::ENABLED)) {
       AscensionClassService::Instance().OnPlayerLogin(player);

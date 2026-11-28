@@ -16,7 +16,7 @@
  */
 
 #include "SpellAuraEffects.h"
-#include "AscensionIncarnation.h"
+#include "AscensionIncarnationDisplay.h"
 #include <limits>
 #include <string_view>
 #include "AreaDefines.h"

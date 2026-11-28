@@ -62,8 +62,11 @@ public:                                                 // constructors and glob
 
     void SaveToDB(CharacterDatabaseTransaction trans);
     void LoadFromDB(PreparedQueryResult result);
-    void ApplyStartingZoneReputation();
 public:                                                 // statics
+    // CoA home-race reputation (ReputationMgr.cpp): race mask of the race's home race, and the stored-standing offset a fresh
+    // character of that race starts with (home base - DBC twin base)
+    static uint32 HomeRaceMaskOf(uint8 race);
+    static int32 StartingOffset(FactionEntry const* factionEntry, uint8 race, uint32 classMask);
     static const int32 PointsInRank[MAX_REPUTATION_RANK];
     static const int32 Reputation_Cap;
     static const int32 Reputation_Bottom;

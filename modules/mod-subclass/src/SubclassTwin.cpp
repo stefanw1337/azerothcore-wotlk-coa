@@ -9,7 +9,7 @@
 #include "AscensionCustomClassData.h"
 #include "AscensionLiveBaselineData.h"
 #include "Config.h"
-#include "AscensionIncarnation.h"
+#include "AscensionIncarnationDisplay.h"
 #include "AscensionSpecialization.h"
 #include "CellImpl.h"
 #include "Chat.h"

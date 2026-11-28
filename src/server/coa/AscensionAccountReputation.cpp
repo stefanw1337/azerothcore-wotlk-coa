@@ -10,7 +10,8 @@
 
 namespace
 {
-uint32 RaceMask(uint8 race) { return uint32(1) << (race - 1); }
+// a race's reputation profile = its home race's (ReputationMgr::HomeRaceMaskOf); the old 1 << (race - 1) was undefined past 32
+uint32 RaceMask(uint8 race) { return ReputationMgr::HomeRaceMaskOf(race); }
 uint32 ClassMask(uint8 playerClass) { return uint32(1) << (playerClass - 1); }
 
 std::vector<AccountReputation::SiblingStanding> LoadSiblingStandings(Player* player)
@@ -25,7 +26,7 @@ std::vector<AccountReputation::SiblingStanding> LoadSiblingStandings(Player* pla
         return siblings;
 
     TeamId const ownTeam = player->GetTeamId(true);
-    uint32 const ownRaceMask = player->getRaceMask();
+    uint32 const ownRaceMask = RaceMask(player->getRace(true));
     uint32 const ownClassMask = player->getClassMask();
 
     do
@@ -42,7 +43,8 @@ std::vector<AccountReputation::SiblingStanding> LoadSiblingStandings(Player* pla
         bool const shared = AccountReputation::IsShared(Player::TeamIdForRace(race) == ownTeam, siblingBase, ownBase,
             ReputationMgr::GetDefaultStateFlags(faction, ownRaceMask, ownClassMask));
 
-        int32 const earned = fields[3].Get<int32>();
+        // stored standing = starting offset (home race vs DBC twin) + what the sibling earned
+        int32 const earned = fields[3].Get<int32>() - ReputationMgr::StartingOffset(faction, race, ClassMask(playerClass));
         siblings.push_back({ faction->ID, siblingBase + earned, shared && AccountReputation::HasEarned(earned) });
     } while (result->NextRow());
 

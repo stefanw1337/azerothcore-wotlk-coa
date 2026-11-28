@@ -11,6 +11,8 @@ namespace KyrianHover
     void EndForCharge(Player* player);
 
     constexpr std::uint8_t Race = 107;
+    constexpr std::uint8_t QirajiRace = 88;     // the Qiraji fly with the same wings
+    constexpr bool IsHoverRace(std::uint8_t race) { return race == Race || race == QirajiRace; }
     constexpr std::uint32_t Ability = 111100;
     constexpr std::uint32_t Wings = 111101;
     constexpr std::uint32_t StunImmunity = 111102;

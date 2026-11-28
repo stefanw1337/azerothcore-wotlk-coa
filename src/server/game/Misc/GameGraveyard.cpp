@@ -132,7 +132,18 @@ GraveyardStruct const* Graveyard::GetClosestGraveyard(Player* player, TeamId tea
 
 GraveyardStruct const* Graveyard::GetClosestGraveyard(uint32 mapId, float x, float y, float z, TeamId teamId, uint32 areaId, uint32 zoneId, bool isDeathKnight)
 {
+    // Fading Island (map 907) has no AreaTable rows: zone and area are 0. Use the graveyards linked to ghost zone 0 that sit on this map.
+    bool zeroZoneGraveyardOnMap = false;
     if (!zoneId && !areaId)
+    {
+        GraveyardMapBounds zr = GraveyardStore.equal_range(0);
+        for (; zr.first != zr.second; ++zr.first)
+            if (GraveyardStruct const* zg = GetGraveyard(zr.first->second.safeLocId))
+                if (zg->Map == mapId)
+                    zeroZoneGraveyardOnMap = true;
+    }
+
+    if (!zoneId && !areaId && !zeroZoneGraveyardOnMap)
     {
         if (z > -500)
         {
@@ -409,7 +420,7 @@ void Graveyard::LoadGraveyardZones()
         }
 
         AreaTableEntry const* areaEntry = sAreaTableStore.LookupEntry(zoneId);
-        if (!areaEntry)
+        if (!areaEntry && zoneId != 0) // zone 0: Fading Island (map 907) has no AreaTable rows
         {
             LOG_ERROR("sql.sql", "Table `graveyard_zone` has a record for not existing zone id ({}), skipped.", zoneId);
             continue;

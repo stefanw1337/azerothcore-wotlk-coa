@@ -5181,6 +5181,64 @@ void ObjectMgr::LoadPlayerInfo()
         LOG_INFO("server.loading", ">> Loaded {} XP For Level Definitions in {} ms", count, GetMSTimeDiffToNow(oldMSTime));
         LOG_INFO("server.loading", " ");
     }
+
+    LoadHomeRaces();
+}
+
+void ObjectMgr::LoadHomeRaces()
+{
+    constexpr uint32 EbonHoldMap = 609;
+    auto homeStart = [this](uint32 race) -> PlayerInfo const*
+    {
+        for (uint32 cls = CLASS_WARRIOR; cls < MAX_CLASSES; ++cls)
+            if (PlayerInfo const* info = GetPlayerInfo(race, cls); info && info->mapId != EbonHoldMap)
+                return info;
+        return nullptr;
+    };
+    auto team = [](uint32 race) -> uint32                                // Player::TeamIdForRace's field: 7 Alliance, 1 Horde
+    {
+        ChrRacesEntry const* entry = sChrRacesStore.LookupEntry(race);
+        return entry ? entry->TeamID : 0;
+    };
+    _homeRace.fill(0);
+    uint32 custom = 0, homed = 0;
+    for (uint32 race = 1; race < _homeRace.size(); ++race)
+    {
+        PlayerInfo const* start = homeStart(race);
+        if (!start)
+            continue;
+        if (race <= RACE_DRAENEI)
+        {
+            _homeRace[race] = race;
+            continue;
+        }
+        ++custom;
+        uint8 sameZone = 0;
+        for (uint8 stock = RACE_HUMAN; stock <= RACE_DRAENEI; ++stock)
+        {
+            PlayerInfo const* home = homeStart(stock);
+            if (!home || home->mapId != start->mapId || home->areaId != start->areaId)
+                continue;
+            if (!sameZone)
+                sameZone = stock;
+            if (team(stock) == team(race))
+            {
+                _homeRace[race] = stock;
+                break;
+            }
+        }
+        if (!_homeRace[race])
+        {
+            _homeRace[race] = sameZone;                                 // other side's zone: still that zone's race
+            if (sameZone)
+                LOG_ERROR("sql.sql", "Race {} starts in the start zone of race {} of the other side.", race, sameZone);
+        }
+        if (_homeRace[race])
+            ++homed;
+        else
+            LOG_ERROR("sql.sql", "Race {} has no vanilla home race (start map {} area {}): it keeps its own race bit.", race, start->mapId, start->areaId);
+    }
+    LOG_INFO("server.loading", ">> Home races: {} of {} custom races start in a vanilla start zone", homed, custom);
 }
 
 void ObjectMgr::GetPlayerClassLevelInfo(uint32 class_, uint8 level, PlayerClassLevelInfo* info) const

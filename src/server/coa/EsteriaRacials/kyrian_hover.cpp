@@ -32,7 +32,7 @@ namespace
 
     bool CanHover(Player const* player)
     {
-        return player->getRace(true) == Race && player->IsAlive() && !player->IsMounted()
+        return IsHoverRace(player->getRace(true)) && player->IsAlive() && !player->IsMounted()
             && !player->IsInFlight() && !player->GetVehicle() && !player->GetTransport()
             // Warrior stances are shapeshift records, but keep the native Kyrian body.
             && !player->IsInWater() && !player->IsInDisallowedMountForm()
@@ -96,7 +96,7 @@ public:
 
     void OnPlayerLogin(Player* player) override
     {
-        if (player->getRace(true) != Race)
+        if (!IsHoverRace(player->getRace(true)))
             return;
 
         player->learnSpell(Ability);
@@ -163,7 +163,7 @@ class spell_kyrian_hover : public SpellScript
     SpellCastResult Check()
     {
         Player* player = GetCaster()->ToPlayer();
-        if (!player || player->getRace(true) != Race)
+        if (!player || !IsHoverRace(player->getRace(true)))
             return SPELL_FAILED_SPELL_UNAVAILABLE;
 
         HoverData* data = GetHover(player);

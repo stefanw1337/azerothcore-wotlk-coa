@@ -820,6 +820,10 @@ public:
     void GetPlayerClassLevelInfo(uint32 class_, uint8 level, PlayerClassLevelInfo* info) const;
 
     [[nodiscard]] PlayerInfo const* GetPlayerInfo(uint32 race, uint32 class_) const;
+    // CoA: the vanilla race (1-11) whose start zone this race spawns in, same side preferred; the race itself for 1-11; 0 = none.
+    // Drives getRaceMask() (quests, items, skills) and the starting reputation (ReputationMgr).
+    [[nodiscard]] uint8 GetHomeRace(uint8 race) const { return _homeRace[race]; }
+    void LoadHomeRaces();
 
     void GetPlayerLevelInfo(uint32 race, uint32 class_, uint8 level, PlayerLevelInfo* info) const;
 
@@ -1659,6 +1663,7 @@ private:
     void LoadAscensionRaceClassStats();
 
     std::vector<std::vector<PlayerInfo*>> _playerInfo;
+    std::array<uint8, 256> _homeRace{};
 
     typedef std::vector<uint32> PlayerXPperLevel;       // [level]
     PlayerXPperLevel _playerXPperLevel;

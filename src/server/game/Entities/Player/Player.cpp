@@ -19,7 +19,7 @@
 #include "KyrianRacials.h"
 #include "CoaCustomRacials.h"
 #include "AscensionSpellCopy.h"
-#include "AscensionIncarnation.h"
+#include "AscensionIncarnationDisplay.h"
 
 #include "AscensionQuestMarkers.h"
 #include "AccountMgr.h"
@@ -29,7 +29,6 @@
 #include "ArenaTeam.h"
 #include "ArenaTeamMgr.h"
 #include "ArenaSeasonMgr.h"
-#include "AscensionIncarnation.h"
 #include "AscensionBazaarTokenReserve.h"
 #include "AscensionDisplayPatch.h"
 #include "AscensionPooledVitality.h"
@@ -12605,7 +12604,6 @@ void Player::SendInitialPacketsBeforeAddToMap()
     SendUnlearnSpells();
 
     SendInitialActionButtons();
-    m_reputationMgr->ApplyStartingZoneReputation();
     m_reputationMgr->SendInitialReputations();
     m_achievementMgr->SendAllAchievementData();
 
