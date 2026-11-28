@@ -128,6 +128,7 @@ Subclass::PairHead HeadOf(Player const* player)
     Subclass::PairHead head{ IsTwoPlayers(player), PartnerOf(player->GetGUID().GetCounter()) != 0,
         player->GetLevel(), roles, IsAscensionCustomClassId(player->getClass()) };
     head.Chosen = ChosenHeadOf(player->GetGUID().GetCounter());
+    head.Bot = player->GetSession() && player->GetSession()->IsBot();
     return head;
 }
 
@@ -149,6 +150,8 @@ std::string RefusalText(Subclass::PairRefusal refusal, Player const* left, Playe
             return left->GetName() + " is already part of a pair.";
         case Subclass::PairRefusal::RightPaired:
             return right->GetName() + " is already part of a pair.";
+        case Subclass::PairRefusal::BothBots:
+            return "Two bots can't pair up: one of the heads has to be a player.";
         case Subclass::PairRefusal::LevelGap:
             return "The two heads must be within " + std::to_string(Subclass::MaxPairLevelGap) + " levels.";
         case Subclass::PairRefusal::LeftSpecialization:

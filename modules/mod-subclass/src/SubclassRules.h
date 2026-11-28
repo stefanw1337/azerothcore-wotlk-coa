@@ -591,6 +591,7 @@ struct PairHead
     SpecializationRoles Roles;
     bool CoAClass = true;
     ChosenHead Chosen = ChosenHead::Any;
+    bool Bot = false;
 };
 
 enum class PairRefusal
@@ -606,7 +607,8 @@ enum class PairRefusal
     LeftSpecialization,
     RightSpecialization,
     LeftClass,
-    RightClass
+    RightClass,
+    BothBots
 };
 
 inline PairRefusal CheckPair(PairHead const& left, PairHead const& right)
@@ -615,6 +617,8 @@ inline PairRefusal CheckPair(PairHead const& left, PairHead const& right)
         return PairRefusal::LeftNotTwoPlayers;
     if (!right.TwoPlayers)
         return PairRefusal::RightNotTwoPlayers;
+    if (left.Bot && right.Bot)
+        return PairRefusal::BothBots;
     if (left.Paired)
         return PairRefusal::LeftPaired;
     if (right.Paired)

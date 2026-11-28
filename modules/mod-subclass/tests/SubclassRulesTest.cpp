@@ -495,6 +495,17 @@ TEST(Subclass, BothHeadsMustBeFreeTwoPlayersBodies)
     EXPECT_EQ(CheckPair(MeleeHead, { true, true, 20, CasterRoles }), PairRefusal::RightPaired);
 }
 
+TEST(Subclass, TwoBotsNeverPairUp)
+{
+    PairHead botMelee = MeleeHead;
+    PairHead botCaster = CasterHead;
+    botMelee.Bot = true;
+    botCaster.Bot = true;
+    EXPECT_EQ(CheckPair(botMelee, botCaster), PairRefusal::BothBots);
+    EXPECT_EQ(CheckPair(MeleeHead, botCaster), PairRefusal::None);
+    EXPECT_EQ(CheckPair(botMelee, CasterHead), PairRefusal::None);
+}
+
 TEST(Subclass, HeadsPairOnlyWithinThreeLevels)
 {
     EXPECT_EQ(CheckPair({ true, false, 23, MeleeRoles }, CasterHead), PairRefusal::None);
