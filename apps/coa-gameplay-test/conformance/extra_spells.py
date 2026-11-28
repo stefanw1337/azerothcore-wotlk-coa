@@ -12,6 +12,7 @@ CUSTOM_CLASS_HEADER = Path('src/server/coa/AscensionCustomClassData.h')
 LIVE_BASELINE_HEADER = Path('src/server/coa/AscensionLiveBaselineData.h')
 TAUGHT_ABILITY_HEADER = Path('src/server/coa/AscensionTaughtAbilityData.h')
 COMPAT_SOURCE = Path('src/server/coa/AscensionCompat.cpp')
+FELSWORN_RIFTS_SOURCE = Path('src/server/coa/AscensionFelswornRifts.h')
 BASE_TRAINER_SQL = Path('data/sql/base/db_world/trainer_spell.sql')
 UPDATES_ROOT = Path('data/sql')
 
@@ -144,7 +145,10 @@ def taught_abilities(root: Path = REPOSITORY, required: bool = False) -> dict[in
 
 def felsworn_rifts(root: Path = REPOSITORY, required: bool = False) -> dict[int, int]:
     found: dict[int, int] = {}
-    for spell_id, level in grant_rows(Path(root) / COMPAT_SOURCE, 'FelswornHordeCapitalRifts', 2, required):
+    source = Path(root) / FELSWORN_RIFTS_SOURCE
+    if not source.is_file():
+        source = Path(root) / COMPAT_SOURCE
+    for spell_id, level in grant_rows(source, 'FelswornHordeCapitalRifts', 2, required):
         found[spell_id] = min(found.get(spell_id, level), level)
     return found
 
