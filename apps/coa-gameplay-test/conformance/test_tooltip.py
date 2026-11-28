@@ -3,9 +3,11 @@ from pathlib import Path
 import struct
 import tempfile
 import unittest
+from unittest import mock
 
 from tooltip import (MAX_EXPANSION_DEPTH, PER_TICK, CasterStats, DataSet, Displayed, ForcedPoints, Records, Tooltip,
-                     client_spell_level, period_reading, read_tooltip, weapon_skill_spells)
+                     Unreadable, client_spell_level, period_reading, read_tooltip, weapon_skill_spells)
+from compare import banded_status, margin_of
 import schemas
 from streamed import streamed_field, streamed_texts
 
@@ -40,6 +42,7 @@ HOLY_CONSTITUTION = 706323
 HOLY_CONSTITUTION_BASE_POINTS_2 = 29
 VEILED_IN_DARKNESS_RADIUS_YARDS = 100.0
 SCOURGEBANE_STRIKE = 801832
+BATTLE_STANCE = 7165
 INTERDICT_EXTENSION = 500014
 HOLY_LIGHT = 706449
 HOLY_LIGHT_CAST_TIME_POINTS = 1500
@@ -68,6 +71,19 @@ STAFFGUARD_HEALTH_BASE_POINTS = 124
 UNTAINTED = 705298
 UNTAINTED_EFFECT = 705299
 UNTAINTED_EFFECT_BASE_POINTS = -11
+WITCH_HUNTER = 15
+GUN_SUBCLASS = 3
+GUNS_LINE = 46
+QUICKDRAW_LINE = 59
+QUICKDRAW = 804193
+QUICKDRAW_MAX_LEVEL, QUICKDRAW_BASE_LEVEL = 20, 17
+QUICKDRAW_BASE_POINTS_2, QUICKDRAW_PER_LEVEL_2 = 15, 0.800000011920929
+QUICKDRAW_MAX_RANK = 806851
+QUICKDRAW_TOKEN = '${$m2+0+$RAP*0.2}'
+GUNNER = CasterStats(level=60, ap=0.0, rap=0.0, sp_by_school={school: 0.0 for school in SCHOOLS},
+                     stats={stat: 0.0 for stat in range(5)},
+                     skills={GUNS_LINE: LEVEL_60_SKILL, QUICKDRAW_LINE: LEVEL_60_SKILL},
+                     weapon_subclass=GUN_SUBCLASS, race=HUMAN, class_id=WITCH_HUNTER)
 CHAKRA_OF_LIGHT = 803844
 CHAKRA_OF_LIGHT_BASE_POINTS = 49
 ARMOR_OF_FAITH = 804930
@@ -245,6 +261,37 @@ class ClientDbcTooltipTest(unittest.TestCase):
                          RECKONING_BASE_POINTS + 1 + RECKONING_PER_LEVEL * (60 - RECKONING_BASE_LEVEL)
                          + 0.175 * 313 + 0.5 * stamina)
 
+    def test_weapon_skill_rank_is_capped_at_the_rank_max_level_below_the_player_level(self):
+        records = Records(self.dbc)
+        self.assertEqual(weapon_skill_spells(records)[GUN_SUBCLASS], 266)
+        self.assertEqual(client_spell_level(records, QUICKDRAW, GUNNER), QUICKDRAW_MAX_LEVEL)
+        capped = QUICKDRAW_BASE_POINTS_2 + 1 + QUICKDRAW_PER_LEVEL_2 * (QUICKDRAW_MAX_LEVEL - QUICKDRAW_BASE_LEVEL)
+        self.assertAlmostEqual(displayed(self.read(QUICKDRAW, GUNNER), QUICKDRAW_TOKEN).value, capped)
+
+    def test_weapon_skill_rank_keeps_the_player_level_up_to_the_rank_max_level(self):
+        records = Records(self.dbc)
+        at_cap = replace(GUNNER, level=QUICKDRAW_MAX_LEVEL,
+                         skills=dict.fromkeys((GUNS_LINE, QUICKDRAW_LINE), 5 * QUICKDRAW_MAX_LEVEL))
+        below = replace(GUNNER, level=QUICKDRAW_MAX_LEVEL - 1,
+                        skills=dict.fromkeys((GUNS_LINE, QUICKDRAW_LINE), 5 * (QUICKDRAW_MAX_LEVEL - 1)))
+        self.assertEqual(client_spell_level(records, QUICKDRAW, at_cap), QUICKDRAW_MAX_LEVEL)
+        self.assertEqual(client_spell_level(records, QUICKDRAW, below), QUICKDRAW_MAX_LEVEL - 1)
+        self.assertEqual(client_spell_level(records, QUICKDRAW_MAX_RANK, GUNNER), 60)
+
+    def test_weapon_skill_rank_is_never_raised_by_the_cap(self):
+        records = Records(self.dbc)
+        unskilled = replace(GUNNER, skills={GUNS_LINE: 50.0, QUICKDRAW_LINE: LEVEL_60_SKILL})
+        self.assertEqual(client_spell_level(records, QUICKDRAW, unskilled), 10)
+        self.assertEqual(client_spell_level(Records(self.dbc), RECKONING,
+                                            replace(SKILLED_TEMPLAR, weapon_subclass=STAFF_SUBCLASS)), 0)
+
+    def test_seeded_server_value_without_the_max_level_cap_alerts(self):
+        expected = displayed(self.read(QUICKDRAW, GUNNER), QUICKDRAW_TOKEN).value
+        uncapped = QUICKDRAW_BASE_POINTS_2 + 1 + QUICKDRAW_PER_LEVEL_2 * (60 - QUICKDRAW_BASE_LEVEL)
+        margin = margin_of(expected)
+        self.assertEqual(banded_status(expected, expected - margin, expected + margin, expected), 'ok')
+        self.assertEqual(banded_status(uncapped, expected - margin, expected + margin, expected), 'alert')
+
     def test_forced_roll_of_a_level_scaled_effect_adds_the_level_part(self):
         forced = ForcedPoints(self.dbc, RECKONING, 0, RECKONING_BASE_POINTS + 49)
         description = forced.field('Spell', RECKONING, 'Description[enUS]')
@@ -329,11 +376,10 @@ class ClientDbcTooltipTest(unittest.TestCase):
 
     def test_until_cancelled_duration_is_unreadable(self):
         records = Records(self.dbc)
-        description = records.dbc_field('Spell', SCOURGEBANE_STRIKE, 'Description[enUS]')
-        self.assertIn('over $d', description)
-        readout = Tooltip(records, SCOURGEBANE_STRIKE, LEVEL_60_TEMPLAR).read(description)
-        self.assertEqual(readout.unreadable, ['$d'])
-        self.assertEqual(displayed(readout, '$i'), Displayed('$i', 0, None, 'count'))
+        description = records.dbc_field('Spell', BATTLE_STANCE, 'Description[enUS]')
+        self.assertIn('Lasts $d', description)
+        self.assertEqual(Tooltip(records, BATTLE_STANCE, LEVEL_60_TEMPLAR).read(description).unreadable, ['$d'])
+        self.assertEqual(displayed(self.read(SCOURGEBANE_STRIKE), '$i'), Displayed('$i', 0, None, 'count'))
 
 
 SPELL_RECORD_BYTES = 936
@@ -362,7 +408,7 @@ def write_fixture(directory: Path, spells: dict[int, dict], variables: dict[int,
         row = bytearray(SPELL_RECORD_BYTES)
         struct.pack_into('<I', row, offsets['Id'], spell_id)
         for name, value in fields.items():
-            if name == 'Description[enUS]':
+            if name in ('Description[enUS]', 'ToolTip[enUS]'):
                 struct.pack_into('<I', row, offsets[name], strings.add(value))
             elif name.startswith('EffectRealPointsPerLevel'):
                 struct.pack_into('<f', row, offsets[name], value)
@@ -430,6 +476,15 @@ FIXTURE_SPELLS = {
          'EffectAmplitude[0]': 1000, 'DurationIndex': 1, 'AttributesEx5': 0x200},
     76: {'Description[enUS]': 'Restores $o1 over $d.', 'EffectBasePoints[0]': 9, 'EffectDieSides[0]': 1,
          'DurationIndex': 1},
+    77: {'Description[enUS]': 'Strikes the target and ${$x1-1} others, then ${$x2} more.', 'EffectChainTarget[0]': 6,
+         'EffectChainTarget[1]': 3},
+    78: {'Description[enUS]': 'Deals ${$cond($gt($AP, $SP), $m1+$AP*2, $m1+$SP*3)} or '
+                              '${$cond($gt($SP, $AP), $m1+$AP*2, $m1+$SP*3)}.', 'EffectBasePoints[0]': 9,
+         'EffectDieSides[0]': 1},
+    79: {'Description[enUS]': 'Broken ${$cond($gt($AP), 1, 2)} and ${$cond(1, 2)} and ${$gt(1, 2, 3)}.'},
+    80: {'Description[enUS]': 'Picks one.\r\n@ext:@s:81:0@:ext@\r\n@ext:Note @s:82:0@ here:ext@'},
+    81: {'Description[enUS]': 'Raises haste by $s1%.', 'EffectBasePoints[0]': 2, 'EffectDieSides[0]': 1},
+    82: {'Description[enUS]': 'Lasts $d.', 'DurationIndex': 1},
 }
 FIXTURE_VARIABLES = {
     1: '$bonus=${$m1*2+$PL}\r\n',
@@ -466,6 +521,22 @@ class FixtureTooltipTest(unittest.TestCase):
             Displayed('$M1', 100, 0, 'flat', 10),
         ])
         self.assertEqual(readout.unreadable, [])
+
+    def test_a_chain_target_token_reads_the_effects_chain_target_count(self):
+        readout = read_tooltip(self.dbc, 77, FIXTURE_CASTER)
+        self.assertEqual([(value.text, value.value) for value in readout.values], [('${$x1-1}', 5), ('${$x2}', 3)])
+        self.assertEqual(readout.unreadable, [])
+
+    def test_a_condition_picks_its_branch_by_the_comparison(self):
+        readout = read_tooltip(self.dbc, 78, FIXTURE_CASTER)
+        self.assertEqual([(value.value, value.effect_index) for value in readout.values],
+                         [(10 + 200 * 2, 0), (10 + 30 * 3, 0)])
+        self.assertEqual(readout.unreadable, [])
+
+    def test_a_function_with_the_wrong_number_of_arguments_is_unreadable(self):
+        readout = read_tooltip(self.dbc, 79, FIXTURE_CASTER)
+        self.assertEqual(readout.values, [])
+        self.assertEqual(len(readout.unreadable), 3)
 
     def test_level_scaled_points_without_an_ability_row_read_rank_zero_and_scaled_durations_stay_unreadable(self):
         readout = read_tooltip(self.dbc, 11, FIXTURE_CASTER)
@@ -510,6 +581,12 @@ class FixtureTooltipTest(unittest.TestCase):
         self.assertEqual(readout.values, [Displayed('$10s2', 25, None, 'percent', 10),
                                           Displayed('$10m1', 100, None, 'flat', 10)])
         self.assertEqual(readout.unreadable, ['$99d'])
+
+    def test_spell_markup_inside_an_extension_block_expands(self):
+        readout = read_tooltip(self.dbc, 80, FIXTURE_CASTER)
+        self.assertEqual(readout.values, [Displayed('$s1', 3, None, 'percent', 81),
+                                          Displayed('$d', 6000, None, 'duration_ms', 82)])
+        self.assertEqual(readout.unreadable, ['@ext:Note  here:ext@'])
 
     def test_negative_flags_stay_unreadable(self):
         readout = read_tooltip(self.dbc, 14, FIXTURE_CASTER)
@@ -588,6 +665,35 @@ class FixtureTooltipTest(unittest.TestCase):
         self.assertEqual(readout.values, [Displayed('${$61m1*$<scalingbp>}', 6.0, None, 'flat', 61)])
         self.assertEqual(readout.unreadable, [])
 
+    def test_one_stray_closing_parenthesis_before_the_brace_reads_as_the_balanced_expression(self):
+        tooltip = Tooltip(Records(self.dbc), 10, FIXTURE_CASTER)
+        self.assertEqual(tooltip.evaluate('$m1+$SP*0.5)'), tooltip.evaluate('$m1+$SP*0.5'))
+        self.assertEqual(tooltip.evaluate('($m1+$SP)*0.5)'), tooltip.evaluate('($m1+$SP)*0.5'))
+        readout = tooltip.read('Deals an additional ${$m1+$SP*0.5)} damage.')
+        self.assertEqual(readout.values, [Displayed('${$m1+$SP*0.5)}', 100 + 30 * 0.5, 0, 'flat', 10)])
+        self.assertEqual(readout.unreadable, [])
+
+    def test_any_other_unbalanced_parenthesis_stays_unreadable(self):
+        tooltip = Tooltip(Records(self.dbc), 10, FIXTURE_CASTER)
+        for expression in ('$m1+$SP*0.5))', '$m1)+$SP*0.5', '($m1+$SP*0.5', '$m1+$SP*0.5) ', ')', '$m1+()'):
+            with self.subTest(expression=expression), self.assertRaises(Unreadable):
+                tooltip.evaluate(expression)
+        readout = tooltip.read('Deals ${$m1+$SP*0.5))} damage.')
+        self.assertEqual(readout.values, [])
+        self.assertEqual(readout.unreadable, ['${$m1+$SP*0.5))}'])
+
+    def test_multi_effect_expression_drops_effect_index_while_single_effect_keeps_it(self):
+        tooltip = Tooltip(Records(self.dbc), 10, FIXTURE_CASTER)
+        readout = tooltip.read('Base $s2%, single ${$m1+1}%, diff ${$m1-$m2}%, same ${$m1+$m1}%, ppl ${$m2+$ppl1}.')
+        self.assertEqual(readout.values, [
+            Displayed('$s2', 25.0, 1, 'percent', 10),
+            Displayed('${$m1+1}', 101.0, 0, 'percent', 10),
+            Displayed('${$m1-$m2}', 75.0, None, 'percent', 10),
+            Displayed('${$m1+$m1}', 200.0, 0, 'percent', 10),
+            Displayed('${$m2+$ppl1}', 25.0, 1, 'flat', 10),
+        ])
+        self.assertEqual(readout.unreadable, [])
+
 
 class StreamedTextTests(unittest.TestCase):
     def updates(self, files: dict[str, str]) -> Path:
@@ -619,15 +725,28 @@ class StreamedTextTests(unittest.TestCase):
         self.assertIsNone(streamed_field(6, 'Description[enUS]', root))
         self.assertIsNone(streamed_field(5, 'SpellName[enUS]', root))
 
-    @unittest.skipUnless(DBC_DIR.is_dir(), f'server DBC set not found at {DBC_DIR}')
     def test_the_reader_prefers_the_streamed_text_and_keeps_the_client_one(self):
-        records = Records(DataSet(DBC_DIR))
-        self.assertIn('${-$705299m1+$STA*0.1}', records.field('Spell', UNTAINTED, 'Description[enUS]'))
-        self.assertIn('${$705299m1+$STA*0.1}', records.dbc_field('Spell', UNTAINTED, 'Description[enUS]'))
-        self.assertEqual(records.field('Spell', UNTAINTED_EFFECT, 'ToolTip[enUS]'),
-                         'Physical damage taken reduced by ${-$m1+$STA*0.1}.')
-        self.assertEqual(records.field('Spell', UNTAINTED, 'ToolTip[enUS]'),
-                         records.dbc_field('Spell', UNTAINTED, 'ToolTip[enUS]'))
+        root = self.updates({
+            'pending_db_world/a.sql': "INSERT INTO `coa_client_spell_description` (`ID`, `Description`, `ToolTip`) "
+                                      "VALUES (10, 'Streamed ${-$11m1+$STA*0.1}.', ''), "
+                                      "(11, '', 'Streamed tooltip.');"})
+        with tempfile.TemporaryDirectory() as directory:
+            write_fixture(Path(directory), {
+                10: {'Description[enUS]': 'Client ${$11m1+$STA*0.1}.', 'ToolTip[enUS]': 'Client tooltip.'},
+                11: {'Description[enUS]': '', 'ToolTip[enUS]': 'Old tooltip.'},
+            }, {})
+            records = Records(DataSet(Path(directory)))
+
+            def override(spell, name):
+                return streamed_field(spell, name, root)
+
+            with mock.patch('tooltip.streamed_field', side_effect=override):
+                self.assertEqual(records.field('Spell', 10, 'Description[enUS]'), 'Streamed ${-$11m1+$STA*0.1}.')
+                self.assertEqual(records.dbc_field('Spell', 10, 'Description[enUS]'), 'Client ${$11m1+$STA*0.1}.')
+                self.assertEqual(records.field('Spell', 11, 'ToolTip[enUS]'), 'Streamed tooltip.')
+                self.assertEqual(records.dbc_field('Spell', 11, 'ToolTip[enUS]'), 'Old tooltip.')
+                self.assertEqual(records.field('Spell', 10, 'ToolTip[enUS]'),
+                                 records.dbc_field('Spell', 10, 'ToolTip[enUS]'))
 
 
 if __name__ == '__main__':

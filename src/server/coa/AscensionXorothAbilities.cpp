@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionBattlegroundCombat.h"
 #include "AscensionXoroth.h"
 #include "CellImpl.h"
 #include "Corpse.h"
@@ -19,6 +20,7 @@
 #include "SpellMgr.h"
 #include "SpellScript.h"
 #include <algorithm>
+#include <cmath>
 namespace
 {
 using namespace AscensionXoroth;
@@ -530,8 +532,9 @@ class xoroth_casts : public AllSpellScript
                 Gain(player, fire);
             if (fire && !refunded)
             {
-                if (fire >= 4 && player->HasAura(805706) && target)
-                    if (Aura* apocalypse = target->GetAura(560817, player->GetGUID()))
+                Unit* apocalypseTarget = target && target != player ? target : player->GetSelectedUnit();
+                if (fire >= 4 && player->HasAura(805706) && apocalypseTarget)
+                    if (Aura* apocalypse = apocalypseTarget->GetAura(560817, player->GetGUID()))
                         apocalypse->SetDuration(apocalypse->GetMaxDuration());
                 if (player->HasAura(520008) && fire >= 4)
                     Gain(player, 1);
@@ -542,15 +545,19 @@ class xoroth_casts : public AllSpellScript
                 if (player->HasAura(802345))
                 {
                     HealInfo heal(player, player,
-                                  uint32(player->GetMaxHealth() * fire * (player->HasAura(704182) ? .015f : .01f)),
+                                  uint32(std::max<long long>(0, std::llround(
+                                      double(player->GetMaxHealth()) * fire *
+                                      (player->HasAura(704182) ? 0.015 : 0.01) *
+                                      double(AscensionBattlegroundCombat::UnscaledFactor(
+                                          player, player, info, true))))),
                                   info, info->GetSchoolMask());
                     player->HealBySpell(heal);
                 }
                 if (player->HasAura(705001))
                     Cast(player, player, 705002);
+                if (id == 520292)
+                    Reduce(player, id, std::abs(Amount(704195, EFFECT_2, player)) * fire);
             }
-            if (id == 520292)
-                Reduce(player, id, 3000 * fire);
             if (Named(info, 801059))
                 Cast(player, player, SPELL_FLAMES_OF_XOROTH_VISUAL);
             if (id == 802342)

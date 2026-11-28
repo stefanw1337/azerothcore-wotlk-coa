@@ -340,7 +340,8 @@ public: /* PlayerScript */
     void OnPlayerMoneyChanged(Player* player, int32& amount);
     void OnPlayerBeforeLootMoney(Player* player, Loot* loot);
     void OnPlayerBeforeSendLoot(Player* player, ObjectGuid lootGuid, Loot* loot);
-    void OnPlayerGiveXP(Player* player, uint32& amount, Unit* victim, uint8 xpSource);
+    void OnPlayerGiveXP(Player* player, uint32& amount, Unit* victim, uint8 xpSource,
+        double groupAverageLevel = 0.0);
     uint8 GetMaxAllowedLevel(Player* player);
     bool OnPlayerHasNoBonusExperience(Player* player);
     bool OnPlayerHoldsTankOrHealerRole(Player const* player);
@@ -456,6 +457,7 @@ public: /* PlayerScript */
     void OnPlayerCustomScalingStatValue(Player* player, ItemTemplate const* proto, uint32& statType, int32& val, uint8 itemProtoStatNumber, uint32 ScalingStatValue, ScalingStatValuesEntry const* ssv);
     void OnPlayerApplyItemModsBefore(Player* player, uint8 slot, bool apply, uint8 itemProtoStatNumber, uint32 statType, int32& val);
     void OnPlayerAfterApplyItemMods(Player* player, Item* item, uint8 slot, bool apply);
+    void OnPlayerAfterApplyEnchantment(Player* player, Item* item, EnchantmentSlot slot, bool apply);
     void OnPlayerApplyEnchantmentItemModsBefore(Player* player, Item* item, EnchantmentSlot slot, bool apply, uint32 enchant_spell_id, uint32& enchant_amount);
     void OnPlayerApplyWeaponDamage(Player* player, uint8 slot, ItemTemplate const* proto, float& minDamage, float& maxDamage, uint8 damageIndex);
     bool OnPlayerCanArmorDamageModifier(Player* player);
@@ -503,6 +505,13 @@ public: /* PlayerScript */
     bool OnPlayerCanUseChat(Player* player, uint32 type, uint32 language, std::string& msg, Group* group);
     bool OnPlayerCanUseChat(Player* player, uint32 type, uint32 language, std::string& msg, Guild* guild);
     bool OnPlayerCanUseChat(Player* player, uint32 type, uint32 language, std::string& msg, Channel* channel);
+    void OnPlayerAfterChat(Player* player, uint32 type, uint32 language, std::string const& msg);
+    void OnPlayerAfterChat(Player* player, uint32 type, uint32 language, std::string const& msg, Player* receiver);
+    void OnPlayerAfterChat(Player* player, uint32 type, uint32 language, std::string const& msg, Group* group);
+    void OnPlayerAfterChat(Player* player, uint32 type, uint32 language, std::string const& msg, Guild* guild);
+    void OnPlayerAfterChat(Player* player, uint32 type, uint32 language, std::string const& msg, Channel* channel);
+    void OnPlayerAfterSendMail(Player* player, ObjectGuid receiverGuid, uint32 receiverAccount, std::string const& receiverName, uint32 mailId,
+        std::string const& subject, std::string const& body);
     void OnPlayerLearnTalents(Player* player, uint32 talentId, uint32 talentRank, uint32 spellid);
     void OnPlayerEnterCombat(Player* player, Unit* enemy);
     void OnPlayerLeaveCombat(Player* player);
@@ -518,6 +527,7 @@ public: /* PlayerScript */
     void OnPlayerSetSkill(Player* player, uint32 skillId, uint32 value, uint32 max, uint32 step, uint32 newValue);
     bool OnPlayerCanResurrect(Player* player);
     bool OnPlayerCanEnterManastorm(Player* player);
+    bool OnPlayerCanReleaseSpirit(Player* player);
     void OnPlayerBankWithdraw(Player* player, uint8 kind);
     bool OnPlayerEnvironmentalDamage(Player* player, uint32 type, uint32 damage);
     bool OnPlayerBreathInverted(Player* player);
@@ -534,6 +544,7 @@ public: /* PlayerScript */
     void OnPlayerTakeMailItem(Player* player, Mail const* mail, uint32 itemEntry);
     bool OnPlayerCanTakeQuest(Player const* player, Quest const* quest);
     bool OnPlayerCanRewardQuest(Player const* player, Quest const* quest);
+    bool OnPlayerCanRepeatDailyQuest(Player const* player, Quest const* quest);
     bool OnPlayerQuestGiverChooseReward(Player* player, Object* questGiver, Quest const* quest, uint32 reward);
     bool OnPlayerRefreshQuestGiver(Player* player, Object* questGiver, Quest const* quest);
     void OnPlayerCoAProgress(Player* player, CoAProgressEvent event, uint32 value);
@@ -633,11 +644,13 @@ public: /* UnitScript */
     void ModifyPeriodicDamageAurasTick(Unit* target, Unit* attacker, uint32& damage, SpellInfo const* spellInfo);
     void ModifyMeleeDamage(Unit* target, Unit* attacker, uint32& damage);
     void ModifyMeleeDamageRange(Unit* target, Unit* attacker, float& minDamage, float& maxDamage);
+    void OnUnitUpdateRunSpeed(Unit* unit, int32& mainSpeedMod, float& stackBonus, float& nonStackBonus);
     void ModifySpellDamageTaken(Unit* target, Unit* attacker, int32& damage, SpellInfo const* spellInfo);
     void ModifySpellEffectBaseValue(Unit const* caster, SpellInfo const* spellInfo,
         uint8 effectIndex, float& value);
     void ResolveSpellCast(Unit* caster, SpellInfo const*& spellInfo, AuraEffect const* triggeredByAura);
-    void ModifyHealReceived(Unit* target, Unit* healer, uint32& addHealth, SpellInfo const* spellInfo);
+    void ModifyHealReceived(Unit* first, Unit* second, uint32& addHealth, SpellInfo const* spellInfo,
+        Unit* recipient = nullptr);
     void OnBeforeHealAbsorb(HealInfo& healInfo);
     void OnAfterAuraEffectCalculateAmount(AuraEffect const* effect, Unit* caster, int32& amount);
     uint32 DealDamage(Unit* AttackerUnit, Unit* pVictim, uint32 damage, DamageEffectType damagetype,
@@ -649,7 +662,8 @@ public: /* UnitScript */
     void OnSendAuraUpdate(Unit* target, Player* receiver, AuraApplication const* application, bool remove);
     bool IfNormalReaction(Unit const* unit, Unit const* target, ReputationRank& repRank);
     bool CanUnitAttack(Unit const* attacker, Unit const* target, SpellInfo const* spell);
-    Unit* SpellMagnetTarget(Unit* attacker, Unit* victim, SpellInfo const* spell);
+    bool CanUnitAssist(Unit const* assister, Unit const* target, SpellInfo const* spell);
+    Unit* SpellMagnetTarget(Unit* attacker, Unit* victim, SpellInfo const* spell, bool& ignoreM2Los);
     bool CanSetPhaseMask(Unit const* unit, uint32 newPhaseMask, bool update);
     bool IsCustomBuildValuesUpdate(Unit const* unit, uint8 updateType, ByteBuffer& fieldBuffer, Player const* target, uint16 index);
     bool ShouldTrackValuesUpdatePosByIndex(Unit const* unit, uint8 updateType, uint16 index);
@@ -711,6 +725,7 @@ public: /* BGScript */
     void OnBattlegroundCreate(Battleground* bg);
     void OnBattlegroundSetup(Battleground* bg);
     void OnBattlegroundUpdatePlayerScore(Battleground* bg, Player* player, uint32 type, uint32 value);
+    void OnBattlegroundNodeCaptured(Battleground* bg, TeamId teamId);
     bool CanAddGroupToMatchingPool(BattlegroundQueue* queue, GroupQueueInfo* group, uint32 poolPlayerCount, Battleground* bg, BattlegroundBracketId bracketId);
     bool GetPlayerMatchmakingRating(ObjectGuid playerGuid, BattlegroundTypeId bgTypeId, float& outRating);
 

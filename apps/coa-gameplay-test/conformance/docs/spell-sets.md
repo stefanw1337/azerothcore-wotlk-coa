@@ -20,12 +20,20 @@
   from the same header and `required_level` the `Spell.dbc` `BaseLevel` of the base spell. A listed spell already in
   the set, listed twice or missing from `Spell.dbc` is an error. `generate` passes the class file's `extra_spells`;
   passive reference spells keep the `CharacterAdvancement` set.
+- `conformance.py audit-extra` audits `extra_spells` and `excluded_extra_spells` against server-granted class spells
+  across `AscensionCompatData::ClassSpells`, `AscensionLiveBaseline::Spells` (`RaceId == 0`),
+  `AscensionTaughtAbilityData.h`, `FelswornHordeCapitalRifts`, and `trainer_spell` SQL (`ReqLevel <= level`), separating
+  covered `@s:<id>:` pull-ins, `STOCK_GENERIC_SPELLS` (excluding `552011`), same-name `unchained_ranks`, and remaining
+  `unaccounted` candidates; `conformance.py ledger` refuses while `unaccounted` is non-empty unless
+  `--allow-unaccounted-extra` is passed
+  ([ADR 1327](../../../../docs/adr/1327-conformance-audit-extra-spells-before-ledger.md)).
 
 ### Extra class spells
 
 A class file's `extra_spells` entry is `{"spell", "name", "citation"}`: the base spell id, its name and the citation of
 one Ascension combat log event of the owner's private Ascension combat log archive where a player casts a rank of it
 or holds its aura ([ADR 0016](../../../docs/adr/0016-conformance-class-spells-beyond-character-advancement.md) D2).
+Intentional omissions from server grant tables go in `excluded_extra_spells` as `{"spell", "name", "reason"}`.
 The citation is `<date> <time>, spell <logged id> <name>, Ascension combat log, private archive`, without character
 names or raw lines, because the archive is private; the full lines stay in the gitignored
 `.agents/plans/class-conformance-2/templar/extra-spells-evidence.md`. The log does not store a class, so the event
@@ -42,6 +50,23 @@ Ascension (a resurrection by its rank 500758), Tithe, Temple Guardian, Testament
 Titanstrike, Crusader's Presence, Righteous Custodian and Shoot (a ranged hit; it needs a ranged weapon, so its hit
 is `unmodelled`). Temple Guardian is logged at Rank 6 803796 (`Spell.dbc` `Rank[enUS]`, level 60), while the header
 chains 801165 to Rank 2 803792 only, so the run judges Rank 2.
+
+Necromancer (class 23): the candidates are the 50 class-map `base_candidate` spells of ClassId 23 that the generated
+ledger did not hold. Four of them (500338, 704355, 801760, 801945) are `CharacterAdvancement` spells already, whose
+ledger rows sit under a later rank. Searched on 2026-11-12 by every rank id of the progression header in the
+deduplicated archive (186 logs), keeping events by players who also cast a `CharacterAdvancement` active of class 23:
+29 are confirmed and listed in `classes/necromancer.json`. Two are logged under another name: Raise: Lesser Skeletal
+Warrior by its rank 504901 Raise: Greater Skeletal Warrior, and Runic Harvest 562210 as "Siphon Mana". The 17 others
+had no such event; no log event is not evidence that a spell is unobtainable (G-12). A second search of the reference
+snapshots (owner, 2026-11-12: a class kit listing counts as reachability evidence) found 11 of them in the
+ascensionsidekick `coaKits` Necromancer kit (data.js fetched 2026-09-18): Raise: Skeletal Rogue, Grave March, Command:
+Undead, Sense Undead, Scourge Apprentice Training, Ghoulify, Transfer Life, Call of The Scourge, Create Bone Reliquary,
+Necromancy and Sacrifice Undead. They are listed with a kit citation,
+`ascensionsidekick data.js coaKits Necromancer <spec> kit, fetched <date>`. Create Frozen Reliquary 803772 is a
+`CharacterAdvancement` spell whose rows sit under rank 803777. Resilient Constitution 552011 (in no kit, no log
+event, no live capture) is listed by owner ruling Q-n1 of 2026-11-13 (in scope, tested against a player attacker),
+with the citation `owner ruling <question>, <date>` (ADR 0540). Left out: the stock skills Dodge, Block, Wand and
+Auto Attack (no class tooltip claim).
 
 Righteous Tempest 805410 (`AscensionTemplarAbilities.cpp`'s `RighteousTempest()`, ranks 805410/570200-570205) is a
 23rd `extra_spells` entry, logged at Rank 7 570205 (level 60); it is not one of the 34 `ClassSpells` candidates above

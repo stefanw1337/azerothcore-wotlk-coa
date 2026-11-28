@@ -65,6 +65,8 @@ enum MailStationery
 };
 
 inline constexpr char RECRUIT_A_FRIEND_REWARD_MAIL_SUBJECT[] = "Recruit-A-Friend reward";
+inline constexpr char ITEM_RECOVERY_MAIL_SUBJECT[] = "Recovered item";
+inline constexpr char WORLDFORGED_REFUND_MAIL_SUBJECT[] = "Worldforged refund";
 
 enum MailState
 {
@@ -154,7 +156,7 @@ public:                                                 // modifiers
 
 public:                                                 // finishers
     void SendReturnToSender(uint32 sender_acc, ObjectGuid::LowType sender_guid, ObjectGuid::LowType receiver_guid, CharacterDatabaseTransaction trans);
-    void SendMailTo(CharacterDatabaseTransaction trans, MailReceiver const& receiver, MailSender const& sender, MailCheckMask checked = MAIL_CHECK_MASK_NONE, uint32 deliver_delay = 0, uint32 custom_expiration = 0, bool deleteMailItemsFromDB = false, bool sendMail = true);
+    uint32 SendMailTo(CharacterDatabaseTransaction trans, MailReceiver const& receiver, MailSender const& sender, MailCheckMask checked = MAIL_CHECK_MASK_NONE, uint32 deliver_delay = 0, uint32 custom_expiration = 0, bool deleteMailItemsFromDB = false, bool sendMail = true);
     // Runs the send hook and appends the mail rows only; empty when a hook suppressed the mail.
     Optional<StagedMail> StageMailTo(CharacterDatabaseTransaction trans, ObjectGuid::LowType receiverGuidLow, MailSender const& sender, MailCheckMask checked = MAIL_CHECK_MASK_NONE, uint32 custom_expiration = 0);
     // Gives the items to an online receiver that does not already hold the mail, otherwise frees them.

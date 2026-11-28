@@ -25,6 +25,7 @@
 #include "SpellScript.h"
 #include "SpellScriptLoader.h"
 #include "TemporarySummon.h"
+#include <optional>
 #include <algorithm>
 #include <array>
 #include <set>
@@ -201,7 +202,8 @@ Position const RazLedgePos = { 406.1927f, 906.0121f, 163.4926f, 4.310963f };
 Position const RazObsidiusPos = { 308.9653f, 635.8195f, 64.79769f, 4.555309f };
 Position const RazBridgePos = { 400.9f, 821.1f, 106.5f };
 Position const ObsidiusPos = { 331.7f, 554.5f, 66.1f };
-Position const RazObsidiusStandPos = { 330.5491f, 559.3794f, 66.00645f, 4.945502f };
+Position const RazObsidiusCallPos = { 240.127f, 567.9303f, 73.23914f };
+Position const RazObsidiusStandPos = { 320.2156f, 574.0704f, 66.00645f, 5.195028f };
 
 std::array<Position, 12> const RazPathRomogg =
 { {
@@ -221,6 +223,8 @@ std::array<Position, 3> const CorlaZealotPos =
     { 561.9618f, 983.0191f, 155.4369f, 1.553343f },
     { 573.4844f, 978.5851f, 155.4369f, 1.570796f }
 } };
+
+Position const CorlaNetherDrakePos = { 573.602f, 910.006f, 180.339f, 0.0f };
 
 Position const LavaFountainPos = { 237.2951f, 784.7761f, 95.99241f };
 
@@ -267,6 +271,9 @@ constexpr float FireZoneSpread = 3.0f;
 constexpr uint32 FireZoneMs = 2500;
 constexpr uint32 FireZoneCallers = 2;
 constexpr float RazDamageBonus = 1.3f;
+constexpr float RazSpeedBonus = 1.1f;
+constexpr float SkullcrackerRadius = 3.0f;
+constexpr float SkullcrackerShare = 0.75f;
 
 constexpr float HeatWavePerStack = 57.6f;
 constexpr float HeatWaveBaseStacks = 2.33f;
@@ -307,12 +314,31 @@ void DealDamage(
     caster->SendSpellNonMeleeDamageLog(&damage);
 }
 
-std::vector<Player*> PlayersNear(WorldObject const* center, float range)
+void DealUnmitigatedDamage(Unit* caster, Unit* target, uint32 spellId, uint32 value)
+{
+    SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
+    if (!info || !value)
+        return;
+    SpellNonMeleeDamage damage(caster, target, info, SPELL_SCHOOL_MASK_NORMAL);
+    damage.damage = value;
+    Unit::DealDamageMods(target, damage.damage, &damage.absorb);
+    caster->DealSpellDamage(&damage, true);
+    caster->SendSpellNonMeleeDamageLog(&damage);
+}
+
+enum class PlayerRange
+{
+    Spatial,
+    Planar,
+};
+
+std::vector<Player*> PlayersNear(WorldObject const* center, float range, PlayerRange mode = PlayerRange::Spatial)
 {
     std::vector<Player*> out;
     for (auto const& ref : center->GetMap()->GetPlayers())
         if (Player* player = ref.GetSource())
-            if (player->IsAlive() && !player->IsGameMaster() && center->GetExactDist(player) <= range)
+            if (player->IsAlive() && !player->IsGameMaster() &&
+                (mode == PlayerRange::Planar ? center->GetExactDist2d(player) : center->GetExactDist(player)) <= range)
                 out.push_back(player);
     return out;
 }
@@ -375,7 +401,7 @@ public:
                 return;
             }
             if (stage <= RAZ_CORLA && GetBossState(DATA_KARSH) == DONE &&
-                (PlayerNear(RazObsidiusPos, 60.0f) || PlayerNear(ObsidiusPos, 70.0f)))
+                (PlayerNear(RazObsidiusPos, 60.0f) || PlayerNear(ObsidiusPos, 70.0f) || PlayerNear(RazObsidiusCallPos, 15.0f)))
             {
                 StorePersistentData(PERSISTENT_RAZ_STAGE, RAZ_OBSIDIUS);
                 instance->SummonCreature(NPC_RAZ, RazObsidiusPos);
@@ -442,6 +468,7 @@ struct boss_coa_brc_romogg : public BossAI
         _Reset();
         me->SetReactState(REACT_AGGRESSIVE);
         _chains.Clear();
+        _chainsSpot.reset();
     }
 
     void JustEngagedWith(Unit* who) override
@@ -473,7 +500,13 @@ struct boss_coa_brc_romogg : public BossAI
     {
         BossAI::JustSummoned(summon);
         if (summon->GetEntry() == NPC_CHAINS_OF_WOE)
+        {
+            if (Creature* old = ObjectAccessor::GetCreature(*me, _chains))
+                if (old != summon)
+                    old->DespawnOrUnsummon();
             _chains = summon->GetGUID();
+            _chainsSpot = summon->GetPosition();
+        }
         else if (summon->GetEntry() == NPC_ANGERED_EARTH)
         {
             summon->SetCorpseDelay(5);
@@ -497,8 +530,19 @@ struct boss_coa_brc_romogg : public BossAI
             case SPELL_SKULLCRACKER_MYTHIC:
             {
                 for (Player* player : PlayersNear(me, 200.0f))
+                {
                     if (player->HasAura(SPELL_CHAINS_OF_WOE_ROOT))
-                        DealDamage(me, player, spell->Id, player->GetMaxHealth() * 10, SPELL_SCHOOL_MASK_NORMAL);
+                        DealUnmitigatedDamage(me, player, spell->Id, player->GetMaxHealth() * 10);
+                    else if (_chainsSpot && player->GetExactDist2d(*_chainsSpot) <= SkullcrackerRadius)
+                        DealUnmitigatedDamage(me, player, spell->Id, uint32(player->GetMaxHealth() * SkullcrackerShare));
+                }
+                if (Creature* chains = ObjectAccessor::GetCreature(*me, _chains))
+                {
+                    std::vector<Player*> players = PlayersNear(me, 200.0f);
+                    if (std::none_of(players.begin(), players.end(), [](Player* player)
+                            { return player->IsAlive() && player->HasAura(SPELL_CHAINS_OF_WOE_ROOT); }))
+                        chains->DespawnOrUnsummon();
+                }
                 me->SetReactState(REACT_AGGRESSIVE);
                 break;
             }
@@ -545,8 +589,7 @@ struct boss_coa_brc_romogg : public BossAI
                     break;
                 case EVENT_CHAINS_CHECK:
                     if (!ObjectAccessor::GetCreature(*me, _chains))
-                        me->SummonCreature(NPC_CHAINS_OF_WOE, me->GetNearPosition(4.0f, 0.0f),
-                            TEMPSUMMON_TIMED_DESPAWN_OUT_OF_COMBAT, 20000);
+                        me->SummonCreature(NPC_CHAINS_OF_WOE, me->GetNearPosition(4.0f, 0.0f), TEMPSUMMON_MANUAL_DESPAWN);
                     break;
                 case EVENT_SKULLCRACKER:
                     Talk(EMOTE_ROMOGG_SKULLCRACKER);
@@ -572,6 +615,7 @@ struct boss_coa_brc_romogg : public BossAI
 
 private:
     ObjectGuid _chains;
+    std::optional<Position> _chainsSpot;
 };
 
 struct npc_coa_brc_chains_of_woe : public ScriptedAI
@@ -588,6 +632,11 @@ struct npc_coa_brc_chains_of_woe : public ScriptedAI
             me->SetFullHealth();
         }
         DoCastSelf(SPELL_CHAINS_OF_WOE_VISUAL, true);
+        if (Aura* visual = me->GetAura(SPELL_CHAINS_OF_WOE_VISUAL))
+        {
+            visual->SetMaxDuration(-1);
+            visual->SetDuration(-1);
+        }
         WorldObject* center = summoner ? summoner : me;
         for (Player* player : PlayersNear(center, 60.0f))
         {
@@ -599,7 +648,17 @@ struct npc_coa_brc_chains_of_woe : public ScriptedAI
     }
 
     void AttackStart(Unit* ) override { }
-    void UpdateAI(uint32 ) override { }
+    void UpdateAI(uint32 ) override
+    {
+        if (_held)
+            return;
+        _held = true;
+        if (TempSummon* chains = me->ToTempSummon())
+            chains->SetTempSummonType(TEMPSUMMON_MANUAL_DESPAWN);
+    }
+
+private:
+    bool _held = false;
 };
 
 struct npc_coa_brc_raz : public ScriptedAI
@@ -634,7 +693,7 @@ struct npc_coa_brc_raz : public ScriptedAI
         me->SetHover(false);
         me->SetImmuneToAll(false);
         me->SetReactState(REACT_AGGRESSIVE);
-        me->GetMotionMaster()->MoveJump(RazPathRomogg[0], 20.0f, 10.0f);
+        Leap(RazPathRomogg[0], 20.0f, 10.0f);
         _point = 1;
         _events.ScheduleEvent(EVENT_SMASH, 3s);
         _events.ScheduleEvent(EVENT_ACTIVATE, 4s);
@@ -658,6 +717,8 @@ struct npc_coa_brc_raz : public ScriptedAI
 
     void MovementInform(uint32 type, uint32 id) override
     {
+        if (type == EFFECT_MOTION_TYPE)
+            me->HandleEmoteCommand(id == POINT_RAZ_OBSIDIUS_JUMP ? EMOTE_ONESHOT_JUMPEND : EMOTE_ONESHOT_JUMPLANDRUN);
         if (type == EFFECT_MOTION_TYPE && id == POINT_RAZ_LEDGE_JUMP)
         {
             DoCastSelf(SPELL_QUAKE, true);
@@ -710,7 +771,7 @@ struct npc_coa_brc_raz : public ScriptedAI
                     {
                         _path = { RazObsidiusStandPos };
                         _atObsidius = true;
-                        me->GetMotionMaster()->MoveJump(RazObsidiusStandPos, 18.0f, 30.0f, POINT_RAZ_OBSIDIUS_JUMP);
+                        Leap(RazObsidiusStandPos, 18.0f, 30.0f, POINT_RAZ_OBSIDIUS_JUMP);
                     }
                     else
                         _events.ScheduleEvent(EVENT_DIE, 4s);
@@ -721,7 +782,7 @@ struct npc_coa_brc_raz : public ScriptedAI
                     break;
                 case EVENT_LEAP_LEDGE:
                     Talk(SAY_RAZ_SMASH);
-                    me->GetMotionMaster()->MoveJump(RazCorlaPos, 35.0f, 12.0f, POINT_RAZ_LEDGE_JUMP);
+                    Leap(RazCorlaPos, 35.0f, 12.0f, POINT_RAZ_LEDGE_JUMP);
                     break;
                 case EVENT_DIE:
                     Talk(SAY_RAZ_TIRED);
@@ -753,6 +814,12 @@ struct npc_coa_brc_raz : public ScriptedAI
     }
 
 private:
+    void Leap(Position const& pos, float speedXY, float speedZ, uint32 id = 0)
+    {
+        me->HandleEmoteCommand(EMOTE_ONESHOT_JUMPSTART);
+        me->GetMotionMaster()->MoveJump(pos, speedXY * RazSpeedBonus, speedZ, id);
+    }
+
     void Drive()
     {
         if (!_active || !me->IsAlive())
@@ -779,7 +846,7 @@ private:
             return;
         _walking = true;
         if (_jumps.count(_point))
-            me->GetMotionMaster()->MoveJump(_path[_point], 30.0f, 15.0f, _point + 1);
+            Leap(_path[_point], 30.0f, 15.0f, _point + 1);
         else
             me->GetMotionMaster()->MovePoint(_point + 1, _path[_point]);
     }
@@ -805,6 +872,7 @@ private:
         _initialized = true;
         _events.ScheduleEvent(EVENT_DRIVE, 500ms);
         me->SetWalk(false);
+        me->SetSpeedRate(MOVE_RUN, me->GetCreatureTemplate()->speed_run * RazSpeedBonus);
         me->SetReactState(REACT_AGGRESSIVE);
         uint32 const stage = _instance ? _instance->GetPersistentData(PERSISTENT_RAZ_STAGE) : RAZ_CAGED;
         if (stage == RAZ_CAGED || stage == RAZ_FREED)
@@ -930,9 +998,7 @@ struct boss_coa_brc_corla : public BossAI
             if (!zealot)
                 continue;
             _zealots.push_back(zealot->GetGUID());
-            Position beamPos = me->GetPosition();
-            beamPos.m_positionZ += 2.0f;
-            if (Creature* beam = me->SummonCreature(NPC_NETHER_BEAM, beamPos, TEMPSUMMON_MANUAL_DESPAWN))
+            if (Creature* beam = me->SummonCreature(NPC_NETHER_BEAM, CorlaNetherDrakePos, TEMPSUMMON_MANUAL_DESPAWN))
                 beam->AI()->SetGUID(zealot->GetGUID(), 0);
         }
     }
@@ -1172,7 +1238,7 @@ private:
 
         Unit* target = zealot;
         float best = me->GetExactDist2d(zealot);
-        for (Player* player : PlayersNear(me, best + 2.0f))
+        for (Player* player : PlayersNear(me, best + 2.0f, PlayerRange::Planar))
         {
             float const dist = me->GetExactDist2d(player);
             if (dist >= best)
@@ -1438,7 +1504,7 @@ struct boss_coa_brc_beauty : public BossAI
     void SummonedCreatureDies(Creature* summon, Unit* killer) override
     {
         BossAI::SummonedCreatureDies(summon, killer);
-        if (summon->GetEntry() == NPC_RUNTY && me->IsAlive())
+        if (me->IsAlive() && !me->HasAura(SPELL_BERSERK))
             DoCastSelf(SPELL_BERSERK, true);
     }
 
@@ -1628,6 +1694,21 @@ struct boss_coa_brc_obsidius : public BossAI
         for (ObjectGuid const& guid : summons)
             if (Creature* shadow = ObjectAccessor::GetCreature(*me, guid))
                 SetBound(shadow, false);
+        StopRazHeart(3s);
+    }
+
+    void StopRazHeart(Milliseconds delay)
+    {
+        me->m_Events.AddEventAtOffset([this]()
+        {
+            Creature* raz = instance->GetCreature(DATA_RAZ);
+            if (!raz || !raz->IsAlive())
+                return;
+            if (raz->IsInCombat())
+                StopRazHeart(1s);
+            else
+                DoCast(raz, SPELL_STOP_HEART, true);
+        }, delay);
     }
 
     void JustEngagedWith(Unit* who) override

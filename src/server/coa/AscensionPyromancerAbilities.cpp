@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionBattlegroundCombat.h"
 #include "AscensionPyromancer.h"
 #include "AscensionPyromancerData.h"
 #include "MotionMaster.h"
@@ -12,6 +13,7 @@
 #include "SpellMgr.h"
 #include "SpellScript.h"
 #include <algorithm>
+#include <cmath>
 namespace
 {
 using namespace AscensionPyromancer;
@@ -95,6 +97,11 @@ class pyromancer_spells : public AllSpellScript
         if (!player || info->SpellFamilyName != 30)
             return;
         Snapshot(player, spell);
+        if (info->Id == 503864 && State(player).aspectRemaining)
+        {
+            spell->SetScriptValue(504750, State(player).aspectRemaining);
+            State(player).aspectRemaining = 0;
+        }
         if (info->Id == 680369 && !spell->IsTriggered())
         {
             spell->SetScriptValue(680369, Count(player, FlamecastingAura));
@@ -201,9 +208,19 @@ class pyromancer_spells : public AllSpellScript
         uint32 id = info->Id;
         if (id == 503864)
         {
-            State(player).aspectDamage = damage;
-            if (damage && Chance(player, 520770))
-                Cast(player, player, 520927);
+            if (damage)
+            {
+                bool const old = State(player).event;
+                State(player).event = true;
+                if (player->HasAura(707479))
+                    Copy(player, player, 707595, CalculatePct(damage, Amount(707479)));
+                if (Chance(player, 520770))
+                    Cast(player, player, 520927);
+                if (uint64 const remaining = spell->GetScriptValue(504750);
+                    remaining && target->IsAlive() && Chance(player, 504750))
+                    AspectChain(player, target, damage, uint32(remaining - 1));
+                State(player).event = old;
+            }
             return;
         }
         if (Derived(info))
@@ -287,14 +304,14 @@ class pyromancer_spells : public AllSpellScript
                 if (tender)
                     for (Unit* ally : Allies(player, target, 10, sSpellMgr->GetSpellInfo(704274)->MaxAffectedTargets))
                         Copy(player, ally, 704274, CalculatePct(healing, Amount(tender->GetId())));
-                if (player->GetOwnedAura(806747, player->GetGUID()) && target->ToCreature() && AnyPet(target))
-                {
-                    SpellInfo const* fuel = sSpellMgr->GetSpellInfo(806749);
-                    for (Unit* ally :
-                         Allies(player, target, fuel->Effects[0].CalcRadius(player), fuel->MaxAffectedTargets))
-                        Cast(player, ally, 806749);
-                }
             }
+        }
+        if (Named(info, 800818) && spell->GetScriptHealingIncludingOverheal() &&
+            player->GetOwnedAura(806747, player->GetGUID()) && target->ToCreature() && AnyPet(target))
+        {
+            SpellInfo const* fuel = sSpellMgr->GetSpellInfo(806749);
+            for (Unit* ally : Allies(player, target, fuel->Effects[0].CalcRadius(player), fuel->MaxAffectedTargets))
+                Cast(player, ally, 806749);
         }
         if (id == 802120 && target != player && player->HasAura(807686))
             Mana(player, (player->GetMaxPower(POWER_MANA) - player->GetPower(POWER_MANA)) / 4);
@@ -415,7 +432,7 @@ class spell_ascension_pyromancer_ability : public SpellScript
                 Position position =
                     GetExplTargetDest() ? GetExplTargetDest()->GetPosition() : player->GetNearPosition(2, 0);
                 Summon(player, GetSpellInfo()->Effects[index].MiscValue, GetSpellInfo()->Effects[index].MiscValueB,
-                       position, std::max(0, GetSpellInfo()->GetDuration()));
+                       position, std::max(0, GetSpellInfo()->GetDuration()), GetSpellInfo()->Id);
             }
         }
         if (id == 520019 && GetHitUnit())
@@ -424,12 +441,22 @@ class spell_ascension_pyromancer_ability : public SpellScript
             Unit* target = GetHitUnit();
             uint64 total = 0;
             std::vector<uint32> consumed;
+            SpellInfo const* pyroclasm = sSpellMgr->GetSpellInfo(520826);
             for (auto const& pair : target->GetAppliedAuras())
             {
                 Aura* aura = pair.second->GetBase();
-                if (aura->GetCasterGUID() == player->GetGUID() && aura->GetSpellInfo()->SpellFamilyName == 30 &&
-                    aura->GetSpellInfo()->HasAura(SPELL_AURA_PERIODIC_DAMAGE))
-                    total += Remaining(aura), consumed.push_back(aura->GetId());
+                SpellInfo const* auraInfo = aura->GetSpellInfo();
+                if (aura->GetCasterGUID() == player->GetGUID() && auraInfo->SpellFamilyName == 30 &&
+                    auraInfo->HasAura(SPELL_AURA_PERIODIC_DAMAGE))
+                {
+                    uint64 remaining = Remaining(aura);
+                    if (remaining && (auraInfo->AscensionInheritsResolvedAmount ||
+                        (auraInfo->AscensionBattlegroundCatchUpSkip & BG_CATCH_UP_SKIP_DAMAGE) != 0))
+                        remaining = uint64(std::max<long long>(0, std::llround(double(remaining) *
+                            double(AscensionBattlegroundCombat::UnscaledFactor(player, target, pyroclasm, false)))));
+                    total += remaining;
+                    consumed.push_back(aura->GetId());
+                }
             }
             for (uint32 aura : consumed)
                 target->RemoveAurasDueToSpell(aura, player->GetGUID());

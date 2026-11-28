@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
 #include "AllSpellScript.h"
+#include "AscensionBattlegroundCombat.h"
 #include "CellImpl.h"
 #include "Containers.h"
 #include "CreatureScript.h"
@@ -24,6 +25,7 @@
 #include "UnitScript.h"
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <list>
 #include <string_view>
 #include <unordered_map>
@@ -564,6 +566,8 @@ class spell_ascension_mystic_shadow_of_death : public AuraScript
     }
 };
 
+constexpr std::array<uint32, 2> SHOCKWAVE_CASTS = { 46968, 1146968 };
+
 class spell_ascension_mystic_thundering_blow : public AuraScript
 {
     PrepareAuraScript(spell_ascension_mystic_thundering_blow);
@@ -597,8 +601,12 @@ class spell_ascension_mystic_thundering_blow : public AuraScript
         Unit* target = eventInfo.GetActionTarget();
         uint32 const school = aurEff->GetMiscValue() > 0 ? uint32(aurEff->GetMiscValue()) : uint32(SPELL_SCHOOL_MASK_NATURE);
         SpellNonMeleeDamage strike(caster, target, GetSpellInfo(), school);
-        caster->CalculateSpellDamageTaken(&strike, int32(CalculatePct(eventInfo.GetDamageInfo()->GetDamage(),
-            aurEff->GetAmount())), GetSpellInfo());
+        uint32 const rawDamage = CalculatePct(eventInfo.GetDamageInfo()->GetDamage(), aurEff->GetAmount());
+        float const factor = AscensionBattlegroundCombat::UnscaledFactor(caster, target, GetSpellInfo(), false);
+        int32 const strikeDamage = rawDamage && factor < 1.0f
+            ? std::max<int32>(1, int32(std::llround(double(rawDamage) * double(factor))))
+            : int32(rawDamage);
+        caster->CalculateSpellDamageTaken(&strike, strikeDamage, GetSpellInfo());
         Unit::DealDamageMods(target, strike.damage, &strike.absorb);
         caster->SendSpellNonMeleeDamageLog(&strike);
         caster->DealSpellDamage(&strike, true);
@@ -615,7 +623,12 @@ class spell_ascension_mystic_thundering_blow : public AuraScript
         if (_reduced >= THUNDERING_BLOW_MAX_CDR_MS)
             return;
         _reduced += THUNDERING_BLOW_CDR_MS;
-        player->ModifySpellCooldown(shockwave->GetSpellInfo()->Id, -THUNDERING_BLOW_CDR_MS);
+        uint32 cooldownSpell = shockwave->GetSpellInfo()->Id;
+        if (!player->HasSpellCooldown(cooldownSpell))
+            for (uint32 id : SHOCKWAVE_CASTS)
+                if (player->HasSpellCooldown(id))
+                    cooldownSpell = id;
+        player->ModifySpellCooldown(cooldownSpell, -THUNDERING_BLOW_CDR_MS);
     }
 
     void Register() override

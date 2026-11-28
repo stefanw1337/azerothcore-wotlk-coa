@@ -42,6 +42,7 @@
 #include "ScriptedGossip.h"
 #include "SpellMgr.h"
 #include "TemporarySummon.h"
+#include "World.h"
 #include "WorldSession.h"
 
 #include <algorithm>
@@ -61,6 +62,7 @@
 #include "AscensionSpellProgressionData.h"
 #include "AscensionTalentReplacementData.h"
 #include "CoASpellbook.h"
+#include "AscensionTrainerProficiency.h"
 #include "SpellbookCostData.h"
 #include "SpellbookOfferData.h"
 #include "SpellbookRankData.h"
@@ -141,7 +143,7 @@ namespace
 
     void RememberLearned(Player *player, uint32 spellId)
     {
-        if (!player->HasSpell(spellId) || PreviouslyLearned(player, spellId))
+        if (PreviouslyLearned(player, spellId))
             return;
         PlayerSettingVector const *values = player->FindPlayerSettings(PURCHASED_RANKS_KEY);
         uint32 const count = values && !values->empty()
@@ -279,13 +281,16 @@ namespace
         std::vector<std::pair<uint8, uint32>> classes = { { uint8(player->getClass()), ActiveSpec(player) } };
         for (auto const &extra : CoASpellbook::ExtraClassesOf(player))
             classes.emplace_back(extra);
+        uint32 const maxPlayerLevel = sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL);
 
         for (auto const &[classId, spec] : classes)
         {
-            auto add = [&rows, classId, windowView, player, spec](uint32 spellId, uint8 requiredLevel,
+            auto add = [&rows, classId, windowView, player, spec, maxPlayerLevel](uint32 spellId, uint8 requiredLevel,
                                                     uint32 requiredAbility)
             {
                 if (!spellId || !sSpellMgr->GetSpellInfo(spellId))
+                    return;
+                if (windowView && requiredLevel > maxPlayerLevel)
                     return;
                 if (!AscensionFelsworn::CanLearnRift(player, spellId))
                     return;
@@ -305,6 +310,11 @@ namespace
                 // upgrades are listed, so the window cannot sell back a spell the conversion
                 // just took off the bars.
                 if (windowView && ReplacedByEchoOfNozdormu(player, spellId))
+                    return;
+
+                // A spell a talent currently replaces is held under its replacement, which the
+                // client's own spellbook shows instead, so it would draw the row as learnable.
+                if (windowView && AscensionTrainerProficiency::ReplacedByTalent(player, spellId))
                     return;
 
                 if (windowView && !CanLearnTalentReplacement(player, spellId))
@@ -570,7 +580,8 @@ namespace
         if (!player || !IsAscensionClass(player->getClass()))
             return;
         for (Row const &row : BuildRows(player, false))
-            RememberLearned(player, row.SpellId);
+            if (player->HasSpell(row.SpellId))
+                RememberLearned(player, row.SpellId);
     }
 
     void RestoreBookRanks(Player *player, Creature *book)
@@ -637,6 +648,15 @@ namespace
         return false;
     }
 
+    bool ExceedsMaxPlayerLevel(Player *player, uint32 spellId)
+    {
+        uint32 const maxPlayerLevel = sWorld->getIntConfig(CONFIG_MAX_PLAYER_LEVEL);
+        for (Row const &row : BuildRows(player, false))
+            if (row.SpellId == spellId)
+                return row.RequiredLevel > maxPlayerLevel;
+        return false;
+    }
+
     /// A purchase from the window. Returns true when the packet belonged to a book, whether
     /// or not the ability was granted.
     bool HandlePurchase(Player *player, WorldPacket const &packet)
@@ -671,8 +691,10 @@ namespace
             if (!AscensionFelsworn::CanLearnRift(player, wanted) ||
                 !CanLearnTalentReplacement(player, wanted) ||
                 ReplacedByEchoOfNozdormu(player, wanted) ||
+                AscensionTrainerProficiency::ReplacedByTalent(player, wanted) ||
                 IsTreeSpell(uint32(player->getClass()), wanted) ||
                 HasRankOrBetter(player, wanted) ||
+                ExceedsMaxPlayerLevel(player, wanted) ||
                 (player->getClass() == CLASS_GUARDIAN && AscensionGuardian::Ballad(wanted)))
             {
                 WorldPacket failed(SMSG_TRAINER_BUY_FAILED);
@@ -874,7 +896,7 @@ public:
                                                  bool sent) override
     {
         if (sent)
-            SpellbookNotify::Push(player, replacement);
+            SpellbookNotify::Unmute(player, replacement);
         else
             SpellbookNotify::Mute(player, replacement);
     }
@@ -929,7 +951,7 @@ class spellbook_purchased_ranks final : public PlayerScript
 {
 public:
     spellbook_purchased_ranks() : PlayerScript("spellbook_purchased_ranks",
-        {PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_LEARN_TRAINER_SPELL,
+        {PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_LEARN_TRAINER_SPELL, PLAYERHOOK_ON_FORGOT_SPELL,
             PLAYERHOOK_ON_BEFORE_TEMP_SUMMON_INIT_STATS}) { }
 
     void OnPlayerLogin(Player *player) override
@@ -940,8 +962,43 @@ public:
     void OnPlayerLearnTrainerSpell(Player *player, Creature *trainer, uint32 spellId) override
     {
         if (player && IsAscensionClass(player->getClass()) && IsBook(trainer) &&
-            Spellbook::OffersSpell(player, spellId))
+            player->HasSpell(spellId) && Spellbook::OffersSpell(player, spellId))
             RememberLearned(player, spellId);
+    }
+
+    static uint8 SpecsHolding(Player const *player, uint32 spellId)
+    {
+        PlayerSpellMap const &spells = player->GetSpellMap();
+        auto const itr = spells.find(spellId);
+        if (itr == spells.end() || itr->second->State == PLAYERSPELL_REMOVED)
+            return 0;
+        return itr->second->specMask;
+    }
+
+    // The ranks in SpellbookRankData.h have no spell_ranks rows, so Player::removeSpell's
+    // chain walk does not take them with the rank they require. They are remembered first,
+    // so the book gives them back for free once that rank returns. Only the specs that no
+    // longer hold the required rank lose them.
+    void OnPlayerForgotSpell(Player *player, uint32 spellId) override
+    {
+        if (!player || !IsAscensionClass(player->getClass()))
+            return;
+        uint8 const lostSpecs = uint8(SPEC_MASK_ALL & ~SpecsHolding(player, spellId));
+        if (!lostSpecs)
+            return;
+
+        for (SpellbookRankData::Rank const &rank : SpellbookRankData::Ranks)
+        {
+            if (rank.ClassId != player->getClass() || rank.RequiredSpellId != spellId)
+                continue;
+
+            uint8 const affectedSpecs = SpecsHolding(player, rank.SpellId) & lostSpecs;
+            if (!affectedSpecs)
+                continue;
+
+            RememberLearned(player, rank.SpellId);
+            player->removeSpell(rank.SpellId, affectedSpecs, false);
+        }
     }
 
     void OnPlayerBeforeTempSummonInitStats(Player *player, TempSummon *summon, uint32 & /*duration*/) override

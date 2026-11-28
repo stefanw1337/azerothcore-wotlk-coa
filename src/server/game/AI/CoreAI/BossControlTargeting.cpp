@@ -28,8 +28,21 @@ namespace
     // Doctor Theolen Krastinov's Ghoulish Potion picks a damage dealer, but its splash still reaches anyone near them.
     constexpr uint32 SPELL_KRASTINOV_GHOULISH_POTION = 92624;
 
-    // On Ascension, Archmage Arugal's curses still take tanks and healers.
+    // On Ascension, Archmage Arugal's curses still take tanks and healers, but never a player who fights him alone.
     constexpr uint32 NPC_ARCHMAGE_ARUGAL = 4275;
+
+    bool IsArchmageArugal(Unit const* caster)
+    {
+        return caster->GetEntry() == NPC_ARCHMAGE_ARUGAL;
+    }
+
+    // Magister Kalendris' Dominate Mind would leave a lone player's fight with nobody to hold him, so he evades.
+    constexpr uint32 NPC_MAGISTER_KALENDRIS = 11487;
+
+    bool IsMagisterKalendris(Unit const* caster)
+    {
+        return caster->GetEntry() == NPC_MAGISTER_KALENDRIS;
+    }
 }
 
 bool BossControl::IsControlSpell(SpellInfo const* spellInfo)
@@ -60,7 +73,7 @@ bool BossControl::IsControlSpell(SpellInfo const* spellInfo)
 bool BossControl::Applies(Unit const* caster, SpellInfo const* spellInfo)
 {
     Creature const* boss = caster ? caster->ToCreature() : nullptr;
-    if (!boss || !boss->IsDungeonBoss() || boss->GetEntry() == NPC_ARCHMAGE_ARUGAL)
+    if (!boss || !boss->IsDungeonBoss())
         return false;
 
     Map const* map = caster->FindMap();
@@ -97,12 +110,28 @@ namespace
 
         return false;
     }
+
+    bool HasSeveralEngagedPlayers(Unit const* caster)
+    {
+        uint32 players = 0;
+        for (ThreatReference const* ref : caster->GetThreatMgr().GetUnsortedThreatList())
+            if (!ref->IsOffline() && ref->GetVictim()->IsPlayer() && ++players > 1)
+                return true;
+
+        return false;
+    }
 }
 
 bool BossControl::Forbids(Unit const* caster, Unit const* target, SpellInfo const* spellInfo)
 {
     if (!target || !Applies(caster, spellInfo))
         return false;
+
+    if (IsArchmageArugal(caster))
+        return !HasSeveralEngagedPlayers(caster);
+
+    if (IsMagisterKalendris(caster) && !HasSeveralEngagedPlayers(caster))
+        return true;
 
     if (IsProtectedTarget(target))
         return true;
@@ -117,6 +146,12 @@ bool BossControl::ForbidsCast(Unit const* caster, Unit const* explicitTarget, Sp
 
     if (explicitTarget && explicitTarget != caster)
         return Forbids(caster, explicitTarget, spellInfo);
+
+    if (IsArchmageArugal(caster))
+        return !HasSeveralEngagedPlayers(caster);
+
+    if (IsMagisterKalendris(caster) && !HasSeveralEngagedPlayers(caster))
+        return true;
 
     return !HasEngagedUnprotectedPlayer(caster);
 }

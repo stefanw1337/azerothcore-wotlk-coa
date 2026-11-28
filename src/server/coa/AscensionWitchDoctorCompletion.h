@@ -64,8 +64,7 @@ enum DoctorSpells : uint32
     OverflowingJuju = 707405,
     DarkIncantation = 525377,
     Puppets = 500015,
-    PuppetHit = 801797,
-    PuppetVisual = 802745,
+    PuppetHit = 802745,
     Threads = 572836,
     ThreadsDamage = 572837,
     ThreadsSnap = 572838,
@@ -95,6 +94,8 @@ enum DoctorSpells : uint32
     TrueSpiritReady = 681233,
     SpiritHunting = 707504,
     Traditionalist = 503707,
+    JujuInjection = 503608,
+    JujuInjectionTwo = 503609,
     SpiritWarden = 503774,
     SpiritWardenBuff = 503775,
     Hexplosion = 704495,
@@ -107,6 +108,7 @@ enum DoctorSpells : uint32
     MojoMadness = 705871,
     MojoFree = 503693,
     Unleashed = 705901,
+    UnleashedCooldown = 504607,
     MaliciousGolems = 705912,
     GolemHaste = 705913,
     HollowSpirit = 705917,
@@ -172,6 +174,8 @@ enum DoctorSpells : uint32
     FishField = 803269,
     BonesField = 803697,
     ThistleField = 802771,
+    PotentMixes = 503748,
+    PotentMixesGreater = 504888,
     PotionShrooms = 802973,
     PotionFish = 802969,
     PotionBones = 802971,
@@ -243,8 +247,10 @@ enum DoctorSpells : uint32
     CursedField = 506820,
     Mimic = 707162,
     ChosenOne = 503742,
+    Seeker = 705880,
     MojoHigh = 706488,
     WarGolem = 800330,
+    GolemsVigilCut = 707333,
     StasisWard = 801678,
     Stasis = 801677,
     BigVoodoo = 802719,
@@ -398,6 +404,7 @@ std::list<Unit*> Nearby(Unit* center, float range);
 std::list<Unit*> Allies(Player* player, Unit* center, float range, uint32 cap = 0);
 bool Friendly(Player* player, Unit* target);
 int32 Amount(uint32 id, uint8 effect = 0, Unit* caster = nullptr);
+float Radius(uint32 id, uint8 effect = 0);
 void Cast(Unit* caster, Unit* target, uint32 id);
 void Copy(Unit* caster, Unit* target, uint32 id, uint32 amount);
 uint8 Spirits(Player* player);

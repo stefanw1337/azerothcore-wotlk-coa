@@ -55,10 +55,11 @@ CoA.LevelBoostNpc.RuneOfDescensionReward = 2000000
 # Log each consumed extension packet during protocol discovery.
 CoA.LogConsumedPackets = 1
 
-# Realm Bound Bazaar Tokens from the Elite Warchest (2977351). The 1500 Bazaar Tokens (975001) it holds are
-# counted as a per-account reserve: purchases use the reserve first, and tokens can only be traded, mailed to
-# another account, auctioned or put in a guild bank while the account keeps at least the reserve. Mail between
-# the account's own characters is free. Farmed tokens above the reserve stay tradeable.
+# Realm Bound Bazaar Tokens from the Elite Warchest (2977351) and the Daily Login Reward. The 1500 Bazaar Tokens
+# (975001) the warchest holds and the reward's tokens are counted as a per-account reserve: purchases use the
+# reserve first, and tokens can only be traded, mailed to another account, auctioned or put in a guild bank while
+# the account keeps at least the reserve. Mail between the account's own characters is free. Refunded tokens come
+# back into the reserve. Farmed tokens above the reserve stay tradeable.
 CoA.BazaarTokens.WarchestRealmBound = 1
 
 CoA.BazaarTokens.HourlyCap.Amount = 0
@@ -414,6 +415,51 @@ HighRisk.ResourceChance = 50
 HighRisk.GoldChance = 50
 
 ###################################################################################################
+# BATTLEGROUND BRACKETS
+#
+#    CoA.Battleground.WideBrackets.Enable
+#        Description: Merge the stock ten-level battleground brackets below level 60 into the wider
+#                     brackets of CoA.Battleground.WideBrackets.Ranges. Arenas and the brackets from
+#                     level 60 up keep their stock ranges. Read at startup only.
+#        Default:     1 - (Enabled)
+#                     0 - (Disabled, stock brackets)
+
+CoA.Battleground.WideBrackets.Enable = 1
+
+#    CoA.Battleground.WideBrackets.Ranges
+#        Description: Comma-separated, ascending level ranges between 1 and 59. Each range must hold
+#                     whole stock brackets (10-19, 20-29, ...) and keep the same lead bracket on every
+#                     battleground. An invalid value logs an error and keeps the stock brackets. Read at
+#                     startup only.
+#        Default:     "10-29,30-49,50-59"
+
+CoA.Battleground.WideBrackets.Ranges = "10-29,30-49,50-59"
+
+#    CoA.Battleground.WideBrackets.MaxLiftLevels
+#        Description: Most levels the health lift and output scaling bridge for a player or pet below the
+#                     bracket top. Combat rolls still use the bracket top. Read at startup only.
+#        Default:     0 - (No cap)
+#                     N - (Lift to at most own level + N)
+
+CoA.Battleground.WideBrackets.MaxLiftLevels = 0
+
+#    CoA.Battleground.WideBrackets.GearCatchUp.Enable
+#        Description: Compensate missing gear Health and Armor for lifted players below the bracket
+#                     top up to a green-gear reference budget scaled by the level gap. Read at startup
+#                     only.
+#        Default:     1 - (Enabled)
+#                     0 - (Disabled)
+
+CoA.Battleground.WideBrackets.GearCatchUp.Enable = 1
+
+#    CoA.Battleground.WideBrackets.GearCatchUp.Scale
+#        Description: Multiplier applied to the reference gear Health and Armor budgets used for
+#                     wide-bracket defensive equipment catch-up. Read at startup only.
+#        Default:     1.0
+
+CoA.Battleground.WideBrackets.GearCatchUp.Scale = 1.0
+
+###################################################################################################
 # RATED SOLO ARENA
 #
 #    RatedSoloArena.RoleBalanceWaitSeconds
@@ -511,6 +557,17 @@ Ascension.PvPVendors.ReleaseStage = 1
 
 HighRisk.FelCommutation.Enable = 0
 
+#    HighRisk.FelCommutation.InsureAllSlotsByDefault
+#        Description: Fel Commutation is always on and every character starts with all equipment slots
+#                     insured (all but shirt and tabard). Players remove or re-add slots in the Fel
+#                     Commutation window; using the portal only opens the window. Each character gets all
+#                     slots once. When Fel Commutation or this setting is turned off, those characters are
+#                     reset to no slots.
+#        Default:     1 - (Enabled)
+#                     0 - (Disabled)
+
+HighRisk.FelCommutation.InsureAllSlotsByDefault = 1
+
 #    HighRisk.FelCommutation.FeeMultiplier
 #        Description: Multiplier applied to the fee. The fee is one amount per death, as the client shows it:
 #                     the whole average equipped item level times the client's rate band for that level, plus
@@ -543,6 +600,7 @@ HighRisk.FelCommutation.ToggleAnywhere = 0
 #                     Fel Commutation for all equipped gear. Using the portal only opens or closes the
 #                     window. The original client still sends the switch itself when the portal is used
 #                     (its Extensions.dll raises GAMEOBJECT_USED and its Lua sends the switch packet).
+#                     Not shown while HighRisk.FelCommutation.InsureAllSlotsByDefault = 1.
 #        Default:     0 - (Disabled)
 #                     1 - (Enabled)
 
@@ -633,9 +691,9 @@ Bloodforged.EliteHeroicUpgradePercent = 2.5
 #                     High-Risk release stage 0-8 (HighRisk.ReleaseStage). The lowest allowed
 #                     value is 57, the lowest item level of the level 60 blue items: a lower value is
 #                     raised to 57 and logged. Raid gear of released raids is not limited by it.
-#        Default:     "57 57 57 57 57 57 57 57 57"
+#        Default:     "60 60 60 60 60 60 60 60 60"
 
-Bloodforged.BlueMaxItemLevelByStage = "57 57 57 57 57 57 57 57 57"
+Bloodforged.BlueMaxItemLevelByStage = "60 60 60 60 60 60 60 60 60"
 
 #    Bloodforged.EpicMaxItemLevelByStage
 #        Description: Highest item level of an epic Bloodforged item that drops, one value per
@@ -740,16 +798,25 @@ Bloodforged.EndgameRareMinRequiredLevel = 60
 #    Bloodforged.RareHiddenCachePercent
 #    Bloodforged.EpicHiddenCachePercent
 #        Description: High-Risk Hidden Caches (loot 9670 / 9671 / 9672, opened with an Ephemeral Key) add
-#                     Bloodforged items that require level 60 within the stage cap. A Hidden Cache always
-#                     gives one rare (blue) item. A Rare Hidden Cache always gives one epic and has the
-#                     two percent chances for a Heroic Bloodforged item and for raid gear of a released
-#                     raid. An Epic Hidden Cache always gives one raid item of a released raid (an epic
-#                     before any raid is released) and one epic; the two percent chances are for the raid
-#                     item to be its Heroic copy and for the epic to be a Heroic Bloodforged item.
+#                     Bloodforged items within the stage cap. A Hidden Cache always gives one rare (blue)
+#                     item that requires level Bloodforged.HiddenCacheBlueMinRequiredLevel to 60; the other
+#                     caches give items that require level 60. A Rare Hidden Cache always gives one epic
+#                     and has the two percent chances for a Heroic Bloodforged item and for raid gear of a
+#                     released raid. An Epic Hidden Cache always gives one raid item of a released raid (an
+#                     epic before any raid is released) and one epic; the two percent chances are for the
+#                     raid item to be its Heroic copy and for the epic to be a Heroic Bloodforged item.
 #        Default:     "15 5", "5 15"
 
 Bloodforged.RareHiddenCachePercent = "15 5"
 Bloodforged.EpicHiddenCachePercent = "5 15"
+
+#    Bloodforged.HiddenCacheBlueMinRequiredLevel
+#        Description: Lowest required level of the rare (blue) Bloodforged item a Hidden Cache (loot 9670)
+#                     gives; the item requires this level up to 60 and stays within
+#                     Bloodforged.BlueMaxItemLevelByStage. Values above 60 count as 60.
+#        Default:     55
+
+Bloodforged.HiddenCacheBlueMinRequiredLevel = 55
 
 #    Bloodforged.EphemeralKeyPercent
 #        Description: Percent chance for an Ephemeral Key (967680, opens a Hidden Cache) from a creature
@@ -1125,6 +1192,16 @@ CrowsCache.GoldenMarksOfWar = "10 10"
 #        Default:     400
 
 CrowsCache.BazaarTokens = 400
+
+#
+#    CrowsCache.WallRange
+#        Description: Yards around a Crow's Cache (chest, carrier or dropped cache) in which a
+#                     Mercenary for Hire! player and a player without it cannot attack, heal or
+#                     buff each other, also when grouped. Applies when either of the two is in range.
+#                     0 = no wall. Maximum 500.
+#        Default:     100
+
+CrowsCache.WallRange = 100
 CrowsCache.X = -7831
 CrowsCache.Y = -3465
 CrowsCache.Z = 56.87
@@ -1163,3 +1240,13 @@ PortableSession.Enable = 0
 # How long a portable character is held at login until the Manager has captured its baseline.
 # A character that is not released in time is disconnected; it never plays before the baseline exists. 1-600.
 PortableSession.GateTimeoutSeconds = 30
+
+CoA.ChatLog.Enable = 0
+CoA.ChatLog.KeepDays = 30
+# Most rows held in memory while the character database writes earlier ones. Rows beyond it are not logged,
+# and the worldserver log reports how many once a minute; chat itself is never held back.
+CoA.ChatLog.MaxPendingRows = 20000
+# Channel names, and starts of channel messages in any channel, the chat log skips (separated by spaces).
+# The defaults are the data channels and messages of addons such as LootCollector, Questie and pfQuest.
+CoA.ChatLog.IgnoreChannels = "BBLC25C KLCE25C questiecomm FSK FSK-EVT xtensionxtooltip2 ConquestFinder JohnnysAddons CoARUru ALCSync K_LFGForwarder2IIll"
+CoA.ChatLog.IgnoreChannelMessagesStartingWith = "LC1: LCPOI1: LCR1 LCRD1 LCS3; PFQ6: DCOAS3; DCOAL31; DCOAR2"

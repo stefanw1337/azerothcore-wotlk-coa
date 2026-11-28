@@ -622,6 +622,11 @@ Spell::Spell(Unit* caster, SpellInfo const* info, TriggerCastFlags triggerFlags,
             if (Item* pItem = m_caster->ToPlayer()->GetWeaponForAttack(RANGED_ATTACK))
                 m_spellSchoolMask = SpellSchoolMask(1 << pItem->GetTemplate()->Damage[0].DamageType);
 
+    // Ascension's school-change modifier ("your next Lightning Bolt deals Froststorm damage")
+    if (Player* modOwner = m_caster->GetSpellModOwner())
+        if (SpellSchoolMask school = modOwner->GetAscensionSchoolOverride(m_spellInfo, this))
+            m_spellSchoolMask = school;
+
     if (originalCasterGUID)
         m_originalCasterGUID = originalCasterGUID;
     else
@@ -1313,6 +1318,8 @@ void Spell::SelectImplicitConeTargets(SpellEffIndex effIndex, SpellImplicitTarge
             if (uint32 maxTargets = m_spellValue->MaxAffectedTargets)
             {
                 maxTargets += m_caster->GetTotalAuraModifierByAffectMask(SPELL_AURA_MOD_MAX_AFFECTED_TARGETS, m_spellInfo);
+                if (Player* modOwner = m_caster->GetSpellModOwner())
+                    modOwner->ApplySpellMod(m_spellInfo->Id, SPELLMOD_MAX_TARGETS, maxTargets, this);
                 Acore::Containers::RandomResize(targets, maxTargets);
             }
 
@@ -1407,6 +1414,8 @@ void Spell::SelectImplicitAreaTargets(SpellEffIndex effIndex, SpellImplicitTarge
         if (uint32 maxTargets = m_spellValue->MaxAffectedTargets)
         {
             maxTargets += m_caster->GetTotalAuraModifierByAffectMask(SPELL_AURA_MOD_MAX_AFFECTED_TARGETS, m_spellInfo);
+            if (Player* modOwner = m_caster->GetSpellModOwner())
+                modOwner->ApplySpellMod(m_spellInfo->Id, SPELLMOD_MAX_TARGETS, maxTargets, this);
             Acore::Containers::RandomResize(targets, maxTargets);
         }
 
@@ -2225,6 +2234,9 @@ void Spell::SearchChainTargets(std::list<WorldObject*>& targets, uint32 chainTar
     // per-spell override from spell_jump_distance table
     if (m_spellInfo->JumpDistance > 0.0f)
         jumpRadius = m_spellInfo->JumpDistance;
+
+    if (Player* modOwner = m_caster->GetSpellModOwner())
+        modOwner->ApplySpellMod(m_spellInfo->Id, SPELLMOD_JUMP_DISTANCE, jumpRadius, this);
 
     // chain lightning/heal spells and similar - allow to jump at larger distance and go out of los
     bool isBouncingFar = (m_spellInfo->HasAttribute(SPELL_ATTR4_BOUNCY_CHAIN_MISSILES)
@@ -6195,9 +6207,38 @@ SpellCastResult Spell::CheckCast(bool strict, uint32* /*param1*/, uint32* /*para
     // Divine Charge explicitly permits its recipients to cast on the finite steed.
     bool divineSteed = m_caster->IsOnDivineSteed();
     bool tinkerMechsuitConsumable = m_CastItem && m_CastItem->GetTemplate()->Class == ITEM_CLASS_CONSUMABLE;
-    bool tinkerMechsuit = m_caster->IsPlayer() && m_caster->getClass() == CLASS_TINKER &&
-        (m_spellInfo->SpellFamilyName == 34 || tinkerMechsuitConsumable) && !m_caster->IsInFlight() &&
-        m_caster->HasAura(801384, m_caster->GetGUID()) && m_caster->HasAura(803451, m_caster->GetGUID());
+    bool const inTinkerMechsuit = m_caster->IsPlayer() && m_caster->ToPlayer()->IsInTinkerMechsuit();
+    bool tinkerMechsuitRacial = false;
+    if (inTinkerMechsuit && m_spellInfo->SpellFamilyName != 34 && !tinkerMechsuitConsumable)
+    {
+        SkillLineAbilityMapBounds bounds = sSpellMgr->GetSkillLineAbilityMapBounds(m_spellInfo->Id);
+        for (SkillLineAbilityMap::const_iterator itr = bounds.first; itr != bounds.second; ++itr)
+        {
+            switch (itr->second->SkillLine)
+            {
+                case SKILL_RACIAL_HUMAN:
+                case SKILL_ORC_RACIAL:
+                case SKILL_RACIAL_DWARVEN:
+                case SKILL_RACIAL_NIGHT_ELF:
+                case SKILL_RACIAL_UNDED:
+                case SKILL_RACIAL_TAUREN:
+                case SKILL_RACIAL_GNOME:
+                case SKILL_RACIAL_TROLL:
+                case SKILL_RACIAL_BLOODELF:
+                case SKILL_RACIAL_DRAENEI:
+                case 11125:
+                case 11760:
+                    tinkerMechsuitRacial = true;
+                    break;
+                default:
+                    break;
+            }
+            if (tinkerMechsuitRacial)
+                break;
+        }
+    }
+    bool tinkerMechsuit = inTinkerMechsuit &&
+        (m_spellInfo->SpellFamilyName == 34 || tinkerMechsuitConsumable || tinkerMechsuitRacial);
     if (m_caster->IsMounted() && m_caster->IsPlayer() && !HasTriggeredCastFlag(TRIGGERED_IGNORE_CASTER_MOUNTED_OR_ON_VEHICLE) &&
             !m_spellInfo->IsPassive() && !m_spellInfo->HasAttribute(SPELL_ATTR0_ALLOW_WHILE_MOUNTED) && !divineSteed &&
             !tinkerMechsuit &&
@@ -6398,7 +6439,7 @@ SpellCastResult Spell::CheckCast(bool strict, uint32* /*param1*/, uint32* /*para
                     // Can be area effect, Check only for players and not check if target - caster (spell can have multiply drain/burn effects)
                     if (m_caster->IsPlayer())
                         if (Unit* target = m_targets.GetUnitTarget())
-                            if (target != m_caster && !target->HasActivePowerType(Powers(m_spellInfo->Effects[i].MiscValue)))
+                            if (target != m_caster && !target->CanLosePowerToSpell(Powers(m_spellInfo->Effects[i].MiscValue)))
                                 return SPELL_FAILED_BAD_TARGETS;
                     break;
                 }
@@ -6534,7 +6575,9 @@ SpellCastResult Spell::CheckCast(bool strict, uint32* /*param1*/, uint32* /*para
                     if (GameObject* go = m_targets.GetGOTarget())
                     {
                         lockId = go->GetGOInfo()->GetLockId();
-                        if (!lockId && go->GetGoType() != GAMEOBJECT_TYPE_DOOR)
+                        if (!lockId && ((go->GetGoType() != GAMEOBJECT_TYPE_DOOR &&
+                            go->GetGoType() != GAMEOBJECT_TYPE_BUTTON) ||
+                            go->HasGameObjectFlag(GO_FLAG_NOT_SELECTABLE)))
                             return SPELL_FAILED_BAD_TARGETS;
                     }
                     else if (Item* itm = m_targets.GetItemTarget())
@@ -6946,7 +6989,7 @@ SpellCastResult Spell::CheckCast(bool strict, uint32* /*param1*/, uint32* /*para
                     if (!m_targets.GetUnitTarget())
                         return SPELL_FAILED_BAD_IMPLICIT_TARGETS;
 
-                    if (!m_targets.GetUnitTarget()->HasActivePowerType(POWER_MANA))
+                    if (!m_targets.GetUnitTarget()->CanLosePowerToSpell(POWER_MANA))
                         return SPELL_FAILED_BAD_TARGETS;
 
                     break;
@@ -7103,7 +7146,8 @@ SpellCastResult Spell::CheckCasterAuras(bool preventionOnly) const
         }
         // immune movement impairment and loss of control
         //         PVP trinket                   Ascension PVP trinket            EMFH                   TOC PVP trinket               Bullheaded                  Bestial Wrath             // Beath Within         // Medalion of Immunity
-        if (m_spellInfo->Id == 42292 || m_spellInfo->Id == 1142292 || m_spellInfo->Id == 59752 || m_spellInfo->Id == 65547 || m_spellInfo->Id == 53490 || m_spellInfo->Id == 19574 || m_spellInfo->Id == 34471 || m_spellInfo->Id == 46227)
+        if (m_spellInfo->Id == 42292 || m_spellInfo->Id == 1142292 || m_spellInfo->Id == 59752 || m_spellInfo->Id == 65547 || m_spellInfo->Id == 53490 || m_spellInfo->Id == 19574 || m_spellInfo->Id == 34471 || m_spellInfo->Id == 46227 ||
+            sSpellMgr->GetSpellTwinSource(m_spellInfo->Id) == 19574)
             mechanic_immune = IMMUNE_TO_MOVEMENT_IMPAIRMENT_AND_LOSS_CONTROL_MASK;
     }
 
@@ -7111,7 +7155,7 @@ SpellCastResult Spell::CheckCasterAuras(bool preventionOnly) const
 
     // Glyph of Pain Suppression
     // there is no other way to handle it
-    if (m_spellInfo->Id == 33206 && !m_caster->HasAuraOrTwin(63248))
+    if (sSpellMgr->GetSpellTwinSource(m_spellInfo->Id) == 33206 && !m_caster->HasAuraOrTwin(63248))
         usableInStun = false;
 
     // Check whether the cast should be prevented by any state you might have.

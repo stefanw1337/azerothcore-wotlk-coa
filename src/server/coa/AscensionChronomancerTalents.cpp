@@ -42,10 +42,13 @@ enum ChronomancerTalentSpells : uint32
     SPELL_DESTABILIZE_TIME_SLOW = 570761,
     SPELL_THE_VAST_INFINITE = 706083,
     SPELL_THE_VAST_INFINITE_SHARE = 707600,
-    SPELL_THE_VAST_INFINITE_HEAL = 707601
+    SPELL_THE_VAST_INFINITE_HEAL = 707601,
+    SPELL_DISCOVERY_STACK = 704197,
+    SPELL_DISCOVERY_CONSUME = 524963
 };
 
 constexpr uint32 TimeguardHeavyHitPercent = 20;
+constexpr uint8 DiscoveryEmpoweredStacks = 3;
 constexpr uint16 AscensionReduceRemainingCooldownPctEffect = 192;
 
 bool IsAeonActivation(uint32 id)
@@ -296,15 +299,47 @@ class spell_ascension_the_bieko_effect : public SpellScript
         int32 const spellId = GetSpellInfo()->Effects[effIndex].MiscValue;
         if (!player || spellId <= 0)
             return;
-        if (uint32 const remaining = player->GetSpellCooldownDelay(uint32(spellId)))
-            if (int32 const reduction = int32(CalculatePct(remaining, std::clamp(GetEffectValue(), 0, 100))))
-                ModifyAscensionCooldown(player, uint32(spellId), -reduction, false);
+        uint32 remaining = player->GetSpellCooldownDelay(uint32(spellId));
+        for (uint32 rankId = sSpellMgr->GetFirstSpellInChain(uint32(spellId)); rankId;
+            rankId = sSpellMgr->GetNextSpellInChain(rankId))
+            remaining = std::max(remaining, player->GetSpellCooldownDelay(rankId));
+        if (int32 const reduction = int32(CalculatePct(remaining, std::clamp(GetEffectValue(), 0, 100))))
+            ModifyAscensionCooldown(player, uint32(spellId), -reduction, false);
     }
 
     void Register() override
     {
         OnEffectHitTarget += SpellEffectFn(spell_ascension_the_bieko_effect::ReduceRemainingCooldown, EFFECT_ALL,
             AscensionReduceRemainingCooldownPctEffect);
+    }
+};
+
+class spell_ascension_discovery : public AuraScript
+{
+    PrepareAuraScript(spell_ascension_discovery);
+
+    bool Validate(SpellInfo const*) override
+    {
+        return ValidateSpellInfo({SPELL_DISCOVERY_STACK, SPELL_DISCOVERY_CONSUME});
+    }
+
+    bool HasEmpoweredDiscovery(AuraEffect const*, ProcEventInfo&)
+    {
+        Aura const* stacks = GetTarget()->GetAura(SPELL_DISCOVERY_STACK, GetTarget()->GetGUID());
+        return stacks && stacks->GetStackAmount() >= DiscoveryEmpoweredStacks;
+    }
+
+    void ConsumeDiscovery(AuraEffect const*, ProcEventInfo&)
+    {
+        GetTarget()->CastSpell(GetTarget(), SPELL_DISCOVERY_CONSUME, true);
+    }
+
+    void Register() override
+    {
+        DoCheckEffectProc += AuraCheckEffectProcFn(spell_ascension_discovery::HasEmpoweredDiscovery, EFFECT_1,
+            SPELL_AURA_PROC_TRIGGER_SPELL);
+        AfterEffectProc += AuraEffectProcFn(spell_ascension_discovery::ConsumeDiscovery, EFFECT_1,
+            SPELL_AURA_PROC_TRIGGER_SPELL);
     }
 };
 
@@ -514,4 +549,5 @@ void AddSC_AscensionChronomancerTalents()
     RegisterSpellScript(spell_ascension_timeguard);
     RegisterSpellScript(spell_ascension_the_bieko_effect);
     RegisterSpellScript(spell_ascension_the_vast_infinite);
+    RegisterSpellScript(spell_ascension_discovery);
 }

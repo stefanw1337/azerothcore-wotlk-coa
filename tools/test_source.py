@@ -54,10 +54,56 @@ class SourceSelectionTests(unittest.TestCase):
                  'apps/coa-gameplay-test/batch.py', 'apps/coa-gameplay-test/catalog.py',
                  'apps/coa-gameplay-test/verification.py', 'apps/coa-gameplay-test/world_cache.py',
                  'apps/coa-dbc/inspect_dbc.py', 'src/server/coa/AscensionSpellProgressionData.h',
+                 'src/server/coa/AscensionCustomClassData.h', 'src/server/coa/AscensionTaughtAbilityData.h',
                  'src/server/shared/SharedDefines.h']
         for path in paths:
             with self.subTest(path=path):
                 self.assertIn('conformance', check_source.select([path])['checks'])
+
+    def test_conformance_commands_include_extra_spells(self):
+        selection = check_source.select(['apps/coa-gameplay-test/conformance/extra_spells.py'])
+        self.assertIn(['apps/coa-gameplay-test/conformance/test_extra_spells.py'],
+                      check_source.commands_for(selection, 'HEAD'))
+
+    def test_conformance_selection_checks_every_finished_class_snapshot(self):
+        commands = check_source.commands_for(check_source.select(['apps/coa-gameplay-test/conformance/compare.py']),
+                                             'HEAD')
+        classes = [entry['class_id'] for entry in check_source.finished_classes()]
+        self.assertTrue({19, 23} <= set(classes))
+        for class_id in classes:
+            self.assertIn(['apps/coa-gameplay-test/conformance/snapshots.py', 'check', '--class', str(class_id)],
+                          commands)
+        self.assertIn(['apps/coa-gameplay-test/conformance/test_snapshots.py'], commands)
+        documentation = check_source.commands_for(check_source.select(['README.md']), 'HEAD')
+        self.assertFalse(any('snapshots.py' in part for command in documentation for part in command))
+
+    def test_shared_engine_files_print_the_rerun_of_every_finished_class(self):
+        self.assertIsNone(check_source.conformance_reruns(['src/server/coa/AscensionTemplar.cpp', 'README.md']))
+        reruns = check_source.conformance_reruns(['src/server/game/Spells/SpellEffects.cpp', 'README.md'])
+        self.assertEqual(reruns['engine_files'], ['src/server/game/Spells/SpellEffects.cpp'])
+        self.assertFalse(reruns['enforced'])
+        selections = {(entry['class_id'], entry['generation']): entry['commands'] for entry in reruns['classes']}
+        self.assertTrue({(19, 'all'), (19, 'stack'), (23, 'all')} <= set(selections))
+        self.assertIn('generate --class 19 --stack --out .cache/conformance/rerun-templar-stack',
+                      selections[(19, 'stack')][0])
+        self.assertIn('--stages build,gameplay --scenario .cache/conformance/rerun-necromancer-all/scenarios/*.json',
+                      selections[(23, 'all')][1])
+        self.assertIn('diff --before <count of record compare output>', selections[(23, 'all')][3])
+        self.assertIn('necromancer (23) all:', check_source.rerun_text(reruns))
+
+    def test_the_rerun_listing_reaches_the_json_result_without_failing_it(self):
+        output = io.StringIO()
+        errors = io.StringIO()
+        with patch.object(check_source, 'changed_paths', return_value=['src/server/game/Entities/Unit/Unit.cpp']), \
+                patch.object(check_source, 'reviewed_sources', return_value=set()), \
+                patch.object(check_source, 'execute', return_value=[
+                    {'command': ['tools/check_comments.py'], 'status': 'passed'}]), redirect_stdout(output), \
+                patch('sys.stderr', errors):
+            status = check_source.main([])
+        self.assertEqual(status, 0)
+        result = json.loads(output.getvalue())
+        self.assertEqual(result['conformance_reruns']['engine_files'], ['src/server/game/Entities/Unit/Unit.cpp'])
+        self.assertIn('Shared engine files changed', errors.getvalue())
 
     def test_new_or_deleted_module_sources_require_registration_check(self):
         for path in ['src/server/coa/AscensionExample.cpp',

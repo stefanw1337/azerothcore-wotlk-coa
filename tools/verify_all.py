@@ -478,6 +478,8 @@ def stage_source(context, log):
     failed = [command_text(result.get('command', [])[2:]) for result in results if result.get('status') != 'passed']
     summary = {'counts': {'passed': len(results) - len(failed), 'failed': len(failed)},
                'selected_suites': data.get('selected_suites', []), 'failed_commands': failed}
+    if data.get('conformance_reruns'):
+        summary['conformance_reruns'] = data['conformance_reruns']
     passed = outcome.returncode == 0 and data.get('status') == 'passed' and not failed
     return ('passed' if passed else 'failed'), summary
 
@@ -713,16 +715,21 @@ def reachable_sources(name, source, root):
     return texts
 
 
+def environment_value(environment, name):
+    if name in environment or not WINDOWS:
+        return environment.get(name)
+    folded = name.upper()
+    return next((value for key, value in environment.items() if key.upper() == folded), None)
+
+
 def compiler_problem(source, environment):
-    msvc = environment.get('VCToolsInstallDir') or (WINDOWS and any(
-        key.casefold() == 'vctoolsinstalldir' and value for key, value in environment.items()))
-    if 'VCToolsInstallDir' not in source or msvc:
+    if 'VCToolsInstallDir' not in source or environment_value(environment, 'VCToolsInstallDir'):
         return None
     fallback = MSVC_LOOKUP if WINDOWS else PORTABLE_COMPILER
     if MSVC_REQUIREMENT.search(source) and not fallback.search(source):
         return 'requires the MSVC toolchain (VCToolsInstallDir is unset)'
     if WINDOWS:
-        compiler = environment.get('CXX') or 'cl.exe'
+        compiler = environment_value(environment, 'CXX') or 'cl.exe'
         if find_program(compiler, environment) is None:
             return f'requires the MSVC toolchain or {compiler} on PATH (VCToolsInstallDir is unset)'
     return None
@@ -1008,7 +1015,8 @@ def gameplay_command(context):
     if context.world_databases:
         command.append(WORLD_DATABASE_FLAGS[context.world_databases])
     if context.scenarios:
-        command += ['--scenario', *context.scenarios]
+        inline = [*command, '--scenario', *context.scenarios]
+        command = inline if fits_command_line(inline) else [*command, f'@{scenario_list_path(context)}']
     else:
         skipped = inactive_module_scenarios(context)
         if skipped:
@@ -1016,10 +1024,25 @@ def gameplay_command(context):
     return [str(part) for part in command]
 
 
+def fits_command_line(command):
+    length = len(subprocess.list2cmdline([str(part) for part in command]))
+    return not WINDOWS or length + COMMAND_MARGIN <= WINDOWS_COMMAND_LIMIT
+
+
+def scenario_list_path(context):
+    return context.output / 'gameplay-scenarios.txt'
+
+
+def write_scenario_list(context, command):
+    if f'@{scenario_list_path(context)}' in command:
+        lines = ['--scenario', *context.scenarios]
+        scenario_list_path(context).write_text(''.join(f'{line}\n' for line in lines), encoding='utf-8')
+
+
 def check_command_length(context):
     if not (WINDOWS and 'gameplay' in context.stages and context.scenarios):
         return
-    if len(subprocess.list2cmdline(gameplay_command(context))) + COMMAND_MARGIN > WINDOWS_COMMAND_LIMIT:
+    if not fits_command_line(gameplay_command(context)):
         raise ValueError(f'The gameplay selection of {len(context.scenarios)} scenarios exceeds the Windows '
                          'command-line limit; narrow --scenario/--spell/--quest/--query or select the whole catalog')
 
@@ -1029,7 +1052,9 @@ def stage_gameplay(context, log):
     if missing or problems:
         return 'unavailable', {'reason': prerequisite_reason(missing, problems), 'missing': missing,
                                'problems': problems}
-    returncode = run_logged(gameplay_command(context), log, child_environment(context.environment), context.root)
+    command = gameplay_command(context)
+    write_scenario_list(context, command)
+    returncode = run_logged(command, log, child_environment(context.environment), context.root)
     report = context.output / 'gameplay' / 'gameplay.json'
     summary = {'returncode': returncode, 'report': str(report), 'selection': context.scenarios or 'all'}
     try:
@@ -1272,7 +1297,7 @@ def database_worker_count(value):
 
 
 def parser():
-    result = argparse.ArgumentParser(description=CLI_DESCRIPTION,
+    result = argparse.ArgumentParser(description=CLI_DESCRIPTION, fromfile_prefix_chars='@',
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     result.add_argument('--settings', type=Path, help=f'JSON settings file (default: {DEFAULT_SETTINGS})')
     result.add_argument('--stages', type=stage_list, default=list(STAGES), help='Comma list of stages to run')

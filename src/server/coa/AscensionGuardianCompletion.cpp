@@ -252,6 +252,9 @@ void AscensionGuardian::ApplyContracts(SpellInfo* info)
     uint32 id = info->Id;
     if (id == 802629)
         info->PowerType = POWER_ENERGY;
+    if (id == 504151 && info->Effects[EFFECT_1].ApplyAuraName == SPELL_AURA_PERIODIC_ENERGIZE &&
+        info->Effects[EFFECT_1].MiscValue == POWER_ENERGY)
+        info->Effects[EFFECT_1].ApplyAuraName = SPELL_AURA_OBS_MOD_POWER;
     if (id == 803738)
         for (auto& effect : info->Effects)
             if (effect.Effect == SPELL_EFFECT_TITAN_GRIP)
@@ -331,6 +334,7 @@ void AscensionGuardian::ApplyContracts(SpellInfo* info)
 
 void AddAscensionGuardianCompletionScripts()
 {
+    Ascension::ClientSpellPatches::Instance().Register(500266);
     Ascension::ClientSpellPatches::Instance().Register(500673);
     new guardian_scaling();
     RegisterSpellScript(aura_ascension_guardian_lifecycle);

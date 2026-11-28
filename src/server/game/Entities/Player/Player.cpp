@@ -2087,7 +2087,8 @@ void Player::Regenerate(Powers power)
     // Mana regen calculated in Player::UpdateManaRegen(), energy regen calculated in Player::UpdateEnergyRegen()
     if (power != POWER_MANA && power != POWER_ENERGY)
     {
-        addvalue *= GetTotalAuraMultiplierByMiscValue(SPELL_AURA_MOD_POWER_REGEN_PERCENT, power);
+        if (addvalue > 0.0f)
+            addvalue *= GetTotalAuraMultiplierByMiscValue(SPELL_AURA_MOD_POWER_REGEN_PERCENT, power);
 
         // Butchery requires combat for this effect
         if (power != POWER_RUNIC_POWER || IsInCombat())
@@ -2975,6 +2976,7 @@ void Player::SendInitialSpells()
     std::size_t countPos = data.wpos();
     data << uint16(spellCount);                             // spell count placeholder
 
+    std::unordered_set<uint32> listedSpells;
     for (PlayerSpellMap::const_iterator itr = m_spells.begin(); itr != m_spells.end(); ++itr)
     {
         if (itr->second->State == PLAYERSPELL_REMOVED)
@@ -2984,7 +2986,12 @@ void Player::SendInitialSpells()
             !itr->second->IsInSpec(GetActiveSpec()) || IsTemporarySpellReplacementStandIn(itr->first))
             continue;
 
-        data << uint32(GetTemporarySpellReplacement(itr->first));
+        // Several ranks of one spell can share a temporary replacement; the client lists each spell once.
+        uint32 const listed = GetTemporarySpellReplacement(itr->first);
+        if (!listedSpells.insert(listed).second)
+            continue;
+
+        data << uint32(listed);
         data << uint16(0);                                  // it's not slot id
 
         ++spellCount;
@@ -3362,8 +3369,9 @@ bool Player::addSpell(uint32 spellId, uint8 addSpecMask, bool updateActive, bool
                     }
                     else if (IsInWorld())
                     {
+                        // The client holds a rank shown as its temporary replacement only under that replacement.
                         WorldPacket data(SMSG_SUPERCEDED_SPELL, 4 + 4);
-                        data << uint32(nextSpellInfo->Id);
+                        data << uint32(GetClientShownSupersededSpell(nextSpellInfo->Id));
                         data << uint32(spellInfo->Id);
                         SendDirectMessage(&data);
                     }
@@ -4387,6 +4395,14 @@ bool Player::HasTalent(uint32 spell, uint8 spec) const
         return true;
     uint32 copy = GetAscensionSpellCopy(spell); // Bronzebeard copy (vanilla classes)
     return copy && HasTalent(copy, spec);
+}
+
+bool Player::HasTalentOrTwin(uint32 spell, uint8 spec) const
+{
+    for (uint32 relative : sSpellMgr->GetSpellAndRelatives(spell))
+        if (HasTalent(relative, spec))
+            return true;
+    return false;
 }
 
 bool Player::HasStoredActiveSpell(uint32 spell) const
@@ -6518,7 +6534,7 @@ void Player::RewardReputation(Unit* victim)
 
     if (Rep->RepFaction1 && (!Rep->TeamDependent || teamId == TEAM_ALLIANCE))
     {
-        float donerep1 = CalculateReputationGain(REPUTATION_SOURCE_KILL, victim->getLevelForTarget(this), static_cast<float>(Rep->RepValue1), ChampioningFaction ? ChampioningFaction : Rep->RepFaction1);
+        float donerep1 = CalculateReputationGain(REPUTATION_SOURCE_KILL, victim->getRewardLevelForTarget(this), static_cast<float>(Rep->RepValue1), ChampioningFaction ? ChampioningFaction : Rep->RepFaction1);
         sScriptMgr->OnPlayerGiveReputation(this, Rep->RepFaction1, donerep1, REPUTATION_SOURCE_KILL);
 
         FactionEntry const* factionEntry1 = sFactionStore.LookupEntry(ChampioningFaction ? ChampioningFaction : Rep->RepFaction1);
@@ -6530,7 +6546,7 @@ void Player::RewardReputation(Unit* victim)
 
     if (Rep->RepFaction2 && (!Rep->TeamDependent || teamId == TEAM_HORDE))
     {
-        float donerep2 = CalculateReputationGain(REPUTATION_SOURCE_KILL, victim->getLevelForTarget(this), static_cast<float>(Rep->RepValue2), ChampioningFaction ? ChampioningFaction : Rep->RepFaction2);
+        float donerep2 = CalculateReputationGain(REPUTATION_SOURCE_KILL, victim->getRewardLevelForTarget(this), static_cast<float>(Rep->RepValue2), ChampioningFaction ? ChampioningFaction : Rep->RepFaction2);
         sScriptMgr->OnPlayerGiveReputation(this, Rep->RepFaction2, donerep2, REPUTATION_SOURCE_KILL);
 
         FactionEntry const* factionEntry2 = sFactionStore.LookupEntry(ChampioningFaction ? ChampioningFaction : Rep->RepFaction2);
@@ -7222,6 +7238,7 @@ void Player::_ApplyItemBonuses(ItemTemplate const* proto, uint8 slot, bool apply
                 HandleStatFlatModifier(UNIT_MOD_MANA, BASE_VALUE, float(val), apply);
                 break;
             case ITEM_MOD_HEALTH:                           // modify HP
+                m_ascensionGearHealth += apply ? val : -val;
                 HandleStatFlatModifier(UNIT_MOD_HEALTH, BASE_VALUE, float(val), apply);
                 break;
             case ITEM_MOD_AGILITY:                          // modify agility
@@ -7241,6 +7258,7 @@ void Player::_ApplyItemBonuses(ItemTemplate const* proto, uint8 slot, bool apply
                 UpdateStatBuffMod(STAT_SPIRIT);
                 break;
             case ITEM_MOD_STAMINA:                          //modify stamina
+                m_ascensionGearHealth += apply ? val * 10 : -val * 10;
                 HandleStatFlatModifier(UNIT_MOD_STAT_STAMINA, BASE_VALUE, float(val), apply);
                 UpdateStatBuffMod(STAT_STAMINA);
                 break;
@@ -7411,12 +7429,17 @@ void Player::_ApplyItemBonuses(ItemTemplate const* proto, uint8 slot, bool apply
         // including heirloom scaling and durability-driven removal/reapplication.
         if (modType == BASE_VALUE && proto->SubClass < MAX_ITEM_SUBCLASS_ARMOR)
             m_itemArmorBySubclass[proto->SubClass] += apply ? float(armor) : -float(armor);
+        else
+            m_ascensionGearBonusArmor += apply ? int32(armor) : -int32(armor);
         HandleStatFlatModifier(UNIT_MOD_ARMOR, modType, float(armor), apply);
     }
 
     // Add armor bonus from ArmorDamageModifier if > 0
     if (proto->ArmorDamageModifier > 0 && sScriptMgr->OnPlayerCanArmorDamageModifier(this))
+    {
+        m_ascensionGearBonusArmor += apply ? int32(armorDamageModifierBonus) : -int32(armorDamageModifierBonus);
         HandleStatFlatModifier(UNIT_MOD_ARMOR, TOTAL_VALUE, float(armorDamageModifierBonus), apply);
+    }
 
     if (proto->Block)
         HandleBaseModFlatValue(SHIELD_BLOCK_VALUE, float(proto->Block), apply);
@@ -10132,6 +10155,7 @@ void Player::Say(std::string_view text, Language language, WorldObject const* /*
     // Special handling for messages, do not use visibility map for stealthed units
     Acore::MessageDistDeliverer notifier(this, &data, sWorld->getFloatConfig(CONFIG_LISTEN_RANGE_SAY), Acore::TeamFilter::All, nullptr, true);
     Cell::VisitObjects(this, notifier, sWorld->getFloatConfig(CONFIG_LISTEN_RANGE_SAY));
+    sScriptMgr->OnPlayerAfterChat(this, CHAT_MSG_SAY, language, _text);
 }
 
 void Player::Say(uint32 textId, WorldObject const* target /*= nullptr*/)
@@ -10160,6 +10184,7 @@ void Player::Yell(std::string_view text, Language language, WorldObject const* /
     // Special handling for messages, do not use visibility map for stealthed units
     Acore::MessageDistDeliverer notifier(this, &data, sWorld->getFloatConfig(CONFIG_LISTEN_RANGE_YELL), Acore::TeamFilter::All, nullptr, true);
     Cell::VisitObjects(this, notifier, sWorld->getFloatConfig(CONFIG_LISTEN_RANGE_YELL));
+    sScriptMgr->OnPlayerAfterChat(this, CHAT_MSG_YELL, language, _text);
 }
 
 void Player::Yell(uint32 textId, WorldObject const* target /*= nullptr*/)
@@ -10207,6 +10232,7 @@ void Player::TextEmote(std::string_view text, WorldObject const* /*= nullptr*/, 
             Cell::VisitObjects(this, notifier, sWorld->getFloatConfig(CONFIG_LISTEN_RANGE_TEXTEMOTE));
         }
     }
+    sScriptMgr->OnPlayerAfterChat(this, CHAT_MSG_EMOTE, LANG_UNIVERSAL, _text);
 }
 
 void Player::TextEmote(uint32 textId, WorldObject const* target /*= nullptr*/, bool /*isBossEmote = false*/)
@@ -10235,6 +10261,7 @@ void Player::Whisper(std::string_view text, Language language, Player* target, b
     {
         ChatHandler::BuildChatPacket(data, CHAT_MSG_WHISPER, language, this, this, _text);
         target->SendDirectMessage(&data);
+        sScriptMgr->OnPlayerAfterChat(this, CHAT_MSG_WHISPER, language, _text, target);
     }
 
     // rest stuff shouldn't happen in case of addon message
@@ -10641,8 +10668,9 @@ void Player::ApplySpellMod(uint32 spellId, SpellModOp op, T& basevalue, Spell* s
                 AuraAlsoModifiesCastingTime(mod->ownerAura))
                 return;
 
-            // xinef: those two mods should be multiplicative (Glyph of Renew)
-            if (mod->op == SPELLMOD_DAMAGE || mod->op == SPELLMOD_DOT)
+            // xinef: those two mods should be multiplicative (Glyph of Renew); Ascension's damage-by-victim mods too
+            if (mod->op == SPELLMOD_DAMAGE || mod->op == SPELLMOD_DOT ||
+                mod->op == SPELLMOD_DAMAGE_VS_PLAYERS || mod->op == SPELLMOD_DAMAGE_VS_CREATURES)
                 totalmul *= CalculatePct(1.0f, 100.0f + mod->value);
             else
                 totalmul += CalculatePct(1.0f, mod->value);
@@ -10686,13 +10714,25 @@ void Player::ApplySpellMod(uint32 spellId, SpellModOp op, T& basevalue, Spell* s
         }
     }
 
+    if (spell && op == SPELLMOD_DAMAGE && spell->GetSpellInfo()->Id == spellId && !temporaryPet)
+        if (uint64 const nightmare = spell->GetScriptValue(AscensionBloodmage::NightmareTalent))
+            totalmul *= CalculatePct(1.0f, 100.0f + float(nightmare));
+
+    int32 reachFlat = 0;
     for (auto mod : m_spellMods[op])
     {
         if (!IsAffectedBySpellmod(spellInfo, mod, spell))
             continue;
 
+        if (op == SPELLMOD_RANGE && AscensionReach::IsReachModifier(mod))
+        {
+            reachFlat = std::max(reachFlat, mod->value);
+            continue;
+        }
+
         calculateSpellMod(mod);
     }
+    totalflat += reachFlat;
 
     if (op == SPELLMOD_CASTING_TIME || op == SPELLMOD_DURATION)
         basevalue = (basevalue + totalflat) > 0 ? (basevalue + totalflat) * totalmul : 0;
@@ -10704,6 +10744,24 @@ template AC_GAME_API void Player::ApplySpellMod(uint32 spellId, SpellModOp op, i
 template AC_GAME_API void Player::ApplySpellMod(uint32 spellId, SpellModOp op, uint32& basevalue, Spell* spell, bool temporaryPet);
 template AC_GAME_API void Player::ApplySpellMod(uint32 spellId, SpellModOp op, float& basevalue, Spell* spell, bool temporaryPet);
 
+SpellSchoolMask Player::GetAscensionSchoolOverride(SpellInfo const* spellInfo, Spell* spell)
+{
+    for (SpellModifier* mod : m_spellMods[SPELLMOD_SCHOOL_OVERRIDE])
+    {
+        if (!IsAffectedBySpellmod(spellInfo, mod, spell))
+            continue;
+
+        if (SpellInfo const* carrier = sSpellMgr->GetSpellInfo(mod->spellId))
+        {
+            // recorded on the cast, so a charged carrier spends its charge on it
+            ApplyModToSpell(mod, spell);
+            return carrier->GetSchoolMask();
+        }
+    }
+
+    return SPELL_SCHOOL_MASK_NONE;
+}
+
 bool Player::UsesAscensionSpellModifierLayout() const
 {
     return GetSession() && GetSession()->IsAscensionCompatEnabled();
@@ -10711,7 +10769,7 @@ bool Player::UsesAscensionSpellModifierLayout() const
 
 uint32 Player::GetClientSpellModCount() const
 {
-    return UsesAscensionSpellModifierLayout() ? MAX_SPELLMOD : MAX_CLIENT_SPELLMOD;
+    return UsesAscensionSpellModifierLayout() ? MAX_ASCENSION_CLIENT_SPELLMOD : MAX_CLIENT_SPELLMOD;
 }
 
 void Player::SendSpellModifier(uint16 opcode, uint8 eff, uint8 op, int32 value, uint32 spellFamily) const
@@ -12006,11 +12064,21 @@ void Player::ModifySpellCooldown(uint32 spellId, int32 cooldown)
     if (itr == m_spellCooldowns.end())
         return;
 
+    uint32 const now = GameTime::GetGameTimeMS().count();
+    if (cooldown < 0)
+    {
+        uint64 const reduction = uint64(-int64(cooldown));
+        if (itr->second.end <= now || uint64(itr->second.end - now) <= reduction)
+        {
+            RemoveSpellCooldown(spellId, true);
+            return;
+        }
+    }
+
     itr->second.end += cooldown;
 
     if (cooldown > 0)
     {
-        uint32 const now = GameTime::GetGameTimeMS().count();
         WorldPacket data;
         BuildCooldownPacket(data, SPELL_COOLDOWN_FLAG_NONE, spellId, itr->second.end > now ? itr->second.end - now : 0);
         SendDirectMessage(&data);
@@ -12159,7 +12227,7 @@ void Player::CorrectMetaGemEnchants(uint8 exceptslot, bool apply)
                 {
                     // ignore item gem conditions
                     //if state changed, (dis)apply enchant
-                    ApplyEnchantment(pItem, EnchantmentSlot(enchant_slot), !wasactive, true, true);
+                    ApplyEnchantmentInternal(pItem, EnchantmentSlot(enchant_slot), !wasactive, true, true, false);
                 }
             }
         }
@@ -13210,28 +13278,37 @@ void Player::GetAurasForTarget(Unit* target, bool force /*= false*/)
 
 void Player::SetDailyQuestStatus(uint32 quest_id)
 {
-    if (Quest const* qQuest = sObjectMgr->GetQuestTemplate(quest_id))
+    Quest const* quest = sObjectMgr->GetQuestTemplate(quest_id);
+    if (!quest)
+        return;
+
+    if (quest->IsDFQuest())
+        m_DFQuests.insert(quest_id);
+    else
     {
-        if (!qQuest->IsDFQuest())
+        uint32 emptySlot = PLAYER_MAX_DAILY_QUESTS;
+        uint32 slot = 0;
+        for (; slot < PLAYER_MAX_DAILY_QUESTS; ++slot)
         {
-            for (uint32 quest_daily_idx = 0; quest_daily_idx < PLAYER_MAX_DAILY_QUESTS; ++quest_daily_idx)
-            {
-                if (!GetUInt32Value(PLAYER_FIELD_DAILY_QUESTS_1 + quest_daily_idx))
-                {
-                    SetUInt32Value(PLAYER_FIELD_DAILY_QUESTS_1 + quest_daily_idx, quest_id);
-                    m_lastDailyQuestTime = GameTime::GetGameTime().count();              // last daily quest time
-                    m_DailyQuestChanged = true;
-                    break;
-                }
-            }
+            uint32 id = GetUInt32Value(PLAYER_FIELD_DAILY_QUESTS_1 + slot);
+            if (id == quest_id)
+                break;
+
+            if (!id && emptySlot == PLAYER_MAX_DAILY_QUESTS)
+                emptySlot = slot;
         }
-        else
+
+        if (slot == PLAYER_MAX_DAILY_QUESTS)
         {
-            m_DFQuests.insert(quest_id);
-            m_lastDailyQuestTime = GameTime::GetGameTime().count();
-            m_DailyQuestChanged = true;
+            if (emptySlot == PLAYER_MAX_DAILY_QUESTS)
+                return;
+
+            SetUInt32Value(PLAYER_FIELD_DAILY_QUESTS_1 + emptySlot, quest_id);
         }
     }
+
+    m_lastDailyQuestTime = GameTime::GetGameTime().count();              // last daily quest time
+    m_DailyQuestChanged = true;
 }
 
 bool Player::IsDailyQuestDone(uint32 quest_id)
@@ -13875,7 +13952,7 @@ bool Player::isHonorOrXPTarget(Unit* victim) const
     // The level this character is fighting, not the object's own: a scaled creature is above their
     // gray level, so the abilities and scripts that ask "only to targets that grant experience or
     // honor" have to see the version they are actually killing.
-    uint8 v_level = victim->getLevelForTarget(this);
+    uint8 v_level = victim->getRewardLevelForTarget(this);
     uint8 k_grey  = Acore::XP::GetGrayLevel(GetLevel());
 
     // Victim level less gray level
@@ -14407,6 +14484,11 @@ void Player::SetTemporarySpellReplacement(uint32 original, uint32 replacement, b
         {
             return entry.first != original && entry.second == replacement && HasActiveSpell(entry.first);
         });
+    bool const previousShared = previous != original && std::any_of(m_temporarySpellReplacements.begin(),
+        m_temporarySpellReplacements.end(), [this, original, previous](auto const& entry)
+        {
+            return entry.first != original && entry.second == previous && HasActiveSpell(entry.first);
+        });
     if (!replacement)
     {
         m_temporarySpellReplacements.erase(original);
@@ -14433,11 +14515,36 @@ void Player::SetTemporarySpellReplacement(uint32 original, uint32 replacement, b
             sScriptMgr->OnPlayerTemporarySpellRemoveNotice(this, replacement, true);
         }
         sScriptMgr->OnPlayerTemporarySpellReplacementNotice(this, previous, replacement, false);
-        WorldPacket packet(SMSG_SUPERCEDED_SPELL, 8);
-        packet << previous << replacement;
-        GetSession()->SendPacket(&packet);
+        // Another rank still shows the previous spell, so its row stays and this rank gets a row of its own.
+        if (previousShared)
+        {
+            sScriptMgr->OnPlayerTemporarySpellRemoveNotice(this, replacement, false);
+            SendLearnPacket(replacement, true);
+            sScriptMgr->OnPlayerTemporarySpellRemoveNotice(this, replacement, true);
+        }
+        else
+        {
+            WorldPacket packet(SMSG_SUPERCEDED_SPELL, 8);
+            packet << previous << replacement;
+            GetSession()->SendPacket(&packet);
+        }
         sScriptMgr->OnPlayerTemporarySpellReplacementNotice(this, previous, replacement, true);
     }
+}
+
+uint32 Player::GetClientShownSupersededSpell(uint32 superseded) const
+{
+    auto itr = m_temporarySpellReplacements.find(superseded);
+    if (itr == m_temporarySpellReplacements.end() || !HasActiveSpell(itr->second))
+        return superseded;
+
+    uint32 const replacement = itr->second;
+    bool const shownByAnother = std::any_of(m_temporarySpellReplacements.begin(), m_temporarySpellReplacements.end(),
+        [this, superseded, replacement](auto const& entry)
+        {
+            return entry.first != superseded && entry.second == replacement && HasActiveSpell(entry.first);
+        });
+    return shownByAnother ? superseded : replacement;
 }
 
 uint32 Player::GetTemporarySpellReplacement(uint32 original) const
@@ -17226,6 +17333,8 @@ void Player::RefundItem(Item* item)
             ASSERT(msg == EQUIP_ERR_OK); /// Already checked before
             Item* it = StoreNewItem(dest, itemid, true, true);
             SendNewItem(it, count, true, false, true);
+            if (itemid == AscensionBazaarTokenReserve::TOKEN_ITEM)
+                AscensionBazaarTokenReserve::AddReserve(this, count);
         }
     }
 

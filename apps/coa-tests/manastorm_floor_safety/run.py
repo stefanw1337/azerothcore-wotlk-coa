@@ -99,7 +99,7 @@ def main():
     remove_member = remove_member.replace('_ownerGuid', 'ownerGuid')
     remove_member = remove_member.replace('_pendingStageTransferMembers', 'pendingTransfers')
     code = code.replace('// ACTUAL_REMOVE_MEMBER', remove_member)
-    for marker, signature in functions.items():
+    for marker, signature in sorted(functions.items(), key=lambda item: len(item[0]), reverse=True):
         code = code.replace('// ACTUAL_' + marker, method(source, signature))
     damage = re.sub(r'\s+', '', method(source, 'void ManastormMgr::OnDamage('))
     protection = ('if(IsProtectedStagePortal(victim->ToCreature())||'
@@ -148,7 +148,10 @@ def main():
     selection = affixes[start:end].replace('ManastormAffixEngine::InitializeStage', 'InitializeAutomaticAffixes')
     code = code.replace('// ACTUAL_SELECTION', selection + '    ++run.selections;\n}')
     distance = re.search(r'constexpr float HEART_PICKUP_DISTANCE = [^;]+;', source)[0]
-    code = code.replace('// ACTUAL_DISTANCE', distance)
+    depth = re.search(r'constexpr float HEART_LANDING_DEPTH = [^;]+;', source)[0]
+    code = code.replace('// ACTUAL_DISTANCE', distance + '\n' + depth)
+    launch = re.sub(r'\s+', '', method(source, 'bool ManastormMgr::SpawnHeartProjectile('))
+    assert 'destination.GetPositionZ()-HEART_LANDING_DEPTH,SPELL_MANASTORM_HEART_PROJECTILE' in launch
     compiler = shutil.which(os.environ.get('CXX', 'cl' if os.name == 'nt' else 'c++'))
     assert compiler, 'Enable the C++20 compiler environment.'
     with tempfile.TemporaryDirectory(prefix='manastorm-floor-safety-') as directory:

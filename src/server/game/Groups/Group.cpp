@@ -20,6 +20,7 @@
 #include "AreaDefines.h"
 #include "Battleground.h"
 #include "BattlegroundMgr.h"
+#include "ConditionMgr.h"
 #include "Config.h"
 #include "DatabaseEnv.h"
 #include "GameTime.h"
@@ -1170,6 +1171,9 @@ void Group::GroupLoot(Loot* loot, WorldObject* pLootedObject)
 
                 if (canLoot)
                 {
+                    if (!i->conditions.empty() && !sConditionMgr->IsObjectMeetToConditions(member, i->conditions))
+                        continue;
+
                     r->totalPlayersRolling++;
 
                     RollVote vote = member->GetPassOnGroupLoot() ? PASS : NOT_EMITED_YET;
@@ -1263,6 +1267,9 @@ void Group::GroupLoot(Loot* loot, WorldObject* pLootedObject)
 
             if (canLoot)
             {
+                if (!i->conditions.empty() && !sConditionMgr->IsObjectMeetToConditions(member, i->conditions))
+                    continue;
+
                 r->totalPlayersRolling++;
 
                 RollVote vote = NOT_EMITED_YET;
@@ -1333,6 +1340,9 @@ void Group::NeedBeforeGreed(Loot* loot, WorldObject* lootedObject)
 
                 if (canLoot)
                 {
+                    if (!i->conditions.empty() && !sConditionMgr->IsObjectMeetToConditions(playerToRoll, i->conditions))
+                        continue;
+
                     r->totalPlayersRolling++;
 
                     RollVote vote = playerToRoll->GetPassOnGroupLoot() ? PASS : NOT_EMITED_YET;
@@ -1410,6 +1420,9 @@ void Group::NeedBeforeGreed(Loot* loot, WorldObject* lootedObject)
 
             if (playerToRoll->IsAtGroupRewardDistance(lootedObject))
             {
+                if (!i->conditions.empty() && !sConditionMgr->IsObjectMeetToConditions(playerToRoll, i->conditions))
+                    continue;
+
                 r->totalPlayersRolling++;
 
                 RollVote vote = playerToRoll->GetPassOnGroupLoot() ? PASS : NOT_EMITED_YET;

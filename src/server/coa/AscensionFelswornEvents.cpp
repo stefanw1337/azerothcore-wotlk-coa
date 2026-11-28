@@ -1,4 +1,5 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
+#include "AscensionBattlegroundCombat.h"
 #include "AscensionFelsworn.h"
 #include "Player.h"
 #include "Random.h"
@@ -9,6 +10,8 @@
 #include "SpellMgr.h"
 #include "SpellScript.h"
 #include <algorithm>
+#include <cmath>
+#include <utility>
 
 namespace
 {
@@ -50,7 +53,7 @@ class aura_ascension_felsworn_event : public AuraScript
         switch (id)
         {
         case 92087:
-            return info && melee && crit && !periodic;
+            return info && info->Id != 800208 && melee && crit && !periodic;
         case 300480:
             return !periodic && Chance(player, id);
         case 681376:
@@ -68,7 +71,7 @@ class aura_ascension_felsworn_event : public AuraScript
             return Named(info, 801312) && crit && !periodic;
         case 704610:
             return info && (Named(info, 801904) || info->Id == 520262 || info->Id == 572585) && !periodic &&
-                   Chance(player, id);
+                   std::exchange(State(player).assaultRoll, false) && Chance(player, id);
         case 300478:
             return Named(info, 801312) && crit && !periodic && Chance(player, id, 5000);
         case 574143:
@@ -204,6 +207,8 @@ class aura_ascension_felsworn_event : public AuraScript
             break;
         case 300490:
             Cast(player, player, 806104);
+            if (Aura* felforged = player->GetAura(806104))
+                felforged->SetScriptValue(806104, 0);
             break;
         case 805249:
             Cast(player, player, 521210);
@@ -248,10 +253,15 @@ class aura_ascension_felsworn_event : public AuraScript
             break;
         case 807461: {
             uint32 count = 0;
+            SpellInfo const* herald = sSpellMgr->GetSpellInfo(807554);
             for (Unit* enemy : Nearby(target, 8.0f))
                 if (enemy != target && player->IsValidAttackTarget(enemy) && target->IsWithinLOSInMap(enemy))
                 {
-                    Copy(player, enemy, 807554, damage / 2);
+                    uint32 half = damage / 2;
+                    if (half)
+                        half = std::max<uint32>(1, uint32(std::llround(double(half) *
+                            double(AscensionBattlegroundCombat::UnscaledFactor(player, enemy, herald, false)))));
+                    Copy(player, enemy, 807554, half);
                     if (++count == 8)
                         break;
                 }

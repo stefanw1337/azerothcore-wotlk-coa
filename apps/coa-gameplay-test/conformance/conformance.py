@@ -4,6 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -11,29 +12,33 @@ from typing import Sequence
 
 from behaviours import behaviour_entries, behaviour_scenario, sized_behaviour
 from classes import CHARACTER_LEVEL, PROGRESSION_HEADER, ClassSpell, class_spells
-from compare import (ALERTS_FILE, LEVERS_FILE, REPORT_FILE, STATUSES, VERDICTS_FILE, BuildMismatch, ScenarioDrift,
-                     evaluate, literal_values, write_levers, write_outputs)
+from compare import (ALERTS_FILE, LEVERS_FILE, REPORT_FILE, STATUSES, SUPERSEDED_BY, VERDICTS_FILE, BuildMismatch,
+                     ScenarioDrift, evaluate, literal_values, write_levers, write_outputs)
 from coverage import (COVERAGE_FILE, EvidenceError, clause_coverage, clause_coverage_lines, fragment_entries,
                       load_clauses, load_consumption, write_coverage, write_fragment)
 from diff import IMPACT_FILE, diff_directories, write_impact
 from expiry import EXPIRY_KIND, behaviour_expiry, trigger_expiry
+from extra_spells import REPOSITORY, UPDATES_ROOT, ExtraSpellsError, audit_extra_spells
 from packets import PacketError, write_packets
 from passives import passive_scenario
-from hits import (REFERENCE_TARGET, UNMODELLED, Unmodelled, aura_modifiers, casts_needed, floored_casts, gate_stacks,
-                  hit_parts, melee_scenario, rank_hit, records_of, reference_caster, reference_hit_model,
+from hits import (CLOSED, REFERENCE_TARGET, UNMODELLED, Unmodelled, aura_modifiers, casts_needed, floored_casts,
+                  gate_stacks, MELEE_LABEL, hit_parts, melee_parts, rank_hit, records_of, reference_caster, reference_hit_model,
                   reference_melee_model)
-from procs import (DELTA_CHECK, delta_proc_plan, delta_proc_scenario, proc_entries, proc_plan, proc_scenario,
-                   proc_status_expectation, proc_unmodelled_expectation, shares_aura, shares_proc_spell, trigger_key)
-from profile import (DBC_DIR, DbcSetMismatch, control_entries, ledger_consumption_path, load_class_file,
-                     server_dbc_dir, spell_dbc_sha256)
+from ledger import ledger, parse_text_bases, write_ledger
+from procs import (DELTA_CHECK, delta_proc_plan, delta_proc_scenario, modifier_key, proc_entries, proc_plan,
+                   proc_scenario, proc_status_expectation, proc_unmodelled_expectation, shares_aura, shares_proc_spell,
+                   trigger_key)
+from profile import (DBC_DIR, DbcSetMismatch, check_weapon_set_relearns, control_entries, for_entry,
+                     ledger_consumption_path, load_class_file, server_dbc_dir, spell_dbc_sha256)
 from questions import QUESTIONS_FILE
 from sample import SampleError, load_buckets, parse_minimums, sample_document
 from scaffold import LIVE_BASELINE_HEADER, SHARED_DEFINES, scaffold_class
 from sheets import write_sheets
 from stack import PASSES, STACK_CHECKS, STACK_DPS, STACK_KIND, stack_scenarios
 from tooltip import read_tooltip
-from triggers import (COOLDOWN_DELTA_KIND, DURATION_DELTA_KIND, GATE_ABSENCE_KIND, MAGNITUDE_RATIO_KIND,
-                      SELF_TRIGGER_KIND, cooldown_trigger_scenario, duration_trigger_scenario, gate_absence_scenario,
+from triggers import (COOLDOWN_DELTA_KIND, COOLDOWN_GATE_KIND, DURATION_DELTA_KIND, GATE_ABSENCE_KIND,
+                      MAGNITUDE_RATIO_KIND, SELF_TRIGGER_KIND, cooldown_gate_scenario, cooldown_trigger_scenario,
+                      duration_trigger_scenario, gate_absence_scenario,
                       magnitude_ratio_scenario, self_trigger_scenario, shares_cooldown_effect, shares_trigger_aura,
                       trigger_entries, trigger_plan, trigger_scenario, trigger_status_expectation,
                       trigger_unmodelled_expectation)
@@ -54,6 +59,12 @@ def scenario_key(*parts) -> str:
     return KEY_SEPARATORS.sub('-', '-'.join(['conformance', *map(str, parts)]).lower()).strip('-')
 
 
+def pinned_fixture_armor(scenario: dict) -> dict:
+    if 'creatures' not in scenario:
+        return scenario
+    return {**scenario, 'creatures': [{**creature, 'min_level_armor': True} for creature in scenario['creatures']]}
+
+
 class ManifestWriter:
     def __init__(self, class_file: dict, out: Path):
         self.class_file = class_file
@@ -67,9 +78,11 @@ class ManifestWriter:
             raise ValueError(f'Duplicate scenario key {key}')
         file, sha = None, None
         if scenario is not None:
+            check_weapon_set_relearns(self.class_file, key, scenario)
+            scenario = pinned_fixture_armor(scenario)
             text = json.dumps(run.validate(scenario, run.SIMULATED_CLOCK), indent=2) + '\n'
             file = f'{SCENARIO_DIR}/{key}.json'
-            (self.out / file).write_text(text, encoding='utf-8')
+            (self.out / file).write_text(text, encoding='utf-8', newline='\n')
             sha = hashlib.sha256(text.encode('utf-8')).hexdigest()
         self.entries.append({'key': key, 'file': file, 'sha256': sha, 'kind': kind,
                              'spell_id': spell.spell_id if spell else rank_id,
@@ -86,7 +99,7 @@ def add_periodic_total(writer: ManifestWriter, spell: ClassSpell, rank_id: int, 
     class_file = writer.class_file
     key = scenario_key(class_file['name'], 'periodic-total', rank_id)
     try:
-        casts = casts_needed(reference_hit_model(class_file, rank_id))
+        casts = casts_needed(reference_hit_model(class_file, rank_id, 'periodic_total'))
     except Unmodelled as error:
         writer.add(key, 'periodic_total', spell, rank_id,
                   [Expectation(item['label'], 'unmodelled', spell.spell_id, rank_id, item['effect'], '',
@@ -129,10 +142,43 @@ def add_values(writer: ManifestWriter, spell: ClassSpell, dbc_dir: Path):
             add_periodic_total(writer, spell, rank_id, item)
 
 
+SUPERSEDED_HITS = 'superseded_hits'
+SUPERSEDED_HITS_CLASS = 27
+MENTOR_DECISION = re.compile(r'\bD-\d+\b')
+
+
+def superseded_hit(class_file: dict, rank_id: int) -> dict | None:
+    entry = next((entry for entry in class_file.get(SUPERSEDED_HITS, ()) if entry['spell'] == rank_id), None)
+    if entry is None:
+        return None
+    replaced_by = entry.get('replaced_by')
+    if (not {'spell', 'reason', 'replaced_by'} <= set(entry) <= {'spell', 'reason', 'replaced_by', 'ruling'}
+            or not isinstance(entry['reason'], str)
+            or not entry['reason'].strip() or not isinstance(replaced_by, list) or not replaced_by
+            or not all(isinstance(label, str) and label.strip() for label in replaced_by)
+            or f'{rank_id} hit_mean' in replaced_by):
+        raise ValueError(f'{SUPERSEDED_HITS} {rank_id} takes spell, a non-blank reason and replaced_by, the labels '
+                         f'that replace the hit (not the hit itself), and for a class other than '
+                         f'{SUPERSEDED_HITS_CLASS} a ruling, not {entry!r}')
+    ruling = entry.get('ruling')
+    if class_file['class_id'] != SUPERSEDED_HITS_CLASS and not (
+            isinstance(ruling, str) and MENTOR_DECISION.search(ruling)):
+        raise ValueError(f'{SUPERSEDED_HITS} {rank_id} in class {class_file["class_id"]} needs a ruling field naming '
+                         f'a mentor decision (D-<number>), not {ruling!r}')
+    return entry
+
+
 def add_hit(writer: ManifestWriter, spell: ClassSpell):
     class_file = writer.class_file
     key = scenario_key(class_file['name'], 'hit', spell.max_rank)
     label = f'{spell.max_rank} hit_mean'
+    superseded = superseded_hit(class_file, spell.max_rank)
+    if superseded is not None:
+        writer.add(key, 'hit', spell, spell.max_rank,
+                   [Expectation(label, 'unmodelled', spell.spell_id, spell.max_rank, None, '',
+                                f'{CLOSED}no check needed: {superseded["reason"]}',
+                                {SUPERSEDED_BY: list(superseded['replaced_by'])})])
+        return
     try:
         casts = floored_casts(class_file, spell.max_rank,
                               casts_needed(reference_hit_model(class_file, spell.max_rank)))
@@ -164,7 +210,7 @@ def add_passive(writer: ManifestWriter, spell: ClassSpell):
 
 
 def add_behaviour(writer: ManifestWriter, entry: dict):
-    class_file = writer.class_file
+    class_file = for_entry(writer.class_file, entry['spell'])
     scenario, expectations = behaviour_scenario(class_file, entry)
     key = scenario_key(class_file['name'], 'behaviour', entry['spell'], entry.get('kind', ''),
                         entry.get('variant', ''))
@@ -212,7 +258,7 @@ def add_target_gate(writer: ManifestWriter, entry: dict):
 
 
 def add_target_gate_arm(writer: ManifestWriter, entry: dict, held: int, percent: float, arm: str):
-    class_file = writer.class_file
+    class_file = for_entry(writer.class_file, entry['spell'])
     records = records_of(class_file)
     rank_id = entry['rank']
     suffix = ' '.join(part for part in (entry.get('label_suffix', ''), arm) if part)
@@ -252,7 +298,7 @@ def learned_hit_entries(class_file: dict, spell_ids: list[int] | None) -> list[d
 
 
 def add_learned_hit(writer: ManifestWriter, entry: dict):
-    class_file = writer.class_file
+    class_file = for_entry(writer.class_file, entry['spell'])
     records = records_of(class_file)
     rank_id, learned = entry['rank'], entry['spell']
     test_spell = ClassSpell(rank_id, records.field('Spell', rank_id, 'SpellName[enUS]'), (rank_id,), rank_id, 0,
@@ -279,14 +325,21 @@ def add_melee(writer: ManifestWriter):
         swings = casts_needed(reference_melee_model(class_file))
     except Unmodelled:
         swings = 1
-    scenario, expectations = melee_scenario(class_file, swings)
-    if all(expectation.check == 'unmodelled' for expectation in expectations):
-        scenario = None
-    writer.add(scenario_key(class_file['name'], 'melee'), 'melee', None, 0, expectations, scenario)
+    key = scenario_key(class_file['name'], 'melee')
+    try:
+        parts = melee_parts(class_file, swings)
+    except ValueError as error:
+        writer.add(key, 'melee', None, 0,
+                   [Expectation(MELEE_LABEL, 'unmodelled', 0, 0, None, '', UNMODELLED + str(error))])
+        return
+    for part, (scenario, expectations) in enumerate(parts, start=1):
+        if all(expectation.check == 'unmodelled' for expectation in expectations):
+            scenario = None
+        writer.add(key if len(parts) == 1 else f'{key}-part-{part}', 'melee', None, 0, expectations, scenario)
 
 
 def add_proc(writer: ManifestWriter, entry: dict):
-    class_file = writer.class_file
+    class_file = for_entry(writer.class_file, entry['aura'])
     aura, name = entry['aura'], entry['name']
     if shares_proc_spell(class_file, entry):
         key_parts = (aura, entry['proc_spell'], trigger_key(entry))
@@ -294,6 +347,7 @@ def add_proc(writer: ManifestWriter, entry: dict):
         key_parts = (aura, entry['proc_spell'])
     else:
         key_parts = (aura,)
+    key_parts += modifier_key(entry)
     key = scenario_key(class_file['name'], 'proc', *key_parts)
     if entry.get('status'):
         writer.add(key, 'proc', None, aura, [proc_status_expectation(entry)], name=name)
@@ -312,7 +366,7 @@ def add_proc(writer: ManifestWriter, entry: dict):
 
 
 def add_trigger(writer: ManifestWriter, entry: dict):
-    class_file = writer.class_file
+    class_file = for_entry(writer.class_file, entry['aura'])
     aura, name = entry['aura'], entry['name']
     if entry.get('effect') is not None:
         key_parts = (aura, entry['effect'])
@@ -328,7 +382,8 @@ def add_trigger(writer: ManifestWriter, entry: dict):
     if entry.get('status'):
         writer.add(key, 'trigger', None, aura, [trigger_status_expectation(entry)], name=name)
         return
-    scenario_fn = {COOLDOWN_DELTA_KIND: cooldown_trigger_scenario, DURATION_DELTA_KIND: duration_trigger_scenario,
+    scenario_fn = {COOLDOWN_DELTA_KIND: cooldown_trigger_scenario, COOLDOWN_GATE_KIND: cooldown_gate_scenario,
+                   DURATION_DELTA_KIND: duration_trigger_scenario,
                   MAGNITUDE_RATIO_KIND: magnitude_ratio_scenario, SELF_TRIGGER_KIND: self_trigger_scenario,
                   GATE_ABSENCE_KIND: gate_absence_scenario}.get(entry.get('kind'), trigger_scenario)
     try:
@@ -448,13 +503,22 @@ def generate(class_id: int, out: Path, spells: list[int] | None = None, procs: l
 def scaffold_command(args) -> int:
     if args.out.exists():
         raise ValueError(f'{args.out} already exists; scaffold into a new file')
-    class_file = scaffold_class(args.class_id, server_dbc_dir(args.dbc_dir), args.config, args.mysql,
+    dbc_dir = server_dbc_dir(args.dbc_dir)
+    class_file = scaffold_class(args.class_id, dbc_dir, args.config, args.mysql,
                                 level=args.level, shared_defines=args.shared_defines,
                                 live_baseline=args.live_baseline)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open('x', encoding='utf-8') as stream:
         stream.write(json.dumps(class_file, indent=2) + '\n')
     print(f'{args.out}: scaffolded class {class_file["class_id"]} ({class_file["name"]})')
+    try:
+        report = audit_extra_spells(class_file, dbc_dir)
+    except (ExtraSpellsError, ValueError, OSError):
+        return 0
+    unaccounted = report['counts']['unaccounted']
+    if unaccounted:
+        print(f'{args.out}: {unaccounted} unaccounted server-granted spells; run conformance.py audit-extra '
+              f'--class {class_file["class_id"]} --class-file {args.out} before ledger')
     return 0
 
 
@@ -540,6 +604,44 @@ def coverage_command(args) -> int:
     return 0
 
 
+def ledger_command(args) -> int:
+    class_file = load_class_file(args.class_id)
+    dbc_dir = server_dbc_dir(args.dbc_dir or class_file.get('dbc_dir', DBC_DIR))
+    try:
+        report = audit_extra_spells(class_file, dbc_dir, args.source_root, PROGRESSION_HEADER)
+    except ExtraSpellsError as error:
+        print(f'Refusing ledger for class {args.class_id}: {error}', file=sys.stderr)
+        return 2
+    recovery = (f'conformance.py audit-extra --class {args.class_id} '
+                f'--source-root {shlex.quote(str(args.source_root))} '
+                f'--dbc-dir {shlex.quote(str(dbc_dir))}')
+    if report['missing_dbc']:
+        preview = ', '.join(str(entry['spell']) for entry in report['missing_dbc'][:10])
+        suffix = f", ... ({len(report['missing_dbc']) - 10} more)" if len(report['missing_dbc']) > 10 else ''
+        print(f"Refusing ledger for class {args.class_id}: {len(report['missing_dbc'])} server-granted spells "
+              f"missing from Spell.dbc ({preview}{suffix}); run {recovery}", file=sys.stderr)
+        return 2
+    if report['unaccounted'] and not args.allow_unaccounted_extra:
+        preview = ', '.join(f"{entry['spell']} {entry['name']}" for entry in report['unaccounted'][:10])
+        suffix = f", ... ({len(report['unaccounted']) - 10} more)" if len(report['unaccounted']) > 10 else ''
+        print(f"Refusing ledger for class {args.class_id}: {len(report['unaccounted'])} unaccounted server-granted "
+              f"spells ({preview}{suffix}); run {recovery} and add each to "
+              f"extra_spells or excluded_extra_spells (or pass --allow-unaccounted-extra)", file=sys.stderr)
+        return 2
+    updates = Path(args.source_root) / UPDATES_ROOT / 'updates'
+    written = ledger(class_file, dbc_dir, parse_text_bases(args.text_basis), updates)
+    entries = written.entries
+    clause_coverage(entries, [])
+    write_ledger(entries, args.out)
+    claims = sum(entry['kind'] == 'claim' for entry in entries)
+    spells = len({entry['spell'] for entry in entries})
+    print(f'{args.out}: {len(entries)} clauses of {spells} spells, {claims} claims, {len(entries) - claims} no_claim, '
+          f'{sum("text_source" in entry for entry in entries)} streamed')
+    for spell, reason in sorted(written.unlabelled.items()):
+        print(f'spell {spell}: no labels, its value scenario is unmodelled ({reason})')
+    return 0
+
+
 def mutate_command(args) -> int:
     from mutants import MANIFEST_KEY, load_mutants, mutate
     path = mutate(args.manifest, load_mutants(args.mutants))
@@ -578,7 +680,7 @@ def mounted_roots(worktree: Path) -> list[Path]:
 
 def prove_command(args) -> int:
     from prove import SUMMARY_FILE, ProveSpec, is_under, prove
-    from pilot import hit_ratio_pilot, sizable_labels
+    from pilot import hit_ratio_pilot, sizable_labels, trial_floors
     from prove_ledger import ledger_hooks
     if not (args.behaviour or args.proc or args.trigger):
         raise ValueError('prove needs at least one --behaviour, --proc or --trigger entry of the class file')
@@ -598,9 +700,9 @@ def prove_command(args) -> int:
         return generate(args.class_id, out, behaviours=sorted({entry['spell'] for entry in sized}), trials=trials)
 
     out = Path(args.out).resolve()
-    spec = ProveSpec(out, args.worktree, args.runs, args.build, args.timeout_ms)
+    spec = ProveSpec(out, args.worktree, args.runs, args.build, args.timeout_ms, db_workers=args.db_workers)
     rows, enrich, annotate = ledger_hooks(args.clauses) if args.clauses else (None, None, None)
-    pilot = hit_ratio_pilot(sizable_labels(sized), make_pilot, make)
+    pilot = hit_ratio_pilot(sizable_labels(sized), make_pilot, make, floors=trial_floors(sized))
     code = prove(spec, make, rows, enrich, annotate, pilot=pilot)
     print(f'{out / SUMMARY_FILE}: exit {code}')
     return code
@@ -639,6 +741,10 @@ def packets_command(args) -> int:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description='Generate class conformance scenarios and compare their results.')
     commands = parser.add_subparsers(dest='command', required=True)
+    from batch_commands import add_batch_commands
+    batch_handlers = add_batch_commands(commands)
+    from cost import add_cost_command
+    batch_handlers.update(add_cost_command(commands))
     scaffolding = commands.add_parser('scaffold', help='write a minimal classes/<name>.json for a CoA class')
     scaffolding.add_argument('--class', dest='class_id', type=int, required=True)
     scaffolding.add_argument('--out', type=Path, required=True)
@@ -690,6 +796,8 @@ def main(argv=None) -> int:
     proving.add_argument('--build', action='store_true', help='include the build stage in run 1 only')
     proving.add_argument('--timeout-ms', dest='timeout_ms', type=int, default=600000,
                          help='limit of one coa-verify run in milliseconds (600000)')
+    proving.add_argument('--gameplay-db-workers', dest='db_workers', type=int,
+                         help='passed to every coa-verify run, for a gameplay set that shares the test MySQL')
     proving.add_argument('--clauses', type=Path,
                          help='a clause ledger: the fragment lists its claims whose labels all run here, and the '
                               'summary reports its coverage on each run')
@@ -766,11 +874,33 @@ def main(argv=None) -> int:
     packeting.add_argument('--class-map', dest='class_map', type=Path,
                            help='a class map JSON ({"classes": {"<class id>": {"spells": [...]}}}), read only')
     packeting.add_argument('--out', type=Path, required=True, help='the directory that receives <spell id>.md')
+    ledgering = commands.add_parser('ledger', help="write a class's first clause ledger from its tooltips: one entry "
+                                                   'per clause, level labels, empty tooltips and acquisition notes '
+                                                   'as no_claim, labels from the value scenarios')
+    ledgering.add_argument('--class', dest='class_id', type=int, required=True)
+    ledgering.add_argument('--out', type=Path, required=True, help='the ledger file to write; never overwritten')
+    ledgering.add_argument('--dbc-dir', dest='dbc_dir', type=Path,
+                           help=f"the server DBC set (the class file's dbc_dir, else {DBC_DIR})")
+    ledgering.add_argument('--text-basis', dest='text_basis', action='append',
+                           help='<spell>=<basis> of a spell read from coa_client_spell_description: owner_ruling, '
+                                'live_source, text_correction or align_to_server; required for each such spell')
+    ledgering.add_argument('--source-root', dest='source_root', type=Path, default=REPOSITORY,
+                           help='the source tree to read grant tables and SQL from')
+    ledgering.add_argument('--allow-unaccounted-extra', dest='allow_unaccounted_extra', action='store_true',
+                           help='bypass the pre-ledger unaccounted extra_spells gate')
+    from cycle import add_cycle_arguments, cycle_command
+    add_cycle_arguments(commands.add_parser('cycle', help="run the integrator's fixed steps of a merged pair from a "
+                                                         'cycle file: gate, digests, generate, source stage, pair, '
+                                                         'compare, audit, tally, refactor gate, archive, checkpoint'))
     args = parser.parse_args(argv)
+    if args.command == 'cycle':
+        return cycle_command(args)
+    if args.command in batch_handlers:
+        return batch_handlers[args.command](args)
     handlers = {'scaffold': scaffold_command, 'generate': generate_command, 'sheets': sheets_command,
                 'compare': compare_command, 'diff': diff_command, 'coverage': coverage_command,
                 'prove': prove_command, 'mutate': mutate_command, 'k3': k3_command, 'sample': sample_command,
-                'packets': packets_command}
+                'packets': packets_command, 'ledger': ledger_command}
     return handlers[args.command](args)
 
 

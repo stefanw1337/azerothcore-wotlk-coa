@@ -43,8 +43,19 @@ A JSON array. Each entry is one clause:
 - `effectiveness_of` (optional, a `"claim"` entry without `claims`, ADR 0268): the spell id of the buff X in a clause
   that increases "the effectiveness of X". When X's entries, of any `kind`, state exactly one value in all (a `${...}`
   formula, a `$` token other than a duration, radius or range, or a literal number), the entries carrying it are added
-  to the claim's words for the state-promise match; with two or more values, or none, nothing changes. Templar:
-  Martyr 300530 names Gift of Zeal 300923.
+  to the claim's words for the state-promise match; with two or more values, or none, nothing changes. An entry of
+  X that is a whole `@ext:...:ext@` extension text is left out of the count and the words (ADR 1135, provisional): its
+  literal numbers ("Can only have 1 ...") restate a rule, not the buff's value. Templar: Martyr 300530 names Gift of
+  Zeal 300923; Witch Doctor: Loa Empowerment 706368 names Power Wuju 707676.
+- `promise_of` (optional, a `"claim"` entry, ADR 0707): the exact text of an earlier clause of the same spell. Its
+  words join every claim's words for the state-promise match only (`STATE_PROMISES` and the contrast rows), so a
+  clause that continues a sentence ("increasing by $s1% every ...") is promised the state its subject clause names
+  ("critical strike chance"). A source that is not an earlier clause of the spell is refused. Witch Hunter: Slayer's
+  Mark 804068.
+- `state_promise` (optional, on a declared claim, ADR 1283): a metric of the closed map `CLAIM_STATE_PROMISES`
+  (`coverage.py`; only `casting`, which adds `channel\w*`). For that claim only, the metric's promise words gain the
+  mapped words. Refused on a clause, for a metric outside the map, or when the claim's own words do not say the
+  mapped words. Felsworn: Carve 800206 "you can channel while moving".
 
 ### Stated claims
 
@@ -69,6 +80,62 @@ Templar: 30 entries declare claims, over 28 spells (92109, 300504, 300520, 52003
 681483, 705286, 705306, 800424, 805417, 806522, 807814) came 11 from the audit of the clauses counted proven on round
 10 (`templar-run2`); 8 of those then had a claim no label measured. Barrier of Light 805417 splits its 40% (behaviour) from its "for $d"
 (a duration readback), so the clause stays data conformant.
+
+## Writing a first ledger
+
+`conformance.py ledger` writes a class's first ledger from data (ADR 0310). It never overwrites a file, and the same
+inputs give the same bytes.
+
+```
+python3 -B conformance.py ledger --class 23 --out classes/necromancer_clauses.json \
+  [--dbc-dir DIR] [--text-basis 638403=text_correction ...]
+```
+
+- **Spells.** The class spell set of `generate` (`classes.class_spells`, with the class file's `extra_spells`), one
+  tooltip per spell: the `Description[enUS]` of its highest rank at the class file's `level`. The entry's `spell` is
+  that rank, the id its labels use.
+- **Clauses.** Colour codes and `@s:<id>:<flags>@` markup are removed from the words. Each line (`\r\n`, `\n`,
+  `|n`) and each sentence (`.`, `!` or `?` before a space, a line break, a `$?` conditional or an `@ext:` note) is
+  cut off. Inside a sentence the candidate cuts are after `, ` and before ` and `. A cut is made only when both sides
+  state a value (a `${...}` formula, any `$` token, or a literal number) and the left side does not end with a
+  function word (`your`, `of`, `the`, ...). A `${...}` formula, a `$?` conditional, an `@ext:...:ext@` note and a
+  texture are never cut inside. A piece without words (an `@s` markup, a blank line) joins the clause before it.
+- **Pulled sentences** (G-5, ADR 0304). An `@s:<id>:<flags>@` markup outside a `$?` conditional pulls in spell
+  `<id>`'s Description. When `<id>` is not in the class spell set (any rank of a class spell), its text is cut by the
+  same rules and each clause becomes an entry of the parent spell, right after the clause that holds the markup, in
+  the pulled spell's exact words; a pulled text with an `@s` markup of its own unfolds the same way. A pulled spell
+  that is in the class spell set is evaluated on its own and adds no entry. A markup the tooltip reader refuses
+  (negative flags, a spell missing from Spell.dbc, a cycle, nesting deeper than three) adds no entry either, and an
+  empty pulled Description adds none.
+- **`no_claim`.** Only three fixed patterns, each with a fixed `reason`: an empty tooltip (one entry, clause
+  `(empty tooltip)`), a level label line (`Level 10 Passive`, `Level <n>` and capitalised words), and an `@ext:` note
+  that starts with a continent name followed by a colon (a trainer location list such as Tithe 804781). Everything
+  else is a `claim`.
+- **Labels.** Each clause gets the labels that `values.value_scenario` gives the `$` tokens it holds, counted by the
+  same `#n` ordinals: the clause pieces are read with the same caster as the value scenario, and the command stops
+  if the pieces read differently from the whole tooltip. A pulled sentence's tokens belong to its own entry; the
+  tokens of an `@s` expansion that adds no entry belong to the clause the markup joined. An unreadable `@ext` note keeps its `effect_value #n` label; a stray `|` escape gets none. Labels of
+  behaviour, proc or trigger entries are never added: batch authors add them by fragments.
+- **No `claims`.** No rule derives the words of each stated claim, so the command declares none. A clause that states
+  several values keeps the labels of its tokens; its authors declare `claims` when those labels do not cover each
+  value.
+- **Streamed text.** A spell with a `coa_client_spell_description` row (`streamed.py`) is read in the streamed words.
+  Every entry of that spell carries `text_source`: `table`, `file`, `commit` and `pr` (the commit that added the SQL
+  file and the `(#N)` of its subject), `spell`, `ruling` (`null`), `dbc_differs` (which fields differ) and `basis`.
+  The basis is a judgement about the change, not data: give it with `--text-basis <spell>=<basis>`; the command
+  stops for a streamed spell without one. When the streamed Description differs from Spell.dbc, a clause whose DBC
+  words differ carries them as `dbc_clause` (paired by position; when the two texts cut into different counts, the
+  whole DBC text).
+- **Unlabelled spells.** When a spell's value scenario raises `Unmodelled` (for example a target aura state with no
+  fixture), its clauses are written without labels and the command prints the spell and the reason.
+- The command runs the written entries through `coverage.clause_coverage` before writing them.
+
+Templar check (`test_ledger.py`): run on class 19, the command reproduces the 16 `no_claim` rows of the Templar
+ledger that these rules cover (14 level labels, Shoot 3018, Tithe 804781); the 17th, Righteous Tempest's tick 805410,
+is an owner ruling. It also marks Scourgebane 92111's level label, which the hand ledger has no row for. At a2f6330902
+the run gives 362 entries, of which 187 have the exact `(spell, clause)` of one of the 452 hand-ledger entries: the
+hand ledger cut sentences less regularly and often dropped the final full stop or `and`. With pulled sentences
+(ADR 0304) the run gives 401 entries and still 187 matches: the hand ledger has no row for a pulled sentence.
 
 ## How a workstream contributes
 
@@ -102,6 +169,11 @@ but leaves it without a proving test empties its `labels`, so the clause counts 
   (including a label that is simply absent from this run's verdicts), is unproven. An entry with declared
   `claims` is proven only when every one of its claims is; `ClauseCoverage.claim_evidence` holds the status of each
   claim, in the order of `evidence`.
+- A claim whose matched verdicts carry a modelled `detail['bonus_data']` (a `spell_bonus_data` row added to a
+  rolled read, ADR 0679 and 0683) is unproven unless another of its matched labels is a conformant applied hit: a
+  `hit_mean`, `melee_mean`, `periodic_total` or `behaviour_hit_ratio` verdict, or a `behaviour_metric_delta` of
+  `spell_damage_total`, `spell_heal_total` or `melee_damage_total`. When the row has a spell power coefficient
+  (`direct_bonus`), that hit must also record a non-zero `detail['spell_power']` (ADR 0686).
 - A label may omit the trailing `" #<ordinal>"` that `values.py` appends when a spell has several tokens of
   the same effect/spell/kind (`92111 effect_value 801832e1`, not `92111 effect_value 801832e1 #1`) — the audit
   (`claims-merged.json`) writes labels this way since it cannot predict the ordinal a future generate run will
@@ -216,12 +288,43 @@ not in the table fails the whole run (`EvidenceError`, no default):
   `armor`, ratings, hit, crit, dodge and parry chances, power, speed, attack time) is data, except that a state read
   counts as behaviour when it is the stat the clause promises, read in a learned/unlearned contrast: the check is
   `passive_delta`, `behaviour_party_stat_ratio` (an ally's stat before and after the caster learns the spell), or
-  `behaviour_metric_delta` with `detail.contrast` `learned` (not the `setup_only_after` condition contrast; a
+  `behaviour_metric_delta` with `detail.contrast` `learned` or `own_cast` (a `setup_only_after` state read whose setup casts are
+  only the entry's own spell, ADR 0553; not the other `setup_only_after` condition contrast; a
   `stat_gain` verdict gets it from its judge under attribution reads and names its read, ADR 0258), and the clause
   text names the stat (`coverage.STATE_PROMISES`, for example `armor` needs "armor", `spell_power` "spell power" or
   "spell damage"; `max_power` takes the power names of `passives.POWER_NAMES` and `combat_rating` "rating" or a
-  `passives.RATING_NAMES` phrase such as "armor penetration", ADR 0190). A stat read as a proxy for another effect
-  stays data. A conformant verdict with `detail['data_only']` (a `passive_delta` the integer floor alone accepted, or
+  `passives.RATING_NAMES` phrase such as "armor penetration", ADR 0190). A `stat_exact` read in a learned or
+  own-cast `behaviour_metric_delta` contrast also counts as behaviour for a clause naming `primary attributes`
+  (`coverage.PRIMARY_ATTRIBUTES_WORDS`, ADR 1304), only when the claim's own conformant `stat_exact` verdicts cover
+  all five primary attributes (`0..4`: Strength, Agility, Stamina, Intellect, Spirit) via stamped `detail.stat`; a
+  claim measuring fewer than all five stays data conformant. A metric in `coverage.CONTRAST_PROOF` (kind modules add
+  rows) is behaviour only when `detail.contrast` equals its
+  row's contrast, whatever the claim words say (ADR 0616), unless the metric also has a `STATE_PROMISES` row: then the
+  clause or its row must use those words. A readback metric has such a row only to gate its contrast proof, as
+  `spell_done_crit_chance` does with the crit words (ADR 0691), `spell_taken_crit_chance`, the target-side
+  chance with the attacker's conditional rules, the same way (ADR 0800), and `spell_hit_bonus_taken`, the target's
+  `SPELL_AURA_MOD_ATTACKER_SPELL_HIT_CHANCE` modifier queried by `Unit::MagicSpellHitResult`, with the hit-chance words
+  and a real learned contrast (ADR 1290). `spell_done_crit_chance_scripted`, the done
+  chance passed through the CoA crit hook (`ScriptMgr::OnSpellCritChance`), takes the same row and crit words plus a
+  partner gate (`coverage.PARTNERED_CONTRASTS`, ADR 1188): its learned verdict is behaviour only when the ledger row's
+  conformant learned verdicts of the metric hold a non-zero expected gain and, unless every row of the spell joined is
+  a plain unconditional stat sentence (`coverage.PLAIN_CRIT_SENTENCE`), also a zero gain. That the zero arm's fixture
+  breaks the condition, and that each condition has an arm, is a review check; the tool does not see it.
+  `critical_block_chance` (the engine's `SPELL_AURA_MOD_BLOCK_CRIT_CHANCE` total, ADR 1193) is a readback with the learned
+  contrast, the words "critical block" and the same partner gate; its text is never a plain crit sentence, so the zero
+  arm is always required. A
+  `behaviour_group_stack_cap` state read is behaviour for a no-stack clause ("does not stack",
+  `coverage.NO_STACK_WORDS`, ADR 0424): it reads the consumed
+  value after the spell alone and after the similar spell too, and only equal readings (`compare.STACKED_SAME`,
+  ADR 0446) prove the clause. A `setup_only_after` condition contrast (a state read without and with the condition
+  set up, the talent known in both phases) is behaviour for a claim that states that condition: its words start with
+  "While", "Whenever" or "As long as" (`coverage.CONDITION_WORDS`, ADR 0548); the effect claim of the same sentence
+  still needs its own promised read. `distance_2d` (the distance between two actors) is a state read too: behaviour
+  under a learned or own-cast contrast for a clause that promises the move ("location", "hook", "pull", ADR 0584).
+  `point_distance_2d` (the distance from a unit to a fixed point) is one as well, for a clause that promises a leap
+  or a range ("leap", "range", "yd", ADR 0708).
+  A stat read as a
+  proxy for another effect stays data. A conformant verdict with `detail['data_only']` (a `passive_delta` the integer floor alone accepted, or
   whose integer stat did not move; ADR 0124) is data whatever its metric.
 - linked: a `checked by` label (`unmodelled` check closed by the labels it names) is behaviour when one of the
   referenced verdicts is.

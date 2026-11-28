@@ -42,20 +42,28 @@
  *                                     that grows with them
  *   Fierce Blow         every 9s      tank
  *
- * The Will of Soggoth
+ * The Will of Soggoth (shielded, bound by his heralds' beams, until all three die;
+ * a wipe brings every herald back)
+ *   Corla               Mind Flay every 6s, Shadow Nova every 20s
+ *   Azil                Horror Bolt every 3s, Waking Tear every 20s
+ *   Drahga              Scorching Ray every 3s, Meteor every 20s
+ *   all three           Fierce Blow every 8s, Blink to a player every 25s
  *   Void Beam           every 2s      a random player
  *   Waking Tear         every 22.1s   3s cast: a tear at a player for 20s
  *   Waking Nightmare    every 33.1s   six Psychophages rise around a player
- *   Visions of Ny'alotha every 45s    4s cast: everyone, then after 6s a void
- *                                     explosion under each of them
+ *   Visions of Ny'alotha every 45s    4s cast marks everyone; 5s later each
+ *                                     marked player is hit and explodes (5 yards)
  *   Fierce Blow         every 7.8s    tank
+ * His health is per player in his map (10 to 40), and only the Normal difficulties
+ * are open; his shrine, rewards and portal out are boss_soggoth_instance_coa.cpp.
  *
  * Atal'zul, the Soulreaver, with Zul'rogg (map 890; two kills in the log of
  * 25.08.2026, same spell damage on both, see the level table for health)
  *   Spectral Bolt       every 1.5s    his tank, stacking shadow damage taken
  *   Spectral Volley     every 12s     3s cast, everyone
- *   Land of the Dead    every 61.4s   six seconds: a Damned Wight a second at
- *                                     the raid, a choking cloud every other
+ *   Land of the Dead    every 61.4s   six seconds: a choking cloud every other
+ *                                     second at a player, a Damned Wight a
+ *                                     second rising from the last cloud
  *   Spectral Veil       at 80/60/40/20%  a channel of up to 100s: shadow damage
  *                                     to everyone each second, growing. The four
  *                                     Soul Vessels open: each spawns Restless
@@ -92,6 +100,7 @@
 #include "LootMgr.h"
 #include "Map.h"
 #include "MoveSpline.h"
+#include "MapCollisionData.h"
 #include "MapMgr.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
@@ -165,6 +174,25 @@ namespace
         me->SetStatFlatModifier(UNIT_MOD_HEALTH, BASE_VALUE, float(lv->health));
         me->UpdateMaxHealth();
         me->SetFullHealth();
+    }
+
+    // Health per player in the boss' map, counted from 10 to 40, keeping his health percentage.
+    constexpr uint32 FLEX_MIN_PLAYERS = 10;
+    constexpr uint32 FLEX_MAX_PLAYERS = 40;
+
+    void ApplyFlexHealth(Creature* me, uint32 offset = 0)
+    {
+        Level const* lv = LevelOf(me);
+        if (!lv || !lv->health)
+            return;
+        uint32 const players = std::clamp<uint32>(me->GetMap()->GetPlayersCountExceptGMs(), FLEX_MIN_PLAYERS,
+            FLEX_MAX_PLAYERS);
+        float const pct = me->GetHealthPct();
+        uint32 const health = lv->health * (players + offset);
+        me->SetCreateHealth(health);
+        me->SetStatFlatModifier(UNIT_MOD_HEALTH, BASE_VALUE, float(health));
+        me->UpdateMaxHealth();
+        me->SetHealth(std::max<uint32>(uint32(me->GetMaxHealth() * pct / 100.0f), 1));
     }
 
     class coa_world_boss_level_loader : public WorldScript
@@ -268,8 +296,6 @@ namespace
     constexpr uint32 GO_SETIS_EXIT = 64601;
     constexpr uint32 SETIS_MAP = 880;
     constexpr uint32 SETIS_SHRINE_TEXT = 64600;
-    constexpr uint32 SETIS_MIN_FLEX = 10;
-    constexpr uint32 SETIS_MAX_FLEX = 40;
     constexpr uint32 ITEM_RUNE_OF_ASCENSION = 375250;
     constexpr uint32 ITEM_BAZAAR_TOKEN = 975001;
     constexpr uint32 ITEM_TREASURES_OF_AZEROTH = 1615011;
@@ -280,7 +306,7 @@ namespace
     constexpr uint8 SETIS_HEROIC_GROUP = 2;
     constexpr uint16 SMSG_COA_CHECKPOINTS_ENABLED = 0x767;
     constexpr uint16 CMSG_COA_RESPAWN_AT_CHECKPOINT = 0x774;
-    Position const SetisEntrance = { -8093.0f, 1663.6f, 12.9f, 0.0f };
+    Position const SetisEntrance = { -7922.047f, 1675.575f, 0.046f, 4.773f };
     Position const SetisShrine = { -7864.724f, 1326.674f, -7.357f, 5.4786f };
     constexpr float SETIS_SHRINE_ARRIVAL = 20.0f;
     Position const SetisExitPortal = { -7970.9f, 1507.22f, 2.61f, 0.0f };
@@ -317,30 +343,15 @@ namespace
             _frenzy = _armageddon = false;
             _marks.clear();
             me->SetLootMode(me->GetMap()->IsHeroic() ? LOOT_MODE_HARD_MODE_1 : LOOT_MODE_DEFAULT);
-            ApplyFlexHealth();
+            ApplyFlexHealth(me);
             // Reflected Firebolts in the log: fire (and arcane) comes back.
             DoCastSelf(SPELL_FIRE_REFLECT, true);
         }
 
         void JustEngagedWith(Unit* who) override
         {
-            ApplyFlexHealth();
+            ApplyFlexHealth(me);
             custom_world_boss_coa::JustEngagedWith(who);
-        }
-
-        void ApplyFlexHealth()
-        {
-            Level const* lv = LevelOf(me);
-            if (!lv || !lv->health)
-                return;
-            uint32 const players = std::clamp<uint32>(me->GetMap()->GetPlayersCountExceptGMs(), SETIS_MIN_FLEX,
-                SETIS_MAX_FLEX);
-            float const pct = me->GetHealthPct();
-            uint32 const health = lv->health * players;
-            me->SetCreateHealth(health);
-            me->SetStatFlatModifier(UNIT_MOD_HEALTH, BASE_VALUE, float(health));
-            me->UpdateMaxHealth();
-            me->SetHealth(std::max<uint32>(uint32(me->GetMaxHealth() * pct / 100.0f), 1));
         }
 
         void Schedule() override
@@ -527,7 +538,7 @@ namespace
     };
 
     // Ascension's death dialog offers "Last Checkpoint" in a raid whose checkpoints are on (SMSG 0x767, u8);
-    // the button sends CMSG 0x774 (u8 1). In Setis' map it carries the body back to the entrance.
+    // the button sends CMSG 0x774 (u8 1). In every world boss map it carries the body back to the entrance.
     std::mutex g_checkpointLock;
     std::unordered_set<uint32> g_checkpointRequests;
     std::atomic<uint32> g_checkpointCount{0};
@@ -552,16 +563,36 @@ namespace
         }
     };
 
+    // Every world boss map Ascension built has its own graveyard (WorldSafeLocs 6080-6090): Last Checkpoint carries
+    // a dead player's body there.
+    std::map<uint32, Position> const WorldBossCheckpoints = {
+        { 880, { -8093.0f, 1663.6f, 12.9f, 0.0f } },
+        { 881, { 2948.83f, -4882.32f, 241.06f, 0.0f } },
+        { 882, { -12569.7f, -2373.38f, 53.65f, 0.0f } },
+        { 883, { 4410.54f, 269.28f, 78.02f, 0.0f } },
+        { 884, { -4751.12f, 2466.51f, -82.41f, 0.0f } },
+        { 885, { 3270.86f, -3730.45f, 125.11f, 0.0f } },
+        { 886, { -2855.81f, 1784.38f, 29.95f, 0.0f } },
+        { 887, { 699.75f, -4090.8f, 100.71f, 0.0f } },
+        { 888, { -10401.3f, -377.87f, 48.53f, 0.0f } },
+        { 889, { 4741.1f, -4934.99f, 695.78f, 0.0f } },
+        { 890, { 3353.02f, -4844.59f, 167.44f, 0.0f } },
+    };
+
     class setis_checkpoint_players : public PlayerScript
     {
     public:
         setis_checkpoint_players()
-            : PlayerScript("setis_checkpoint_players", {PLAYERHOOK_ON_UPDATE, PLAYERHOOK_ON_MAP_CHANGED}) { }
+            : PlayerScript("setis_checkpoint_players", {PLAYERHOOK_ON_UPDATE, PLAYERHOOK_ON_MAP_CHANGED,
+                PLAYERHOOK_ON_LOGIN}) { }
+
+        // A relog inside a boss map gets the Last Checkpoint button back too.
+        void OnPlayerLogin(Player* player) override { OnPlayerMapChanged(player); }
 
         void OnPlayerMapChanged(Player* player) override
         {
             WorldPacket packet(SMSG_COA_CHECKPOINTS_ENABLED, 1);
-            packet << uint8(player->GetMapId() == SETIS_MAP ? 1 : 0);
+            packet << uint8(WorldBossCheckpoints.count(player->GetMapId()) ? 1 : 0);
             player->SendDirectMessage(&packet);
         }
 
@@ -575,10 +606,12 @@ namespace
                     return;
                 --g_checkpointCount;
             }
-            if (player->GetMapId() != SETIS_MAP || player->IsAlive() || player->HasPlayerFlag(PLAYER_FLAGS_GHOST))
+            auto const checkpoint = WorldBossCheckpoints.find(player->GetMapId());
+            if (checkpoint == WorldBossCheckpoints.end() || player->IsAlive()
+                || player->HasPlayerFlag(PLAYER_FLAGS_GHOST))
                 return;
-            player->NearTeleportTo(SetisEntrance.GetPositionX(), SetisEntrance.GetPositionY(),
-                SetisEntrance.GetPositionZ(), SetisEntrance.GetOrientation());
+            Position const& at = checkpoint->second;
+            player->NearTeleportTo(at.GetPositionX(), at.GetPositionY(), at.GetPositionZ(), at.GetOrientation());
         }
     };
 
@@ -621,7 +654,16 @@ namespace
     constexpr float RING_THROW_XY     = 8.0f;   // about six yards, onto the next ring
     constexpr float RING_THROW_Z      = 4.0f;
     constexpr uint8 GRASP_RINGS       = 6;
-    constexpr uint8 MAX_FALLEN        = 12;  // icicles left on the ground at once; the oldest melts
+    constexpr uint32 GO_STALACTITE    = 978099;
+    constexpr float STALACTITE_GRID   = 12.0f;
+    constexpr float STALACTITE_REACH  = 115.0f;
+    constexpr float CEILING_SEARCH    = 90.0f;
+    constexpr float STALACTITE_SINK   = 4.0f;
+    constexpr Milliseconds ICICLE_IMPACT = 4000ms;
+    constexpr uint32 NPC_FALLING_ICICLE = 978100;
+    constexpr float CAVE_FLOOR_STEP   = 10.0f;
+    constexpr float STALACTITE_PICK   = 10.0f;
+    constexpr float SNOWGRAVE_LEASH   = 120.0f;
 
     struct boss_snowgrave_coa : public custom_world_boss_coa
     {
@@ -657,6 +699,54 @@ namespace
             DoCastSelf(SPELL_FROZEN_CLUB, true);
             _stomps = 0;
             ClearIcicles();
+            _hung = false;
+        }
+
+        void UpdateAI(uint32 diff) override
+        {
+            if (!_hung && me->IsInWorld())
+            {
+                _hung = true;
+                HangStalactites();
+            }
+            if (me->IsInCombat() && me->GetExactDist2d(&me->GetHomePosition()) > SNOWGRAVE_LEASH)
+            {
+                EnterEvadeMode();
+                return;
+            }
+            custom_world_boss_coa::UpdateAI(diff);
+        }
+
+        void HangStalactites()
+        {
+            Position const& home = me->GetHomePosition();
+            Map* map = me->GetMap();
+            StaticVMapCollisionData const& tree = map->GetMapCollisionData().GetStaticTree();
+            for (float dx = -STALACTITE_REACH; dx <= STALACTITE_REACH; dx += STALACTITE_GRID)
+                for (float dy = -STALACTITE_REACH; dy <= STALACTITE_REACH; dy += STALACTITE_GRID)
+                {
+                    if (dx * dx + dy * dy > STALACTITE_REACH * STALACTITE_REACH)
+                        continue;
+                    float const x = home.GetPositionX() + dx + frand(-2.0f, 2.0f);
+                    float const y = home.GetPositionY() + dy + frand(-2.0f, 2.0f);
+                    float const ground = map->GetHeight(me->GetPhaseMask(), x, y, home.GetPositionZ() + 10.0f);
+                    if (ground <= INVALID_HEIGHT || std::fabs(ground - home.GetPositionZ()) > CAVE_FLOOR_STEP ||
+                        !map->isInLineOfSight(home.GetPositionX(), home.GetPositionY(), home.GetPositionZ() + 5.0f,
+                            x, y, ground + 5.0f, me->GetPhaseMask(), LINEOFSIGHT_ALL_CHECKS,
+                            VMAP::ModelIgnoreFlags::Nothing))
+                        continue;
+                    float rx, ry, rz;
+                    if (!tree.GetObjectHitPos(x, y, ground + 2.0f, x, y, ground + CEILING_SEARCH, rx, ry, rz, -0.5f) ||
+                        rz >= ground + CEILING_SEARCH - 1.0f)
+                        continue;
+                    float const turn = frand(0.0f, 2 * float(M_PI));
+                    if (GameObject* hanging = me->SummonGameObject(GO_STALACTITE, x, y, rz - STALACTITE_SINK, turn,
+                            0, 0, 0, 0, 0))
+                    {
+                        hanging->SetTransportPathRotation(1.0f, 0.0f, 0.0f, 0.0f);
+                        _stalactites.push_back({ Position(x, y, ground), rz - STALACTITE_SINK, hanging->GetGUID() });
+                    }
+                }
         }
 
         void JustDied(Unit* killer) override
@@ -675,6 +765,36 @@ namespace
                 if (GameObject* icicle = me->GetMap()->GetGameObject(guid))
                     icicle->DespawnOrUnsummon();
             _fallen.clear();
+            for (Stalactite const& stalactite : _stalactites)
+                if (GameObject* hanging = me->GetMap()->GetGameObject(stalactite.hanging))
+                    hanging->DespawnOrUnsummon();
+            _stalactites.clear();
+            DespawnFalling();
+        }
+
+        static Milliseconds FallTime(float height)
+        {
+            return Milliseconds(uint32(std::sqrt(2.0f * std::max(height, 0.0f) / Movement::gravity) * 1000));
+        }
+
+        void Drop(Position const& ground, float ceiling)
+        {
+            if (!me->IsInCombat())
+                return;
+            if (Creature* falling = me->SummonCreature(NPC_FALLING_ICICLE, ground.GetPositionX(), ground.GetPositionY(),
+                    ceiling, frand(0.0f, 2 * float(M_PI)), TEMPSUMMON_TIMED_DESPAWN, 6000))
+            {
+                falling->GetMotionMaster()->MoveFall();
+                _falling.push_back(falling->GetGUID());
+            }
+        }
+
+        void DespawnFalling()
+        {
+            for (ObjectGuid const& guid : _falling)
+                if (Creature* falling = ObjectAccessor::GetCreature(*me, guid))
+                    falling->DespawnOrUnsummon();
+            _falling.clear();
         }
 
         void Schedule() override
@@ -776,19 +896,30 @@ namespace
                     _icicles.clear();
                     for (Player* p : pool)
                     {
-                        // On the ground under the player, even one who is in the air when it is picked.
-                        Position pos = p->GetPosition();
-                        pos.m_positionZ = me->GetMap()->GetHeight(me->GetPhaseMask(), pos.GetPositionX(),
-                            pos.GetPositionY(), pos.GetPositionZ() + 2.0f);
-                        _icicles.push_back(pos);
-                        CastAt(pos, SPELL_CAVE_IN_WARNING);
+                        auto nearest = _stalactites.end();
+                        for (auto it = _stalactites.begin(); it != _stalactites.end(); ++it)
+                            if (it->hanging && p->GetExactDist2d(&it->ground) < STALACTITE_PICK &&
+                                (nearest == _stalactites.end() ||
+                                 p->GetExactDist2d(&it->ground) < p->GetExactDist2d(&nearest->ground)))
+                                nearest = it;
+                        if (nearest == _stalactites.end())
+                            continue;
+                        Milliseconds const dropAt = std::max(ICICLE_IMPACT - FallTime(nearest->ceiling -
+                            nearest->ground.GetPositionZ()), 0ms);
+                        if (GameObject* hanging = me->GetMap()->GetGameObject(nearest->hanging))
+                            hanging->DespawnOrUnsummon(dropAt);
+                        nearest->hanging.Clear();
+                        _icicles.push_back(nearest->ground);
+                        CastAt(nearest->ground, SPELL_CAVE_IN_WARNING);
+                        Position const ground = nearest->ground;
+                        float const ceiling = nearest->ceiling;
+                        me->m_Events.AddEventAtOffset([this, ground, ceiling]() { Drop(ground, ceiling); }, dropAt);
                     }
-                    _clock.ScheduleEvent(TW_ICICLE, 4s);
+                    _clock.ScheduleEvent(TW_ICICLE, ICICLE_IMPACT);
                     break;
                 }
                 case TW_ICICLE:
-                    // The icicle stays where it fell until the fight ends; the last wave's chilling areas go (each
-                    // one lasts ten minutes, and wave after wave of them weighs on every client).
+                    DespawnFalling();
                     me->RemoveDynObject(SPELL_WATER_SPIKE);
                     for (Position const& pos : _icicles)
                     {
@@ -796,12 +927,6 @@ namespace
                         if (GameObject* icicle = me->SummonGameObject(GO_FALLEN_ICICLE, pos.GetPositionX(),
                                 pos.GetPositionY(), pos.GetPositionZ(), frand(0.0f, 2 * float(M_PI)), 0, 0, 0, 0, 0))
                             _fallen.push_back(icicle->GetGUID());
-                        if (_fallen.size() > MAX_FALLEN)
-                        {
-                            if (GameObject* oldest = me->GetMap()->GetGameObject(_fallen.front()))
-                                oldest->DespawnOrUnsummon();
-                            _fallen.erase(_fallen.begin());
-                        }
                     }
                     break;
                 case TW_HAIL:
@@ -912,6 +1037,15 @@ namespace
         ObjectGuid _hailTarget;
         std::vector<Position> _hailImpacts;
         std::vector<Position> _icicles;
+        struct Stalactite
+        {
+            Position ground;
+            float ceiling;
+            ObjectGuid hanging;
+        };
+        std::vector<Stalactite> _stalactites;
+        std::vector<ObjectGuid> _falling;
+        bool _hung = false;
         std::vector<ObjectGuid> _fallen;
         std::vector<Position> _ringSpikes[2];
     };
@@ -925,11 +1059,45 @@ namespace
         SPELL_VISIONS_HIT       = 2119313,
         SPELL_VOID_REND         = 2119314,
         SPELL_WAKING_TEAR       = 2119315,
-        SPELL_TEAR_ZONE         = 2119317,
         SPELL_TEAR_HIT          = 2119319,
         SPELL_WAKING_NIGHTMARE  = 2119320,
+        SPELL_HOVER_FALL        = 2119354,
+        SPELL_TWILIGHT_SHIELD   = 2119350,
+        SPELL_TWILIGHT_BEAM     = 2119351,
+        SPELL_GHOSTLY           = 22650,
+        SPELL_TEAR_MISSILE      = 2119316,
+        NPC_SOGGOTH             = 64605,
         NPC_PSYCHOPHAGE         = 454004,
+        NPC_CORLA               = 64606,
+        NPC_AZIL                = 64607,
+        NPC_DRAHGA              = 64608,
     };
+
+    constexpr std::array<uint32, 3> SoggothHeralds = { NPC_CORLA, NPC_AZIL, NPC_DRAHGA };
+    constexpr float HERALD_RANGE = 200.0f;
+    constexpr float VOID_REND_RADIUS = 5.0f;
+    constexpr uint32 SOGGOTH_HEALTH_OFFSET = 14;
+
+    void RespawnHeralds(Creature* me)
+    {
+        std::array<uint32, 4> const encounter = { NPC_SOGGOTH, NPC_CORLA, NPC_AZIL, NPC_DRAHGA };
+        for (uint32 entry : encounter)
+        {
+            std::list<Creature*> members;
+            me->GetCreatureListWithEntryInGrid(members, entry, HERALD_RANGE);
+            for (Creature* member : members)
+                if (member != me && member->IsAlive() && member->IsInCombat())
+                    return;
+        }
+        for (uint32 entry : SoggothHeralds)
+        {
+            std::list<Creature*> heralds;
+            me->GetCreatureListWithEntryInGrid(heralds, entry, HERALD_RANGE);
+            for (Creature* herald : heralds)
+                if (!herald->IsAlive())
+                    herald->Respawn(true);
+        }
+    }
 
     enum SoggothEvents
     {
@@ -949,6 +1117,69 @@ namespace
             custom_world_boss_coa::Reset();
             _summons.DespawnAll();
             _tears.clear();
+            ApplyFlexHealth(me, SOGGOTH_HEALTH_OFFSET);
+            Shield(HeraldsAlive());
+        }
+
+        void EnterEvadeMode(EvadeReason why) override
+        {
+            custom_world_boss_coa::EnterEvadeMode(why);
+            RespawnHeralds(me);
+        }
+
+        bool HeraldsAlive()
+        {
+            for (uint32 entry : SoggothHeralds)
+                if (me->FindNearestCreature(entry, HERALD_RANGE, true))
+                    return true;
+            return false;
+        }
+
+        void Shield(bool shield)
+        {
+            _shielded = shield;
+            me->SetReactState(shield ? REACT_PASSIVE : REACT_AGGRESSIVE);
+            if (shield)
+            {
+                me->SetUnitFlag(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE);
+                if (!me->HasAura(SPELL_TWILIGHT_SHIELD))
+                    DoCastSelf(SPELL_TWILIGHT_SHIELD, true);
+                if (!me->HasAura(SPELL_GHOSTLY))
+                    DoCastSelf(SPELL_GHOSTLY, true);
+                return;
+            }
+            me->RemoveUnitFlag(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE);
+            me->RemoveAurasDueToSpell(SPELL_TWILIGHT_SHIELD);
+            me->RemoveAurasDueToSpell(SPELL_TWILIGHT_BEAM);
+            me->RemoveAurasDueToSpell(SPELL_GHOSTLY);
+            DoCastSelf(SPELL_HOVER_FALL, true);
+            DoZoneInCombat(me, 200.0f);
+        }
+
+        void UpdateAI(uint32 diff) override
+        {
+            if (!me->IsInCombat())
+            {
+                _heraldCheck -= Milliseconds(diff);
+                if (_heraldCheck <= 0ms)
+                {
+                    _heraldCheck = 1s;
+                    bool const alive = HeraldsAlive();
+                    if (alive && (!_shielded || !me->HasAura(SPELL_TWILIGHT_SHIELD)))
+                        Shield(true);
+                    else if (!alive && _shielded)
+                        Shield(false);
+                }
+                if (_shielded)
+                    return;
+            }
+            custom_world_boss_coa::UpdateAI(diff);
+        }
+
+        void JustEngagedWith(Unit* who) override
+        {
+            ApplyFlexHealth(me, SOGGOTH_HEALTH_OFFSET);
+            custom_world_boss_coa::JustEngagedWith(who);
         }
 
         void JustDied(Unit* /*killer*/) override { _summons.DespawnAll(); }
@@ -1005,17 +1236,14 @@ namespace
         {
             if (spell->Id == SPELL_WAKING_TEAR)
             {
-                CastAt(_tearSpot, SPELL_TEAR_ZONE);
+                CastAt(_tearSpot, SPELL_TEAR_MISSILE);
                 _tears.push_back({ _tearSpot, TEAR_SECONDS });
             }
             else if (spell->Id == SPELL_VISIONS)
             {
                 for (Player* p : PlayersWithin(me, 200.0f))
-                {
-                    me->CastSpell(p, SPELL_VISIONS_HIT, true);
                     me->CastSpell(p, SPELL_VISIONS_MARK, true);
-                }
-                _clock.ScheduleEvent(TG_REND, 6s);
+                _clock.ScheduleEvent(TG_REND, 5s);
             }
         }
 
@@ -1027,7 +1255,8 @@ namespace
                     for (auto it = _tears.begin(); it != _tears.end();)
                     {
                         for (Player* p : Players(me, [&](Player* x) { return x->IsWithinDist3d(&it->first, TEAR_RADIUS); }))
-                            me->CastSpell(p, SPELL_TEAR_HIT, true);
+                            SpellDamage(me, p, SPELL_TEAR_HIT, uint32(Info(me, SPELL_TEAR_HIT)),
+                                SPELL_SCHOOL_MASK_SHADOW);
                         it = --it->second ? std::next(it) : _tears.erase(it);
                     }
                     _clock.ScheduleEvent(TG_TEAR_SECOND, 1s);
@@ -1044,18 +1273,219 @@ namespace
                     break;
                 }
                 case TG_REND:
-                    for (Player* p : PlayersWithin(me, 200.0f))
-                        if (p->HasAura(SPELL_VISIONS_MARK))
-                            me->CastSpell(p, SPELL_VOID_REND, true);
+                {
+                    std::vector<Player*> const players = PlayersWithin(me, 200.0f);
+                    for (Player* marked : players)
+                    {
+                        if (!marked->HasAura(SPELL_VISIONS_MARK))
+                            continue;
+                        me->CastSpell(marked, SPELL_VOID_REND, true);
+                        SpellDamage(me, marked, SPELL_VISIONS_HIT, uint32(Info(me, SPELL_VISIONS_HIT)),
+                            SPELL_SCHOOL_MASK_SHADOW);
+                        for (Player* p : players)
+                            if (p->IsWithinDist3d(marked, VOID_REND_RADIUS))
+                                SpellDamage(me, p, SPELL_VOID_REND,
+                                    uint32(Info(me, SPELL_VOID_REND, 1)), SPELL_SCHOOL_MASK_SHADOW);
+                    }
                     break;
+                }
             }
         }
 
     private:
+        bool _shielded = false;
+        Milliseconds _heraldCheck = 1s;
         SummonList _summons;
         Position _tearSpot;
         Position _nightmare;
         uint8 _phages = 0;
+        std::vector<std::pair<Position, uint32>> _tears;
+    };
+
+    enum HeraldSpells
+    {
+        SPELL_BLINK             = 2119353,
+        SPELL_MIND_FLAY         = 2119361,
+        SPELL_MIND_FLAY_HIT     = 2119363,
+        SPELL_MIND_FLAY_INFO    = 2119360,
+        SPELL_SHADOW_NOVA       = 254454,
+        SPELL_HORROR_BOLT       = 2119371,
+        SPELL_HORROR_BOLT_HIT   = 2119372,
+        SPELL_HORROR_BOLT_INFO  = 2119370,
+        SPELL_HERALD_TEAR       = 2119373,
+        SPELL_HERALD_TEAR_FALL  = 2119374,
+        SPELL_HERALD_TEAR_HIT   = 2119377,
+        SPELL_SCORCHING_RAY     = 2119381,
+        SPELL_SCORCHING_INFO    = 2119380,
+        SPELL_HERALD_METEOR     = 2119384,
+        SPELL_METEOR_HIT        = 2119387,
+        SPELL_METEOR_INFO       = 2119383,
+    };
+
+    enum HeraldEvents
+    {
+        EH_FIERCE = 1, EH_BLINK, EH_MAIN, EH_SECOND, TH_FLAY, TH_TEAR, TH_METEOR,
+    };
+
+    constexpr float METEOR_RADIUS = 8.0f;
+
+    struct npc_soggoth_herald_coa : public custom_world_boss_coa
+    {
+        explicit npc_soggoth_herald_coa(Creature* creature) : custom_world_boss_coa(creature) { }
+
+        void Reset() override
+        {
+            custom_world_boss_coa::Reset();
+            ApplyFlexHealth(me);
+            _tears.clear();
+        }
+
+        void JustEngagedWith(Unit* who) override
+        {
+            me->InterruptNonMeleeSpells(false);
+            ApplyFlexHealth(me);
+            custom_world_boss_coa::JustEngagedWith(who);
+        }
+
+        void EnterEvadeMode(EvadeReason why) override
+        {
+            custom_world_boss_coa::EnterEvadeMode(why);
+            RespawnHeralds(me);
+        }
+
+        void UpdateAI(uint32 diff) override
+        {
+            if (!me->IsInCombat())
+            {
+                _beamCheck -= Milliseconds(diff);
+                if (_beamCheck <= 0ms)
+                {
+                    _beamCheck = 2s;
+                    if (!me->HasUnitState(UNIT_STATE_CASTING))
+                        if (Creature* boss = me->FindNearestCreature(NPC_SOGGOTH, HERALD_RANGE, true))
+                            if (boss->HasAura(SPELL_TWILIGHT_SHIELD))
+                                me->CastSpell(boss, SPELL_TWILIGHT_BEAM, true);
+                }
+            }
+            custom_world_boss_coa::UpdateAI(diff);
+        }
+
+        void Schedule() override
+        {
+            events.ScheduleEvent(EH_FIERCE, 8s);
+            events.ScheduleEvent(EH_BLINK, 20s);
+            events.ScheduleEvent(EH_MAIN, 3s);
+            events.ScheduleEvent(EH_SECOND, 12s);
+            _clock.ScheduleEvent(TH_TEAR, 1s);
+        }
+
+        void Execute(uint32 eventId) override
+        {
+            Unit* t = RandomPlayer(false);
+            switch (eventId)
+            {
+                case EH_FIERCE:
+                    DoCastVictim(SPELL_FIERCE_BLOW);
+                    events.Repeat(8s);
+                    break;
+                case EH_BLINK:
+                    if (t)
+                    {
+                        DoCastSelf(SPELL_BLINK, true);
+                        Position pos = t->GetNearPosition(5.0f, frand(0.0f, 2 * float(M_PI)));
+                        me->NearTeleportTo(pos.GetPositionX(), pos.GetPositionY(), pos.GetPositionZ(),
+                            me->GetAngle(t));
+                    }
+                    events.Repeat(25s);
+                    break;
+                case EH_MAIN:
+                    if (t)
+                    {
+                        _target = t->GetGUID();
+                        if (me->GetEntry() == NPC_CORLA)
+                        {
+                            DoCast(t, SPELL_MIND_FLAY);
+                            _flays = 3;
+                            _clock.ScheduleEvent(TH_FLAY, 1s);
+                        }
+                        else if (me->GetEntry() == NPC_AZIL)
+                            DoCast(t, SPELL_HORROR_BOLT);
+                        else
+                            Hit(me, t, SPELL_SCORCHING_RAY, Info(me, SPELL_SCORCHING_INFO));
+                    }
+                    events.Repeat(me->GetEntry() == NPC_CORLA ? 6s : 3s);
+                    break;
+                case EH_SECOND:
+                    if (me->GetEntry() == NPC_CORLA)
+                        DoCastSelf(SPELL_SHADOW_NOVA);
+                    else if (t && me->GetEntry() == NPC_AZIL)
+                    {
+                        _spot = t->GetPosition();
+                        DoCast(t, SPELL_HERALD_TEAR);
+                    }
+                    else if (t)
+                    {
+                        _meteor = t->GetPosition();
+                        CastAt(_meteor, SPELL_HERALD_METEOR);
+                        _clock.ScheduleEvent(TH_METEOR, 3s);
+                    }
+                    events.Repeat(20s);
+                    break;
+            }
+        }
+
+        void OnSpellCast(SpellInfo const* spell) override
+        {
+            if (spell->Id == SPELL_HORROR_BOLT)
+                Hit(me, ObjectAccessor::GetUnit(*me, _target), SPELL_HORROR_BOLT_HIT, Info(me, SPELL_HORROR_BOLT_INFO));
+            else if (spell->Id == SPELL_HERALD_TEAR)
+            {
+                CastAt(_spot, SPELL_HERALD_TEAR_FALL);
+                _tears.push_back({ _spot, TEAR_SECONDS });
+            }
+        }
+
+        void Tick(uint32 tick) override
+        {
+            switch (tick)
+            {
+                case TH_FLAY:
+                    if (me->HasUnitState(UNIT_STATE_CASTING))
+                        Hit(me, ObjectAccessor::GetUnit(*me, _target), SPELL_MIND_FLAY_HIT,
+                            Info(me, SPELL_MIND_FLAY_INFO));
+                    if (--_flays)
+                        _clock.ScheduleEvent(TH_FLAY, 1s);
+                    break;
+                case TH_TEAR:
+                    for (auto it = _tears.begin(); it != _tears.end();)
+                    {
+                        Position const& spot = it->first;
+                        for (Player* p : Players(me, [&](Player* x) { return x->IsWithinDist3d(&spot, TEAR_RADIUS); }))
+                            SpellDamage(me, p, SPELL_HERALD_TEAR_HIT,
+                                uint32(Info(me, SPELL_HERALD_TEAR_HIT)), SPELL_SCHOOL_MASK_SHADOW);
+                        it = --it->second ? std::next(it) : _tears.erase(it);
+                    }
+                    _clock.ScheduleEvent(TH_TEAR, 1s);
+                    break;
+                case TH_METEOR:
+                {
+                    std::vector<Player*> hit = Players(me, [&](Player* x)
+                    {
+                        return x->IsWithinDist3d(&_meteor, METEOR_RADIUS);
+                    });
+                    for (Player* p : hit)
+                        Hit(me, p, SPELL_METEOR_HIT, Info(me, SPELL_METEOR_INFO) / int32(hit.size()));
+                    break;
+                }
+            }
+        }
+
+    private:
+        Milliseconds _beamCheck = 0ms;
+        ObjectGuid _target;
+        Position _spot;
+        Position _meteor;
+        uint8 _flays = 0;
         std::vector<std::pair<Position, uint32>> _tears;
     };
 
@@ -1124,10 +1554,16 @@ namespace
         SPELL_SOUL_BIND         = 2119845,
         SPELL_SOUL_FLAY_BEAM    = 2146711,
         SPELL_SOUL_LINK         = 2119847,
+        SPELL_VESSEL_CHANNEL    = 33827,
+        SPELL_VESSEL_SOULS      = 84848,
+        GO_VESSEL_ALTAR         = 978093,
+        SPELL_VESSEL_SHADOWMOURNE = 72523,
+        SPELL_VESSEL_HORROR     = 69105,
 
         NPC_ATALZUL             = 67532,
         NPC_ZULROGG             = 67533,
         NPC_DAMNED_WIGHT        = 67534,
+        NPC_INVISIBLE_TRIGGER   = 12999,
         NPC_RESTLESS_SPIRIT     = 67535,
         NPC_SOUL_VESSEL         = 67536,
         NPC_VESSEL_BARRIER      = 67537,
@@ -1270,6 +1706,28 @@ namespace
             _assaulted = false;
             Keep(_barrier, state == VESSEL_SHIELDED, NPC_VESSEL_BARRIER, BARRIER_RISE);
             Keep(_anchor, state == VESSEL_LINKED || state == VESSEL_OPEN, NPC_VESSEL_ANCHOR, ANCHOR_RISE);
+            Glow(state == VESSEL_IDLE || state == VESSEL_LINKED);
+        }
+
+        void Glow(bool wanted)
+        {
+            Creature* glow = ObjectAccessor::GetCreature(*me, _glow);
+            if (glow && wanted)
+                return;
+            if (glow)
+                glow->DespawnOrUnsummon();
+            _glow.Clear();
+            if (!wanted)
+                return;
+            GameObject* altar = me->FindNearestGameObject(GO_VESSEL_ALTAR, 8.0f);
+            Position const at = altar ? altar->GetPosition() : me->GetPosition();
+            if (TempSummon* made = me->SummonCreature(NPC_VESSEL_ANCHOR, at, TEMPSUMMON_MANUAL_DESPAWN))
+            {
+                made->SetReactState(REACT_PASSIVE);
+                for (uint32 visual : { SPELL_VESSEL_SHADOWMOURNE, SPELL_VESSEL_SOULS, SPELL_VESSEL_HORROR })
+                    made->AddAura(visual, made);
+                _glow = made->GetGUID();
+            }
         }
 
         void Keep(ObjectGuid& guid, bool wanted, uint32 entry, float rise)
@@ -1299,13 +1757,23 @@ namespace
             Beam(anchor ? static_cast<Unit*>(anchor) : static_cast<Unit*>(me), atal);
         }
 
-        void Click()
+        void Click(Player* player)
         {
-            if (_state != VESSEL_IDLE)
+            if (_state != VESSEL_IDLE && _state != VESSEL_LINKED)
                 return;
-            SetState(VESSEL_LINKED);
-            if (Creature* atal = me->FindNearestCreature(NPC_ATALZUL, 400.0f))
-                atal->AI()->DoAction(ACTION_VESSEL_LINKED);
+            if (Channeler())
+                return;
+            player->CastSpell(me, SPELL_VESSEL_CHANNEL, TRIGGERED_IGNORE_GCD);
+        }
+
+        Player* Channeler() const
+        {
+            for (Player* p : Players(me, [&](Player* x) { return me->IsWithinDistInMap(x, 40.0f); }))
+                if (Spell* channel = p->GetCurrentSpell(CURRENT_CHANNELED_SPELL))
+                    if (channel->GetSpellInfo()->Id == SPELL_VESSEL_CHANNEL &&
+                        channel->m_targets.GetUnitTargetGUID() == me->GetGUID())
+                        return p;
+            return nullptr;
         }
 
         void DamageTaken(Unit* /*attacker*/, uint32& damage, DamageEffectType /*type*/,
@@ -1329,9 +1797,21 @@ namespace
 
         void UpdateAI(uint32 diff) override
         {
-            if (_state == VESSEL_LINKED)
+            if (_state == VESSEL_IDLE || _state == VESSEL_LINKED)
             {
-                Link();
+                if (!ObjectAccessor::GetCreature(*me, _glow))
+                    Glow(true);
+                bool const held = Channeler() != nullptr;
+                if (held && _state == VESSEL_IDLE)
+                {
+                    SetState(VESSEL_LINKED);
+                    if (Creature* atal = me->FindNearestCreature(NPC_ATALZUL, 400.0f))
+                        atal->AI()->DoAction(ACTION_VESSEL_LINKED);
+                }
+                else if (!held && _state == VESSEL_LINKED)
+                    SetState(VESSEL_IDLE);
+                if (_state == VESSEL_LINKED)
+                    Link();
                 return;
             }
             if (_state != VESSEL_OPEN)
@@ -1346,6 +1826,7 @@ namespace
         ObjectGuid _barrier;
         bool _assaulted = false;
         ObjectGuid _anchor;
+        ObjectGuid _glow;
         VesselState _state = VESSEL_IDLE;
     };
 
@@ -1354,11 +1835,11 @@ namespace
     public:
         go_soul_vessel_altar() : GameObjectScript("go_atalzul_vessel_coa") { }
 
-        bool OnGossipHello(Player* /*player*/, GameObject* go) override
+        bool OnGossipHello(Player* player, GameObject* go) override
         {
             if (Creature* vessel = go->FindNearestCreature(NPC_SOUL_VESSEL, 5.0f))
                 if (auto* ai = dynamic_cast<npc_soul_vessel_coa*>(vessel->AI()))
-                    ai->Click();
+                    ai->Click(player);
             return true;
         }
     };
@@ -1401,6 +1882,7 @@ namespace
             _nextVeil = 80;
             _phase = false;
             _dormant = true;
+            _raise = 0;
             me->RemoveAurasDueToSpell(SPELL_VEIL_POWER);
             me->ApplySpellImmune(0, IMMUNITY_EFFECT, SPELL_EFFECT_INTERRUPT_CAST, true);
             me->ApplySpellImmune(0, IMMUNITY_MECHANIC, MECHANIC_INTERRUPT, true);
@@ -1497,11 +1979,20 @@ namespace
                 Unit* t = RandomPlayer(false);
                 if (!t)
                     return;
-                Position pos = me->GetNearPosition(8.0f + 3.0f * float(_raise % 3), 2.4f * float(_raise));
-                me->UpdateGroundPositionZ(pos.m_positionX, pos.m_positionY, pos.m_positionZ);
-                me->SummonCreature(NPC_DAMNED_WIGHT, pos, TEMPSUMMON_CORPSE_TIMED_DESPAWN, 10000);
                 if (_raise++ % 2 == 0)
-                    CastAt(t->GetPosition(), SPELL_CHOKING_CLOUD);
+                {
+                    _cloud = t->GetPosition();
+                    if (Creature* cloud = me->SummonCreature(NPC_INVISIBLE_TRIGGER, _cloud,
+                            TEMPSUMMON_TIMED_DESPAWN, 60000))
+                    {
+                        cloud->SetFaction(me->GetFaction());
+                        cloud->CastSpell(_cloud.GetPositionX(), _cloud.GetPositionY(), _cloud.GetPositionZ(),
+                            SPELL_CHOKING_CLOUD, true);
+                    }
+                }
+                Position pos = _cloud;
+                me->MovePosition(pos, frand(1.0f, 4.0f), frand(0.0f, 2.0f * float(M_PI)));
+                me->SummonCreature(NPC_DAMNED_WIGHT, pos, TEMPSUMMON_CORPSE_TIMED_DESPAWN, 10000);
             }
             else if (spell->Id == SPELL_VEIL_TRIGGER)
             {
@@ -1540,7 +2031,7 @@ namespace
             if (action == ACTION_VESSEL_LINKED)
             {
                 bool all = true;
-                ForVessels([&](npc_soul_vessel_coa* ai) { all = all && ai->State() == VESSEL_LINKED; });
+                ForVessels([&](npc_soul_vessel_coa* ai) { all = all && ai->State() == VESSEL_LINKED && ai->Channeler(); });
                 if (all && _dormant)
                     Awaken();
             }
@@ -1633,6 +2124,7 @@ namespace
         uint32 _hovered = 0;
         uint8 _nextVeil = 80;
         uint32 _raise = 0;
+        Position _cloud;
         bool _phase = false;
         bool _dormant = true;
     };
@@ -1969,6 +2461,8 @@ namespace
 
 void AddCoaCustomWorldBossScripts()
 {
+    void AddCoaSoggothInstanceScripts();
+    AddCoaSoggothInstanceScripts();
     new coa_world_boss_level_loader();
     new custom_script<boss_setis_coa>("boss_setis_coa");
     new go_setis_altar_coa();
@@ -1981,6 +2475,7 @@ void AddCoaCustomWorldBossScripts()
     AddCoaSnowgraveInstanceScripts();
     new custom_script<boss_soggoth_coa>("boss_soggoth_coa");
     new custom_script<npc_psychophage_coa>("npc_psychophage_coa");
+    new custom_script<npc_soggoth_herald_coa>("npc_soggoth_herald_coa");
     new custom_script<boss_atalzul_coa>("boss_atalzul_coa");
     void AddCoaAtalzulInstanceScripts();
     AddCoaAtalzulInstanceScripts();

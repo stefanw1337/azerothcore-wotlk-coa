@@ -39,6 +39,17 @@ namespace coa_zg
     constexpr Milliseconds FIERCE_BLOW_MIN = 6000ms;
     constexpr Milliseconds FIERCE_BLOW_MAX = 10000ms;
 
+    // Ascended Hakkar and Jin'do berserk after 15 minutes with the Ascended raid berserk of Blackwing Lair
+    // (user decision after the round-7 tester, 2026-11-14); below Ascended, Jin'do has none.
+    constexpr uint8 ASCENDED_SPAWN_MODE = 3;
+    constexpr uint32 SPELL_ASCENDED_BERSERK = 2100213;
+    constexpr Milliseconds ASCENDED_BERSERK_TIMER = 15min;
+
+    inline bool IsAscended(Unit const* unit)
+    {
+        return unit->GetMap()->GetSpawnMode() >= ASCENDED_SPAWN_MODE;
+    }
+
     // Alive, visible players on the boss's map that pass the test.
     inline std::vector<Player*> Players(Creature* me, std::function<bool(Player*)> const& accept)
     {
@@ -88,8 +99,12 @@ namespace coa_zg
         SpellInfo const* info = sSpellMgr->GetSpellInfo(spellId);
         if (!info || !target || !amount || !target->IsAlive())
             return;
+        DamageInfo dmg(caster, target, amount, info, school, SPELL_DIRECT_DAMAGE);
+        Unit::CalcAbsorbResist(dmg);
         SpellNonMeleeDamage log(caster, target, info, school);
-        log.damage = std::min<uint32>(amount, target->GetHealth());
+        log.absorb = dmg.GetAbsorb();
+        log.resist = dmg.GetResist();
+        log.damage = std::min<uint32>(dmg.GetDamage(), target->GetHealth());
         caster->SendSpellNonMeleeDamageLog(&log);
         Unit::DealDamage(caster, target, log.damage, nullptr, SPELL_DIRECT_DAMAGE, school, info, false);
     }

@@ -378,11 +378,22 @@ SHIPPED_EXCLUSIVE = {'bloodforged-high-risk-drop', 'coa-prestige-chromie-spawns'
                      'test-zone-bonus-command', 'test-zone-bonus-westfall', 'void-portal-capture',
                      'path-to-ascension-arena-solo-queue-tutorial', 'pvp-armor-arena-10463',
                      'molten-core-lucifron-encounter', 'setis-world-boss-altar-loot',
-                     'snowgrave-world-boss-instance',
+                     'snowgrave-world-boss-instance', 'lfg-mythic-dungeons-follow-release-stage',
+                     'kazzak-throne-follows-release-stage',
                      'battleground-spirit-guide-queue-follows-range',
                      'battleground-spirit-guide-client-queue-request-10146',
                      'mercenary-battleground-team-faction', 'mercenary-war-mode-battleground',
-                     'high-risk-challenge-survives-battleground', 'mercenary-wintergrasp-team-faction'}
+                     'mercenary-criminal-no-trade-no-queue-9132',
+                     'mercenary-criminal-group-arena-queues-9132',
+                     'high-risk-challenge-survives-battleground', 'mercenary-wintergrasp-team-faction',
+                     'battleground-wide-bracket-boundary', 'battleground-wide-bracket-group-boundary',
+                     'battleground-wide-bracket-catch-up', 'battleground-wide-bracket-pet-catch-up',
+                     'battleground-wide-bracket-combat-level',
+                     'battleground-wide-bracket-derived-scaling', 'battleground-wide-bracket-output-scaling',
+                     'battleground-wide-bracket-gear-catch-up',
+                     'necromancer-life-for-power-battleground-catch-up',
+                     'crows-cache-mercenary-wall-12720', 'crows-cache-carrier-cannot-hide-12720',
+                     'crows-cache-carrier-drops-12720'}
 UTC_EVENING = datetime(2026, 9, 24, 22, 40, tzinfo=timezone.utc)
 
 
@@ -1100,6 +1111,15 @@ class BatchTests(unittest.TestCase):
 
     def test_quest_log_size_cases_run_exclusively_without_a_policy_entry(self):
         self.write(self.definitions / 'scenarios' / 'beta.json', {**SCENARIOS['beta'], 'quest_log_size': 64})
+        code, result = self.simulated('--lanes', '3', '--scenario', 'beta', *SLOW[:3])
+        self.assertEqual(code, 0, self.stderr.getvalue())
+        admissions = self.events('lanes.log')
+        self.assertEqual((admissions[0]['name'], admissions[0]['exclusive'], admissions[0]['running']),
+                         ('Beta', True, []))
+        self.assertEqual(result['simulation']['exclusive'], ['beta'])
+
+    def test_max_player_level_cases_run_exclusively_without_a_policy_entry(self):
+        self.write(self.definitions / 'scenarios' / 'beta.json', {**SCENARIOS['beta'], 'max_player_level': 60})
         code, result = self.simulated('--lanes', '3', '--scenario', 'beta', *SLOW[:3])
         self.assertEqual(code, 0, self.stderr.getvalue())
         admissions = self.events('lanes.log')

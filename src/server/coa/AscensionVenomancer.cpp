@@ -1,6 +1,7 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 #include "AscensionVenomancer.h"
 #include "AscensionSpecialization.h"
+#include "AscensionIncarnation.h"
 #include "AscensionVenomancerData.h"
 #include "CellImpl.h"
 #include "DynamicObject.h"
@@ -262,9 +263,9 @@ void Expose(Player* player, uint32 stacks, bool molt)
     uint32 healedStacks = applied > current ? applied - current : (molt ? 0 : 1);
     if (healedStacks && player->HasAura(CharmOfWarding))
     {
-        SpellInfo const* talent = sSpellMgr->GetSpellInfo(CharmOfWarding);
+        SpellInfo const* logged = sSpellMgr->GetSpellInfo(ExposedFleshHeal);
         HealInfo heal(player, player, player->CountPctFromMaxHealth(healedStacks * Amount(CharmOfWarding)),
-            talent, talent->GetSchoolMask());
+            logged, logged->GetSchoolMask());
         player->HealBySpell(heal);
     }
     if (!molt)
@@ -354,7 +355,8 @@ void ApplyVenoms(Player* player, Unit* target, bool fromSpiderling)
 }
 void UpdateSpiderLordDisplay(Player* player)
 {
-    bool spiderLord = player->HasAura(Beetle) && player->HasAura(SpiderLord);
+    bool spiderLord = player->HasAura(Beetle) && player->HasAura(SpiderLord) &&
+        !AscensionIncarnation::HasActiveFormIncarnation(player);
     uint32 beetleDisplay = player->GetModelForForm(player->GetShapeshiftForm(), Beetle);
     if (spiderLord && beetleDisplay && player->GetDisplayId() == beetleDisplay)
     {
@@ -447,7 +449,15 @@ namespace
 class venomancer_player : public PlayerScript
 {
 public:
-    venomancer_player() : PlayerScript("venomancer_player", {PLAYERHOOK_ON_UPDATE, PLAYERHOOK_ON_LOGOUT}) { }
+    venomancer_player()
+        : PlayerScript("venomancer_player",
+                       {PLAYERHOOK_ON_UPDATE, PLAYERHOOK_ON_LOGOUT, PLAYERHOOK_ON_PLAYER_HAS_ACTIVE_POWER_TYPE})
+    {
+    }
+    bool OnPlayerHasActivePowerType(Player const* player, Powers power) override
+    {
+        return player && player->getClass() == CLASS_PROPHET && power == POWER_MANA;
+    }
     void OnPlayerUpdate(Player* player, uint32 diff) override
     {
         using namespace AscensionVenomancer;

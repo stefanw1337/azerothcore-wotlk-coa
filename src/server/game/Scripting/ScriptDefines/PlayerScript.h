@@ -236,6 +236,7 @@ enum PlayerHook
     PLAYERHOOK_ON_SPELL_CHARGE_CONSUMED,
     PLAYERHOOK_ON_SPELL_COOLDOWN_CALCULATED,
     PLAYERHOOK_CAN_ENTER_MANASTORM,
+    PLAYERHOOK_CAN_RELEASE_SPIRIT,
     PLAYERHOOK_ON_PLAYER_ENVIRONMENTAL_DAMAGE,
     PLAYERHOOK_ON_PLAYER_BREATH_INVERTED,
     PLAYERHOOK_ON_CAN_REGENERATE,
@@ -252,6 +253,7 @@ enum PlayerHook
     PLAYERHOOK_ON_TAKE_MAIL_ITEM,
     PLAYERHOOK_CAN_TAKE_QUEST,
     PLAYERHOOK_CAN_REWARD_QUEST,
+    PLAYERHOOK_CAN_REPEAT_DAILY_QUEST,
     PLAYERHOOK_ON_QUEST_GIVER_CHOOSE_REWARD,
     PLAYERHOOK_ON_REFRESH_QUEST_GIVER,
     PLAYERHOOK_ON_COA_PROGRESS,
@@ -272,6 +274,13 @@ enum PlayerHook
     PLAYERHOOK_ON_HOLDS_TANK_OR_HEALER_ROLE,
     PLAYERHOOK_ON_SAVE_INVENTORY,
     PLAYERHOOK_ON_KEEPS_OWN_VEHICLE,
+    PLAYERHOOK_ON_AFTER_CHAT,
+    PLAYERHOOK_ON_AFTER_PRIVATE_CHAT,
+    PLAYERHOOK_ON_AFTER_GROUP_CHAT,
+    PLAYERHOOK_ON_AFTER_GUILD_CHAT,
+    PLAYERHOOK_ON_AFTER_CHANNEL_CHAT,
+    PLAYERHOOK_ON_AFTER_SEND_MAIL,
+    PLAYERHOOK_ON_AFTER_APPLY_ENCHANTMENT,
     PLAYERHOOK_END
 };
 
@@ -380,6 +389,11 @@ public:
 
     // Called when a player gains XP (before anything is given)
     virtual void OnPlayerGiveXP(Player* /*player*/, uint32& /*amount*/, Unit* /*victim*/, uint8 /*xpSource*/) { }
+    virtual void OnPlayerGiveXPWithGroupAverage(Player* player, uint32& amount, Unit* victim, uint8 xpSource,
+        double /*groupAverageLevel*/)
+    {
+        OnPlayerGiveXP(player, amount, victim, xpSource);
+    }
 
     // Level-up cap for Player::GiveXP. 0 = no restriction; a script returns the
     // highest level the player may reach right now (e.g. gate-1 for
@@ -715,6 +729,9 @@ public:
 
     virtual void OnPlayerAfterApplyItemMods(Player* /*player*/, Item* /*item*/, uint8 /*slot*/, bool /*apply*/) { }
 
+    virtual void OnPlayerAfterApplyEnchantment(Player* /*player*/, Item* /*item*/, EnchantmentSlot /*slot*/,
+        bool /*apply*/) { }
+
     virtual void OnPlayerApplyEnchantmentItemModsBefore(Player* /*player*/, Item* /*item*/, EnchantmentSlot /*slot*/, bool /*apply*/, uint32 /*enchant_spell_id*/, uint32& /*enchant_amount*/) { }
 
     virtual void OnPlayerApplyWeaponDamage(Player* /*player*/, uint8 /*slot*/, ItemTemplate const* /*proto*/, float& /*minDamage*/, float& /*maxDamage*/, uint8 /*damageIndex*/) { }
@@ -877,6 +894,14 @@ public:
      */
     [[nodiscard]] virtual bool OnPlayerCanUseChat(Player* /*player*/, uint32 /*type*/, uint32 /*language*/, std::string& /*msg*/, Channel* /*channel*/) { return true; }
 
+    virtual void OnPlayerAfterChat(Player* /*player*/, uint32 /*type*/, uint32 /*language*/, std::string const& /*msg*/) { }
+    virtual void OnPlayerAfterChat(Player* /*player*/, uint32 /*type*/, uint32 /*language*/, std::string const& /*msg*/, Player* /*receiver*/) { }
+    virtual void OnPlayerAfterChat(Player* /*player*/, uint32 /*type*/, uint32 /*language*/, std::string const& /*msg*/, Group* /*group*/) { }
+    virtual void OnPlayerAfterChat(Player* /*player*/, uint32 /*type*/, uint32 /*language*/, std::string const& /*msg*/, Guild* /*guild*/) { }
+    virtual void OnPlayerAfterChat(Player* /*player*/, uint32 /*type*/, uint32 /*language*/, std::string const& /*msg*/, Channel* /*channel*/) { }
+    virtual void OnPlayerAfterSendMail(Player* /*player*/, ObjectGuid /*receiverGuid*/, uint32 /*receiverAccount*/, std::string const& /*receiverName*/,
+        uint32 /*mailId*/, std::string const& /*subject*/, std::string const& /*body*/) { }
+
     /**
      * @brief This hook called after player learning talents
      *
@@ -983,6 +1008,15 @@ public:
      * @return true if player is allowed to enter the Manastorm
      */
     virtual bool OnPlayerCanEnterManastorm(Player* /*player*/) { return true; }
+
+    /**
+     * @brief This hook is called when a dead player asks to release their spirit.
+     *
+     * @param player Contains information about the Player
+     *
+     * @return true if the player may release now
+     */
+    virtual bool OnPlayerCanReleaseSpirit(Player* /*player*/) { return true; }
 
     // Called when a player withdraws from a bank the Ascension personal/realm bank items
     // open (an item moved out, or money taken out). `kind`: 0 = personal, 1 = realm.
@@ -1126,6 +1160,18 @@ public:
      * @return false to refuse the ordinary quest reward
      */
     [[nodiscard]] virtual bool OnPlayerCanRewardQuest(Player const* /*player*/, Quest const* /*quest*/) { return true; }
+
+    /**
+     * @brief This hook is called when the player already did a daily quest today and the core checks it again.
+     *
+     * @param player Contains information about the Player
+     * @param quest The daily quest
+     * @return true to let the player take and turn in the daily quest once more today
+     */
+    [[nodiscard]] virtual bool OnPlayerCanRepeatDailyQuest(Player const* /*player*/, Quest const* /*quest*/)
+    {
+        return false;
+    }
 
     /**
      * @brief This hook is called after a quest reward request from a validated quest giver, before the core rewards it.

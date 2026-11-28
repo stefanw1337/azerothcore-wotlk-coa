@@ -13,9 +13,9 @@
  *                       meant to be kited
  *   Rising damage       from the pull, +5% damage done every 20s, uncapped
  *                       (Trauma ticks of the live logs, decided 2026-11-13)
- *   Rising speed        with each damage step, +5% run speed, uncapped: slow
- *                       at first, he outruns players later (testers,
- *                       2026-11-13)
+ *   Rising speed        with each damage step, +5% run speed up to +80%
+ *                       (16 stacks): slow at first, he outruns players later
+ *                       (testers, 2026-11-13; cap 2026-11-14)
  *   Ground Slam         first 24s, every 25s   everyone: Physical damage and
  *                                              an 8s bleed (Trauma); those within
  *                                              20 yards are stunned 2s (Ground
@@ -33,6 +33,7 @@
 #include "ScriptedCreature.h"
 #include "../../../src/server/scripts/EasternKingdoms/ZulGurub/zulgurub.h"
 #include "zg_coa_common.h"
+#include "zg_coa_leash.h"
 
 using namespace coa_zg;
 
@@ -60,10 +61,15 @@ namespace
     constexpr float PURSUIT_THREAT = 1000000.0f;
     constexpr int32 RISING_DAMAGE_PER_STACK = 5;
     constexpr int32 RISING_SPEED_PER_STACK = 5;
+    // Run speed stops rising at +80% (round-7 tester, 2026-11-14); damage keeps rising.
+    constexpr uint8 RISING_SPEED_MAX_STACKS = 16;
 
     struct boss_grilek_coa : public BossAI
     {
-        boss_grilek_coa(Creature* creature) : BossAI(creature, DATA_EDGE_OF_MADNESS) { }
+        boss_grilek_coa(Creature* creature) : BossAI(creature, DATA_EDGE_OF_MADNESS)
+        {
+            SetBoundary(coa_zg::LeashFor(DATA_EDGE_OF_MADNESS));
+        }
 
         void Reset() override
         {
@@ -122,11 +128,12 @@ namespace
             me->TextEmote("Gri'lek sets his sights on " + target->GetName() + "!", nullptr, true);
         }
 
-        void AddRisingStack(uint32 spellId, int32 const& perStack)
+        void AddRisingStack(uint32 spellId, int32 const& perStack, uint8 maxStacks = 0)
         {
             if (Aura* aura = me->GetAura(spellId))
             {
-                aura->ModStackAmount(1);
+                if (!maxStacks || aura->GetStackAmount() < maxStacks)
+                    aura->ModStackAmount(1);
                 return;
             }
             me->CastCustomSpell(me, spellId, &perStack, nullptr, nullptr, true);
@@ -167,7 +174,7 @@ namespace
                         break;
                     case EVENT_RISING_DAMAGE:
                         AddRisingStack(SPELL_ENRAGE_TIMER, RISING_DAMAGE_PER_STACK);
-                        AddRisingStack(SPELL_RISING_SPEED, RISING_SPEED_PER_STACK);
+                        AddRisingStack(SPELL_RISING_SPEED, RISING_SPEED_PER_STACK, RISING_SPEED_MAX_STACKS);
                         events.ScheduleEvent(EVENT_RISING_DAMAGE, 20s);
                         break;
                     default:

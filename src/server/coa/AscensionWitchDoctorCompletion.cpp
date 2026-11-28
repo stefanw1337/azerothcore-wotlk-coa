@@ -81,6 +81,11 @@ int32 Amount(uint32 id, uint8 effect, Unit* caster)
     SpellInfo const* info = sSpellMgr->GetSpellInfo(id);
     return info ? info->Effects[effect].CalcValue(caster) : 0;
 }
+float Radius(uint32 id, uint8 effect)
+{
+    SpellInfo const* info = sSpellMgr->GetSpellInfo(id);
+    return info ? info->Effects[effect].CalcRadius() : 0.0f;
+}
 void Cast(Unit* caster, Unit* target, uint32 id)
 {
     if (caster && target && target->IsAlive())
@@ -130,7 +135,11 @@ void SyncSpirits(Player* player)
     if (count && player->HasAura(SpiritWalk))
     {
         if (Aura* speed = player->AddAura(SpiritSpeed, player))
+        {
+            speed->SetMaxDuration(-1);
+            speed->SetDuration(-1);
             speed->SetStackAmount(count);
+        }
     }
     else
         player->RemoveAurasDueToSpell(SpiritSpeed);
@@ -218,6 +227,28 @@ void ApplyContracts(SpellInfo* info)
         info->Effects[index].Amplitude = amplitude;
         info->Effects[index].TriggerSpell = 0;
     };
+    auto addStatPercent = [info](uint8 index, Stats stat)
+    {
+        SpellEffectInfo const& source = info->Effects[EFFECT_0];
+        SpellEffectInfo& added = info->Effects[index];
+        added.Effect = SPELL_EFFECT_APPLY_AURA;
+        added.ApplyAuraName = SPELL_AURA_MOD_TOTAL_STAT_PERCENTAGE;
+        added.BasePoints = source.BasePoints;
+        added.DieSides = source.DieSides;
+        added.MiscValue = stat;
+        added.TargetA = source.TargetA;
+        added.TargetB = SpellImplicitTargetInfo();
+    };
+    if ((id == JujuInjection || id == JujuInjectionTwo) && !info->Effects[EFFECT_2].Effect &&
+        info->Effects[EFFECT_0].IsAura(SPELL_AURA_MOD_TOTAL_STAT_PERCENTAGE) &&
+        info->Effects[EFFECT_0].MiscValue == STAT_AGILITY &&
+        info->Effects[EFFECT_1].IsAura(SPELL_AURA_MOD_TOTAL_STAT_PERCENTAGE) &&
+        info->Effects[EFFECT_1].MiscValue == STAT_INTELLECT)
+        addStatPercent(EFFECT_2, STAT_SPIRIT);
+    if (id == SpiritWardenBuff && !info->Effects[EFFECT_1].Effect &&
+        info->Effects[EFFECT_0].IsAura(SPELL_AURA_MOD_TOTAL_STAT_PERCENTAGE) &&
+        info->Effects[EFFECT_0].MiscValue == STAT_SPIRIT)
+        addStatPercent(EFFECT_1, STAT_AGILITY);
     if (id == Shadowhunter)
         dummy(EFFECT_1);
     if (id == PuppeteersGrasp)
@@ -226,6 +257,12 @@ void ApplyContracts(SpellInfo* info)
         info->Effects[EFFECT_0].ApplyAuraName == SPELL_AURA_ADD_FLAT_MODIFIER &&
         info->Effects[EFFECT_0].MiscValue == SPELLMOD_EFFECT3)
         info->Effects[EFFECT_0].SpellClassMask = flag96(512, 0, 0);
+    if (id == Seeker && info->Effects[EFFECT_0].ApplyAuraName == SPELL_AURA_ADD_PCT_MODIFIER &&
+        info->Effects[EFFECT_0].MiscValue == SPELLMOD_COST)
+    {
+        info->Effects[EFFECT_0].SpellClassMask[0] |= 128;
+        info->Effects[EFFECT_0].SpellClassMask[1] |= 1048576;
+    }
     if (id == Mimic && info->Effects[EFFECT_2].Effect == SPELL_EFFECT_SUMMON)
         info->Effects[EFFECT_2].BasePoints = 1;
     if (Family(info, 0, 4))
@@ -233,12 +270,20 @@ void ApplyContracts(SpellInfo* info)
         info->Effects[EFFECT_0].Effect = SPELL_EFFECT_SCHOOL_DAMAGE;
         info->Effects[EFFECT_0].TriggerSpell = 0;
     }
+    if (Family(info, 1, 262144) && info->Effects[EFFECT_0].Effect == SPELL_EFFECT_SCHOOL_DAMAGE)
+        info->Effects[EFFECT_0].ChainTarget = 0;
     if (id == CallSseratus && info->Effects[EFFECT_1].TriggerSpell == TrueSpiritReady)
         info->Effects[EFFECT_1].Effect = 0;
     if (id == ShadowhunterCost)
         info->Effects[EFFECT_0].Effect = info->Effects[EFFECT_1].Effect = 0;
     if (id == Spirit)
         periodic(EFFECT_2, 500);
+    if ((id == PotentMixes || id == PotentMixesGreater) &&
+        info->Effects[EFFECT_1].ApplyAuraName == SPELL_AURA_MOD_TOTAL_THREAT)
+    {
+        info->Effects[EFFECT_1].ApplyAuraName = SPELL_AURA_MOD_THREAT;
+        info->Effects[EFFECT_1].MiscValue = SPELL_SCHOOL_MASK_ALL;
+    }
     if (id == SpiritCast || id == SpiritChance || id == SpiritVisual)
         for (uint8 i = 0; i < MAX_SPELL_EFFECTS; ++i)
             dummy(i);
@@ -282,7 +327,13 @@ void ApplyContracts(SpellInfo* info)
     if (IsJuju(info))
         info->Effects[EFFECT_1].Effect = 0;
     if (id == PuppetHit)
-        info->Effects[EFFECT_1].Effect = 0;
+    {
+        info->Effects[EFFECT_0].Effect = SPELL_EFFECT_SCHOOL_DAMAGE;
+        info->DmgClass = SPELL_DAMAGE_CLASS_MAGIC;
+        info->AttributesEx3 |= SPELL_ATTR3_NOT_A_PROC;
+        info->AttributesCu |= SPELL_ATTR0_CU_DIRECT_DAMAGE;
+        info->AttributesCu &= ~SPELL_ATTR0_CU_BINARY_SPELL;
+    }
     if (Family(info, 0, 8))
     {
         periodic(EFFECT_0, info->Effects[EFFECT_0].Amplitude);
@@ -365,6 +416,8 @@ void ApplyContracts(SpellInfo* info)
         info->StackAmount = 1;
         info->DurationEntry = sSpellDurationStore.LookupEntry(21);
     }
+    if (id == ThistleField)
+        info->PreventionType = SPELL_PREVENTION_TYPE_NONE;
     if (id == Crystal)
         dummy(EFFECT_0);
     if (id == Beast)
@@ -398,6 +451,7 @@ void ApplyContracts(SpellInfo* info)
     {
         info->Effects[EFFECT_0].ApplyAuraName = SPELL_AURA_MOD_ROOT;
         info->Effects[EFFECT_1].Effect = info->Effects[EFFECT_2].Effect = 0;
+        info->DurationEntry = sSpellDurationStore.LookupEntry(31);
     }
     if (id == MarionetteStacks)
     {
@@ -484,11 +538,14 @@ void ApplyContracts(SpellInfo* info)
                         effect.Effect = SPELL_EFFECT_APPLY_AURA;
                     effect.TargetA = SpellImplicitTargetInfo(TARGET_UNIT_TARGET_ENEMY);
                     effect.TargetB = SpellImplicitTargetInfo();
+                    if (id == VoodooFire)
+                        effect.ChainTarget = 0;
                 }
     if (id == ShadowField)
     {
         info->Effects[EFFECT_0].ApplyAuraName = SPELL_AURA_MOD_CASTING_SPEED_NOT_STACK;
         info->Effects[EFFECT_1].Effect = 0;
+        info->AttributesEx5 &= ~SPELL_ATTR5_LIMIT_N;
     }
     if (id == WardHaste)
     {
@@ -608,7 +665,11 @@ class witch_doctor_scaling : public UnitScript
                                  : c.school == 12 ? std::max(player->SpellBaseDamageBonusDone(SPELL_SCHOOL_MASK_FIRE),
                                                              player->SpellBaseDamageBonusDone(SPELL_SCHOOL_MASK_NATURE))
                                                   : player->SpellBaseDamageBonusDone(SpellSchoolMask(c.school)));
-                value += std::max(0.0f, sp) * c.sp + player->GetStat(STAT_SPIRIT) * c.spirit +
+                float coefficient = c.sp;
+                if (AuraEffect const* juju = player->GetAuraEffect(OverflowingJuju, EFFECT_0))
+                    if (juju->IsAffectedOnSpell(info))
+                        coefficient *= 1.0f + float(juju->GetAmount()) / 100.0f;
+                value += std::max(0.0f, sp) * coefficient + player->GetStat(STAT_SPIRIT) * c.spirit +
                          player->GetTotalAttackPowerValue(RANGED_ATTACK) * c.rap +
                          player->GetTotalAttackPowerValue(BASE_ATTACK) * c.ap;
             }

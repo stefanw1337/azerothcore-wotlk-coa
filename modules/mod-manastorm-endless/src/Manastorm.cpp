@@ -513,6 +513,7 @@ public:
             true,
             {
                 UNITHOOK_ON_DAMAGE,
+                UNITHOOK_ON_HEAL,
                 UNITHOOK_ON_AURA_APPLY,
                 UNITHOOK_ON_AURA_REMOVE,
                 UNITHOOK_RESOLVE_SPELL_CAST,
@@ -539,6 +540,20 @@ public:
             attacker,
             victim,
             damage);
+    }
+
+    void OnHeal(
+        Unit* healer,
+        Unit* receiver,
+        uint32& gain) override
+    {
+        if (!ManastormModuleConfig::Enabled() || !gain)
+            return;
+
+        ManastormMgr::Instance().OnHeal(
+            healer,
+            receiver,
+            gain);
     }
 
     void OnAuraApply(Unit* unit, Aura* aura) override
@@ -833,11 +848,12 @@ public:
             .OnPlayerLevelChanged(player, oldLevel);
     }
 
-    void OnPlayerGiveXP(
+    void OnPlayerGiveXPWithGroupAverage(
         Player* player,
         uint32& amount,
         Unit* victim,
-        uint8 xpSource) override
+        uint8 xpSource,
+        double groupAverageLevel) override
     {
         if (!ManastormModuleConfig::Enabled())
             return;
@@ -847,7 +863,8 @@ public:
                 player,
                 amount,
                 victim,
-                xpSource);
+                xpSource,
+                groupAverageLevel);
     }
 
     bool OnPlayerPassedQuestKilledMonsterCredit(

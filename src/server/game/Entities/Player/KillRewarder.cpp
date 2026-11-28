@@ -116,7 +116,7 @@ void KillRewarder::_InitGroupData()
                         // different level for each of them, so one member's scaled kill can be another
                         // member's gray kill. Without a view this is the object's own level.
                         uint32 grayLevel = Acore::XP::GetGrayLevel(lvl);
-                        if (_victim->getLevelForTarget(member) > grayLevel && (!_maxNotGrayMember || _maxNotGrayMemberLevel < lvl))
+                        if (_victim->getRewardLevelForTarget(member) > grayLevel && (!_maxNotGrayMember || _maxNotGrayMemberLevel < lvl))
                         {
                             _maxNotGrayMember = member;
                             _maxNotGrayMemberLevel = lvl;
@@ -182,7 +182,7 @@ void KillRewarder::_RewardXP(Player* player, float rate)
         {
             uint8 const referenceLevel = _group ? _maxLevel : player->GetLevel();
             uint8 const highestLevel = creature->GetHighestPlayerAttackerLevel();
-            if (highestLevel > referenceLevel && creature->getLevelForTarget(player) <= Acore::XP::GetGrayLevel(highestLevel))
+            if (highestLevel > referenceLevel && creature->getRewardLevelForTarget(player) <= Acore::XP::GetGrayLevel(highestLevel))
                 xp = xp / 2 + 1;
         }
 
@@ -205,7 +205,8 @@ void KillRewarder::_RewardXP(Player* player, float rate)
         });
 
         // 4.2.3. Give XP to player.
-        sScriptMgr->OnPlayerGiveXP(player, xp, _victim, PlayerXPSource::XPSOURCE_KILL);
+        double const groupAverageLevel = _group && _count ? double(_aliveSumLevel) / _count : 0.0;
+        sScriptMgr->OnPlayerGiveXP(player, xp, _victim, PlayerXPSource::XPSOURCE_KILL, groupAverageLevel);
         player->GiveXP(xp, _victim, _groupRate);
         if (Pet* pet = player->GetPet())
             // 4.2.4. If player has pet, reward pet with XP (100% for single player, 50% for group case).

@@ -1,8 +1,10 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionMercenary.h"
 #include "AscensionRulesets.h"
 #include "Battlefield.h"
 #include "DBCStores.h"
+#include "DataMap.h"
 #include "Map.h"
 #include "ObjectAccessor.h"
 #include "Player.h"
@@ -10,6 +12,7 @@
 #include "SpellAuras.h"
 #include "SpellScript.h"
 #include "WorldSession.h"
+#include <unordered_set>
 
 namespace
 {
@@ -19,14 +22,12 @@ enum MercenarySpells : uint32
     SPELL_WAR_MODE = 1004119,
     SPELL_PVE = 9931032,
     SPELL_MERCENARY = 9930874,
-    SPELL_MERCENARY_CRIMINAL = 9930862,
     SPELL_FOR_THE_HORDE = 101100,
     SPELL_FOR_THE_ALLIANCE = 101101
 };
 
 constexpr uint8 MERCENARY_MIN_LEVEL = 20;
 constexpr uint32 MERCENARY_FACTION_TEMPLATE = 1163;
-constexpr int32 MERCENARY_CRIMINAL_DURATION = 8 * MINUTE * IN_MILLISECONDS;
 constexpr Milliseconds TEAM_BATTLE_RECHECK_DELAY = 1s;
 thread_local Player const* standingDown = nullptr;
 
@@ -93,6 +94,42 @@ ReputationRank RaceReactionTo(Player const* player, Unit const* target)
 bool InMercenaryWar(Player const* player)
 {
     return ActiveMercenary(player) || IsPvPRuleset(player);
+}
+
+constexpr char const* RetaliationKey = "ascension_mercenary_retaliation";
+
+struct Retaliation final : DataMap::Base
+{
+    std::unordered_set<ObjectGuid> Mercenaries;
+};
+
+bool ShowsHostileTo(Player const* player, Player const* viewer)
+{
+    if (!player || !viewer || player == viewer || ActiveMercenary(player) || !IsPvPRuleset(player) ||
+        !ActiveMercenary(viewer))
+        return false;
+    Retaliation const* state = player->CustomData.Get<Retaliation>(RetaliationKey);
+    return state && state->Mercenaries.contains(viewer->GetGUID());
+}
+
+void ResendFaction(Player* player)
+{
+    player->ForceValuesUpdateAtIndex(UNIT_FIELD_FACTIONTEMPLATE);
+    for (Unit* controlled : player->m_Controlled)
+        if (controlled->GetOwnerGUID() == player->GetGUID())
+            controlled->ForceValuesUpdateAtIndex(UNIT_FIELD_FACTIONTEMPLATE);
+}
+
+void ExposeToMercenary(Unit* attacker, Unit* victim)
+{
+    Player* player = attacker ? attacker->GetCharmerOrOwnerPlayerOrPlayerItself() : nullptr;
+    Player* mercenary = victim ? victim->GetCharmerOrOwnerPlayerOrPlayerItself() : nullptr;
+    if (!player || !mercenary || player == mercenary || !ActiveMercenary(mercenary) || ActiveMercenary(player) ||
+        !IsPvPRuleset(player) || !player->IsInCombat())
+        return;
+
+    if (player->CustomData.GetDefault<Retaliation>(RetaliationKey)->Mercenaries.insert(mercenary->GetGUID()).second)
+        ResendFaction(player);
 }
 
 bool ShowsFreeForAllTo(Player const* player, Player const* viewer)
@@ -189,6 +226,19 @@ void RestoreFreeForAllOnceAreaSettles(Player* player)
         Player* player = ObjectAccessor::FindPlayer(guid);
         if (player && player->IsInWorld() && ActiveMercenary(player))
             SetMercenaryFreeForAll(player);
+    }, 0ms);
+}
+
+void ResendFreeForAllOnceNoPvPAreaChanges(Player* player)
+{
+    ObjectGuid const guid = player->GetGUID();
+    bool const wasInNoPvPArea = player->pvpInfo.IsInNoPvPArea;
+    player->m_Events.AddEventAtOffset([guid, wasInNoPvPArea]()
+    {
+        Player* player = ObjectAccessor::FindPlayer(guid);
+        if (player && player->IsInWorld() && player->pvpInfo.IsInNoPvPArea != wasInNoPvPArea &&
+            IsPvPRuleset(player) && !player->HasAura(SPELL_MERCENARY))
+            player->ForceValuesUpdateAtIndex(UNIT_FIELD_BYTES_2);
     }, 0ms);
 }
 
@@ -296,6 +346,8 @@ public:
             Player const* owner = unit->GetCharmerOrOwnerPlayerOrPlayerItself();
             if (owner && ActiveMercenary(owner) && (owner == target || !InMercenaryWar(target)))
                 data.put(pos.UnitFieldFactionTemplatePos, RaceFaction(owner));
+            else if (ShowsHostileTo(owner, target))
+                data.put(pos.UnitFieldFactionTemplatePos, MERCENARY_FACTION_TEMPLATE);
         }
         if (pos.UnitFieldBytes2Pos < 0 || !unit || !ShowsFreeForAllTo(unit->ToPlayer(), target))
             return;
@@ -304,13 +356,39 @@ public:
     }
 };
 
+class ascension_mercenary_retaliation : public UnitScript
+{
+public:
+    ascension_mercenary_retaliation()
+        : UnitScript("ascension_mercenary_retaliation", true,
+                     {UNITHOOK_ON_DAMAGE, UNITHOOK_ON_AURA_APPLY, UNITHOOK_ON_UNIT_EXIT_COMBAT}) { }
+
+    void OnDamage(Unit* attacker, Unit* victim, uint32&) override { ExposeToMercenary(attacker, victim); }
+
+    void OnAuraApply(Unit* unit, Aura* aura) override
+    {
+        if (!aura->GetSpellInfo()->IsPositive())
+            ExposeToMercenary(aura->GetCaster(), unit);
+    }
+
+    void OnUnitExitCombat(Unit* unit) override
+    {
+        Player* player = unit->ToPlayer();
+        Retaliation* state = player ? player->CustomData.Get<Retaliation>(RetaliationKey) : nullptr;
+        if (!state || state->Mercenaries.empty())
+            return;
+        state->Mercenaries.clear();
+        ResendFaction(player);
+    }
+};
+
 class ascension_mercenary_player : public PlayerScript
 {
 public:
     ascension_mercenary_player()
         : PlayerScript("ascension_mercenary_player", {PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_LEVEL_CHANGED,
-                                                      PLAYERHOOK_ON_PVP_KILL, PLAYERHOOK_ON_FFA_PVP_STATE_UPDATE,
-                                                      PLAYERHOOK_ON_MAP_CHANGED, PLAYERHOOK_ON_UPDATE_AREA})
+                                                      PLAYERHOOK_ON_FFA_PVP_STATE_UPDATE, PLAYERHOOK_ON_MAP_CHANGED,
+                                                      PLAYERHOOK_ON_UPDATE_AREA})
     {
     }
 
@@ -318,6 +396,8 @@ public:
     {
         if (player->HasAura(SPELL_MERCENARY))
             RestoreFreeForAllOnceAreaSettles(player);
+        else if (IsPvPRuleset(player))
+            ResendFreeForAllOnceNoPvPAreaChanges(player);
     }
 
     void OnPlayerLogin(Player* player) override { LearnSpells(player); }
@@ -330,19 +410,6 @@ public:
     {
         if (!result && player && player != standingDown && ActiveMercenary(player))
             SetMercenaryFreeForAll(player);
-    }
-
-    void OnPlayerPVPKill(Player* killer, Player* killed) override
-    {
-        if (!killer || !killed || !ActiveMercenary(killer) || killer->GetTeamId() != killed->GetTeamId())
-            return;
-
-        killer->CastSpell(killer, SPELL_MERCENARY_CRIMINAL, true);
-        if (Aura* aura = killer->GetAura(SPELL_MERCENARY_CRIMINAL))
-        {
-            aura->SetMaxDuration(MERCENARY_CRIMINAL_DURATION);
-            aura->SetDuration(MERCENARY_CRIMINAL_DURATION);
-        }
     }
 
 private:
@@ -398,12 +465,24 @@ public:
 };
 }
 
+bool AscensionMercenary::Active(Player const* player)
+{
+    return ActiveMercenary(player);
+}
+
+bool AscensionMercenary::StruckFirst(Player const* attacker, Player const* mercenary)
+{
+    Retaliation const* state = attacker->CustomData.Get<Retaliation>(RetaliationKey);
+    return state && state->Mercenaries.contains(mercenary->GetGUID());
+}
+
 void AddSC_AscensionMercenary()
 {
     RegisterSpellAndAuraScriptPair(spell_ascension_mercenary, spell_ascension_mercenary_aura);
     RegisterSpellScript(spell_ascension_mercenary_loyalty);
     new ascension_mercenary_reaction();
     new ascension_mercenary_view();
+    new ascension_mercenary_retaliation();
     new ascension_mercenary_player();
     new ascension_mercenary_battlefield();
     new ascension_mercenary_arena_metadata();

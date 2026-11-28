@@ -122,7 +122,7 @@ uint32 Acore::XP::Gain(Player* player, Unit* unit, bool isBattleGround /*= false
         ContentLevels const rawContent = GetContentLevelsForMapAndZone(unit->GetMapId(), unit->GetZoneId());
         ContentLevels const content = static_cast<ContentLevels>(
             LocalLevelScaling::GetEffectiveKillContentLevel(player, unit, static_cast<uint8>(rawContent)));
-        gain = BaseGain(playerLevel, unit->getLevelForTarget(player), content);
+        gain = BaseGain(playerLevel, unit->getRewardLevelForTarget(player), content);
 
         if (gain && creature)
         {

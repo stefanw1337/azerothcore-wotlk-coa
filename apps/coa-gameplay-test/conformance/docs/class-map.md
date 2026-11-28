@@ -45,8 +45,8 @@ field, this pipeline builds it:
 - `source`: one of two values.
   - `advancement`: a `CharacterAdvancement.dbc` rank spell of the class's custom ClassType, the same set as
     `classes.class_spells`.
-  - `base_candidate`: a row of `AscensionCompatData::ClassSpells` in `src/server/coa/AscensionCustomClassData.h` that is
-    not in the advancement set.
+  - `base_candidate`: a server-granted spell from `AscensionCompatData::ClassSpells`, `AscensionTaughtAbilityData.h`
+    (`TaughtAbilities`), or `FelswornHordeCapitalRifts` (class 14) that is not in the advancement set.
 - `ranks`: the base spell plus the chain of `AscensionSpellProgressionData.h`.
 - `tooltip`, `sentences`, `tokens`, `token_kinds`, `literals`: read from `Description[enUS]`.
 - `foreign_spells`: spells named by a `$<id>` token or an `@s:<id>:` mark.
@@ -75,11 +75,19 @@ field, this pipeline builds it:
   of 165 and above, auras of 317 and above, and modifier operations of 29 and above.
 - `log_casts`, `log_other_events`: events in your log events file whose spell id is a rank of the spell.
 - `log_linked_events`: the same for its foreign and triggered spells.
+- `shared_with`: the other class ids whose spell list holds the same spell id (ADR 0597).
 
 Per class:
 - `own_files`: the code files that at least 5 of its spells hit, and at least 10% of the most-hit file, minus the shared
   files;
 - `shared_files`: files that three or more classes hit that way.
+
+At the top level, `shared_class_file_spells` lists every spell id that more than one class file under `classes/` uses
+(often a test fixture such as 12096 Fear), with the class ids and the class-file keys it appears under. A class file's
+spell ids are the integers under keys ending in `spell`, `spells`, `aura` or `auras`, and the first element of each
+pair inside such a list. Touching the code, data or fixture of a spell flagged either way requires the snapshot check
+and the gameplay rerun of every finished class that uses it
+([guide, section 14.5](../../../../docs/coa/class-conformance.md#145-guards-for-finished-classes)).
 
 ## Check against the Templar
 
@@ -96,7 +104,9 @@ and this map marks `data_row`.
   `src/server/game` it counts only ids of 10000 and above (`core_script`).
 - A whole-word number match can be a coincidence for small ids. The Templar check found none.
 - `base_candidate` is not proof that players obtain the spell. The Templar's spell set was confirmed by hand ([spell
-  sets](spell-sets.md)). For other classes, the log columns give some evidence, if you have logs.
+  sets](spell-sets.md)). Run `conformance.py audit-extra` ([ADR 1327](../../../../docs/adr/1327-conformance-audit-extra-spells-before-ledger.md))
+  to reconcile all five server grant sources against `extra_spells` and `excluded_extra_spells`. For other classes,
+  the log columns give some evidence, if you have logs.
 - Combat logs do not store a class. A spell id shared by two classes counts for both.
 - Sentences and tokens indicate size; they are not a clause count. When first counted, on 2026-11-11, the Templar had
   297 sentences and 334 tokens here, for 433 ledger claims.

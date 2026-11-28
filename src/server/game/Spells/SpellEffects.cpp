@@ -15,6 +15,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "AscensionBattlegroundCombat.h"
 #include "Battleground.h"
 #include "BattlegroundIC.h"
 #include "BattlegroundMgr.h"
@@ -40,6 +41,7 @@
 #include "LocalLevelScaling.h"
 #include "Log.h"
 #include "MapMgr.h"
+#include <cmath>
 #include <limits>
 #include <set>
 #include "MiscPackets.h"
@@ -291,6 +293,7 @@ void Spell::EffectUnused(SpellEffIndex /*effIndex*/)
 namespace
 {
 constexpr uint32 ASCENSION_EARTHSHAPING_AURA = 680441;
+constexpr uint32 ASCENSION_MARK_OF_ORDER_AURA = 806269;
 constexpr uint32 ASCENSION_STATIC_AURA = 803102;
 constexpr uint32 ASCENSION_THUNDER_WARD_AURA = 800098;
 constexpr uint32 ASCENSION_CHARGED_CONDUIT_AURA = 803790;
@@ -423,10 +426,12 @@ void ModifyAscensionAuraStacks(Unit* caster, Unit* target, uint32 auraSpellId, i
     if (Aura* aura = target->GetAura(auraSpellId))
     {
         // Earthshaping's authored contract explicitly forbids refreshing its
-        // lifetime when another stack is gained. Other auras keep native
-        // ModStackAmount behavior.
+        // lifetime when another stack is gained, and Mark of Order's periodic
+        // self-stacking (806270 -> 806269) must preserve its remaining duration
+        // so the 20 s buff expires instead of refreshing indefinitely. Other
+        // auras keep native ModStackAmount behavior.
         bool preserveDuration = delta > 0 &&
-            auraSpellId == ASCENSION_EARTHSHAPING_AURA;
+            (auraSpellId == ASCENSION_EARTHSHAPING_AURA || auraSpellId == ASCENSION_MARK_OF_ORDER_AURA);
         int32 remaining = aura->GetDuration();
         aura->ModStackAmount(delta);
         if (preserveDuration)
@@ -493,7 +498,7 @@ void Spell::EffectAscensionRestoreBaseManaPct(SpellEffIndex /*effIndex*/)
         return;
     }
 
-    if (unitTarget->IsPlayer() && !unitTarget->HasActivePowerType(POWER_MANA) &&
+    if (unitTarget->IsPlayer() && !unitTarget->CanReceivePowerFromSpell(POWER_MANA) &&
         !m_spellInfo->HasAttribute(SPELL_ATTR7_ONLY_IN_SPELLBOOK_UNTIL_LEARNED))
         return;
 
@@ -518,7 +523,10 @@ void Spell::EffectAscensionHealthPctDamage(SpellEffIndex effIndex)
         (mode == 1 && (id == 93358 || (id >= 115171 && id <= 115190)));
     if (!supported)
         return;
-    int64 const amount = int64(LocalLevelScaling::PersonalDamageHealthFor(m_caster, unitTarget)) * int64(damage) / 100;
+    int64 amount = int64(LocalLevelScaling::PersonalDamageHealthFor(m_caster, unitTarget)) * int64(damage) / 100;
+    float const factor = AscensionBattlegroundCombat::UnscaledFactor(m_caster, unitTarget, m_spellInfo, false);
+    if (factor < 1.0f)
+        amount = int64(std::llround(double(amount) * double(factor)));
     m_damage = int32(std::min<int64>(int64(m_damage) + amount, std::numeric_limits<int32>::max()));
 }
 
@@ -852,7 +860,9 @@ void Spell::EffectAscensionRefreshAura(SpellEffIndex effIndex)
     if (!target || !effect.MiscValue)
         return;
 
-    Aura* aura = target->GetAura(effect.MiscValue);
+    Aura* aura = target->GetAuraOfRankedSpell(effect.MiscValue, m_caster->GetGUID());
+    if (!aura)
+        aura = target->GetAuraOfRankedSpell(effect.MiscValue);
     if (!aura)
         return;
 
@@ -1013,7 +1023,12 @@ void Spell::EffectAscensionPctDamage(SpellEffIndex effIndex)
     if (m_spellInfo->Effects[effIndex].MiscValue == 1)
         amount = CalculatePct(m_caster->CalculateDamage(BASE_ATTACK, false, true), damage);
     else
+    {
         amount = CalculatePct(LocalLevelScaling::PersonalDamageHealthFor(m_caster, unitTarget), damage);
+        float const factor = AscensionBattlegroundCombat::UnscaledFactor(m_caster, unitTarget, m_spellInfo, false);
+        if (factor < 1.0f)
+            amount = uint32(std::llround(double(amount) * double(factor)));
+    }
 
     if (m_originalCaster)
         amount = unitTarget->SpellDamageBonusTaken(m_originalCaster, m_spellInfo, amount, SPELL_DIRECT_DAMAGE);
@@ -1347,7 +1362,7 @@ void Spell::EffectSchoolDMG(SpellEffIndex effIndex)
                             {
                                 if (AuraEffect* aurEff = owner->GetAuraEffect(SPELL_AURA_ADD_FLAT_MODIFIER, SPELLFAMILY_WARLOCK, 214, 0))
                                 {
-                                    int32 bp0 = aurEff->GetId() == 54037 ? 4 : 8;
+                                    int32 bp0 = sSpellMgr->GetSpellTwinSource(aurEff->GetId()) == 54037 ? 4 : 8;
                                     m_caster->CastCustomSpell(m_caster, 54425, &bp0, nullptr, nullptr, true);
                                 }
                             }
@@ -2373,7 +2388,7 @@ void Spell::EffectPowerDrain(SpellEffIndex effIndex)
 
     Powers PowerType = Powers(m_spellInfo->Effects[effIndex].MiscValue);
 
-    if (!unitTarget || !unitTarget->IsAlive() || !unitTarget->HasActivePowerType(PowerType) || damage < 0)
+    if (!unitTarget || !unitTarget->IsAlive() || !unitTarget->CanLosePowerToSpell(PowerType) || damage < 0)
         return;
 
     // add spell damage bonus
@@ -2452,7 +2467,7 @@ void Spell::EffectPowerBurn(SpellEffIndex effIndex)
 
     Powers PowerType = Powers(m_spellInfo->Effects[effIndex].MiscValue);
 
-    if (!unitTarget || !unitTarget->IsAlive() || !unitTarget->HasActivePowerType(PowerType) || damage < 0)
+    if (!unitTarget || !unitTarget->IsAlive() || !unitTarget->CanLosePowerToSpell(PowerType) || damage < 0)
         return;
 
     // burn x% of target's mana, up to maximum of 2x% of caster's mana (Mana Burn)
@@ -2565,8 +2580,9 @@ void Spell::EffectHeal(SpellEffIndex effIndex)
 
             addhealth += tickheal * tickcount;
 
-            // Glyph of Swiftmend
-            if (!caster->HasAura(54824))
+            // Glyph of Swiftmend (118033: the classless glyph; Ascension's 54824 is another glyph)
+            // 415014 Everliving (Mystic Enchant): the HoTs stay too
+            if (!caster->HasAura(54824) && !caster->HasAura(118033) && !caster->HasAura(415014))
                 unitTarget->RemoveAura(targetAura->GetId(), targetAura->GetCasterGUID());
 
             //addhealth += tickheal * tickcount;
@@ -2872,7 +2888,7 @@ void Spell::EffectPersistentAA(SpellEffIndex effIndex)
     if (!m_spellAura)
     {
         Unit* caster = m_caster->GetEntry() == WORLD_TRIGGER ? m_originalCaster : m_caster;
-        float radius = m_spellInfo->Effects[effIndex].CalcRadius(caster);
+        float radius = m_spellInfo->Effects[effIndex].CalcRadius(caster) * m_spellValue->RadiusMod;
 
         // Caster not in world, might be spell triggered from aura removal
         if (!caster->IsInWorld() || !caster->FindMap() || !ObjectAccessor::GetUnit(*caster, caster->GetGUID())) // pussywizard: temporary crash fix (FindMap and GetUnit are mine)
@@ -4553,7 +4569,7 @@ void Spell::EffectWeaponDmg(SpellEffIndex effIndex)
             }
         case SPELLFAMILY_PALADIN:
             {
-                switch (m_spellInfo->Id)
+                switch (sSpellMgr->GetSpellTwinSource(m_spellInfo->Id) == 53385 ? 53385 : m_spellInfo->Id)
                 {
                     case 20467: // Seal of Command Unleashed
                         spell_bonus += int32(0.08f * m_caster->GetTotalAttackPowerValue(BASE_ATTACK));

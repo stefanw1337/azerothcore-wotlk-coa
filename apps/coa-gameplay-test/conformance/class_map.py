@@ -43,6 +43,8 @@ CLASS_FILE_MINIMUM = 5
 SHARED_FILE_CLASSES = 3
 BASE_ROW = re.compile(r'^\s*\{\s*(\d+),\s*(\d+),\s*(\d+)\s*\},?\s*$', re.MULTILINE)
 CAST_EVENTS = ('SPELL_CAST_SUCCESS', 'SPELL_CAST_START')
+SPELL_KEY = re.compile(r'(?:^|_)(?:spell|aura)s?$')
+CLASS_FILE_SKIPPED = ('_clauses', '_consumption')
 
 
 def token_kind(token):
@@ -144,22 +146,72 @@ def family_masks(text):
     return masks
 
 
+def log_events(path):
+    from extra_spells import log_events as read_log_events
+    return read_log_events(path)
+
+
 def base_candidates(root):
-    text = (root / 'src/server/coa/AscensionCustomClassData.h').read_text(encoding='utf-8')
-    block = text[text.index('ClassSpells ='):text.index('LegacyGeneratedClassSpells')]
+    from extra_spells import class_spells_table, felsworn_rifts, taught_abilities
     found = defaultdict(dict)
-    for class_id, level, spell in BASE_ROW.findall(block):
-        found[int(class_id)][int(spell)] = int(level)
+    for class_id, spells in class_spells_table(root).items():
+        found[class_id].update(spells)
+    for class_id, spells in taught_abilities(root).items():
+        per_class = found[class_id]
+        for spell_id, (required_level, _) in spells.items():
+            per_class[spell_id] = min(per_class.get(spell_id, required_level), required_level)
+    rifts = felsworn_rifts(root)
+    if rifts:
+        per_class = found[14]
+        for spell_id, required_level in rifts.items():
+            per_class[spell_id] = min(per_class.get(spell_id, required_level), required_level)
     return found
 
 
-def log_events(path):
-    casts, others = Counter(), Counter()
-    if path and path.exists():
-        for line in path.read_text(encoding='utf-8').splitlines():
-            event, spell, count = line.rsplit(',', 2)
-            (casts if event in CAST_EVENTS else others)[int(spell)] += int(count)
-    return casts, others
+def class_file_spells(payload):
+    found = {}
+
+    def visit(value, key):
+        if isinstance(value, dict):
+            for name, item in value.items():
+                visit(item, name)
+        elif isinstance(value, list):
+            for item in value:
+                if key and SPELL_KEY.search(key) and isinstance(item, list) and item and type(item[0]) is int:
+                    found.setdefault(item[0], set()).add(key)
+                else:
+                    visit(item, key)
+        elif type(value) is int and value > 0 and key and SPELL_KEY.search(key):
+            found.setdefault(value, set()).add(key)
+
+    visit(payload, None)
+    return found
+
+
+def shared_class_file_spells(directory):
+    users = {}
+    for path in sorted(Path(directory).glob('*.json')):
+        if path.stem.endswith(CLASS_FILE_SKIPPED):
+            continue
+        payload = json.loads(path.read_text(encoding='utf-8'))
+        if not isinstance(payload, dict) or 'class_id' not in payload:
+            continue
+        for spell, keys in class_file_spells(payload).items():
+            entry = users.setdefault(spell, {'classes': set(), 'keys': set()})
+            entry['classes'].add(payload['class_id'])
+            entry['keys'] |= keys
+    return {spell: {'classes': sorted(entry['classes']), 'keys': sorted(entry['keys'])}
+            for spell, entry in sorted(users.items()) if len(entry['classes']) > 1}
+
+
+def mark_shared_spells(classes):
+    holders = {}
+    for class_id, entry in classes.items():
+        for spell in entry['spells']:
+            holders.setdefault(spell['spell'], set()).add(class_id)
+    for class_id, entry in classes.items():
+        for spell in entry['spells']:
+            spell['shared_with'] = sorted(holders[spell['spell']] - {class_id})
 
 
 def main():
@@ -293,9 +345,11 @@ def main():
         entry['shared_files'] = [path for path in entry['own_files'] if usage[path] >= SHARED_FILE_CLASSES]
         entry['own_files'] = [path for path in entry['own_files'] if usage[path] < SHARED_FILE_CLASSES]
         entry['own_file_lines'] = sum(sources[path].count('\n') for path in entry['own_files'])
+    mark_shared_spells(classes)
     args.out.mkdir(parents=True, exist_ok=True)
     payload = {'server_commit': commit, 'worktree': str(args.worktree), 'dbc_dir': str(DBC_DIR),
-               'spell_dbc_sha256': spell_dbc_sha256(DBC_DIR), 'classes': classes, 'errors': errors}
+               'spell_dbc_sha256': spell_dbc_sha256(DBC_DIR), 'classes': classes, 'errors': errors,
+               'shared_class_file_spells': shared_class_file_spells(package / 'classes')}
     (args.out / 'class-map.json').write_text(json.dumps(payload, indent=1, sort_keys=True) + '\n', encoding='utf-8')
     header = ('| Id | Class | Spells | Base cand. | Passive | Ranks | Sentences | Tokens | Scripted | Family mask |'
               ' Core script | Data row | Stock | No code: unhandled | No code: script-only | Custom mechanics |'

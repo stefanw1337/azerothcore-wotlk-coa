@@ -14,12 +14,12 @@ A `triggers` entry of the class file is a passive whose tooltip says that someth
 | `trial_spell` | optional, `cast`/`taken_hit` action with `trial_metric: "spell_damage_count"` only: counts landed-hit events of this spell id instead of `trigger.spell`, for a trigger condition keyed on a different spell actually hitting (a server-cast ability, not the ability the scenario casts), regardless of what caused that spell to fire; the harness still drives attempts by casting `trigger.spell` as usual, it only reads a different spell's hits as the trial count (Priest Training 504561 and Iron Penance 523712: the scenario casts Vindication 573324 to drive attempts, but the real trigger is a landed hit of Zealotry 801450, which Vindication's own handler casts at a ratio that is not a fixed 1:1, so the trial reads `spell_damage_count` of 801450 directly) |
 | `observe_spell`, `observe_source` | the spell a trigger casts, from `EffectTriggerSpell[n]` or tooltip `@s:<id>:0@` |
 | `observe_note` | with a tooltip reference, why the text's spell is observed instead of an `EffectTriggerSpell` |
-| `attempt_auras` | `{"spell", "stacks", "source"}` set before every cast, `source` quoting the tooltip behind it |
+| `attempt_auras` | `{"spell", "stacks", "source"}` set before every cast, `source` quoting the tooltip behind it; on an `attack` trigger set before every swing, each swing its own attack start stopped 50 ms later (ADR 0714) |
 | `ally_health_pct` | for a `target: "ally"` cast, the ally's health percent set before every cast so the heal is effective |
 | `caster_health_pct` | the caster's own health percent set before every cast, for a trigger the server code gates on an effective self-heal (`GetHealInfo()->GetEffectiveHeal()`), which is 0 at full health |
 | `restore_charges` | for a cast trigger, restores the trigger rank's native charges before every attempt (needed when the rank is also a charge-counting `procs` entry's trigger) |
 | `co_learn` | spell ids learned once, right after the aura's own `learn`, before any attempt; for a trigger whose server-side mechanism also requires a second, independent passive to be known |
-| `force_crit` | `"melee"` or `"spell"`: the scenario's own player fixture (not the class file's shared `ratings`) gets `melee_crit_rating`/`spell_crit_rating` set to `FORCED_CRIT_RATING`, for a trigger the server code gates on `PROC_HIT_CRITICAL` |
+| `force_crit` | `"melee"`, `"spell"` or `"ranged"` (ADR 0692): the scenario's own player fixture (not the class file's shared `ratings`) gets `melee_crit_rating`/`spell_crit_rating`/`ranged_crit_rating` set to `FORCED_CRIT_RATING`, for a trigger the server code gates on `PROC_HIT_CRITICAL` |
 | `trial_metric_fields` | optional, `attack` action only (`trial_metric` one of `MELEE_COUNTS`): extra fields merged into the trial measurement's `hand: "main_hand"` default, for example `{"critical": true}` to count only the swings that landed a critical hit, when the trigger's own condition is narrower than "every swing" (Parry Dance 804912's outgoing-crit leg: `melee_damage_count` filtered to `critical: true`, paired with `force_crit: "melee"` so most scheduled swings are valid trials) |
 | `internal_cooldown_ms` | spaces scheduled attempts at least this many ms apart, on top of the trigger rank's own cast time and recovery, for a trigger the server code gates on an internal cooldown |
 | `observe_metric` | `spell_cast_count`, `spell_energize_count` or `aura_apply_count` of `observe_spell` |
@@ -141,6 +141,13 @@ Harvest Golem 36 reads 0.1316 against 0.15 x 0.88 with 273 strikes back in 273 h
 reads 0 in 273 (the first counted run, `20261111-222153`). A `gate_absence` entry may set `label_suffix`
 (label `<aura> gate_absence_count <suffix>`, scenario key `(<aura>, "gate", <suffix>)`), so one aura can withhold
 several gates (ADR 0184): Sacred Defense's second arm strikes from Sneed 643, a dungeon boss by its instance encounter.
+
+An `avoided` trigger (`{"action": "avoided", "striker_entry": <entry>, "swing_ms": <ms>}`, `trial_metric`
+`melee_attacks_taken`, ADR 0709) is the avoidance mirror: an aggressive striker (reaction 2, stationary) swings at
+the caster after the caster engages it once per phase; Evasion 26669 and the caster's full health are set before
+every attempt of `swing_ms`. The trials are the striker's swings at the caster read dodged (`victim_state` 2) and
+parried (`victim_state` 3), summed by the judge (`trials_parried`, `baseline_trials_parried`); `swing_ms` only paces
+the attempts. Witch Hunter: Dark Intuition 806195.
 
 ### Cooldown-delta trigger entries
 
@@ -398,7 +405,7 @@ Fields: `trigger` (`action: "cast"` with `target` one of `"self"`/`"dummy"`/`"al
 `spell: 0` for a plain main-hand melee swing with no trigger spell), `trigger_metric` (the metric summing the
 trigger side's own output: `spell_damage_total` for a `cast` trigger, `melee_damage_total` for an `attack`
 trigger), `observe_spell` (the triggered copy spell), `observe_metric` (`spell_damage_total` for a damage bonus,
-`spell_heal_total` for a self-heal), `expected_ratio` (the tooltip's `$s1`/100 fraction) and an optional
+`spell_heal_total` for a self-heal, `spell_energize_total` for a resource gain counted by its energizes, ADR 0704), `expected_ratio` (the tooltip's `$s1`/100 fraction) and an optional
 `force_crit` in place of `trial_metric`/`per_trigger`/the plain `observe_metric` values. `checked_magnitude_entry`
 validates this shape, including that `trigger_metric` matches the trigger's own action (an `attack` trigger
 naming a spell, or pairing the wrong metric with either action, is rejected).
@@ -417,7 +424,8 @@ trigger spell for `cast`, `melee_damage_count` of the main hand for `attack`), a
 `judge_trigger_magnitude` sums each of the four numbers across every part, then judges
 `ratio = (observe_total / observe_count) / (trigger_total / trigger_count)` — the triggered spell's own mean
 amount per occurrence, over the trigger side's own mean amount per attempt — against `expected_ratio` within
-`max(0.01, 5% of expected)` (the owner's own "within 5% on numbers" standard), everything outside is `alert`.
+`max(0.01, 0.02, 5% of expected)` (the owner's own "within 5% on numbers" standard and the G-19 band, the larger
+of 5% of the stated value and 2 points, ADR 0481), everything outside is `alert`.
 The explanation and `detail.excluded` state the ratio range the check excludes (`compare.magnitude_excluded`): the
 band widened by the 99% half-width of the mean of the per-part ratios when two parts or more were usable, otherwise
 the band alone with the statement that one part gives no sampling interval.
@@ -626,3 +634,69 @@ stack grows across repeated casts — the tooltip's own separate "Oath" clause, 
 fixture (`{"spell": 805332, "stacks": 0, ...}`, the existing `set_aura` action with `stacks: 0`, which already
 removes the aura regardless of caster) clears the Oath before every attempt. Two independent runs after that
 fix each measured 273/273, `self_trigger_count` `ok`; the Oath's own chance clause remains separately unproven.
+
+### Minion trigger entries (ADR 0340, ADR 0342, ADR 0343)
+
+`trigger: {"action": "minion", "spell": <summon>, "entry": <creature>, "swing_ms": <ms>, "swing_source": <citation>,
+"learn": [<spell>, ...]}` drives a trigger from a raised minion's hits. The scenario learns `learn` and the summon
+spell, casts it, asserts one owned creature of `entry` within 8000 ms, and the caster attacks the dummy, which the
+class code makes the minion attack too. An attempt is one `swing_ms`. `trial_metric` is `pet_melee_crits`,
+`pet_melee_swings` or `owned_creature_damage_count` of the minion; `observe_actor: "minion"` reads
+`spell_damage_count` of `observe_spell` cast by the minion at the dummy.
+
+- `pet_attack: true` in the trigger adds the harness pet attack command at the dummy after the caster's attack, for a
+  minion that is the caster's pet and does not follow the caster's attack (Shadowhound 50124, ADR 0770);
+  `summon_target: "dummy"` casts the summon spell at the dummy instead of the caster (default `"caster"`).
+- `minion_auras` (`{"spell", "amount", "source"}`, precondition fixtures) are removed and set again on the minion
+  every `minion_aura_refresh_ms`; Chomp 707283 forces Abomination crits with Anointed 280912 at amount 100.
+  `"caster": "owner"` in a fixture sets and removes it with the caster (the minion's owner) as the aura's caster
+  instead of the minion itself, for an aura whose script reads its caster's owner (Shadow Rage 804192, ADR 0780).
+  `"grant_cast": <spell>` in a fixture of a proc_rate entry (ADR 0830) replaces the set_aura pair with a real grant:
+  before every refresh window the scenario sets `caster_power`, resets the spell's cooldown, casts it at the dummy and
+  reads 500 ms later the count of owned creatures of the trigger's entry carrying the aura cast by the caster
+  (`<aura> grant <spell> <phase><index>`); the read waits are taken out of the window, so the swing time is unchanged.
+  A part with any read at 0 fails the proc rate (`alert`, "minion aura absent after its real grant"); a missing read
+  leaves the part unmeasured. A fixture with `grant_cast` takes no `amount`, cannot share its aura with another
+  `minion_auras` or `target_auras` fixture, needs `minion_aura_refresh_ms` above 500, and is refused by the trigger
+  kinds. The grant spell is learned through the trigger's `learn` list (Shadow Rage 804192 granted by Shadowblast
+  804191, learned with 705455).
+- `caster_health_pct` holds the caster at that health before every window, the first one set before the attack
+  starts (ADR 0650): the runner takes one step per world tick, so a minion with a ready swing timer otherwise lands
+  its first hit at the caster's natural health (Vampiric Aura 300241: 45%, and 55% in its gate-absence entry).
+- `aura_settle_ms` (with `aura_settle_source`) waits that long after the learn before the first attack, when the
+  passive reaches the minion only after a delay the DBC states (Vampiric Aura 300241: 1500 ms, past the 1000 ms first
+  tick of its Effect[1] that casts 560607 onto the summons; Necromancer ADR 0080).
+- `aura_on_minion` reads the passive on the minion when its only effects apply auras to summons (Pandemic 560798).
+- `aura_cast` casts the aura after its learn, for an active (Fetid Ward 680388); `caster_power` (`{"power", "value",
+  "source"}`) sets a power before each cast, for a base-mana percentage cost.
+- `magnitude_ratio` takes the minion action (`trigger_metric` `owned_creature_damage_total`), and so does
+  `gate_absence`.
+- A `magnitude_ratio` cast entry may name `trial_spell`, the hit spell it measures (Harrowing Winds 705745: Glacial
+  Impact 704355 deals 707592), and `target_state_fixture` sets the cast's target aura state (ADR 0303); `trigger_count`
+  cast entries take `target_state_fixture` too. `label_suffix` names a second magnitude entry of one aura.
+
+A `cooldown_delta` entry with the minion action reads, per window, the observed spell's cooldown and the minion's
+counted events before and after `window_ms`; the judge sums the drop less the elapsed time per counted event against
+`expected_delta_ms` within 5%, and 0 per event over the baseline windows. `observe_target`, `observe_target_auras`
+and `observe_cleared_auras` set the observed cast's target and its precondition auras (Pandemic: Crypt Plague 570131
+on the dummy, Infestation 803782 cleared). `observe_settle_ms` waits that long after each observed cast before the
+window's first read, for what the cast itself raises to expire (Study of Death 704721: the 5 Greater Zombies of each
+Unholy Frenzy last 15 s and share the 1 s gate, so the window opens 17000 ms after the cast; ADR 0349). A
+`kind: "cooldown_gate"` entry (`effect` and `label_suffix` to keep it
+apart) primes the observed spell, lets the minion attack for `gate_wait_ms` and casts it again: refused
+(`SPELL_FAILED_NOT_READY`) without the passive, cast with it (check `trigger_cooldown_gate`, behaviour).
+
+A minion `magnitude_ratio` may measure `pet_melee_damage` over the minion's melee hits (`pet_melee_hits`, the
+default) or, with `trigger_count_metric: "pet_melee_crits"`, over its melee crits, for a proc of forced crits
+(Depravity 638403; ADR 0347), and read the copy on the minion (`observe_actor: "minion"`, by `caster_entry`);
+`aura_on_minion` applies to it too, and `presence_aura` takes precedence over it for the aura read. `expected_note` adds the derivation of `expected_ratio` to the rule (Fetid Ward's leech, 0.30 x the healing
+received factor its own entry proves). `target_state_fixture` may be `{"spell", "source"}`, which the rule then names.
+
+## Attempt auras on an attack trigger (ADR 0714)
+
+On an `attack` trigger, `attempt_auras` turns the swing block into one attack per attempt: the auras are set, the
+caster starts attacking, 50 ms later it stops, and the rest of the swing interval passes before the next attempt. A
+ready main hand swings at the attack start, inside the 50 ms window, so an aura shorter than a swing interval (Flames
+of Sin 803422 lasts 100 ms) holds at every swing. The off hand never swings: every attack start delays a ready off hand
+by half a swing (`Unit::Attack`). The magnitude rule names the fixtures and the single swings. Without `attempt_auras`
+the swing block is unchanged. Witch Hunter: Flames of Sin 92094 `trigger_magnitude_ratio` (claim 6.0, 40% as Fire).

@@ -41,8 +41,10 @@ struct npc_ascension_power_sphere : ScriptedAI
     void MoveInLineOfSight(Unit*) override { }
     void EnterEvadeMode(EvadeReason) override { }
 
-    void IsSummonedBy(WorldObject*) override
+    void IsSummonedBy(WorldObject* summoner) override
     {
+        if (Unit* owner = summoner ? summoner->ToUnit() : nullptr)
+            me->SetFaction(owner->GetFaction());
         me->SetReactState(REACT_PASSIVE);
         me->SetUnitFlag(UNIT_FLAG_NON_ATTACKABLE | UNIT_FLAG_NOT_SELECTABLE);
     }
@@ -53,7 +55,7 @@ struct npc_ascension_power_sphere : ScriptedAI
             return;
         targetGuid = guid;
         if (Unit* target = ObjectAccessor::GetUnit(*me, targetGuid))
-            me->GetMotionMaster()->MoveChase(target, 0.0f);
+            me->GetMotionMaster()->MoveFollow(target, 0.0f, 0.0f, MOTION_SLOT_ACTIVE, false, false);
     }
 
     void UpdateAI(uint32 diff) override
@@ -92,7 +94,7 @@ struct npc_ascension_power_sphere : ScriptedAI
             SpellCastTargets targets;
             targets.SetUnitTarget(target);
             targets.SetDst(*target);
-            owner->CastSpell(targets, info, &values, TRIGGERED_FULL_MASK);
+            me->CastSpell(targets, info, &values, TRIGGERED_FULL_MASK, nullptr, nullptr, owner->GetGUID());
         }
         me->DespawnOrUnsummon();
     }

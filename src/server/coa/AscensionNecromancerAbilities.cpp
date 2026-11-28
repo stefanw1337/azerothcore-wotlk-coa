@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionBattlegroundCombat.h"
 #include "AscensionNecromancer.h"
 #include "Creature.h"
 #include "ObjectAccessor.h"
@@ -12,6 +13,7 @@
 #include "SpellMgr.h"
 #include "SpellScript.h"
 #include <algorithm>
+#include <cmath>
 
 namespace AscensionNecromancer
 {
@@ -246,7 +248,10 @@ class necromancer_casts : public AllSpellScript
     void OnSpellCast(Spell* spell, Unit* caster, SpellInfo const* info, bool) override
     {
         Player* player = Owner(caster);
-        if (!player || player != caster || spell->IsTriggered())
+        constexpr uint32 castWhileCastingFlags = TRIGGERED_IGNORE_CAST_IN_PROGRESS | TRIGGERED_CAST_DIRECTLY;
+        bool const castWhileCasting = info->HasAttribute(SPELL_ATTR4_ALLOW_CAST_WHILE_CASTING) &&
+            !(uint32(spell->GetTriggeredCastFlags()) & TRIGGERED_FULL_MASK & ~castWhileCastingFlags);
+        if (!player || player != caster || (spell->IsTriggered() && !castWhileCasting))
             return;
         uint32 id = info->Id;
         Unit* target = spell->m_targets.GetUnitTarget();
@@ -257,17 +262,22 @@ class necromancer_casts : public AllSpellScript
                     aura && aura->GetScriptValue(805011) == spell->GetScriptValue(buff))
                     aura->DropCharge();
         };
-        consume(801747, Lichfrost(info) || Named(info, 801760) || id == 704355 || (id >= 707399 && id <= 707402));
-        consume(800979, Named(info, 801760));
-        consume(707176, Lichfrost(info) || Family(info, 2, 8192));
-        consume(807856, Lichfrost(info));
-        consume(572777, Command(info));
+        if (!castWhileCasting)
+        {
+            consume(801747, Lichfrost(info) || Named(info, 801760) || id == 704355 || (id >= 707399 && id <= 707402));
+            consume(800979, Named(info, 801760));
+            consume(707176, Lichfrost(info) || Family(info, 2, 8192));
+            consume(807856, Lichfrost(info));
+            consume(572777, Command(info));
+        }
         if (info->SpellFamilyName == 29 && Chance(player, 704681))
             Ready(player, 801747, 2);
         if (Chance(player, 92122))
             Cast(player, player, 707421);
         if (info->SpellFamilyName == 29 && player->HasAura(704723))
             Cast(player, player, 707133);
+        if (castWhileCasting)
+            return;
         if (Command(info))
         {
             if (Chance(player, 300940))
@@ -310,7 +320,7 @@ class necromancer_casts : public AllSpellScript
             if (Chance(player, 704724))
                 Ready(player, 572777);
             if (Chance(player, 805649))
-                player->EnergizeBySpell(player, 359505, int32(spell->GetScriptValue(359505)), POWER_RUNIC_POWER);
+                player->EnergizeBySpell(player, 359505, 100, POWER_RUNIC_POWER);
             uint32 count = ++State(player).commands;
             if (count % 3 == 0)
             {
@@ -384,11 +394,13 @@ class spell_ascension_necromancer_ability : public SpellScript
             CorpseExplosion(player, player);
         if (Family(GetSpellInfo(), 2, 67108864))
         {
+            SpellInfo const* sacrificeHeal = sSpellMgr->GetSpellInfo(805031);
             for (Creature* minion : Minions(player))
             {
                 int32 heal = Amount(id, 0, player);
                 if (player->HasAura(704684))
-                    heal = player->CountPctFromMaxHealth(Amount(704684));
+                    heal = int32(std::llround(double(player->CountPctFromMaxHealth(Amount(704684))) *
+                        double(AscensionBattlegroundCombat::UnscaledFactor(player, player, sacrificeHeal, true))));
                 minion->KillSelf();
                 Copy(player, player, 805031, std::max(1, heal), 1);
             }

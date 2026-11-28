@@ -1,5 +1,6 @@
 /* Copyright (C) 2016+ AzerothCore, GNU AGPL v3. */
 
+#include "AscensionBattlegroundCombat.h"
 #include "AscensionWitchDoctorCompletion.h"
 #include "Creature.h"
 #include "ObjectAccessor.h"
@@ -13,6 +14,7 @@
 #include "SpellScript.h"
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdlib>
 
 namespace
@@ -64,6 +66,10 @@ class witch_doctor_casts : public AllSpellScript
     void OnSpellCheckCast(Spell* spell, bool, SpellCastResult& result) override
     {
         SnapshotBuffs(spell, spell->GetCaster());
+        if (result == SPELL_CAST_OK && spell->GetCaster()->HasAura(EyeDebuff) &&
+            (spell->GetSpellInfo()->HasAura(SPELL_AURA_MOD_STEALTH) ||
+             spell->GetSpellInfo()->HasAura(SPELL_AURA_MOD_INVISIBILITY)))
+            result = SPELL_FAILED_CASTER_AURASTATE;
         Player* player = Owner(spell->GetCaster());
         if (!player || spell->GetCaster() != player || spell->IsTriggered() || result != SPELL_CAST_OK)
             return;
@@ -104,13 +110,13 @@ class witch_doctor_casts : public AllSpellScript
             {
                 auto allies = Allies(player, target, 15.0f);
                 allies.remove(target);
-                uint32 added = 0;
+                int32 const cap = Amount(OutOfBottle, EFFECT_1) - 1;
+                int32 added = 0;
                 for (Unit* ally : allies)
-                    if (player->IsWithinDistInMap(ally, 40.0f))
+                    if (added < cap && player->IsWithinDistInMap(ally, 40.0f))
                     {
                         spell->AddUnitTargetForScript(ally, 1 << EFFECT_0);
-                        if (++added == 2)
-                            break;
+                        ++added;
                     }
             }
         if (info->Id == HexfireWrath || info->Id == Umbral)
@@ -122,18 +128,6 @@ class witch_doctor_casts : public AllSpellScript
                     if (unit != target && player->IsValidAttackTarget(unit) && player->IsWithinLOSInMap(unit))
                     {
                         spell->AddUnitTargetForScript(unit, mask);
-                        if (++added == 2)
-                            break;
-                    }
-            }
-        if (player->HasAura(DarkEffigy) && (IsJuju(info) || Family(info, 1, 262144)))
-            if (Unit* target = spell->m_targets.GetUnitTarget())
-            {
-                uint32 added = 0;
-                for (Unit* unit : Nearby(target, 10.0f))
-                    if (unit != target && player->IsValidAttackTarget(unit) && player->IsWithinLOSInMap(unit))
-                    {
-                        spell->AddUnitTargetForScript(unit, 1 << EFFECT_0);
                         if (++added == 2)
                             break;
                     }
@@ -155,10 +149,17 @@ class witch_doctor_casts : public AllSpellScript
 
     void OnSpellCalculatedTarget(Spell* spell, Unit* target, TargetInfo& hit) override
     {
+        if (target && spell->GetSpellInfo()->Id == MarionetteExplosion && target->HasAura(MarionetteExplosion))
+            hit.effectMask &= ~(1 << EFFECT_1);
         Player* player = Owner(spell->GetCaster());
         if (!player || player != spell->GetCaster() || !target)
             return;
         SpellInfo const* info = spell->GetSpellInfo();
+        if (IsJuju(info) && player->HasAura(Strings))
+            if (Aura* threads = target->GetAura(Threads, player->GetGUID()))
+                threads->SetScriptValue(Strings, 1);
+        if (info->Id == Shock && !target->IsPlayer() && hit.missCondition == SPELL_MISS_NONE)
+            Cast(player, target, ShockInterrupt);
         float factor = 1.0f;
         if (OwnedHex(player, target) && (IsJuju(info) || Family(info, 1, 32768 | 262144)))
         {
@@ -205,7 +206,14 @@ class witch_doctor_casts : public AllSpellScript
             {
                 if (Unit* previous = ObjectAccessor::GetUnit(*player, state.previousBrew))
                     if (Friendly(player, previous) && player->IsWithinDistInMap(previous, 40.0f))
-                        Copy(player, previous, LoaEchoHeal, healing / 2);
+                    {
+                        uint32 echo = healing / 2;
+                        if (echo)
+                            echo = std::max<uint32>(1, uint32(std::llround(double(echo) *
+                                double(AscensionBattlegroundCombat::UnscaledFactor(
+                                    player, previous, sSpellMgr->GetSpellInfo(LoaEchoHeal), true)))));
+                        Copy(player, previous, LoaEchoHeal, echo);
+                    }
                 state.previousBrew = target->GetGUID();
             }
             if (spell->GetScriptHealingIncludingOverheal() && player->HasAura(LoaBlessing))
@@ -229,7 +237,8 @@ class witch_doctor_casts : public AllSpellScript
             if (Aura* unstable = target->GetAura(UnstableDebuff, player->GetGUID()))
             {
                 unstable->Remove();
-                for (Unit* ally : Allies(player, target, 10.0f, 5))
+                for (Unit* ally : Allies(player, target, Radius(UnstableHeal),
+                                         sSpellMgr->GetSpellInfo(UnstableHeal)->MaxAffectedTargets))
                     Cast(player, ally, UnstableHeal);
             }
         if ((healing || target->IsAlive()) && (IsPotion(info) || IsSplash(info)))
@@ -253,8 +262,9 @@ class witch_doctor_casts : public AllSpellScript
                 hexed |= IsHex(app->GetBase()->GetSpellInfo());
             if (hexed)
                 Cast(player, target, MarkOfMalice);
-            if (player->HasAura(Strings) && target->HasAura(Threads, player->GetGUID()))
-                Copy(player, target, StringsDamage, uint64(damage) * 30 / 100);
+            if (Aura* threads = target->GetAura(Threads, player->GetGUID()))
+                if (player->HasAura(Strings) && threads->GetScriptValue(Strings))
+                    Copy(player, target, StringsDamage, uint64(damage) * 10 / 100);
         }
         if (damage && Family(info, 1, 262144) && player->HasAura(VoodooSpirits))
             if (Aura* threads = target->GetAura(Threads, player->GetGUID()))
@@ -272,8 +282,6 @@ class witch_doctor_casts : public AllSpellScript
             RefreshOwnedHex(player, target);
         if (id == RageBrew)
             Cast(player, target, RageBrewBuff);
-        if (id == Shock && !target->IsPlayer())
-            Cast(player, target, ShockInterrupt);
         if ((damage || healing) && id != Spirit && !Family(info, 0, 8) && !spell->IsTriggered())
             player->RemoveAurasDueToSpell(Mirage);
     }
@@ -292,8 +300,8 @@ class witch_doctor_casts : public AllSpellScript
             for (auto const& [guid, id] : jinxes)
             {
                 caster->RemoveAurasDueToSpell(id, guid);
-                if (Unit* doctor = ObjectAccessor::GetUnit(*caster, guid))
-                    Cast(doctor, caster, JinxSilence);
+                if (caster->IsAlive())
+                    caster->CastSpell(caster, JinxSilence, true, nullptr, nullptr, guid);
             }
         }
         Player* player = Owner(caster);
@@ -358,7 +366,7 @@ class witch_doctor_casts : public AllSpellScript
         if (id == HexfireWrath && target)
             Summon(player, WrathWard, target, target->GetPosition());
         if (IsJuju(info) && player->HasAura(Unleashed))
-            Reduce(player, Puppets, 5000);
+            Reduce(player, Puppets, std::abs(Amount(UnleashedCooldown)));
         if (IsBeam(info) && player->HasAura(Wave))
             for (Unit* ally : Allies(player, player, 40.0f, 10))
                 Cast(player, ally, Replenishment);

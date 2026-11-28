@@ -35,6 +35,7 @@ WEAPON_EFFECT = 25
 CHARACTER_LEVEL_ATTRIBUTE_EX2 = 0x1000000
 SKILL_PER_LEVEL = 5
 AMPLITUDE_LETTERS = 'tT'
+CHAIN_TARGET_LETTERS = 'xX'
 FIRST_PROC_FLAG = 1
 FIRST_PROC_FLAG_PERIOD_MS = 5000
 HASTED_PERIOD_ATTRIBUTE_EX5 = 0x2000
@@ -47,9 +48,11 @@ PERIOD_PROBE_FACTOR = 2
 PERIODIC_TOTAL_LETTERS = 'oO'
 PERIODIC_AT_APPLY_ATTRIBUTE_EX5 = 0x200
 DEFAULT_PERIOD_MS = 5000
+DESCRIPTION = 'Description[enUS]'
 
 COLOR_CODE = re.compile(r'\|[cC][0-9a-fA-F]{8}|\|[rR]')
 EXTENSION_MARKUP = re.compile(r'@+[^@]*@?')
+EXTENSION_BLOCK = re.compile(r'@ext:(?P<body>(?:(?!:ext@).)*):ext@', re.DOTALL)
 SPELL_MARKUP = re.compile(r'@s:(?P<spell>\d+):(?P<flags>-?\d+)@')
 TOKEN_SPELL = re.compile(r'\$(\d+)')
 SPELL_TOKEN = re.compile(r'(?P<spell>\d*)(?P<letter>[A-Za-z])(?P<digit>[1-9]?)')
@@ -61,7 +64,8 @@ SECONDS_UNIT = re.compile(r'\s*sec')
 VARIABLE_DEFINITION = re.compile(r'\$(\w+)=')
 VARIABLE_EXPRESSION = re.compile(r'\$\{([^}]*)\}(?:\.[1-9])?')
 EXPRESSION_TOKEN = re.compile(r'\s*(?:(?P<number>\d+\.?\d*|\.\d+)|\$<(?P<variable>\w+)>'
-                              r'|\$(?P<spell>\d*)(?P<name>[A-Za-z]+\d?)|(?P<operator>[-+*/()]))')
+                              r'|\$(?P<spell>\d*)(?P<name>[A-Za-z]+\d?)|(?P<operator>[-+*/(),]))')
+EXPRESSION_FUNCTIONS = {'cond': 3, 'gt': 2}
 PLURAL_OR_GENDER = 'lLgG'
 
 
@@ -339,6 +343,9 @@ def spell_rank(records: Records, spell_id: int, caster: CasterStats) -> int:
     max_level = records.field('Spell', ranked, 'MaxLevel')
     if max_level > 0 and rank >= SKILL_PER_LEVEL * max_level:
         rank = SKILL_PER_LEVEL * max_level
+    own_max_level = records.field('Spell', spell_id, 'MaxLevel')
+    if 0 < own_max_level < caster.level:
+        rank = min(rank, SKILL_PER_LEVEL * own_max_level)
     return max(rank, 0)
 
 
@@ -432,6 +439,8 @@ class Tooltip:
             position = match.end()
         parser = ExpressionParser(self, tokens)
         value = parser.sum()
+        if parser.position == len(tokens) - 1 and is_stray_closing_parenthesis(expression, tokens[-1]):
+            parser.position += 1
         if parser.position != len(tokens):
             raise Unreadable
         return value, parser.effect_index, parser.spell_id
@@ -499,6 +508,9 @@ class Tooltip:
                 return self.records.amplitude_ms(spell_id, effect), None, None
             return (self.effect_points(spell_id, effect, upper=name[0] == 'M'), self.own_effect(spell_id, effect),
                     spell_id)
+        if len(name) == 2 and name[0] in CHAIN_TARGET_LETTERS and name[1] in EFFECT_DIGITS:
+            spell_id = self.spell_reference(digits)
+            return float(self.records.field('Spell', spell_id, f'EffectChainTarget[{int(name[1]) - 1}]')), None, None
         if name[:-1] == 'ppl' and name[-1:] in EFFECT_DIGITS:
             spell_id = self.spell_reference(digits)
             effect = int(name[-1]) - 1
@@ -553,6 +565,13 @@ class Tooltip:
                     unreadable += expanded.unreadable
                     position = markup.end()
                     continue
+                block = EXTENSION_BLOCK.match(description, position)
+                if block and SPELL_MARKUP.search(block.group('body')):
+                    expanded = self.extension_block(block)
+                    values += expanded.values
+                    unreadable += expanded.unreadable
+                    position = block.end()
+                    continue
                 end = EXTENSION_MARKUP.match(description, position).end()
                 unreadable.append(description[position:end])
                 position = end
@@ -562,20 +581,23 @@ class Tooltip:
 
     def expansion(self, markup: re.Match) -> Readout:
         spell_id = int(markup.group('spell'))
-        try:
-            if int(markup.group('flags')) < 0:
-                raise Unreadable('negative flags select a shift or partial rendering')
-            if not self.records.has_spell(spell_id):
-                raise Unreadable(f'spell {spell_id} is not in Spell.dbc')
-            if spell_id in self.expanding:
-                raise Unreadable('expansion cycle ' + ' -> '.join(map(str, self.expanding + (spell_id,))))
-            if len(self.expanding) > MAX_EXPANSION_DEPTH:
-                raise Unreadable(f'nesting deeper than {MAX_EXPANSION_DEPTH} expansions')
-        except Unreadable as error:
-            return Readout([], [unreadable_entry(markup.group(0), error)])
+        refusal = expansion_refusal(self.records, markup, self.expanding)
+        if refusal is not None:
+            return Readout([], [unreadable_entry(markup.group(0), refusal)])
         nested = Tooltip(self.records, spell_id, self.caster, self.expanding)
         readout = nested.read(self.records.field('Spell', spell_id, 'Description[enUS]'))
         return Readout([referenced(value, spell_id) for value in readout.values], readout.unreadable)
+
+    def extension_block(self, block: re.Match) -> Readout:
+        values, unreadable = [], []
+        for markup in SPELL_MARKUP.finditer(block.group('body')):
+            expanded = self.expansion(markup)
+            values += expanded.values
+            unreadable += expanded.unreadable
+        rest = SPELL_MARKUP.sub('', block.group('body'))
+        if rest.strip():
+            unreadable.append(f'@ext:{rest}:ext@')
+        return Readout(values, unreadable)
 
     def token(self, text: str, start: int) -> tuple[int, Displayed | Unreadable | None]:
         position = start + 1
@@ -694,8 +716,17 @@ class ExpressionParser:
         self.tooltip = tooltip
         self.tokens = tokens
         self.position = 0
-        self.effect_index = None
+        self.first_effect_index = None
+        self.effect_indices: set[int] = set()
         self.spell_id = None
+
+    @property
+    def effect_index(self) -> int | None:
+        if len(self.effect_indices) > 1:
+            return None
+        if len(self.effect_indices) == 1:
+            return next(iter(self.effect_indices))
+        return self.first_effect_index
 
     def peek(self) -> str | None:
         if self.position < len(self.tokens):
@@ -744,14 +775,52 @@ class ExpressionParser:
         if token.group('variable'):
             context = self.spell_id if self.spell_id is not None else self.tooltip.spell_id
             return self.tooltip.variable(token.group('variable'), context).value
+        if token.group('name') and not token.group('spell') and token.group('name') in EXPRESSION_FUNCTIONS:
+            return self.function(token.group('name'))
         if token.group('name'):
-            value, effect_index, spell_id = self.tooltip.math_variable(token.group('spell'), token.group('name'))
-            if self.effect_index is None:
-                self.effect_index = effect_index
+            name = token.group('name')
+            value, effect_index, spell_id = self.tooltip.math_variable(token.group('spell'), name)
+            if effect_index is not None:
+                if self.first_effect_index is None:
+                    self.first_effect_index = effect_index
+                if name[:-1] != 'ppl':
+                    self.effect_indices.add(effect_index)
             if self.spell_id is None:
                 self.spell_id = spell_id
             return value
         raise Unreadable
+
+    def function(self, name: str) -> float:
+        if self.peek() != '(':
+            raise Unreadable
+        self.position += 1
+        arguments = [self.sum()]
+        while self.peek() == ',':
+            self.position += 1
+            arguments.append(self.sum())
+        if self.peek() != ')' or len(arguments) != EXPRESSION_FUNCTIONS[name]:
+            raise Unreadable
+        self.position += 1
+        if name == 'gt':
+            return 1.0 if arguments[0] > arguments[1] else 0.0
+        return arguments[1] if arguments[0] else arguments[2]
+
+
+def is_stray_closing_parenthesis(expression: str, token: re.Match) -> bool:
+    return token.group('operator') == ')' and token.end() == len(expression)
+
+
+def expansion_refusal(records: Records, markup: re.Match, expanding: tuple[int, ...]) -> Unreadable | None:
+    spell_id = int(markup.group('spell'))
+    if int(markup.group('flags')) < 0:
+        return Unreadable('negative flags select a shift or partial rendering')
+    if not records.has_spell(spell_id):
+        return Unreadable(f'spell {spell_id} is not in Spell.dbc')
+    if spell_id in expanding:
+        return Unreadable('expansion cycle ' + ' -> '.join(map(str, expanding + (spell_id,))))
+    if len(expanding) > MAX_EXPANSION_DEPTH:
+        return Unreadable(f'nesting deeper than {MAX_EXPANSION_DEPTH} expansions')
+    return None
 
 
 def referenced(value: Displayed, spell_id: int) -> Displayed:
@@ -792,9 +861,15 @@ def conditional_bounds(text: str, start: int) -> tuple[int, int, int, int, int, 
     return true_start, true_end, false_start, false_end, end, False
 
 
-def period_reading(records: Records, spell_id: int, caster: CasterStats, shown: Displayed, effect: int) -> str:
+def period_reading(records: Records, spell_id: int, caster: CasterStats, shown: Displayed, effect: int,
+                   period_spell: int | None = None, ordinal: int | None = None) -> str:
     def reread(duration_factor: int, amplitude_factor: int) -> float:
-        scaled = ScaledPeriod(records.dbc, spell_id, effect, duration_factor, amplitude_factor)
+        scaled = ScaledPeriod(records.dbc, period_spell or spell_id, effect, duration_factor, amplitude_factor)
+        if ordinal is not None:
+            values = Tooltip(scaled, spell_id, caster).read(records.field('Spell', spell_id, DESCRIPTION)).values
+            if ordinal >= len(values) or values[ordinal].text != shown.text:
+                raise Unreadable(f'{shown.text} is unreadable with a scaled duration or period')
+            return values[ordinal].value
         values = Tooltip(scaled, spell_id, caster).read(shown.text).values
         if len(values) != 1:
             raise Unreadable(f'{shown.text} is unreadable with a scaled duration or period')

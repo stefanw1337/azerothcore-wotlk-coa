@@ -15,6 +15,7 @@
  * with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "AscensionLevelDamageSummons.h"
 #include "ClassicPlusStats.h"
 #include "Config.h"
 #include "Creature.h"
@@ -326,6 +327,7 @@ bool Player::UpdateAllStats()
     UpdateShieldBlockValue();
     UpdateSpellDamageAndHealingBonus();
     UpdateManaRegen();
+    UpdateEnergyRegen();
     UpdateExpertise(BASE_ATTACK);
     UpdateExpertise(OFF_ATTACK);
     RecalculateRating(CR_ARMOR_PENETRATION);
@@ -659,7 +661,7 @@ void Player::UpdateAttackPowerAndDamage(bool ranged)
         AuraEffectList const& mAPbyArmor = GetAuraEffectsByType(SPELL_AURA_MOD_ATTACK_POWER_OF_ARMOR);
         for (AuraEffectList::const_iterator iter = mAPbyArmor.begin(); iter != mAPbyArmor.end(); ++iter)
             // always: ((*i)->GetModifier()->m_miscvalue == 1 == SPELL_SCHOOL_MASK_NORMAL)
-            attPowerMod += int32(GetArmor() / (*iter)->GetAmount());
+            attPowerMod += int32(GetArmorWithoutBattlegroundLift() / (*iter)->GetAmount());
     }
 
     float attPowerMultiplier = GetPctModifierValue(unitMod, TOTAL_PCT) - 1.0f;
@@ -1132,7 +1134,8 @@ void Player::UpdateEnergyRegen()
 {
     float regenPerSecond = 10.f;   // +10 energy per second
     regenPerSecond *= GetTotalAuraMultiplierByMiscValue(SPELL_AURA_MOD_POWER_REGEN_PERCENT, POWER_ENERGY);
-    regenPerSecond += static_cast<float>(GetTotalAuraModifierByMiscValue(SPELL_AURA_MOD_POWER_REGEN, POWER_ENERGY)) / static_cast<float>((5 * IN_MILLISECONDS));
+    regenPerSecond +=
+        static_cast<float>(GetTotalAuraModifierByMiscValue(SPELL_AURA_MOD_POWER_REGEN, POWER_ENERGY)) / 5.0f;
 
     SetStatFloatValue(UNIT_FIELD_POWER_REGEN_FLAT_MODIFIER + AsUnderlyingType(POWER_ENERGY), regenPerSecond - 10.f);
     SetStatFloatValue(UNIT_FIELD_POWER_REGEN_INTERRUPTED_FLAT_MODIFIER + AsUnderlyingType(POWER_ENERGY), regenPerSecond - 10.f);
@@ -1503,6 +1506,8 @@ void Guardian::UpdateAttackPowerAndDamage(bool ranged)
         val = GetStat(STAT_STRENGTH) - 10.0f;
     else if (IsPetGhoul())                                         // DK's ghoul attack power
         val = 589 /*xinef: base ap!*/ + GetStat(STAT_STRENGTH) + GetStat(STAT_AGILITY);
+    else if (IsAscensionLevelDamageSummon(GetEntry()))
+        val = GetFlatModifierValue(unitMod, BASE_VALUE);
     else
         val = 2 * GetStat(STAT_STRENGTH) - 20.0f;
 
@@ -1513,11 +1518,12 @@ void Guardian::UpdateAttackPowerAndDamage(bool ranged)
     float attPowerMod = GetFlatModifierValue(unitMod, TOTAL_VALUE);
     float attPowerMultiplier = GetPctModifierValue(unitMod, TOTAL_PCT) - 1.0f;
 
-    // Glyph of Felguard: the Felguard's total attack power +20%
+    // Glyph of Felguard: the Felguard's total attack power +20%. The bonus multiplies the total: added to a pet
+    // multiplier below 1 it grew attack power by more than the glyph says (1.44x with the Felguard's own modifier).
     if (GetStockPetEntry(GetEntry()) == NPC_FELGUARD)
         if (Unit* owner = GetOwner())
             if (AuraEffect const* glyph = owner->GetAuraEffectOfRankedSpellOrTwin(SPELL_GLYPH_OF_FELGUARD, EFFECT_0))
-                attPowerMultiplier += glyph->GetAmount() / 100.0f;
+                attPowerMultiplier = (attPowerMultiplier + 1.0f) * (1.0f + glyph->GetAmount() / 100.0f) - 1.0f;
 
     //UNIT_FIELD_(RANGED)_ATTACK_POWER field
     SetInt32Value(UNIT_FIELD_ATTACK_POWER, (int32)base_attPower);

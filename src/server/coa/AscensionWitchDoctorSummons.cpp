@@ -23,6 +23,7 @@
 #include "WorldSession.h"
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 
 namespace AscensionWitchDoctor
 {
@@ -158,6 +159,28 @@ static void ShowOnTotemBar(Player* player, Creature* summon, SummonPropertiesEnt
     data.SpellID = spell;
     player->SendDirectMessage(data.Write());
 }
+struct PendingTotemBar
+{
+    ObjectGuid owner;
+    uint32 entry = 0;
+    uint32 spell = 0;
+    uint32 duration = 0;
+    SummonPropertiesEntry const* totem = nullptr;
+    bool shown = false;
+};
+static thread_local PendingTotemBar* PendingBar = nullptr;
+static void ShowPendingTotemBar(Creature* creature)
+{
+    PendingTotemBar* pending = PendingBar;
+    if (!pending || pending->shown || creature->GetEntry() != pending->entry || !creature->IsSummon() ||
+        creature->ToTempSummon()->GetSummonerGUID() != pending->owner)
+        return;
+    if (Player* player = ObjectAccessor::FindConnectedPlayer(pending->owner))
+    {
+        ShowOnTotemBar(player, creature, pending->totem, pending->spell, pending->duration);
+        pending->shown = true;
+    }
+}
 static Creature* TotemBarSummon(Player* player, uint32 slot)
 {
     for (ObjectGuid guid : State(player).summons)
@@ -205,15 +228,19 @@ void Summon(Player* player, uint32 spell, Unit* target, Position const& location
         if (slot <= EffigySlot || count > 1)
             player->MovePositionToFirstCollision(position, count > 1 ? 2.5f : 1.5f,
                                                  float(i) * float(2 * M_PI) / count + slot * 0.8f);
+        PendingTotemBar bar{player->GetGUID(), entry, spell, uint32(std::max(1, duration)), totem};
+        if (totem)
+            PendingBar = &bar;
         TempSummon* summon = player->SummonCreature(entry, position, TEMPSUMMON_TIMED_DESPAWN, std::max(1, duration));
+        PendingBar = nullptr;
         if (!summon)
             continue;
         summon->SetOwnerGUID(player->GetGUID());
         summon->AI()->SetData(DataSource, spell);
         if (target)
             summon->AI()->SetGUID(target->GetGUID(), DataTarget);
-        if (totem)
-            ShowOnTotemBar(player, summon, totem, spell, uint32(std::max(1, duration)));
+        if (totem && !bar.shown)
+            ShowOnTotemBar(player, summon, totem, spell, bar.duration);
         if (slot != NoSlot)
             for (ObjectGuid guid : previous)
                 if (Creature* old = ObjectAccessor::GetCreature(*player, guid))
@@ -523,9 +550,15 @@ class npc_ascension_witch_doctor : public ScriptedAI
             for (Unit* enemy : Nearby(me, 30.0f))
                 if (player->IsHostileTo(enemy) && me->IsWithinLOSInMap(enemy))
                     if (Aura* reveal = player->AddAura(SentryRevealSpell, enemy))
+                    {
                         reveal->SetDuration(2200);
+                        enemy->RemoveAurasByType(SPELL_AURA_MOD_STEALTH);
+                        enemy->RemoveAurasByType(SPELL_AURA_MOD_INVISIBILITY);
+                    }
         if (entry == NpcShadow || entry == NpcGraven || entry == NpcCursed)
-            for (Unit* enemy : Nearby(me, 10.0f))
+            for (Unit* enemy : Nearby(me, entry == NpcCursed   ? Radius(CursedField)
+                                          : entry == NpcShadow ? Radius(ShadowField)
+                                                               : float(std::abs(Amount(ShadowField)))))
                 if (player->IsValidAttackTarget(enemy))
                 {
                     Field(enemy, entry == NpcShadow   ? ShadowField
@@ -548,7 +581,7 @@ class npc_ascension_witch_doctor : public ScriptedAI
         }
         if (entry == NpcCauldron)
         {
-            for (Unit* ally : Allies(player, me, 10.0f))
+            for (Unit* ally : Allies(player, me, Radius(VoodooCauldron, EFFECT_2)))
             {
                 Field(ally, CauldronBuff);
                 Copy(player, ally, LoaEchoHeal, Amount(VoodooCauldron, EFFECT_2, player));
@@ -694,7 +727,7 @@ class witch_doctor_magnet : public UnitScript
 {
   public:
     witch_doctor_magnet() : UnitScript("witch_doctor_magnet", true, {UNITHOOK_SPELL_MAGNET_TARGET}) {}
-    Unit* SpellMagnetTarget(Unit* attacker, Unit* victim, SpellInfo const* info) override
+    Unit* SpellMagnetTarget(Unit* attacker, Unit* victim, SpellInfo const* info, bool&) override
     {
         if (!attacker || !victim || !info || info->IsPositive())
             return nullptr;
@@ -735,6 +768,15 @@ class witch_doctor_totem_bar_dismiss : public ServerScript
         return false;
     }
 };
+class witch_doctor_totem_bar_announce : public AllCreatureScript
+{
+  public:
+    witch_doctor_totem_bar_announce() : AllCreatureScript("witch_doctor_totem_bar_announce") {}
+    void OnCreatureAddWorld(Creature* creature) override
+    {
+        ShowPendingTotemBar(creature);
+    }
+};
 }
 void AddAscensionWitchDoctorSummonScripts()
 {
@@ -744,4 +786,5 @@ void AddAscensionWitchDoctorSummonScripts()
     new witch_doctor_summon_events();
     new witch_doctor_magnet();
     new witch_doctor_totem_bar_dismiss();
+    new witch_doctor_totem_bar_announce();
 }

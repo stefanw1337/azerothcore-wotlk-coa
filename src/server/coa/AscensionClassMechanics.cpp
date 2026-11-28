@@ -50,6 +50,7 @@
 #include "AscensionWarcraftRebornHunter.h"
 #include "AscensionWarcraftRebornMage.h"
 #include "AscensionWarcraftRebornShaman.h"
+#include "AscensionDummyFixes.h"
 #include "AscensionWarcraftRebornPaladin.h"
 #include "AscensionWarcraftRebornPriest.h"
 #include "AscensionWarcraftRebornRogue.h"
@@ -182,6 +183,7 @@ constexpr uint32 SPELL_RANGER_HUNTING_QUIVER = 800262;
 constexpr uint32 SPELL_RANGER_SKIRMISHERS_QUIVER = 801069;
 constexpr uint32 SPELL_RANGER_SEARING_QUIVER_DAMAGE = 681109;
 constexpr uint32 SPELL_RANGER_POISON_QUIVER_DAMAGE = 500104;
+constexpr uint32 SPELL_RANGER_QUICK_WITTED_STAB = 704314;
 constexpr uint32 SPELL_RANGER_BOUNTY_HUNTER = 803114;
 constexpr uint32 SPELL_RANGER_BOUNTY_HUNTER_DEBUFF = 560722;
 constexpr uint32 SPELL_RANGER_RUSTY_SHIV_DAMAGE = 681459;
@@ -1121,6 +1123,21 @@ void ApplyAscensionClassMechanics(SpellInfo* spellInfo)
     ApplyAscensionWarcraftRebornWarlockContracts(spellInfo);
     ApplyAscensionWarcraftRebornDruidContracts(spellInfo);
     ApplyAscensionWarcraftRebornShamanContracts(spellInfo);
+    ApplyAscensionDummyFixDeathKnightContracts(spellInfo);
+    ApplyAscensionDummyFixDruidContracts(spellInfo);
+    ApplyAscensionDummyFixGenericContracts(spellInfo);
+    ApplyAscensionDummyFixHunterContracts(spellInfo);
+    ApplyAscensionDummyFixMageContracts(spellInfo);
+    ApplyAscensionDummyFixPaladinContracts(spellInfo);
+    ApplyAscensionDummyFixPriestContracts(spellInfo);
+    ApplyAscensionDummyFixRogueContracts(spellInfo);
+    ApplyAscensionDummyFixShamanContracts(spellInfo);
+    ApplyAscensionDummyFixWarlockContracts(spellInfo);
+    ApplyAscensionDummyFixWarriorContracts(spellInfo);
+    ApplyAscensionDummySystemMeleeContracts(spellInfo);
+    ApplyAscensionDummySystemCasterContracts(spellInfo);
+    ApplyAscensionDummySystemTimeContracts(spellInfo);
+    ApplyAscensionDummySystemHealingContracts(spellInfo);
     ApplyAscensionHeroHunterContracts(spellInfo);
     ApplyAscensionHeroRogueContracts(spellInfo); ApplyAscensionHeroPriestContracts(spellInfo); ApplyAscensionHeroWarlockContracts(spellInfo); ApplyAscensionHeroPaladinContracts(spellInfo);
     ApplyTinkerScrapResourceContract(spellInfo);
@@ -1214,6 +1231,15 @@ void ApplyAscensionClassMechanics(SpellInfo* spellInfo)
         {
             LOG_ERROR("coa",
                 "Skipped unexpected Bounty Hunter record {}", spellInfo->Id);
+        }
+    }
+
+    if (spellInfo->Id == 704624 || spellInfo->Id == 707867)
+    {
+        if (spellInfo->SpellFamilyName == uint32(CLASS_SON_OF_ARUGAL) + 6)
+        {
+            spellInfo->Stances = 0;
+            spellInfo->Attributes &= ~SPELL_ATTR0_NOT_SHAPESHIFTED;
         }
     }
 
@@ -1385,7 +1411,11 @@ void HandleAscensionClassMechanicsHit(Spell* spell, Player* player,
     uint32 spellId = spell->GetSpellInfo()->Id;
     bool usesRangerMechanics = UsesAscensionClassMechanics(player, CLASS_RANGER);
     if (usesRangerMechanics)
+    {
         HandleRangerBountyHunterHit(player, target, spellId, damage);
+        if (spellId == SPELL_RANGER_QUICK_WITTED_STAB && spell->IsTriggered())
+            HandleRangerQuiverHit(player, target, spell->GetSpellInfo(), damage);
+    }
 
     if (spell->IsTriggered())
         return;
@@ -1621,6 +1651,17 @@ void HandleAscensionClassMechanicsAuraRemove(Player* player, std::uint32_t spell
             SPELL_GUARDIAN_FOOTMANS_CALLING_EFFECTS);
         return;
     }
+
+    if (player->getClass() == CLASS_GUARDIAN && !removedByDeath && player->IsAlive() && !player->IsCharmed())
+        if (SpellInfo const* removed = sSpellMgr->GetSpellInfo(spellId))
+            if (removed->HasAura(SPELL_AURA_MOD_CHARM) || removed->HasAura(SPELL_AURA_MOD_POSSESS) ||
+                removed->HasAura(SPELL_AURA_AOE_CHARM))
+                for (uint32 formationId : GUARDIAN_FORMATIONS)
+                    if (player->HasAura(formationId))
+                    {
+                        ApplyGuardianFormation(player, formationId);
+                        return;
+                    }
 
     if (UsesAscensionClassMechanics(player, CLASS_RANGER) && spellId == SPELL_RANGER_ELUDE)
     {

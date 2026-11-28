@@ -94,6 +94,8 @@ void ApplyContracts(SpellInfo* info)
         info->AttributesCu |= SPELL_ATTR0_CU_POSITIVE_EFF2;
     if (id == 500919 || (id >= 504912 && id <= 504916))
         info->AttributesCu |= SPELL_ATTR0_CU_CONE_LINE;
+    if (id == 560932)
+        info->AttributesEx &= ~SPELL_ATTR1_NO_THREAT;
     if (id == 705171)
         info->Effects[EFFECT_2].Effect = 0;
     if (id == 705186)
@@ -181,6 +183,28 @@ void ApplyContracts(SpellInfo* info)
         info->Effects[EFFECT_0].ApplyAuraName = SPELL_AURA_DUMMY;
     if (id == 800401)
         info->AttributesCu &= ~SPELL_ATTR0_CU_NEGATIVE;
+    if (id == 712681)
+    {
+        info->TargetAuraState = 0;
+        info->AttributesEx |= SPELL_ATTR1_NO_THREAT;
+        info->Effects[EFFECT_0].ApplyAuraName = SPELL_AURA_MOD_DAMAGE_PERCENT_TAKEN;
+    }
+    if (Family(info, 1, 262144) && id != 807236 &&
+        info->Effects[EFFECT_0].Effect == SPELL_EFFECT_NORMALIZED_WEAPON_DMG &&
+        info->Effects[EFFECT_0].TargetA.GetTarget() == TARGET_UNIT_TARGET_ENEMY &&
+        info->Effects[EFFECT_1].Effect == SPELL_EFFECT_WEAPON_PERCENT_DAMAGE &&
+        info->Effects[EFFECT_1].TargetA.GetTarget() == TARGET_UNIT_TARGET_ENEMY)
+    {
+        if (!info->Effects[EFFECT_0].ChainTarget)
+            info->Effects[EFFECT_0].ChainTarget = 1;
+        if (!info->Effects[EFFECT_1].ChainTarget)
+            info->Effects[EFFECT_1].ChainTarget = 1;
+    }
+    if (Family(info, 0, 262144))
+        info->AttributesEx4 |= SPELL_ATTR4_BOUNCY_CHAIN_MISSILES;
+    if (id == 806960)
+        if (SpellRangeEntry const* range = sSpellRangeStore.LookupEntry(13))
+            info->RangeEntry = range;
     if (id == 801761)
     {
         SpellEffectInfo& cost = info->Effects[EFFECT_1];
@@ -310,7 +334,7 @@ class aura_ascension_barbarian_lifecycle : public AuraScript
 
     void Apply(AuraEffect const* effect, AuraEffectHandleModes)
     {
-        if (Spirit(GetId()))
+        if (Spirit(GetId()) && GetTarget() == GetCaster())
             if (Player* self = Owner(GetTarget()))
                 for (uint32 spirit : { 707763, 707764, 707775, 712467, 712468 })
                     if (spirit != GetId())
@@ -535,6 +559,27 @@ public:
         }
     }
 };
+
+class spell_ascension_spirit_of_bloodshed_aura : public SpellScript
+{
+    PrepareSpellScript(spell_ascension_spirit_of_bloodshed_aura);
+
+    void FilterTargets(std::list<WorldObject*>& targets)
+    {
+        targets.remove_if([](WorldObject* object)
+        {
+            Unit* unit = object ? object->ToUnit() : nullptr;
+            return !unit || !unit->IsAlive() || !unit->HealthBelowPct(35);
+        });
+    }
+
+    void Register() override
+    {
+        OnObjectAreaTargetSelect += SpellObjectAreaTargetSelectFn(
+            spell_ascension_spirit_of_bloodshed_aura::FilterTargets,
+            EFFECT_0, TARGET_UNIT_SRC_AREA_ENEMY);
+    }
+};
 }
 
 void AddAscensionBarbarianCompletionScripts()
@@ -545,4 +590,5 @@ void AddAscensionBarbarianCompletionScripts()
     new barbarian_casts();
     RegisterSpellScript(aura_ascension_barbarian_tankard);
     RegisterSpellScript(aura_ascension_barbarian_lifecycle);
+    RegisterSpellScript(spell_ascension_spirit_of_bloodshed_aura);
 }

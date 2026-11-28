@@ -192,7 +192,9 @@ disable the others, so pair it with `--stages`; a filter for a stage that is not
   catalog definition counts as that catalog id. Any other valid scenario file is exploratory: it runs natively
   only, is reported separately, is excluded from registered numerical checks and is never labeled combined
   verification. It must still pass for the gameplay stage to pass, and a selection of exploratory files only
-  leaves the stage `unavailable` (`INCOMPLETE`) even when they pass.
+  leaves the stage `unavailable` (`INCOMPLETE`) even when they pass. `@FILE` reads arguments from a file, one per
+  line, so a selection of thousands of files fits one run; on Windows a selection beyond the command-line limit
+  reaches the gameplay runner through `gameplay-scenarios.txt` in the output directory.
 - `--spell ID`, `--quest ID`, `--query TEXT`: select gameplay scenarios through the catalog, as
   `apps/coa-gameplay-test/catalog.py` does.
 - `--harness NAME ...`: harness scripts by directory name or file stem.
@@ -264,6 +266,15 @@ judged on each side.
 ```sh
 python -B tools/verify_all.py --stages gameplay --scenario .cache/conformance/templar-2/scenarios/*.json
 ```
+
+The `conformance` suite also regenerates every finished class and compares it with its committed digests
+(`conformance/snapshots/<class>.json`, ADR 0590); without the DBC set, as in GitHub CI, that check is skipped, so the
+local source stage is mandatory before a PR. When the diff touches a shared engine file (`ENGINE_FILES` in
+`tools/check_source.py`: `Unit.cpp`, `StatSystem.cpp`, `Spell.cpp`, `SpellEffects.cpp`, `SpellAuraEffects.cpp`,
+`SpellInfo.cpp`, `SpellMgr.cpp`, ...), the source stage prints, and `report.json` keeps under the source summary's
+`conformance_reruns`, the gameplay rerun each finished class needs: generate, `--stages build,gameplay --scenario`,
+`compare`, and `diff` against the class's count of record. It does not fail the stage (ADR 0591); the rerun is still
+required ([class conformance guide](class-conformance.md#145-guards-for-finished-classes)).
 
 ## Results and exit codes
 
@@ -698,6 +709,8 @@ a cold run no longer wait on disk.
   sized at 12 GB (50% used). Plan for roughly the data directory plus the buffer pool in RAM, and add about 5 GB
   per simulated worldserver ([several servers](#several-simulated-servers)). Keep the standard route on a machine
   that cannot spare that memory.
+- On 2026-11-16 one parallel conformance run (four author pairs and the cycle's full pair, `gameplay_db_workers` 8)
+  filled a 24 GB tmpfs to 97% with stale `coa_test_*` world copies; the command below now declares 48 GiB.
 
 Start the server. Keep the root password in an env file that is not in the repository, `test-mysql.env` below,
 holding the single line `MYSQL_ROOT_PASSWORD=<password>` without quotes:
@@ -705,7 +718,7 @@ holding the single line `MYSQL_ROOT_PASSWORD=<password>` without quotes:
 ```sh
 docker run -d --name coa-test-mysql \
   -p 127.0.0.1:3706:3306 \
-  --mount type=tmpfs,destination=/var/lib/mysql,tmpfs-size=12884901888 \
+  --mount type=tmpfs,destination=/var/lib/mysql,tmpfs-size=51539607552 \
   --env-file ./test-mysql.env \
   mysql:8.4 \
   --disable-log-bin \

@@ -143,11 +143,19 @@ void ScriptMgr::OnPlayerBeforeSendLoot(Player* player, ObjectGuid lootGuid, Loot
     CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_BEFORE_SEND_LOOT, script->OnPlayerBeforeSendLoot(player, lootGuid, loot));
 }
 
-void ScriptMgr::OnPlayerGiveXP(Player* player, uint32& amount, Unit* victim, uint8 xpSource)
+void ScriptMgr::OnPlayerGiveXP(Player* player, uint32& amount, Unit* victim, uint8 xpSource,
+    double groupAverageLevel)
 {
-    amount = static_cast<uint32>(std::min(double(amount) * sWorld->getRate(RATE_XP_GLOBAL),
-        double(std::numeric_limits<uint32>::max())));
-    CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_GIVE_EXP, script->OnPlayerGiveXP(player, amount, victim, xpSource));
+    if (amount > 0)
+    {
+        float const rate = sWorld->getRate(RATE_XP_GLOBAL);
+        amount = rate > 0.0f
+            ? std::max<uint32>(1u, static_cast<uint32>(std::min(double(amount) * rate,
+                double(std::numeric_limits<uint32>::max()))))
+            : 0;
+    }
+    CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_GIVE_EXP,
+        script->OnPlayerGiveXPWithGroupAverage(player, amount, victim, xpSource, groupAverageLevel));
 }
 
 uint8 ScriptMgr::GetMaxAllowedLevel(Player* player)
@@ -711,6 +719,12 @@ void ScriptMgr::OnPlayerAfterApplyItemMods(Player* player, Item* item, uint8 slo
         script->OnPlayerAfterApplyItemMods(player, item, slot, apply));
 }
 
+void ScriptMgr::OnPlayerAfterApplyEnchantment(Player* player, Item* item, EnchantmentSlot slot, bool apply)
+{
+    CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_AFTER_APPLY_ENCHANTMENT,
+        script->OnPlayerAfterApplyEnchantment(player, item, slot, apply));
+}
+
 void ScriptMgr::OnPlayerApplyEnchantmentItemModsBefore(Player* player, Item* item, EnchantmentSlot slot, bool apply, uint32 enchant_spell_id, uint32& enchant_amount)
 {
     CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_APPLY_ENCHANTMENT_ITEM_MODS_BEFORE, script->OnPlayerApplyEnchantmentItemModsBefore(player, item, slot, apply, enchant_spell_id, enchant_amount));
@@ -926,6 +940,38 @@ bool ScriptMgr::OnPlayerCanUseChat(Player* player, uint32 type, uint32 language,
     CALL_ENABLED_BOOLEAN_HOOKS(PlayerScript, PLAYERHOOK_CAN_PLAYER_USE_CHANNEL_CHAT, !script->OnPlayerCanUseChat(player, type, language, msg, channel));
 }
 
+void ScriptMgr::OnPlayerAfterChat(Player* player, uint32 type, uint32 language, std::string const& msg)
+{
+    CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_AFTER_CHAT, script->OnPlayerAfterChat(player, type, language, msg));
+}
+
+void ScriptMgr::OnPlayerAfterChat(Player* player, uint32 type, uint32 language, std::string const& msg, Player* receiver)
+{
+    CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_AFTER_PRIVATE_CHAT, script->OnPlayerAfterChat(player, type, language, msg, receiver));
+}
+
+void ScriptMgr::OnPlayerAfterChat(Player* player, uint32 type, uint32 language, std::string const& msg, Group* group)
+{
+    CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_AFTER_GROUP_CHAT, script->OnPlayerAfterChat(player, type, language, msg, group));
+}
+
+void ScriptMgr::OnPlayerAfterChat(Player* player, uint32 type, uint32 language, std::string const& msg, Guild* guild)
+{
+    CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_AFTER_GUILD_CHAT, script->OnPlayerAfterChat(player, type, language, msg, guild));
+}
+
+void ScriptMgr::OnPlayerAfterChat(Player* player, uint32 type, uint32 language, std::string const& msg, Channel* channel)
+{
+    CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_AFTER_CHANNEL_CHAT, script->OnPlayerAfterChat(player, type, language, msg, channel));
+}
+
+void ScriptMgr::OnPlayerAfterSendMail(Player* player, ObjectGuid receiverGuid, uint32 receiverAccount, std::string const& receiverName, uint32 mailId,
+    std::string const& subject, std::string const& body)
+{
+    CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_AFTER_SEND_MAIL, script->OnPlayerAfterSendMail(player, receiverGuid, receiverAccount, receiverName,
+        mailId, subject, body));
+}
+
 void ScriptMgr::OnPlayerLearnTalents(Player* player, uint32 talentId, uint32 talentRank, uint32 spellid)
 {
     CALL_ENABLED_HOOKS(PlayerScript, PLAYERHOOK_ON_PLAYER_LEARN_TALENTS, script->OnPlayerLearnTalents(player, talentId, talentRank, spellid));
@@ -1015,6 +1061,11 @@ bool ScriptMgr::OnPlayerCanResurrect(Player* player)
 bool ScriptMgr::OnPlayerCanEnterManastorm(Player* player)
 {
     CALL_ENABLED_BOOLEAN_HOOKS(PlayerScript, PLAYERHOOK_CAN_ENTER_MANASTORM, !script->OnPlayerCanEnterManastorm(player));
+}
+
+bool ScriptMgr::OnPlayerCanReleaseSpirit(Player* player)
+{
+    CALL_ENABLED_BOOLEAN_HOOKS(PlayerScript, PLAYERHOOK_CAN_RELEASE_SPIRIT, !script->OnPlayerCanReleaseSpirit(player));
 }
 
 void ScriptMgr::OnPlayerBankWithdraw(Player* player, uint8 kind)
@@ -1160,6 +1211,12 @@ bool ScriptMgr::OnPlayerCanTakeQuest(Player const* player, Quest const* quest)
 bool ScriptMgr::OnPlayerCanRewardQuest(Player const* player, Quest const* quest)
 {
     CALL_ENABLED_BOOLEAN_HOOKS(PlayerScript, PLAYERHOOK_CAN_REWARD_QUEST, !script->OnPlayerCanRewardQuest(player, quest));
+}
+
+bool ScriptMgr::OnPlayerCanRepeatDailyQuest(Player const* player, Quest const* quest)
+{
+    CALL_ENABLED_BOOLEAN_HOOKS_WITH_DEFAULT_FALSE(PlayerScript, PLAYERHOOK_CAN_REPEAT_DAILY_QUEST,
+        script->OnPlayerCanRepeatDailyQuest(player, quest));
 }
 
 bool ScriptMgr::OnPlayerQuestGiverChooseReward(Player* player, Object* questGiver, Quest const* quest, uint32 reward)

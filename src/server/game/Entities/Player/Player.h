@@ -1515,7 +1515,7 @@ public:
     bool SatisfyQuestBreadcrumb(Quest const* qInfo, bool msg) const;
     bool SatisfyQuestNextChain(Quest const* qInfo, bool msg) const;
     bool SatisfyQuestPrevChain(Quest const* qInfo, bool msg) const;
-    bool SatisfyQuestDay(Quest const* qInfo, bool msg) const;
+    bool SatisfyQuestDay(Quest const* qInfo, bool msg, bool allowRepeat = true) const;
     bool SatisfyQuestWeek(Quest const* qInfo, bool msg) const;
     bool SatisfyQuestMonth(Quest const* qInfo, bool msg) const;
     bool SatisfyQuestSeasonal(Quest const* qInfo, bool msg) const;
@@ -1547,6 +1547,13 @@ public:
     [[nodiscard]] uint16 GetQuestSlotCounter(uint16 slot, uint8 counter) const { return (uint16)(m_questLogSlots[slot].Counters >> (counter * 16)); }
     [[nodiscard]] uint32 GetQuestSlotTime(uint16 slot)    const { return m_questLogSlots[slot].Time; }
     [[nodiscard]] bool HasOverflowQuests() const { return m_questLogSlots.HasOverflow(); }
+    [[nodiscard]] bool IsQuestLogExtended() const { return m_questLogExtended; }
+    [[nodiscard]] uint16 GetClientQuestLogSlots() const;
+    [[nodiscard]] bool CanClientSwapQuestSlots(uint16 slot1, uint16 slot2) const;
+    void SetQuestLogExtended(bool extended, uint8 clientMaxSlots = MAX_QUEST_LOG_SIZE);
+    void MarkQuestSlotExtendedDirty(uint16 slot);
+    void FlushQuestLogExtended();
+    void SendQuestLogExtendedSnapshot();
     void SetQuestSlot(uint16 slot, uint32 quest_id, uint32 timer = 0);
     void SetQuestSlotCounter(uint16 slot, uint8 counter, uint16 count);
     void SetQuestSlotState(uint16 slot, uint32 state);
@@ -1782,6 +1789,8 @@ public:
     void _removeTalentAurasAndSpells(uint32 spellId);
     void _addTalentAurasAndSpells(uint32 spellId);
     [[nodiscard]] bool HasTalent(uint32 spell_id, uint8 spec) const;
+    /// HasTalent that also matches a stock talent's twins and namesakes (SpellMgr::GetSpellAndRelatives)
+    [[nodiscard]] bool HasTalentOrTwin(uint32 spell_id, uint8 spec) const;
 
     [[nodiscard]] uint32 CalculateTalentsPoints() const;
     void SetBonusTalentCount(uint32 count) { m_extraBonusTalentCount = count; };
@@ -1829,6 +1838,7 @@ public:
     // Transient action replacements; never written to character spell ownership.
     void SetTemporarySpellReplacement(uint32 original, uint32 replacement, bool redirect = true);
     [[nodiscard]] uint32 GetTemporarySpellReplacement(uint32 original) const;
+    [[nodiscard]] uint32 GetClientShownSupersededSpell(uint32 superseded) const;
     // Replacement the server casts in place of a client request. Aliases published with `redirect = false`
     // keep the client-side swap but leave a request for the original spell alone (#6972).
     [[nodiscard]] uint32 GetCastReplacement(uint32 original) const;
@@ -1855,6 +1865,8 @@ public:
     void RestoreSpellMods(Spell* spell, uint32 ownerAuraId = 0, Aura* aura = nullptr);
     void RestoreAllSpellMods(uint32 ownerAuraId = 0, Aura* aura = nullptr);
     static void ApplyModToSpell(SpellModifier* mod, Spell* spell);
+    // Ascension's school-change modifier: the school of the aura carrying it, or SPELL_SCHOOL_MASK_NONE
+    SpellSchoolMask GetAscensionSchoolOverride(SpellInfo const* spellInfo, Spell* spell);
     [[nodiscard]] static bool HasSpellModApplied(SpellModifier* mod, Spell* spell);
     void SetSpellModTakingSpell(Spell* spell, bool apply);
 
@@ -2031,6 +2043,8 @@ public:
     {
         return subclass < MAX_ITEM_SUBCLASS_ARMOR ? m_itemArmorBySubclass[subclass] : 0.0f;
     }
+    [[nodiscard]] int32 GetEquippedGearHealth() const { return std::max<int32>(m_ascensionGearHealth, 0); }
+    [[nodiscard]] int32 GetEquippedGearBonusArmor() const { return std::max<int32>(m_ascensionGearBonusArmor, 0); }
     void UpdateMaxHealth() override;
     void UpdateMaxPower(Powers power) override;
     void ApplyFeralAPBonus(int32 amount, bool apply);
@@ -2199,6 +2213,50 @@ public:
         _scriptedPrivateOwner = owner.IsEmpty() ? GetGUID() : owner;
         _scriptedPrivateMembers = members;
         _scriptedPrivateMembers.insert(GetGUID());
+        _scriptedPrivateObserver = false;
+    }
+    // A game master who follows a player into an existing scripted private instance (.appear). The map
+    // admits the observer by this exact instance; the observer never joins the members its script tracks.
+    void PrepareScriptedPrivateObserver(uint32 mapId, uint32 instanceId, WorldLocation const& returnLocation,
+        ObjectGuid owner, bool databaseSpawns)
+    {
+        PrepareScriptedPrivateInstance(mapId, returnLocation, owner, {}, databaseSpawns);
+        _scriptedPrivateInstanceId = instanceId;
+        _scriptedPrivateObserver = true;
+    }
+    struct ScriptedPrivateObserverState
+    {
+        uint32 MapId = MAPID_INVALID;
+        uint32 InstanceId = 0;
+        WorldLocation Return;
+        ObjectGuid Owner;
+        bool DatabaseSpawns = false;
+    };
+    // The observed copy, put back when a later transfer is refused; empty while not observing.
+    Optional<ScriptedPrivateObserverState> GetScriptedPrivateObserverState() const
+    {
+        if (!_scriptedPrivateObserver)
+            return {};
+
+        return ScriptedPrivateObserverState{ _scriptedPrivateMapId, _scriptedPrivateInstanceId, _scriptedPrivateReturn,
+            _scriptedPrivateOwner, _scriptedPrivateDatabaseSpawns };
+    }
+    void RestoreScriptedPrivateObserver(Optional<ScriptedPrivateObserverState> const& state)
+    {
+        if (!state)
+        {
+            ClearScriptedPrivateInstance();
+            return;
+        }
+
+        PrepareScriptedPrivateObserver(state->MapId, state->InstanceId, state->Return, state->Owner,
+            state->DatabaseSpawns);
+    }
+    bool IsScriptedPrivateObserver() const { return _scriptedPrivateObserver; }
+    bool IsScriptedPrivateObserverOf(uint32 mapId, uint32 instanceId) const
+    {
+        return _scriptedPrivateObserver && instanceId &&
+            _scriptedPrivateMapId == mapId && _scriptedPrivateInstanceId == instanceId;
     }
     void SetScriptedPrivateInstanceId(uint32 id) { _scriptedPrivateInstanceId = id; }
     bool LoadsScriptedPrivateDatabaseSpawns() const { return _scriptedPrivateDatabaseSpawns; }
@@ -2214,6 +2272,7 @@ public:
         _scriptedPrivateInstanceId = 0;
         _scriptedPrivateOwner.Clear();
         _scriptedPrivateMembers.clear();
+        _scriptedPrivateObserver = false;
     }
     [[nodiscard]] bool IsBeingTeleported() const { return mSemaphoreTeleport_Near != 0 || mSemaphoreTeleport_Far != 0; }
     [[nodiscard]] bool IsBeingTeleportedNear() const { return mSemaphoreTeleport_Near != 0; }
@@ -2361,6 +2420,8 @@ public:
     bool EnchantmentFitsRequirements(uint32 enchantmentcondition, int8 slot);
     void ToggleMetaGemsActive(uint8 exceptslot, bool apply);
     void CorrectMetaGemEnchants(uint8 slot, bool apply);
+    void ApplyEnchantmentInternal(Item* item, EnchantmentSlot slot, bool apply, bool apply_dur,
+        bool ignore_condition, bool notify);
     void InitDataForForm(bool reapplyMods = false);
 
     void ApplyItemEquipSpell(Item* item, bool apply, bool form_change = false);
@@ -2874,7 +2935,12 @@ protected:
     SeasonalEventQuestMap m_seasonalquests;
     QuestLogSlots m_questLogSlots;
     bool m_questLogPromotionPending = false;
+    bool m_questLogExtended = false;
+    uint8 m_questLogExtendedClientSlots = MAX_QUEST_LOG_SIZE;
+    uint64 m_questLogExtendedDirty = 0;
+    uint16 m_questLogExtendedCapacity = 0;
     void MirrorQuestSlot(uint16 slot);
+    [[nodiscard]] uint8 QuestLogExtendedSize() const;
     uint16 MoveQuestToNativeLog(uint16 slot);
     void PinTimedQuestsToNativeLog();
 
@@ -2946,6 +3012,7 @@ protected:
     Difficulty _scriptedPrivateReturnRaidDifficulty = RAID_DIFFICULTY_10MAN_NORMAL;
     ObjectGuid _scriptedPrivateOwner;
     std::set<ObjectGuid> _scriptedPrivateMembers;
+    bool _scriptedPrivateObserver = false;
     void _SaveInstanceTimeRestrictions(CharacterDatabaseTransaction trans);
     void _SavePlayerSettings(CharacterDatabaseTransaction trans);
     void UpdateAdditionalSaves(uint32 p_time);
@@ -3021,6 +3088,8 @@ protected:
     float m_auraBasePctMod[BASEMOD_END];
     int32 m_baseRatingValue[MAX_COMBAT_RATING];
     std::array<float, MAX_ITEM_SUBCLASS_ARMOR> m_itemArmorBySubclass{};
+    int32 m_ascensionGearHealth = 0;
+    int32 m_ascensionGearBonusArmor = 0;
     float m_appliedRatingHaste[CR_HASTE_SPELL - CR_HASTE_MELEE + 1] = {};
     uint32 m_baseSpellPower;
     uint32 m_baseSpellDamage;

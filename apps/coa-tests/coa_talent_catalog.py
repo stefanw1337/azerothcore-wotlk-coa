@@ -6,10 +6,11 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
+ITEM_MOD_TYPE = re.search(r"^enum ItemModType\n\{.*?^\};",
+                          (ROOT / "src/server/game/Entities/Item/ItemTemplate.h").read_text(encoding="utf-8"),
+                          re.M | re.S)[0]
 STUBS = {
-    "ItemTemplate.h": "#pragma once\n" + re.search(
-        r"enum ItemModType\b.*?\n};",
-        (ROOT / "src/server/game/Entities/Item/ItemTemplate.h").read_text(encoding="utf-8"), re.S)[0] + "\n",
+    "ItemTemplate.h": "#pragma once\n" + ITEM_MOD_TYPE + "\n",
     "Define.h": """#pragma once
 #include <cstddef>
 #include <cstdint>
